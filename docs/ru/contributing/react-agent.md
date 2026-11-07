@@ -292,8 +292,8 @@ messages: [
      failure events, `response.failed` (its error object rides on the
      response) and the flat `error` event (its `code` is a field of the
      event), are read by the same fields, so an overload there counts as a
-     503 as well; any other failure they report is an untyped error, read by
-     its text as above.
+     503 as well; any other failure they report is an untyped error, named by
+     its `code` in front of its message and read by that text as above.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -540,4 +540,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=6656d332c4d2681a -->
+<!-- docsgen:source sha256=8addf0199dea7d5b -->

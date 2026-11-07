@@ -642,6 +642,28 @@ func TestCodexStreamTerminalStates(t *testing.T) {
 			},
 			wantErr: "upstream said 503 Service Unavailable",
 		},
+		// The flat error event is named by its code like a response.failed is:
+		// the code is a field of the event itself (issue #602).
+		"a flat error event is named by its code": {
+			script: func(w io.Writer) {
+				sse(w, "error", map[string]any{"code": "invalid_prompt", "message": "The prompt was refused.", "param": nil})
+			},
+			wantErr: "codex stream: invalid_prompt: The prompt was refused.",
+		},
+		"a failure whose message is empty is named by its code alone": {
+			script: func(w io.Writer) {
+				sse(w, "response.failed", map[string]any{"response": map[string]any{
+					"status": "failed", "error": map[string]any{"code": "server_error", "message": ""},
+				}})
+			},
+			wantErr: "codex stream: server_error",
+		},
+		"a failure that names nothing falls back to its event": {
+			script: func(w io.Writer) {
+				sse(w, "error", map[string]any{"code": "", "message": "", "param": nil})
+			},
+			wantErr: "codex stream error",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

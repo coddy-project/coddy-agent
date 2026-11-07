@@ -247,15 +247,14 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		case "error":
 			// The flat error event carries its code as a field of the event
 			// itself, so the event is the error object.
-			return nil, responsesStreamEventError(label, ev.Message, ev.RawJSON(), label+" stream error", emitted)
+			return nil, responsesStreamEventError(label, responsesFailureMessage(ev.Code, ev.Message),
+				ev.RawJSON(), label+" stream error", emitted)
 		case "response.failed":
 			// A failed response carries its explanation on the response
 			// object, not on the event.
-			msg := strings.TrimSpace(ev.Response.Error.Message)
-			if code := strings.TrimSpace(string(ev.Response.Error.Code)); code != "" && msg != "" {
-				msg = code + ": " + msg
-			}
-			return nil, responsesStreamEventError(label, msg, ev.Response.Error.RawJSON(), label+" response failed", emitted)
+			return nil, responsesStreamEventError(label,
+				responsesFailureMessage(string(ev.Response.Error.Code), ev.Response.Error.Message),
+				ev.Response.Error.RawJSON(), label+" response failed", emitted)
 		}
 	}
 
@@ -344,6 +343,24 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		CachedInputTokens:  cachedInputTokens,
 		ReasoningTokens:    reasoningTokens,
 	}, nil
+}
+
+// responsesFailureMessage is how a failure of the Responses API reads: the
+// code the backend named it by in front of its message, and either one alone
+// when the other is empty. Both shapes of such a failure go through it, so a
+// flat error event says as much as a response.failed - the code of the flat
+// one used to be dropped, which left a refusal with an empty message as the
+// bare name of its event (issue #602).
+func responsesFailureMessage(code, msg string) string {
+	code, msg = strings.TrimSpace(code), strings.TrimSpace(msg)
+	switch {
+	case code == "":
+		return msg
+	case msg == "":
+		return code
+	default:
+		return code + ": " + msg
+	}
 }
 
 // responsesStreamEventError reports a failure the backend sent inside the
