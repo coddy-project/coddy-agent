@@ -161,6 +161,15 @@ describe("ProviderPickerDialog", () => {
             { status: 200 },
           );
         }
+        if (url.includes("/kimi-auth?") && method === "GET") {
+          return new Response(
+            JSON.stringify({
+              connected: baseProviders.some((row) => row.name === "kimi"),
+              source: "cli",
+            }),
+            { status: 200 },
+          );
+        }
         if (url === "/coddy/config/validate" && method === "POST") {
           return new Response(JSON.stringify({ ok: true }), { status: 200 });
         }
@@ -179,6 +188,385 @@ describe("ProviderPickerDialog", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    ["api_key", "saved-key", "en"],
+    ["api_key_command", "get-key", "ru"],
+  ] as const)(
+    "refuses Kimi subscription when %s is saved (%s)",
+    async (field, value, locale) => {
+      initLocale(locale);
+      baseProviders.push({
+        name: "kimi",
+        type: "kimi",
+        mode: "platform",
+        [field]: value,
+      });
+      baseConfigDelay = 100;
+      const before = structuredClone(baseProviders);
+      const onSaved = renderPicker();
+      fireEvent.click(screen.getByTestId("provider-card-kimi"));
+      await screen.findByText(
+        locale === "ru"
+          ? "Используются учётные данные Kimi CLI"
+          : "Using Kimi CLI credentials",
+      );
+      fireEvent.click(await screen.findByTestId("provider-save"));
+      const error = await screen.findByTestId("provider-error");
+      expect(error.textContent).toContain(locale === "ru" ? "ключ" : "key");
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            (url === "/coddy/config/validate" && init?.method === "POST") ||
+            (url === "/coddy/config" && init?.method === "PUT"),
+        ),
+      ).toBe(false);
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(baseProviders).toEqual(before);
+    },
+  );
+
+  it("retries an initial configuration read without losing the selected provider", async () => {
+    let reads = 0;
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/coddy/config" && !init?.method)
+          return ++reads === 1
+            ? new Response("<html>private proxy body</html>", { status: 503 })
+            : new Response(
+                JSON.stringify({ providers: [], models: [], agent: {} }),
+                { status: 200 },
+              );
+        return new Response(
+          JSON.stringify({
+            connected: false,
+            source: "none",
+            ok: true,
+            models: [],
+          }),
+          { status: 200 },
+        );
+      },
+    );
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    expect(await screen.findByTestId("provider-error")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("private proxy body");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry loading configuration" }),
+    );
+    expect(await screen.findByTestId("kimi-auth-field")).toBeTruthy();
+    expect(reads).toBe(2);
+  });
+  it("retries only status after a successful save when status is unavailable", async () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    let saved = false;
+    let statusReadsAfterSave = 0;
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input),
+          method = init?.method || "GET";
+        const reply = (body: unknown) =>
+          new Response(JSON.stringify(body), { status: 200 });
+        if (url === "/coddy/config" && method === "GET")
+          return reply({ providers: [], models: [], agent: {} });
+        if (url === "/coddy/config" && method === "PUT") {
+          saved = true;
+          return reply({ ok: true });
+        }
+        if (url === "/coddy/config/validate") return reply({ ok: true });
+        if (url === "/coddy/providers/models")
+          return reply({ ok: true, models: [] });
+        if (url.endsWith("/kimi-auth/device") && method === "POST")
+          return reply({
+            login_id: "one",
+            user_code: "1234",
+            verification_url: "https://www.kimi.ai/code/authorize_device",
+            mode: "subscription",
+            region: "global",
+            status: "pending",
+            kimi_identity: id,
+          });
+        if (url.includes("/device/one") && method === "GET")
+          return reply({
+            status: "completed",
+            connected: false,
+            save_required: true,
+          });
+        if (url.includes("/kimi-auth")) {
+          if (saved && ++statusReadsAfterSave === 1)
+            return new Response("<html>private proxy body</html>", {
+              status: 503,
+            });
+          return reply({
+            connected: saved,
+            source: saved ? "managed" : "none",
+          });
+        }
+        return reply({});
+      },
+    );
+    const onSaved = renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    fireEvent.click(await screen.findByTestId("provider-sign-in"));
+    await screen.findByText(
+      "Sign-in confirmed. Save the provider settings to use it.",
+      {},
+      { timeout: 3000 },
+    );
+    fireEvent.click(await screen.findByTestId("provider-save"));
+    expect(await screen.findByText(/provider was saved/i)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("private proxy body");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry sign-in status" }),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+  });
+  it("keeps edits made while checking a saved Kimi status", async () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    let saved = false;
+    let finishStatus!: (value: Response) => void;
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input),
+          method = init?.method || "GET";
+        const reply = (body: unknown) =>
+          new Response(JSON.stringify(body), { status: 200 });
+        if (url === "/coddy/config" && method === "GET")
+          return reply({ providers: [], models: [], agent: {} });
+        if (url === "/coddy/config" && method === "PUT") {
+          saved = true;
+          return reply({ ok: true });
+        }
+        if (url === "/coddy/config/validate") return reply({ ok: true });
+        if (url === "/coddy/providers/models")
+          return reply({ ok: true, models: [] });
+        if (url.endsWith("/kimi-auth/device") && method === "POST")
+          return reply({
+            login_id: "one",
+            user_code: "1234",
+            verification_url: "https://www.kimi.ai/code/authorize_device",
+            mode: "subscription",
+            region: "global",
+            status: "pending",
+            kimi_identity: id,
+          });
+        if (url.includes("/device/one") && method === "GET")
+          return reply({
+            status: "completed",
+            connected: false,
+            save_required: true,
+          });
+        if (url.includes("/kimi-auth"))
+          return saved
+            ? new Promise<Response>((resolve) => {
+                finishStatus = resolve;
+              })
+            : reply({ connected: false, source: "none" });
+        return reply({});
+      },
+    );
+    const onSaved = renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    fireEvent.click(await screen.findByTestId("provider-sign-in"));
+    await screen.findByText(
+      "Sign-in confirmed. Save the provider settings to use it.",
+      {},
+      { timeout: 3000 },
+    );
+    fireEvent.click(await screen.findByTestId("provider-save"));
+    await waitFor(() => expect(finishStatus).toBeDefined());
+    fireEvent.click(screen.getByTestId("provider-advanced-toggle"));
+    fireEvent.change(screen.getByTestId("provider-proxy"), {
+      target: { value: "http://edited.example:8080" },
+    });
+    finishStatus(
+      new Response(JSON.stringify({ connected: true, source: "managed" }), {
+        status: 200,
+      }),
+    );
+    expect(
+      await screen.findByText(/newer changes are not saved/i),
+    ).toBeTruthy();
+    expect(
+      (screen.getByTestId("provider-proxy") as HTMLInputElement).value,
+    ).toBe("http://edited.example:8080");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("starts Kimi Code login using the selected region and unsaved proxy", async () => {
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/kimi-auth/device") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              login_id: "attempt",
+              kimi_identity: "0123456789abcdef0123456789abcdef",
+              mode: "subscription",
+              region: "china",
+              verification_url:
+                "https://www.kimi.com/code/authorize_device?user_code=1234",
+              user_code: "1234",
+              status: "pending",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({ connected: false, source: "none" }),
+          { status: 200 },
+        );
+      },
+    );
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    fireEvent.change(screen.getByTestId("kimi-variant"), {
+      target: { value: "subscription:china" },
+    });
+    fireEvent.click(screen.getByTestId("provider-advanced-toggle"));
+    fireEvent.change(screen.getByTestId("provider-proxy"), {
+      target: { value: "http://proxy.example:8080" },
+    });
+    fireEvent.click(await screen.findByTestId("provider-sign-in"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).endsWith("/kimi-auth/device") &&
+            init?.method === "POST" &&
+            JSON.parse(String(init.body)).region === "china" &&
+            JSON.parse(String(init.body)).proxy === "http://proxy.example:8080",
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("1234")).toBeTruthy();
+  });
+
+  it("saves the generated Kimi identity after a confirmed login", async () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    let connected = false;
+    fetchMock.mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method || "GET";
+        const reply = (data: unknown) =>
+          new Response(JSON.stringify(data), { status: 200 });
+        if (url === "/coddy/config" && method === "GET")
+          return reply({ providers: [], models: [], agent: {} });
+        if (url === "/coddy/config" && method === "PUT") {
+          connected = true;
+          return reply({ ok: true });
+        }
+        if (url === "/coddy/config/validate") return reply({ ok: true });
+        if (url === "/coddy/providers/models")
+          return reply({ ok: true, models: [] });
+        if (url.endsWith("/kimi-auth/device") && method === "POST")
+          return reply({
+            login_id: "one",
+            user_code: "1234",
+            verification_url: "https://www.kimi.ai/code/authorize_device",
+            mode: "subscription",
+            region: "global",
+            status: "pending",
+            kimi_identity: id,
+          });
+        if (url.includes("/device/one") && method === "GET") {
+          return reply({
+            status: "completed",
+            connected: false,
+            save_required: true,
+          });
+        }
+        if (url.includes("/kimi-auth"))
+          return reply({ connected, source: connected ? "managed" : "none" });
+        return reply({});
+      },
+    );
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    fireEvent.click(await screen.findByTestId("provider-sign-in"));
+    await screen.findByText("1234");
+    await waitFor(
+      () =>
+        expect(
+          fetchMock.mock.calls.some(
+            ([url]) =>
+              String(url).includes(`/kimi-auth?`) &&
+              String(url).includes(`kimi_identity=${id}`),
+          ),
+        ).toBe(true),
+      { timeout: 4000 },
+    );
+    expect(
+      await screen.findByText(
+        "Sign-in confirmed. Save the provider settings to use it.",
+        {},
+        { timeout: 4000 },
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Signed in with Coddy")).toBeNull();
+    fireEvent.click(await screen.findByTestId("provider-save"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const putIndex = fetchMock.mock.calls.findIndex(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .slice(putIndex + 1)
+          .some(
+            ([url, init]) =>
+              String(url).includes(`/kimi-auth?`) &&
+              String(url).includes(`kimi_identity=${id}`) &&
+              !init?.method,
+          ),
+      ).toBe(true),
+    );
+    const request = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    )!;
+    expect(JSON.parse(String(request[1]?.body)).providers[0]).toMatchObject({
+      name: "kimi",
+      kimi_identity: id,
+    });
+  });
+
+  it("keeps the Kimi variant and key when switching modes", async () => {
+    renderPicker();
+    fireEvent.click(screen.getByTestId("provider-card-kimi"));
+    const choice = screen.getByTestId("kimi-variant") as HTMLSelectElement;
+    expect(choice.value).toBe("subscription:global");
+    expect(screen.queryByTestId("provider-api-key")).toBeNull();
+    expect(await screen.findByTestId("kimi-auth-field")).toBeTruthy();
+    fireEvent.change(choice, { target: { value: "platform:china" } });
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "test-key" },
+    });
+    fireEvent.change(choice, { target: { value: "subscription:china" } });
+    expect(screen.queryByTestId("provider-api-key")).toBeNull();
+    fireEvent.change(choice, { target: { value: "platform:china" } });
+    expect(
+      (screen.getByTestId("provider-api-key") as HTMLInputElement).value,
+    ).toBe("test-key");
+  });
+
   it("opens on NeuralDeep and draws the cards in the catalog's order", async () => {
     renderPicker();
     const drawn = () =>
@@ -193,6 +581,7 @@ describe("ProviderPickerDialog", () => {
       "provider-card-anthropic",
       "provider-card-codex",
       "provider-card-devin",
+      "provider-card-kimi",
       "provider-card-compatible",
       "provider-card-acp",
     ]);
@@ -257,7 +646,7 @@ describe("ProviderPickerDialog", () => {
     const grid = screen.getByTestId("provider-grid");
     // Every provider is in the page; the window over them is the grid's own,
     // so nothing is hidden behind a word.
-    expect(grid.querySelectorAll(".provider-picker-card")).toHaveLength(8);
+    expect(grid.querySelectorAll(".provider-picker-card")).toHaveLength(9);
     expect(screen.queryByTestId("provider-more-toggle")).toBeNull();
     // A card lower down is reachable without opening anything.
     fireEvent.click(screen.getByTestId("provider-card-acp"));
@@ -650,4 +1039,76 @@ describe("ProviderPickerDialog", () => {
     expect(screen.queryByTestId("provider-test")).toBeNull();
     expect(screen.queryByTestId("provider-skip")).toBeNull();
   });
+});
+
+it("does not save a Kimi catalog after the selected variant changes during its request", async () => {
+  initLocale("en");
+  let answer!: (value: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    answer = resolve;
+  });
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/coddy/config" && !init?.method)
+        return new Response(
+          JSON.stringify({
+            providers: [{ name: "kimi", type: "kimi" }],
+            models: [],
+          }),
+          { status: 200 },
+        );
+      if (url.includes("kimi-auth?"))
+        return new Response(
+          JSON.stringify({ connected: true, source: "cli" }),
+          { status: 200 },
+        );
+      if (url === "/coddy/providers/models") return pending;
+      if (url === "/coddy/config/validate")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === "/coddy/config" && init?.method === "PUT")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response("not found", { status: 404 });
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderPicker();
+  fireEvent.click(screen.getByTestId("provider-card-kimi"));
+  await screen.findByText("Using Kimi CLI credentials");
+  fireEvent.click(screen.getByTestId("provider-save"));
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url) === "/coddy/providers/models",
+      ),
+    ).toBe(true),
+  );
+  fireEvent.change(screen.getByTestId("kimi-variant"), {
+    target: { value: "platform-global" },
+  });
+  answer(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        models: [
+          {
+            id: "subscription-only",
+            kimi_protocol: "kimi",
+            kimi_image_input: true,
+          },
+        ],
+      }),
+      { status: 200 },
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("provider-save")).not.toBeDisabled(),
+  );
+  expect(
+    fetchMock.mock.calls.some(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    ),
+  ).toBe(false);
+  cleanup();
+  vi.unstubAllGlobals();
 });

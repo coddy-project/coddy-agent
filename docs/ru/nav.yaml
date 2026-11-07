@@ -46,6 +46,12 @@ groups:
       title: "Contributing"
       summary: "How Coddy is built, tested, documented and released."
 pages:
+  features/kimi.md:
+    title: "Kimi"
+    summary: "Настройка подписки Kimi Code и Platform, региональные эндпоинты, учётные данные CLI, лимиты и безопасность."
+    en:
+      title: "Kimi"
+      summary: "Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security."
   features/browser.md:
     title: "Coddy for Browser"
     summary: "Ваш собственный браузер - Chrome, Яндекс Браузер или Firefox - как руки агента через расширение Coddy for Browser - инструмент browser, группы вкладок, одобрение сайтов, файлы, веб-интерфейс в боковой панели, чаты других процессов и роя."

@@ -63,7 +63,7 @@ _coddy() {
                 providers)
                     if (( CURRENT > 3 )); then
                         _arguments \
-                            '--type[login: type of a provider config.yaml does not list yet]:type:(neuraldeep opencode codex devin)' \
+                            '--type[login: type of a provider config.yaml does not list yet]:type:(neuraldeep opencode codex devin kimi)' \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
                             '--devin-cli[devin: use the login devin auth login already holds]' \

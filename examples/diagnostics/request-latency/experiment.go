@@ -105,7 +105,8 @@ func inputFor(rm *config.ResolvedLLM, o options, reasoning string) llm.ProviderI
 		timeout = min(timeout, time.Duration(rm.TimeoutMS)*time.Millisecond)
 	}
 	return llm.ProviderInput{
-		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+		Name: rm.ProviderName, Type: rm.ProviderType, Mode: rm.Mode, Region: rm.Region, Model: rm.Model,
+		KimiIdentity: rm.KimiIdentity, KimiMetadata: rm.KimiMetadata,
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: o.maxTokens, Temperature: rm.Temperature,

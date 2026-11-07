@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -73,13 +74,21 @@ func (s *Server) coddyProviderOpenCodeAuthGet(w http.ResponseWriter, r *http.Req
 // The attempt lock orders cancellation with persistence, so logout and a newer
 // login cannot be followed by an older wait restoring its credential.
 func (s *Server) cancelOpenCodeAuthLogins(provider string) {
+	if err := s.stopOpenCodeAuthLogins(provider); err != nil {
+		s.log.Warn("provider login invalidation failed during shutdown")
+	}
+}
+
+func (s *Server) stopOpenCodeAuthLogins(provider string) error {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
+	var result error
 	for _, attempt := range s.opencodeAuthLogins {
-		if (provider == "" || attempt.ProviderName == provider) && attempt.cancel != nil {
-			attempt.cancel()
+		if provider == "" || attempt.ProviderName == provider {
+			result = errors.Join(result, attempt.stop())
 		}
 	}
+	return result
 }
 
 func (s *Server) coddyProviderOpenCodeAuthDelete(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +96,10 @@ func (s *Server) coddyProviderOpenCodeAuthDelete(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	s.cancelOpenCodeAuthLogins(name)
+	if err := s.stopOpenCodeAuthLogins(name); err != nil {
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 	if err := llm.RemoveOpenCodeAuth(config.OpenCodeAuthPath(s.activeCfg().Paths.Home, name)); err != nil {
 		writeCoddyConfigErr(w, 500, "could not remove OpenCode credentials")
 		return
@@ -122,8 +134,13 @@ func (s *Server) coddyProviderOpenCodeAuthDevicePost(w http.ResponseWriter, r *h
 	loginID := newCodexAuthLoginID()
 	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel}
 	s.codexAuthMu.Lock()
-	registerAuthLoginAttempt(s.opencodeAuthLogins, loginID, name, attempt)
+	err := registerAuthLoginAttempt(s.opencodeAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
+	if err != nil {
+		cancel()
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 	startCtx, stopStart := context.WithCancel(r.Context())
 	defer stopStart()
 	stopOnCancel := context.AfterFunc(waitCtx, stopStart)

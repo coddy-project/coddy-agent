@@ -441,6 +441,14 @@ jobs:
       - name: Run platform tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
 
+      # Exercise Kimi's credential store, sign-in, usage and proxy on macOS;
+      # cross-compilation alone cannot verify the native file operations.
+      - name: Run Kimi provider tests
+        run: >-
+          go test -timeout=20m -tags http
+          ./internal/llm ./internal/providerlogin ./internal/session ./internal/dryrun ./external/httpserver
+          -run '^Test(Kimi|EnsureKimiIdentity|ContextWindowKimi|GoalJudgeKimi)'
+
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
 

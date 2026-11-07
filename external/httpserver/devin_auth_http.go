@@ -66,13 +66,21 @@ func (s *Server) coddyProviderDevinAuthGet(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) cancelDevinAuthLogins(provider string) {
+	if err := s.stopDevinAuthLogins(provider); err != nil {
+		s.log.Warn("provider login invalidation failed during shutdown")
+	}
+}
+
+func (s *Server) stopDevinAuthLogins(provider string) error {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
+	var result error
 	for _, attempt := range s.devinAuthLogins {
 		if provider == "" || attempt.ProviderName == provider {
-			attempt.stop()
+			result = errors.Join(result, attempt.stop())
 		}
 	}
+	return result
 }
 
 func (s *Server) coddyProviderDevinAuthDelete(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +88,10 @@ func (s *Server) coddyProviderDevinAuthDelete(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	s.cancelDevinAuthLogins(name)
+	if err := s.stopDevinAuthLogins(name); err != nil {
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 	if err := llm.RemoveDevinAuth(config.DevinAuthPath(s.activeCfg().Paths.Home, name)); err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "could not remove Devin credentials")
 		return
@@ -117,8 +128,19 @@ func (s *Server) coddyProviderDevinAuthDevicePost(w http.ResponseWriter, r *http
 	pr, pw := io.Pipe()
 	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel, paste: pw}
 	s.codexAuthMu.Lock()
-	registerAuthLoginAttempt(s.devinAuthLogins, loginID, name, attempt)
+	err := registerAuthLoginAttempt(s.devinAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
+	if err != nil {
+		cancel()
+		if closeErr := pr.Close(); closeErr != nil {
+			s.log.Warn("provider login pipe close failed")
+		}
+		if closeErr := pw.Close(); closeErr != nil {
+			s.log.Warn("provider login pipe close failed")
+		}
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 
 	authPath := config.DevinAuthPath(s.activeCfg().Paths.Home, name)
 	promptCh := make(chan llm.DevinLoginPrompt, 1)

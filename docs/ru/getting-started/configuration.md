@@ -24,6 +24,7 @@
 - **`CODDY_HOME`** - каталог состояния агента. По умолчанию **`~/.coddy`**. В нём лежат `config.yaml`, `sessions/`, `skills/`, учётные данные провайдеров под управлением Coddy в `providers/`, а при использовании необязательного cron-планировщика ещё и **`scheduler/`**;
 - **`CODDY_CWD`** - рабочий каталог по умолчанию, когда `session/new` присылает пустой `cwd`. По умолчанию это рабочий каталог процесса при запуске. Если переменная задана, она значит то же, что флаг **`--cwd`**;
 - **`CODDY_CONFIG`** - явный путь к `config.yaml`. То же, что **`--config`**;
+- **`KIMI_CODE_HOME`** - каталог состояния Kimi CLI, который подходящая строка подписки `type: kimi` читает при отсутствии собственных учётных данных Coddy. По умолчанию `~/.kimi-code`; см. [Kimi](../features/kimi.md);
 - **`CODEX_HOME`** - каталог состояния Codex CLI, который читает провайдер **`type: codex`**, если нет учётных данных под управлением Coddy, причём только единственная строка codex или, если их несколько, строка с именем **`codex`** ([Несколько профилей одного типа провайдера](#несколько-профилей-одного-типа-провайдера)). По умолчанию **`~/.codex`**;
 - **`CODDY_CODEX_BASE_URL`** - переопределение эндпоинта бэкенда Codex (по умолчанию **`https://chatgpt.com/backend-api/codex`**). Оно намеренно действует на уровне процесса - **`api_base`** для **`type: codex`** по-прежнему игнорируется, чтобы документ настроек не мог перенаправить OAuth-токен ChatGPT. Его используют исполняемые спецификации и самостоятельно развёрнутые шлюзы Codex;
 - **`CODDY_DEVIN_CLI_CREDENTIALS`** - файл **`credentials.toml`** Devin CLI, который читают провайдеры **`type: devin`**, если собственного входа Coddy нет. По умолчанию **`~/.local/share/devin/credentials.toml`** (или внутри **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** и **`CODDY_DEVIN_API_URL`** переносят эндпоинты Devin для всего процесса, для стендов и тестов; см. [Devin](../features/devin.md).
@@ -276,7 +277,7 @@ prompts:
   #   {{.Instructions}} - the files of instructions.files. A template that prints neither block still gets the
   #                   documents and those files: in {{.Instructions}} when it has it, otherwise appended after it
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it comes back as the tool result of the spawn_agent call that delegated to it
+  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
   # Built-in templates order: Tools, Skills, Memory (session notes).
@@ -312,14 +313,17 @@ compaction:
                            # model is the last resort whether or not it is listed
 
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Linked with the memory build tag; enable at runtime with memory.enable. The model then delegates to the memory
-# subagent on demand through spawn_agent with agent: "memory" (docs/features/memory.md).
+# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
+# subagent in the background task pool (docs/features/memory.md).
 memory:
   enable: false
   # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
   # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
+  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
+  timeout_seconds: 300  # hard limit of one memory run
+  keep_runs: 20         # finished memory runs kept per session in the Tasks panel; 0 keeps all
   recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
@@ -807,4 +811,4 @@ models:
 В настройках откройте провайдера, раскройте **Расширенные настройки** и выберите **User-Agent**.
 Сохраните провайдера, чтобы применить выбор к новым вызовам.
 
-<!-- docsgen:source sha256=b9c24839e94a6149 -->
+<!-- docsgen:source sha256=fcce233f93f195d2 -->

@@ -24,9 +24,9 @@ import (
 
 // loginHint is what the console says while no provider can answer: in the
 // header of a fresh install, and after a turn that failed for it.
-const loginHint = "No model provider is set up yet. Type /login to pick one, or /login neuraldeep, codex, devin, opencode to go straight to it."
+const loginHint = "No model provider is set up yet. Type /login to pick one, or /login neuraldeep, codex, devin, opencode, kimi to go straight to it."
 
-const loginUsage = "Usage: /login [provider] - no name opens the picker; neuraldeep, codex, devin, opencode, or a provider config.yaml lists"
+const loginUsage = "Usage: /login [provider] - no name opens the picker; neuraldeep, codex, devin, opencode, kimi, or a provider config.yaml lists"
 
 // loginRun is the sign-in /login started, while it waits for the person.
 type loginRun struct {
@@ -159,17 +159,21 @@ func (a *App) startLogin(prov config.ProviderConfig) {
 	cfg := a.config()
 	sessionID := a.sessionID
 	a.workers.Add(1)
+	runner := a.loginRunner
+	if runner == nil {
+		runner = providerlogin.Run
+	}
 	go func() {
 		defer a.workers.Done()
 		defer cancel()
-		res, err := providerlogin.Run(ctx, cfg, &prov, hooks)
+		res, err := runner(ctx, cfg, &prov, hooks)
 		if pasteWriter != nil {
 			// The sign-in reads the pipe on a goroutine of its own, which
 			// ends here; a paste sent after this fails instead of waiting.
 			_ = pasteWriter.Close()
 		}
 		var reloadErr error
-		if err == nil && res.ConfigErr == nil && len(res.Added) > 0 {
+		if err == nil && (prov.Type == "kimi" || (res.ConfigErr == nil && len(res.Added) > 0)) {
 			reloadErr = a.adoptLoginConfig(cfg, sessionID)
 		}
 		a.postUI(func() { a.finishLogin(run, res, err, reloadErr) })
@@ -254,9 +258,9 @@ func (a *App) finishLogin(run *loginRun, res providerlogin.Result, err, reloadEr
 		a.appendStatus(roleDim, "config.yaml already lists provider "+res.Provider+" and its models")
 	default:
 		a.appendStatus(roleDim, "Added to config.yaml: "+providerlogin.SummarizeAdded(res.Added))
-		if reloadErr != nil {
-			a.appendStatus(roleWarning, "The console could not load the new config.yaml ("+reloadErr.Error()+"); restart coddy to use it")
-		}
+	}
+	if reloadErr != nil {
+		a.appendStatus(roleWarning, "The console could not load the new config.yaml ("+reloadErr.Error()+"); restart coddy to use it")
 	}
 	if res.AgentModelErr != nil {
 		a.appendStatus(roleWarning, "Could not move agent.model to provider "+res.Provider+": "+res.AgentModelErr.Error())

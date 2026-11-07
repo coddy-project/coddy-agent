@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -230,6 +231,7 @@ type App struct {
 	openURL          func(string) error
 	browserAvailable func() bool
 	codexIssuer      string
+	loginRunner      func(context.Context, *config.Config, *config.ProviderConfig, providerlogin.Hooks) (providerlogin.Result, error)
 
 	quitErr error
 }

@@ -252,23 +252,7 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 		// agent would take it for a task to run with its own tools.
 		return GoalCheckResult{}, fmt.Errorf("the goal check cannot run on %q, an acp agent; set supervisor.model to a model of another type", model)
 	}
-	// The same input the agent builds for its own calls (agent.llmProviderInput):
-	// the row's proxy, its transport choice and the retries of agent.*.
-	base := llm.ProviderInput{
-		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
-		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
-		UserAgent: rm.UserAgent,
-		AuthPath:  rm.AuthPath, NoCLILogin: rm.NoCLILogin,
-		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
-		ReasoningEffort:     GoalCheckReasoning(cfg, st),
-		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
-		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
-		ACP: rm.ACP,
-	}
-	if rm.Stream {
-		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
-	}
-	in := llm.WithAgentResilience(base, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
+	in := goalJudgeProviderInput(cfg, st, rm)
 	provider, err := llm.NewProvider(in)
 	if err != nil {
 		return GoalCheckResult{}, err
@@ -299,6 +283,27 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 	}
 	result.Model = model
 	return result, nil
+}
+
+func goalJudgeProviderInput(cfg *config.Config, st *State, rm *config.ResolvedLLM) llm.ProviderInput {
+	// The same input the agent builds for its own calls (agent.llmProviderInput):
+	// the row's proxy, its transport choice and the retries of agent.*.
+	base := llm.ProviderInput{
+		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+		Mode: rm.Mode, Region: rm.Region, KimiIdentity: rm.KimiIdentity, KimiMetadata: rm.KimiMetadata,
+		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
+		UserAgent: rm.UserAgent,
+		AuthPath:  rm.AuthPath, NoCLILogin: rm.NoCLILogin,
+		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
+		ReasoningEffort:     GoalCheckReasoning(cfg, st),
+		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
+		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ACP: rm.ACP,
+	}
+	if rm.Stream {
+		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
+	}
+	return llm.WithAgentResilience(base, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
 }
 
 // goalJudgeMaxTokens leaves room for the analysis and the checklist while

@@ -36,9 +36,12 @@ const loginBDDUserCode = "WXYZ-2345"
 // loginStand is the stand-in hub of a /login scenario and the environment it
 // replaced, put back by stop.
 type loginStand struct {
-	hub     *httptest.Server
-	env     map[string]*string
-	restore func()
+	hub            *httptest.Server
+	env            map[string]*string
+	restore        func()
+	kimiHits       chan string
+	kimiCredential string
+	kimiOriginal   string
 }
 
 func (l *loginStand) stop() {
@@ -72,6 +75,9 @@ func (l *loginStand) setenv(name, value string) error {
 }
 
 func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
+	sc.Step(`^a synthetic Kimi CLI login and a stand-in discovery proxy$`, s.standInKimiCLI)
+	sc.Step(`^a coddy console app with a Kimi provider using the stand-in proxy$`, s.buildKimiCLIApp)
+	sc.Step(`^Kimi discovery reached the proxy without changing the CLI credential$`, s.kimiDiscoveryReachedProxy)
 	sc.Step(`^a coddy console app with no model provider configured$`, s.buildFreshApp)
 	sc.Step(`^a stand-in NeuralDeep hub whose tier serves the models "([^"]*)" and "([^"]*)"$`, s.standInLoginHub)
 	sc.Step(`^the screen shows the hub's verification page and the code "([^"]*)"$`, s.screenShowsVerificationPage)
@@ -529,4 +535,60 @@ func TestHelperACPAgent(t *testing.T) {
 	if !acptest.Main(flag.Args()) {
 		t.Skip("helper process")
 	}
+}
+
+func (s *cliTUIState) standInKimiCLI() error {
+	stand := &loginStand{env: map[string]*string{}, kimiHits: make(chan string, 4)}
+	s.loginStand = stand
+	home := s.t.TempDir()
+	if err := stand.setenv("KIMI_CODE_HOME", home); err != nil {
+		return err
+	}
+	dir := filepath.Join(home, "credentials")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	stand.kimiCredential = filepath.Join(dir, "kimi-code-env-0e4f99c69cc27850.json")
+	stand.kimiOriginal = fmt.Sprintf(`{"access_token":"synthetic-cli-token","expires_at":%d}`, time.Now().Add(time.Hour).Unix())
+	if err := os.WriteFile(stand.kimiCredential, []byte(stand.kimiOriginal), 0600); err != nil {
+		return err
+	}
+	stand.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stand.kimiHits <- r.Method + " " + r.Host
+		http.Error(w, "offline test proxy", http.StatusBadGateway)
+	}))
+	return nil
+}
+
+func (s *cliTUIState) buildKimiCLIApp() error {
+	cfg, err := s.freshConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "kimi", Type: "kimi", Proxy: s.loginStand.hub.URL}}
+	return s.buildAppOver(cfg)
+}
+
+func (s *cliTUIState) kimiDiscoveryReachedProxy() error {
+	select {
+	case hit := <-s.loginStand.kimiHits:
+		if hit != "CONNECT api.kimi.ai:443" {
+			return fmt.Errorf("unexpected Kimi request %q", hit)
+		}
+	case <-time.After(within(5 * time.Second)):
+		return fmt.Errorf("Kimi discovery did not reach proxy")
+	}
+	b, err := os.ReadFile(s.loginStand.kimiCredential)
+	if err != nil {
+		return err
+	}
+	if string(b) != s.loginStand.kimiOriginal {
+		return fmt.Errorf("CLI credential changed")
+	}
+	select {
+	case hit := <-s.loginStand.kimiHits:
+		return fmt.Errorf("unexpected second request %q", hit)
+	default:
+	}
+	return nil
 }

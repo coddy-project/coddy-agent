@@ -149,6 +149,11 @@ Every reviewer applies this section to changed files. Keep entries behavioral an
 
 - Do not add a provider request path that can bypass `providers[].proxy`. Completions, streams, model discovery, usage, OAuth/device sign-in, refresh and revoke all build through `llm.HTTPClientForProviderProxy`; a test-only explicit client may be accepted, but `nil` must return an error rather than fall back to `http.DefaultClient`. When a Settings sign-in starts before Save, apply the form's current proxy after resolving the row. Safe path: extend `features/provider_proxy.feature`, keep `TestProviderProxyGuard` green, and cover the request class through the proxy harness.
 
+### Provider platform support
+
+- Do not add an LLM provider, or its auth, credential storage, usage or proxy path, that deliberately refuses a supported operating system (**Windows**, **macOS**, **Linux**, **Android**). A platform difference is implemented, not stubbed with a refusal: a credential helper, keychain, config path, proxy source or sign-in flow a platform cannot serve gets a real per-OS implementation, and where the platform has no equivalent the code degrades to a working fallback rather than failing the provider. Safe path: gate the difference on **`runtime.GOOS`** / **`internal/platform`** behind a per-OS file with a working default, never a blanket error based on the OS alone. Unsafe paths, invalid credentials and failed permission checks remain errors.
+- Cross-compiling for a platform is not proof it runs there. A provider's native runtime on each supported OS is proven by a test that runs on that OS (the **`windows-latest`** and **`macos-latest`** jobs, the Android cross-build plus a Termux run), not by **`GOOS=<os> go build`** alone. Safe path: a per-OS test beside the code and, for behavior a host cannot exercise, a CI job on that runner; see the **testing rule**.
+
 ### Build tags
 
 - Do not let a package that builds by default import one that lives behind the `http`, `ui`, `scheduler`, `memory`, or `gateway` tags. Plain `make build` must keep compiling with the lean dependency set. Safe path: put the new code behind the same tag, or invert the dependency into an interface owned by the core package.

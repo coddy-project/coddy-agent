@@ -60,7 +60,7 @@ func runProviders(args []string) error {
 	devinCLI := fs.Bool("devin-cli", false, "devin: use the login `devin auth login` already holds instead of a browser sign-in")
 	apiKey := fs.String("api-key", "", "opencode: service account key (- reads a secret prompt or stdin); without it, sign in an account by device code")
 	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first); opencode: the gateway written into the row, one of "+strings.Join(llm.OpenCodeAPIBases(), ", ")+" (default: the row's api_base, else Go)")
-	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in")
+	providerType := fs.String("type", "", "login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex, devin or kimi), so another profile of a type is created by signing it in")
 	if err := fs.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -90,7 +90,7 @@ func runProviders(args []string) error {
 
 // providersUsage is the one usage line of `coddy providers`.
 func providersUsage() string {
-	return fmt.Sprintf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Sprintf("usage: %s providers list | login <name> [--type neuraldeep|opencode|codex|devin|kimi] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
 func providersUsageErr() error {
@@ -106,9 +106,9 @@ func resolveLoginProvider(cfg *config.Config, name, providerType string) (*confi
 	var unsupported *providerlogin.UnsupportedTypeError
 	switch {
 	case errors.As(err, &notConfigured):
-		return nil, fmt.Errorf("provider %q is not in config.yaml; add it first, pass --type neuraldeep|opencode|codex|devin, or use the conventional names \"neuraldeep\" / \"opencode\" / \"codex\" / \"devin\"", name)
+		return nil, fmt.Errorf("provider %q is not in config.yaml; add it first, pass --type neuraldeep|opencode|codex|devin|kimi, or use the conventional names \"neuraldeep\" / \"opencode\" / \"codex\" / \"devin\" / \"kimi\"", name)
 	case errors.As(err, &unsupported):
-		return nil, fmt.Errorf("--type %q: sign-in exists only for neuraldeep, opencode, codex and devin; other types authenticate with api_key", providerType)
+		return nil, fmt.Errorf("--type %q: sign-in exists only for neuraldeep, opencode, codex, devin and kimi; other types authenticate with api_key", providerType)
 	}
 	return prov, err
 }
@@ -131,6 +131,41 @@ func providersLogin(cfg *config.Config, name, providerType string, device, brows
 		return fmt.Errorf("providers login: --browser applies to neuraldeep providers only, %q has type %q", prov.Name, prov.Type)
 	}
 	switch prov.Type {
+	case "kimi":
+		if noConfig && !config.ValidKimiIdentity(prov.KimiIdentity) {
+			return errors.New("providers login: --no-config requires a saved Kimi identity")
+		}
+		row, err := providerlogin.EnsureKimiIdentity(cfg, *prov)
+		if err != nil {
+			return err
+		}
+		prov = &row
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		login, err := providerlogin.StartKimiLogin(ctx, cfg.Paths.Home, *prov)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Open %s\nand confirm the code %s\n", login.Device.URL, login.Device.UserCode)
+		if localBrowserAvailableFn() {
+			_ = openBrowserFn(login.Device.URL)
+		}
+		if err := login.Wait(ctx); err != nil {
+			return err
+		}
+		fmt.Println("Signed in. Kimi credential stored by Coddy.")
+		if !noConfig {
+			added, err := providerlogin.ApplyKimiLoginCatalog(ctx, cfg, *prov)
+			if err != nil {
+				return fmt.Errorf("kimi credential stored, but catalog setup failed: %w", err)
+			}
+			if len(added) == 0 {
+				fmt.Println("config.yaml already lists the advertised Kimi models.")
+			} else {
+				fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
+			}
+		}
+		return nil
 	case "devin":
 		return devinLogin(cfg, prov, devinCLI, noConfig)
 	case "codex":
@@ -268,6 +303,20 @@ func providersLogout(cfg *config.Config, name string) error {
 		return err
 	}
 	switch prov.Type {
+	case "kimi":
+		dir := config.KimiIdentityDir(cfg.Paths.Home, prov.KimiIdentity)
+		if dir == "" {
+			return errors.New("providers logout: no managed Kimi identity")
+		}
+		store := llm.NewKimiCredentialStore(dir)
+		if err := store.Remove(prov.Region); err != nil {
+			return fmt.Errorf("providers logout: %w", err)
+		}
+		fmt.Printf("Removed the Coddy-managed Kimi credential for provider %q.\n", prov.Name)
+		if providerlogin.KimiSource(cfg, prov) == "cli" {
+			fmt.Println("The Kimi CLI login remains active and will be used.")
+		}
+		return nil
 	case "devin":
 		return devinLogout(cfg, prov)
 	case "opencode":
@@ -368,6 +417,21 @@ func neuralDeepEndpointNote(prov *config.ProviderConfig) string {
 
 func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
 	switch prov.Type {
+	case "kimi":
+		if prov.Mode == "platform" {
+			if src := explicitKeySource(prov); src != "" {
+				return src
+			}
+			return "no Platform key"
+		}
+		switch providerlogin.KimiSource(cfg, prov) {
+		case "managed":
+			return "connected via Coddy-managed Kimi credential"
+		case "cli":
+			return "connected via Kimi CLI login"
+		default:
+			return "no usable Kimi credential"
+		}
 	case "acp":
 		if prov.ACP == nil || strings.TrimSpace(prov.ACP.Command) == "" {
 			return "no agent; set acp.command"

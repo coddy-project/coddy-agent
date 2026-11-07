@@ -77,6 +77,19 @@ var (
 	}
 )
 
+// KimiService is a Kimi authentication mode and regional deployment.
+type KimiService struct {
+	Mode, Region, Label string
+}
+
+// KimiServices follows the order of the web picker's service selector.
+var KimiServices = []KimiService{
+	{"subscription", "global", "Kimi Code - kimi.ai"},
+	{"subscription", "china", "Kimi Code - kimi.com"},
+	{"platform", "global", "Kimi Platform API key - platform.kimi.ai"},
+	{"platform", "china", "Kimi Platform API key - platform.kimi.com"},
+}
+
 // Presets is the catalog, in the order the pickers offer it: the sign-ins
 // that need no key first, NeuralDeep at the head as the one a picker opens
 // on, then the two big key providers, the two account sign-ins, and last the
@@ -141,6 +154,11 @@ var Presets = []Preset{
 		Multimodal:   true,
 		DefaultModel: "devin/claude-sonnet-5",
 		EnvKey:       "DEVIN_API_KEY",
+	},
+	{
+		ID: "kimi", Label: "Kimi", Description: "Kimi Code subscription or Platform API key",
+		ProviderName: "kimi", ProviderType: "kimi", DefaultModel: "kimi/kimi-for-coding",
+		EnvKey: "KIMI_API_KEY",
 	},
 	{
 		ID:             "compatible",

@@ -36,9 +36,11 @@ const providerPickerTitle = "Set up a model provider"
 // providerSetupRun carries one walk through the picker: the preset chosen and
 // what has been answered for it so far. Only the UI loop touches it.
 type providerSetupRun struct {
-	preset  providerpreset.Preset
-	apiBase string
-	apiKey  string
+	preset     providerpreset.Preset
+	apiBase    string
+	apiKey     string
+	kimiMode   string
+	kimiRegion string
 	// command is the program an ACP row runs, words separated by spaces:
 	// the first is acp.command and the rest are acp.args.
 	command string
@@ -90,11 +92,50 @@ func (a *App) openProviderPicker() {
 // beginProviderSetup asks for the endpoint when the preset offers a choice,
 // and otherwise goes straight on to the sign-in or the key.
 func (a *App) beginProviderSetup(run *providerSetupRun) {
+	if run.preset.ProviderType == "kimi" {
+		a.askKimiService(run)
+		return
+	}
 	if len(run.preset.APIBases) > 1 {
 		a.askProviderEndpoint(run)
 		return
 	}
 	a.continueProviderSetup(run)
+}
+
+// askKimiService chooses authentication and region without putting endpoint
+// URLs into config: the provider resolves those from mode and region.
+func (a *App) askKimiService(run *providerSetupRun) {
+	items := make([]tui.SelectItem, 0, len(providerpreset.KimiServices))
+	for _, service := range providerpreset.KimiServices {
+		items = append(items, tui.SelectItem{Value: service.Mode + ":" + service.Region, Label: service.Label})
+	}
+	sel := newSelectorModal(a.theme, "Kimi: which service", items, len(items), a.screen.RequestRender)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.openProviderPicker()
+			return
+		}
+		run.kimiMode, run.kimiRegion, _ = strings.Cut(item.Value, ":")
+		if existing := a.config().FindProvider(run.preset.ProviderName); existing != nil {
+			mode, region := existing.Mode, existing.Region
+			if mode == "" {
+				mode = "subscription"
+			}
+			if region == "" {
+				region = "global"
+			}
+			if existing.Type != "kimi" || mode != run.kimiMode || region != run.kimiRegion {
+				a.appendStatus(roleWarning, "Existing kimi provider uses another service or region; configure a separate provider instead")
+				a.screen.RequestRender()
+				return
+			}
+		}
+		a.continueProviderSetup(run)
+		a.screen.RequestRender()
+	}
+	a.openSetupModal(sel)
 }
 
 // askProviderEndpoint offers the deployments of a preset that has more than
@@ -124,8 +165,8 @@ func (a *App) askProviderEndpoint(run *providerSetupRun) {
 // for the command of an agent this machine runs, and for the endpoint and
 // the key of one that takes a key.
 func (a *App) continueProviderSetup(run *providerSetupRun) {
-	if providerlogin.Supports(run.preset.ProviderType) {
-		if presetAlreadySignedIn(a.config(), run.preset) {
+	if providerlogin.Supports(run.preset.ProviderType) && (run.preset.ProviderType != "kimi" || run.kimiMode != "platform") {
+		if presetAlreadySignedIn(a.config(), run.preset, run.kimiMode, run.kimiRegion) {
 			a.appendStatus(roleDim, run.preset.Label+" is already signed in on this machine; asking it for its models")
 			a.fetchProviderModels(run)
 			return
@@ -148,16 +189,25 @@ func (a *App) continueProviderSetup(run *providerSetupRun) {
 // to, so the picker asks the provider for its models instead of running the
 // sign-in a second time.
 //
-// Only Codex and Devin are decided here, the two whose sign-in is one account
-// for every program on the machine and which have no endpoint to choose
-// (config.Config.CLILoginRow serves exactly these). A NeuralDeep or OpenCode
-// credential belongs to the hub it was taken from, and the picker has just
-// asked which hub to use, so a stored one says nothing about the endpoint in
-// front of it.
-func presetAlreadySignedIn(cfg *config.Config, preset providerpreset.Preset) bool {
+// Codex and Devin use their machine-wide sign-ins. Kimi uses the selected
+// mode and region, including its row-isolated CLI fallback. NeuralDeep and
+// OpenCode credentials are tied to a selected hub and are not checked here.
+func presetAlreadySignedIn(cfg *config.Config, preset providerpreset.Preset, selection ...string) bool {
 	switch preset.ProviderType {
 	case "codex", "devin":
 		return providerlogin.SignedIn(cfg, preset.ProviderName, preset.ProviderType)
+	case "kimi":
+		row := config.ProviderConfig{Name: preset.ProviderName, Type: "kimi"}
+		if saved := cfg.FindProvider(preset.ProviderName); saved != nil {
+			if saved.Type != "kimi" {
+				return false
+			}
+			row = *saved
+		}
+		if len(selection) >= 2 {
+			row.Mode, row.Region = selection[0], selection[1]
+		}
+		return providerlogin.KimiSource(cfg, &row) != ""
 	}
 	return false
 }
@@ -200,6 +250,9 @@ func (a *App) startPresetLogin(run *providerSetupRun) {
 	// endpoint belongs to this sign-in, not to the configuration until the
 	// sign-in writes it.
 	row := *prov
+	if row.Type == "kimi" {
+		row.Mode, row.Region = run.kimiMode, run.kimiRegion
+	}
 	if run.apiBase != "" {
 		row.APIBase = run.apiBase
 	}
@@ -333,9 +386,20 @@ func providerListInput(ctx context.Context, cfg *config.Config, run *providerSet
 		in.ACP = acpConfigFor(run.command)
 		return in
 	}
+	if run.preset.ProviderType == "kimi" {
+		in.Mode, in.Region = run.kimiMode, run.kimiRegion
+		in.AuthPath = ""
+	}
 	saved := cfg.FindProvider(name)
 	if saved == nil {
 		return in
+	}
+	if saved.Type == "kimi" && in.Type == "kimi" {
+		in.KimiIdentity = saved.KimiIdentity
+		in.AuthPath = config.ProviderConfigAuthPath(cfg.Paths.Home, *saved)
+	}
+	if saved.Type == in.Type && in.Type != "kimi" {
+		in.Mode, in.Region = saved.Mode, saved.Region
 	}
 	if in.BaseURL == "" {
 		in.BaseURL = strings.TrimSpace(saved.APIBase)
@@ -369,6 +433,15 @@ func (a *App) offerProviderModels(run *providerSetupRun, listed []llm.ModelEntry
 				a.saveProviderSetup(run, strings.TrimSpace(text), nil)
 			})
 		return
+	}
+	if run.preset.ProviderType == "kimi" {
+		supported := make([]llm.ModelEntry, 0, len(listed))
+		for _, model := range listed {
+			if kimiSupportedProtocol(model.KimiProtocol) {
+				supported = append(supported, model)
+			}
+		}
+		listed = supported
 	}
 	run.models = listed
 	if len(listed) == 0 {
@@ -407,6 +480,15 @@ func (a *App) offerProviderModels(run *providerSetupRun, listed []llm.ModelEntry
 // none that answers, agent.model, then installs the new configuration so the
 // next prompt runs on it.
 func (a *App) saveProviderSetup(run *providerSetupRun, modelID string, listed *llm.ModelEntry) {
+	if run.preset.ProviderType == "kimi" && listed != nil {
+		mode := strings.TrimSpace(run.kimiMode)
+		_, err := llm.KimiCanonicalRegion(run.kimiRegion)
+		if !kimiSupportedProtocol(listed.KimiProtocol) || listed.ID != modelID || err != nil || (mode != "" && mode != "subscription" && mode != "platform") {
+			a.setup = nil
+			a.appendStatus(roleWarning, "Kimi model has unsupported catalog metadata; choose another model")
+			return
+		}
+	}
 	a.setup = nil
 	ref := run.preset.ModelRef(modelID)
 	if _, _, err := config.SplitModelRef(ref); err != nil {
@@ -453,6 +535,20 @@ func (a *App) saveProviderSetup(run *providerSetupRun, modelID string, listed *l
 func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string, listed *llm.ModelEntry) ([]config.UCICommand, []string) {
 	var cmds []config.UCICommand
 	var added []string
+	if run.preset.ProviderType == "kimi" && listed != nil {
+		_, modelID, err := config.SplitModelRef(ref)
+		if err != nil || modelID != listed.ID || !kimiSupportedProtocol(listed.KimiProtocol) {
+			return nil, nil
+		}
+		mode := strings.TrimSpace(run.kimiMode)
+		if mode == "" {
+			mode = "subscription"
+		}
+		_, err = llm.KimiCanonicalRegion(run.kimiRegion)
+		if err != nil || (mode != "subscription" && mode != "platform") {
+			return nil, nil
+		}
+	}
 	name := run.preset.ProviderName
 	base := strings.TrimSpace(run.apiBase)
 	// A key typed here is the one requests use; an empty answer changes no
@@ -478,6 +574,9 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		}
 	} else if existing := cfg.FindProvider(name); existing == nil {
 		row := map[string]string{"name": name, "type": run.preset.ProviderType}
+		if run.preset.ProviderType == "kimi" {
+			row["mode"], row["region"] = run.kimiMode, run.kimiRegion
+		}
 		if base != "" {
 			row["api_base"] = base
 		}
@@ -517,7 +616,23 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		// would otherwise be written multimodal and be sent pictures. The
 		// embedded catalog is the same source the settings screen reads
 		// (external/httpserver/providers_models_http.go).
-		if presetModelMultimodal(run.preset, ref) {
+		if run.preset.ProviderType == "kimi" && listed != nil {
+			mode := strings.TrimSpace(run.kimiMode)
+			if mode == "" {
+				mode = "subscription"
+			}
+			region, _ := llm.KimiCanonicalRegion(run.kimiRegion)
+			entry["kimi_metadata"] = map[string]string{"model": ref, "protocol": listed.KimiProtocol, "mode": mode, "region": region}
+			if listed.KimiImageInput != nil {
+				entry["multimodal"] = *listed.KimiImageInput
+			}
+			if listed.KimiReasoningLevels != nil {
+				entry["reasoning_levels"] = listed.KimiReasoningLevels
+			}
+			if listed.KimiDefaultReasoning != "" {
+				entry["reasoning_default"] = listed.KimiDefaultReasoning
+			}
+		} else if run.preset.ProviderType != "kimi" && presetModelMultimodal(run.preset, ref) {
 			entry["multimodal"] = true
 		}
 		entryJSON, _ := json.Marshal(entry)
@@ -538,6 +653,15 @@ func providerSetupCommands(cfg *config.Config, run *providerSetupRun, ref string
 		added = append(added, "agent.model "+ref)
 	}
 	return cmds, added
+}
+
+func kimiSupportedProtocol(protocol string) bool {
+	switch protocol {
+	case "kimi", "anthropic", "openai_responses":
+		return true
+	default:
+		return false
+	}
 }
 
 // presetModelMultimodal reports whether the model named by ref reads images:

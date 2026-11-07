@@ -280,9 +280,12 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "acp"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "kimi", "acp"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
+		"mode":          map[string]interface{}{"type": "string", "title": "Kimi mode", "description": "Kimi credential mode; empty selects subscription.", "enum": []string{"", "subscription", "platform"}},
+		"kimi_identity": strProp("Kimi identity", "Stable random identity of this Kimi provider row."),
+		"region":        map[string]interface{}{"type": "string", "title": "Kimi region", "description": "Kimi region; empty selects global.", "enum": []string{"", "global", "china"}},
+		"api_base":      strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
 		"user_agent": map[string]interface{}{
 			"type":        "string",
 			"title":       "User-Agent",
@@ -309,6 +312,12 @@ func UISchemaMap() map[string]interface{} {
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
+		"kimi_metadata": objectSchema("Kimi catalog metadata", "Protocol and provider settings captured from the model catalog.", map[string]interface{}{
+			"model":    strProp("Model reference", "Full provider/model reference."),
+			"protocol": strProp("Protocol", "Protocol reported by the catalog."),
+			"mode":     strProp("Mode", "Provider mode used to list the model."),
+			"region":   strProp("Region", "Provider region used to list the model."),
+		}, []string{"model", "protocol", "mode", "region"}, nil),
 		"max_tokens": intProp("Max tokens",
 			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
@@ -479,7 +488,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "acp", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "mode", "region", "kimi_identity", "acp", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -487,7 +496,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
+				[]string{"model", "kimi_metadata", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
 				[]string{"model"}),
 		},
 		"toolsets": map[string]interface{}{

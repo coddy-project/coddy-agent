@@ -528,7 +528,7 @@ export function Settings(props: {
       touchOnly: snapshotTouchOnly(),
       reducedMotion: motionIsReduced(),
     });
-  }, [trip]);
+  }, [trip, draft.replaced]);
 
   // An address that names a setting (a pasted link, a reload, the Mini App's
   // launch) is followed like a choice. The index may not hold it yet, so this

@@ -555,3 +555,126 @@ func TestProviderModelsUserAgentOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderModelsKimiDraftIdentity(t *testing.T) {
+	if !llm.KimiRefreshSupported() {
+		t.Skip("managed Kimi storage requires secure durable locking")
+	}
+	const a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	home := t.TempDir()
+	cli := t.TempDir()
+	if err := os.Chmod(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KIMI_CODE_HOME", cli)
+	if err := os.MkdirAll(filepath.Join(cli, "credentials"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cli, "credentials", "kimi-code.json"), []byte(`{"access_token":"cli","expires_at":4102444800}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for id, data := range map[string]string{a: `{"access_token":"a","generation":1}`, b: `broken`} {
+		dir := config.KimiIdentityDir(home, id)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(llm.NewKimiCredentialStore(dir).CredentialPath("china"), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hits := make(chan string, 10)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits <- r.Host
+		http.Error(w, "blocked", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	ts := newProviderModelsServer(t, &config.Config{Paths: config.Paths{Home: home}, Providers: []config.ProviderConfig{
+		{Name: "other", Type: "kimi", Region: "china", KimiIdentity: a, Proxy: proxy.URL},
+		{Name: "another", Type: "kimi", Region: "china"},
+	}})
+	for _, tc := range []struct {
+		name, method, body string
+		hit                bool
+	}{
+		{"saved get", "GET", "", true},
+		{"omitted", "POST", `{"name":"other"}`, true},
+		{"draft corrupt", "POST", `{"name":"other","kimi_identity":"` + b + `"}`, false},
+		{"explicit empty", "POST", `{"name":"other","kimi_identity":""}`, false},
+		{"changed region", "POST", `{"name":"other","region":"global"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var res *http.Response
+			var err error
+			if tc.method == "GET" {
+				res, err = http.Get(ts.URL + "/coddy/providers/other/models")
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				res = postProviderModels(t, ts, tc.body)
+			}
+			defer func() { _ = res.Body.Close() }()
+			var body struct {
+				OK    bool   `json:"ok"`
+				Error string `json:"error"`
+			}
+			if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if res.StatusCode != 200 || body.OK {
+				t.Fatalf("status %d, body %+v", res.StatusCode, body)
+			}
+			select {
+			case host := <-hits:
+				if !tc.hit || host != "api.kimi.com:443" {
+					t.Fatalf("unexpected proxy request %q", host)
+				}
+			default:
+				if tc.hit {
+					t.Fatalf("expected proxy request, error %s", body.Error)
+				}
+			}
+			if tc.name == "draft corrupt" && !strings.Contains(body.Error, "unreadable credential file") {
+				t.Fatalf("expected corrupt credential error: %s", body.Error)
+			}
+		})
+	}
+}
+
+func TestProviderModelsKimiProxyAndPlatformCredentials(t *testing.T) {
+	hits := make(chan string, 20)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits <- r.Host
+		http.Error(w, "blocked", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	ts := newProviderModelsServer(t, &config.Config{Providers: []config.ProviderConfig{{Name: "kimi", Type: "kimi", Mode: "platform", Region: "china", APIKey: "saved", Proxy: proxy.URL}}})
+	for _, tc := range []struct {
+		name, body string
+		hit        bool
+	}{
+		{"saved platform", `{"name":"kimi"}`, true},
+		{"changed identity", `{"name":"kimi","kimi_identity":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`, false},
+		{"changed region", `{"name":"kimi","region":"global"}`, false},
+		{"explicit empty proxy", `{"name":"kimi","proxy":""}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := postProviderModels(t, ts, tc.body)
+			defer func() { _ = res.Body.Close() }()
+			if res.StatusCode != 200 {
+				t.Fatalf("status %d", res.StatusCode)
+			}
+			select {
+			case host := <-hits:
+				if !tc.hit || host != "api.moonshot.cn:443" {
+					t.Fatalf("unexpected proxy request %q", host)
+				}
+			default:
+				if tc.hit {
+					t.Fatal("expected proxy request")
+				}
+			}
+		})
+	}
+}

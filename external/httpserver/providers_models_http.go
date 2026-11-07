@@ -20,6 +20,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.registerNeuralDeepAuthRoutes()
 	s.registerOpenCodeAuthRoutes()
 	s.registerDevinAuthRoutes()
+	s.registerKimiAuthRoutes()
 	s.registerProviderUsageRoutes()
 }
 
@@ -60,13 +61,16 @@ func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) 
 // reason - so the row travels in the body rather than being looked up in the
 // saved config.
 type providerModelsRequest struct {
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	APIBase       string `json:"api_base"`
-	UserAgent     string `json:"user_agent"`
-	APIKey        string `json:"api_key"`
-	APIKeyCommand string `json:"api_key_command"`
-	Proxy         string `json:"proxy"`
+	Name          string  `json:"name"`
+	Type          string  `json:"type"`
+	Mode          *string `json:"mode"`
+	Region        *string `json:"region"`
+	KimiIdentity  *string `json:"kimi_identity"`
+	APIBase       string  `json:"api_base"`
+	UserAgent     string  `json:"user_agent"`
+	APIKey        string  `json:"api_key"`
+	APIKeyCommand string  `json:"api_key_command"`
+	Proxy         *string `json:"proxy"`
 }
 
 // coddyProviderModelsPost fetches the model list for a provider description
@@ -111,11 +115,33 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		UserAgent:     req.UserAgent,
 		APIKey:        req.APIKey,
 		APIKeyCommand: req.APIKeyCommand,
-		Proxy:         req.Proxy,
+	}
+	if req.Proxy != nil {
+		prov.Proxy = *req.Proxy
+	}
+	if req.KimiIdentity != nil {
+		prov.KimiIdentity = *req.KimiIdentity
+	}
+	if req.Mode != nil {
+		prov.Mode = *req.Mode
+	}
+	if req.Region != nil {
+		prov.Region = *req.Region
 	}
 	if saved := c.FindProvider(prov.Name); saved != nil {
 		if strings.TrimSpace(prov.Type) == "" {
 			prov.Type = saved.Type
+		}
+		if prov.Type == saved.Type {
+			if req.Mode == nil {
+				prov.Mode = saved.Mode
+			}
+			if req.Region == nil {
+				prov.Region = saved.Region
+			}
+			if prov.Type == "kimi" && req.KimiIdentity == nil && kimiIdentity(prov.Mode, prov.Region) == kimiIdentity(saved.Mode, saved.Region) {
+				prov.KimiIdentity = saved.KimiIdentity
+			}
 		}
 		if strings.TrimSpace(prov.APIBase) == "" {
 			prov.APIBase = saved.APIBase
@@ -123,7 +149,7 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		if strings.TrimSpace(prov.UserAgent) == "" {
 			prov.UserAgent = saved.UserAgent
 		}
-		if strings.TrimSpace(prov.Proxy) == "" {
+		if req.Proxy == nil {
 			prov.Proxy = saved.Proxy
 		}
 		// The credential pair is one slot: it is inherited only when the body
@@ -132,7 +158,8 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		// overriding either must post the credentials for it, otherwise the
 		// stored key would go to a URL, or through a proxy, it was never
 		// configured for.
-		if strings.TrimSpace(prov.APIBase) == strings.TrimSpace(saved.APIBase) &&
+		if (prov.Type != "kimi" && saved.Type != "kimi" || prov.Type == saved.Type && kimiIdentity(prov.Mode, prov.Region) == kimiIdentity(saved.Mode, saved.Region) && prov.KimiIdentity == saved.KimiIdentity) &&
+			strings.TrimSpace(prov.APIBase) == strings.TrimSpace(saved.APIBase) &&
 			strings.TrimSpace(prov.Proxy) == strings.TrimSpace(saved.Proxy) &&
 			strings.TrimSpace(prov.APIKey) == "" &&
 			strings.TrimSpace(prov.APIKeyCommand) == "" {
@@ -166,13 +193,16 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 // {"ok","models"} answer shared by the GET and POST routes.
 func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context, c *config.Config, prov *config.ProviderConfig) {
 	models, err := llm.ListModels(ctx, llm.ProviderInput{
-		Name:      prov.Name,
-		Type:      prov.Type,
-		APIKey:    prov.EffectiveAPIKeyContext(ctx),
-		BaseURL:   prov.APIBase,
-		UserAgent: prov.UserAgent,
-		ProxyURL:  prov.Proxy,
-		AuthPath:  config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		Name:         prov.Name,
+		Type:         prov.Type,
+		Mode:         prov.Mode,
+		Region:       prov.Region,
+		APIKey:       prov.EffectiveAPIKeyContext(ctx),
+		BaseURL:      prov.APIBase,
+		UserAgent:    prov.UserAgent,
+		ProxyURL:     prov.Proxy,
+		AuthPath:     config.ProviderConfigAuthPath(c.Paths.Home, *prov),
+		KimiIdentity: prov.KimiIdentity,
 		// An unsaved row counts toward the rows of its type too, so the
 		// preview uses the account a saved row would.
 		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
@@ -219,4 +249,16 @@ func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
 		}
 	}
 	return out
+}
+
+func kimiIdentity(mode, region string) string {
+	mode = strings.TrimSpace(mode)
+	region = strings.TrimSpace(region)
+	if mode == "" {
+		mode = "subscription"
+	}
+	if region == "" {
+		region = "global"
+	}
+	return mode + "/" + region
 }

@@ -51,6 +51,12 @@ export type FieldOverride = (ctx: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  updateParent?:
+    | ((
+        snapshot: Record<string, unknown>,
+        patch: Record<string, unknown>,
+      ) => boolean)
+    | undefined;
 }) => ReactNode | null;
 
 export type JsonSchema = {
@@ -203,6 +209,12 @@ function SchemaField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  updateParent?:
+    | ((
+        snapshot: Record<string, unknown>,
+        patch: Record<string, unknown>,
+      ) => boolean)
+    | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   /** Settings section id ("tools", "system.prompts") selecting the dictionary domain. */
@@ -263,6 +275,7 @@ function SchemaField(props: {
       value,
       onChange,
       parentObj,
+      updateParent: props.updateParent,
     });
     // false: the override draws nothing for this field, and nothing is a box.
     if (override === false) {
@@ -282,7 +295,11 @@ function SchemaField(props: {
       parentObj["name"] === undefined || parentObj["name"] === null
         ? ""
         : String(parentObj["name"]);
-    ph = providerApiKeyFieldPlaceholder(pname);
+    ph = providerApiKeyFieldPlaceholder(
+      pname,
+      String(parentObj.type ?? ""),
+      String(parentObj.mode ?? ""),
+    );
   }
 
   if (t === "object" && schema.properties) {
@@ -921,6 +938,31 @@ export function SchemaForm(props: {
   groups?: SchemaFormGroup[] | undefined;
 }) {
   const { schema, value, onChange, fieldOverride, i18nDomain } = props;
+  const latest = useRef({ value, onChange, alive: true });
+  latest.current.value = value;
+  latest.current.onChange = onChange;
+  useLayoutEffect(() => {
+    latest.current.alive = true;
+    return () => {
+      latest.current.alive = false;
+    };
+  }, []);
+  const updateParent = (
+    snapshot: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => {
+    const current = latest.current;
+    const norm = (v: unknown) => (v == null ? "" : String(v));
+    if (
+      !current.alive ||
+      ["type", "mode", "region", "kimi_identity"].some(
+        (key) => norm(current.value[key]) !== norm(snapshot[key]),
+      )
+    )
+      return false;
+    current.onChange({ ...current.value, ...patch });
+    return true;
+  };
   const { t } = useT();
   if (schema.type !== "object" || !schema.properties) {
     return (
@@ -936,6 +978,7 @@ export function SchemaForm(props: {
       schema={sub}
       value={value[k]}
       parentObj={value}
+      updateParent={updateParent}
       path={k}
       fieldOverride={fieldOverride}
       i18nDomain={i18nDomain}

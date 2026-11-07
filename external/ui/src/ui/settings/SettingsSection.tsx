@@ -7,11 +7,12 @@ import { DevinAuthField } from "./DevinAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
+import { KimiAuthField } from "./KimiAuthField";
 import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
-import type { ProviderRow } from "./useProviderModels";
+import type { FetchedModel, ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
@@ -120,6 +121,13 @@ function seedLogicalModel(
   contextWindow?: number | undefined,
   maxTokens?: number | undefined,
   multimodal?: boolean | undefined,
+  kimiMetadata?: {
+    model: string;
+    protocol: string;
+    mode: string;
+    region: string;
+  },
+  listing?: FetchedModel,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -127,16 +135,32 @@ function seedLogicalModel(
       ? { ...(seed as Record<string, unknown>) }
       : {};
   delete row.reasoning_levels;
+  delete row.kimi_metadata;
   row.model = id;
+  if (kimiMetadata && itemSchema?.properties?.kimi_metadata) {
+    row.kimi_metadata = kimiMetadata;
+  }
   if (contextWindow && itemSchema?.properties?.max_context_tokens) {
     row.max_context_tokens = contextWindow;
   }
   if (maxTokens && itemSchema?.properties?.max_tokens) {
     row.max_tokens = maxTokens;
   }
-  if (multimodal && itemSchema?.properties?.multimodal) {
-    row.multimodal = true;
+  if (multimodal !== undefined && itemSchema?.properties?.multimodal) {
+    row.multimodal = multimodal;
+  } else if (listing?.kimi_source) {
+    delete row.multimodal;
   }
+  if (
+    listing?.kimi_reasoning_levels !== undefined &&
+    itemSchema?.properties?.reasoning_levels
+  )
+    row.reasoning_levels = listing.kimi_reasoning_levels;
+  if (
+    listing?.kimi_default_reasoning &&
+    itemSchema?.properties?.reasoning_default
+  )
+    row.reasoning_default = listing.kimi_default_reasoning;
   return row;
 }
 
@@ -338,6 +362,15 @@ export function overrideTexts(
       return proxy(SETTINGS_TEXTS.proxyIgnoreSystem);
     }
     const providerType = rowText(parent, "type");
+    if (path === "kimi_identity") return false;
+    if (path === "mode" || path === "region") {
+      return providerType === "kimi"
+        ? { primary: label(), primaryDesc: desc() }
+        : false;
+    }
+    if (providerType === "kimi" && path === "api_base") {
+      return false;
+    }
     if (path === "user_agent") {
       return providerType === "openai" || providerType === "anthropic"
         ? { primary: label(), primaryDesc: desc() }
@@ -472,6 +505,58 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   const box = boxFor("providers", ctx);
   if (box === false || box === null) {
     return box;
+  }
+  if (
+    rowText(ctx.parentObj, "type") === "kimi" &&
+    (ctx.path === "mode" || ctx.path === "region")
+  ) {
+    const mode = ctx.path === "mode";
+    return (
+      <div className="settings-row">
+        <FieldLabel label={box.primary} description={box.primaryDesc} />
+        <select
+          className="settings-input"
+          aria-label={box.primary}
+          value={String(ctx.value || (mode ? "subscription" : "global"))}
+          onChange={(event) => ctx.onChange(event.target.value)}
+        >
+          {mode ? (
+            <>
+              <option value="subscription">Kimi Code</option>
+              <option value="platform">Kimi Platform</option>
+            </>
+          ) : (
+            <>
+              <option value="global">kimi.ai</option>
+              <option value="china">kimi.com</option>
+            </>
+          )}
+        </select>
+        {mode &&
+        rowText(ctx.parentObj, "mode") !== "platform" &&
+        (rowText(ctx.parentObj, "api_key").trim() ||
+          rowText(ctx.parentObj, "api_key_command").trim()) ? (
+          <p className="settings-error">
+            {translate("kimiAuth.removePlatformCredentials")}
+          </p>
+        ) : null}
+        {mode && rowText(ctx.parentObj, "mode") !== "platform" ? (
+          <KimiAuthField
+            providerName={rowText(ctx.parentObj, "name")}
+            mode={rowText(ctx.parentObj, "mode")}
+            region={rowText(ctx.parentObj, "region")}
+            proxy={rowText(ctx.parentObj, "proxy")}
+            identity={rowText(ctx.parentObj, "kimi_identity")}
+            onIdentity={(identity, expected) =>
+              ctx.updateParent?.(
+                { ...ctx.parentObj, kimi_identity: expected },
+                { kimi_identity: identity },
+              ) ?? false
+            }
+          />
+        ) : null}
+      </div>
+    );
   }
   if (ctx.path === "user_agent") {
     const providerType = rowText(ctx.parentObj, "type");
@@ -952,7 +1037,14 @@ export function SettingsSection(props: {
                 <ProviderModelList
                   provider={item}
                   existingModels={modelIds}
-                  onAddModel={(id, contextWindow, maxTokens, multimodal) => {
+                  onAddModel={(
+                    id,
+                    contextWindow,
+                    maxTokens,
+                    multimodal,
+                    kimiMetadata,
+                    listing,
+                  ) => {
                     if (modelIds.includes(id)) {
                       return;
                     }
@@ -965,6 +1057,8 @@ export function SettingsSection(props: {
                           contextWindow,
                           maxTokens,
                           multimodal,
+                          kimiMetadata,
+                          listing,
                         ),
                       ]),
                     );
