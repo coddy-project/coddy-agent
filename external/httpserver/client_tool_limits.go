@@ -42,6 +42,38 @@ func clientToolLimitsOf(cfg *config.Config) clientToolLimits {
 	return l
 }
 
+// modelLimits is what a request on one row of GET /v1/models may carry: the
+// bounds a client has to size a request against, which were constants read off
+// nothing until a refusal arrived (issue #577). ClientTools says whether the
+// row takes the client's tools at all, so a reader tells "coddy's own tools
+// run here" from "the bounds are not advertised"; the two tool bounds are left
+// out where it is false.
+type modelLimits struct {
+	ClientTools      bool `json:"client_tools"`
+	Tools            int  `json:"tools,omitempty"`
+	ToolSchemaBytes  int  `json:"tool_schema_bytes,omitempty"`
+	ImagesPerMessage int  `json:"images_per_message"`
+	ImageBytes       int  `json:"image_bytes"`
+}
+
+// modelLimitsOf is what a direct model row advertises: the configured tool
+// bounds and the built-in picture ones.
+func modelLimitsOf(l clientToolLimits) modelLimits {
+	return modelLimits{
+		ClientTools:      true,
+		Tools:            l.tools,
+		ToolSchemaBytes:  l.schemaBytes,
+		ImagesPerMessage: maxImagePartsPerMessage,
+		ImageBytes:       maxImagePartBytes,
+	}
+}
+
+// withoutClientTools is the same bounds for a row that refuses client tools.
+func (l modelLimits) withoutClientTools() modelLimits {
+	l.ClientTools, l.Tools, l.ToolSchemaBytes = false, 0, 0
+	return l
+}
+
 // clientToolError is a refused tool list that knows what to answer about
 // itself: param is the error.param of the field it concerns, "tools" when
 // empty, and code the error.code, which only a broken bound has.

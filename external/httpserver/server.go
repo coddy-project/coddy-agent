@@ -466,6 +466,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		// Toolset is the toolsets[] preset the model names (models[].toolset):
 		// what a new chat on it is offered until it picks another.
 		Toolset string `json:"toolset,omitempty"`
+		// Limits is what a request on this row may carry, so a client sizes
+		// one before it sends it instead of losing a turn to a 400.
+		Limits modelLimits `json:"limits"`
 	}
 	out := struct {
 		Object string     `json:"object"`
@@ -494,6 +497,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
 	}
+	limits := modelLimitsOf(clientToolLimitsOf(cfg))
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
@@ -502,6 +506,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: profileWindow,
 			ContextLength:    profileWindow,
+			// A profile runs coddy's own tools and refuses the client's, so
+			// the two tool bounds say nothing about it; its images are bounded
+			// like any other row's.
+			Limits: limits.withoutClientTools(),
 		})
 	}
 	if cfg != nil {
@@ -528,6 +536,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
 				Toolset:          ent.Toolset,
+				Limits:           limits,
 			})
 		}
 	}

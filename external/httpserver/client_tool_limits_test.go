@@ -35,6 +35,95 @@ func (s *openAIPassthroughState) postRaw(t *testing.T, path, body string) (int, 
 	return res.StatusCode, string(raw)
 }
 
+// getRaw reads path and returns the status and the answer.
+func (s *openAIPassthroughState) getRaw(t *testing.T, path string) (int, string) {
+	t.Helper()
+	res, err := http.Get(s.ts.URL + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	raw, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(raw)
+}
+
+// TestModelListingAdvertisesTheLimits puts the bounds a request is measured
+// against on every row of GET /v1/models (issue #577), so a client sizes a
+// request instead of losing a turn to a 400 it could have avoided. A direct
+// model row carries the configured tool bounds; a profile row runs coddy's own
+// tools and carries none, which it says rather than leaving the reader to
+// guess from an absent key; the picture bounds are on both.
+func TestModelListingAdvertisesTheLimits(t *testing.T) {
+	state := &openAIPassthroughState{}
+	if err := state.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer state.close()
+	if err := state.startServer(); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(t *testing.T, id string) gjson.Result {
+		t.Helper()
+		code, body := state.getRaw(t, "/v1/models")
+		if code != http.StatusOK {
+			t.Fatalf("GET /v1/models: %d %s", code, body)
+		}
+		row := gjson.Get(body, `data.#(id=="`+id+`")`)
+		if !row.Exists() {
+			t.Fatalf("no row for %q: %s", id, body)
+		}
+		return row
+	}
+
+	t.Run("a direct model row, with the defaults", func(t *testing.T) {
+		limits := read(t, "local/qwen3-1.7b").Get("limits")
+		for key, want := range map[string]int64{
+			"tools":              defaultMaxClientTools,
+			"tool_schema_bytes":  defaultMaxClientToolSchemaBytes,
+			"images_per_message": maxImagePartsPerMessage,
+			"image_bytes":        maxImagePartBytes,
+		} {
+			if got := limits.Get(key).Int(); got != want {
+				t.Errorf("limits.%s = %d, want %d: %s", key, got, want, limits.Raw)
+			}
+		}
+		if !limits.Get("client_tools").Bool() {
+			t.Errorf("limits.client_tools = false on a direct model row: %s", limits.Raw)
+		}
+	})
+
+	t.Run("a raised limit is the one advertised", func(t *testing.T) {
+		state.srv.activeCfg().HTTPServer.MaxClientTools = 200
+		state.srv.activeCfg().HTTPServer.MaxClientToolSchemaBytes = 1 << 20
+		limits := read(t, "local/qwen3-1.7b").Get("limits")
+		if got := limits.Get("tools").Int(); got != 200 {
+			t.Errorf("limits.tools = %d, want 200: %s", got, limits.Raw)
+		}
+		if got := limits.Get("tool_schema_bytes").Int(); got != 1<<20 {
+			t.Errorf("limits.tool_schema_bytes = %d, want %d: %s", got, 1<<20, limits.Raw)
+		}
+	})
+
+	t.Run("a profile row takes none of the client's tools", func(t *testing.T) {
+		for _, id := range []string{"agent", "plan", "ask"} {
+			limits := read(t, id).Get("limits")
+			if limits.Get("client_tools").Bool() {
+				t.Errorf("%s: limits.client_tools = true: %s", id, limits.Raw)
+			}
+			for _, key := range []string{"tools", "tool_schema_bytes"} {
+				if limits.Get(key).Exists() {
+					t.Errorf("%s: limits.%s is advertised for a row that refuses client tools: %s", id, key, limits.Raw)
+				}
+			}
+			// A profile still takes the pictures of the last user message.
+			if got := limits.Get("images_per_message").Int(); got != maxImagePartsPerMessage {
+				t.Errorf("%s: limits.images_per_message = %d, want %d: %s", id, got, maxImagePartsPerMessage, limits.Raw)
+			}
+		}
+	})
+}
+
 // clientToolRequest is a direct request offering tools on one of the two
 // endpoints that take client tools.
 func clientToolRequest(endpoint string, n int) string {

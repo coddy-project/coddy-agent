@@ -4336,6 +4336,33 @@ func openAPISpec() map[string]interface{} {
 										"type":        "boolean",
 										"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first `models[]` row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
 									},
+									"limits": map[string]interface{}{
+										"type":        "object",
+										"description": "What a request on this row may carry, so a client sizes one before it sends it instead of being refused with **400**. The two tool bounds are the server's configured `httpserver.max_client_tools` and `httpserver.max_client_tool_schema_bytes`; the picture bounds are built in.",
+										"properties": map[string]interface{}{
+											"client_tools": map[string]string{
+												"type":        "boolean",
+												"description": "Whether this row takes the client's own `tools` at all. False on `agent`, `plan` and `ask`, which run coddy's tools and reject the client's; the two tool bounds are then left out rather than advertised as bounds that never apply.",
+											},
+											"tools": map[string]string{
+												"type":        "integer",
+												"description": "Most tools one request may offer. Refused with **400** and `error.code` `too_many_tools` past it. Present only when `client_tools` is true.",
+											},
+											"tool_schema_bytes": map[string]string{
+												"type":        "integer",
+												"description": "Largest `parameters` schema of one tool, in bytes. Refused with **400** and `error.code` `tool_parameters_too_large` past it. Present only when `client_tools` is true.",
+											},
+											"images_per_message": map[string]string{
+												"type":        "integer",
+												"description": "Most `image_url` parts one message may carry.",
+											},
+											"image_bytes": map[string]string{
+												"type":        "integer",
+												"description": "Longest `image_url` string, in bytes; a data URL carries the picture itself.",
+											},
+										},
+										"required": []string{"client_tools", "images_per_message", "image_bytes"},
+									},
 								},
 							},
 						},

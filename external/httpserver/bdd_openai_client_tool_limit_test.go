@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -60,6 +61,48 @@ func TestOpenAIClientToolLimitFeature(t *testing.T) {
 				}
 				if got := gjson.Get(answer, "choices.0.message.content").String(); got != passthroughPlainAnswer {
 					return fmt.Errorf("client received %q, want %q", got, passthroughPlainAnswer)
+				}
+				return nil
+			})
+			sc.Step(`^an OpenAI client asks for the model listing$`, func() error {
+				res, err := http.Get(state.ts.URL + "/v1/models")
+				if err != nil {
+					return err
+				}
+				defer func() { _ = res.Body.Close() }()
+				raw, err := io.ReadAll(res.Body)
+				if err != nil {
+					return err
+				}
+				if res.StatusCode != http.StatusOK {
+					return fmt.Errorf("unexpected status %d: %s", res.StatusCode, raw)
+				}
+				answer = string(raw)
+				return nil
+			})
+			sc.Step(`^the direct model row says it takes (\d+) client tools$`, func(limit int) error {
+				row := gjson.Get(answer, `data.#(id=="local/qwen3-1.7b")`)
+				if !row.Exists() {
+					return fmt.Errorf("no row for the direct model: %s", answer)
+				}
+				if got := row.Get("limits.client_tools").Bool(); !got {
+					return fmt.Errorf("limits.client_tools = false on a direct model row: %s", row.Raw)
+				}
+				if got := row.Get("limits.tools").Int(); got != int64(limit) {
+					return fmt.Errorf("limits.tools = %d, want %d: %s", got, limit, row.Raw)
+				}
+				return nil
+			})
+			sc.Step(`^the agent row says it takes none of the client's tools$`, func() error {
+				row := gjson.Get(answer, `data.#(id=="agent")`)
+				if !row.Exists() {
+					return fmt.Errorf("no agent row: %s", answer)
+				}
+				if got := row.Get("limits.client_tools").Bool(); got {
+					return fmt.Errorf("limits.client_tools = true on the agent row: %s", row.Raw)
+				}
+				if got := row.Get("limits.tools"); got.Exists() {
+					return fmt.Errorf("the agent row advertises a tool bound it never applies: %s", row.Raw)
 				}
 				return nil
 			})
