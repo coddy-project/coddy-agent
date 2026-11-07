@@ -12,6 +12,11 @@ func TestEncodedKeyTextContract(t *testing.T) {
 		{"Kitty associated text takes precedence", "\x1b[49:33;2;64u", "@"},
 		{"Kitty empty associated text uses the key", "\x1b[97;2;u", "A"},
 		{"Kitty meta is a shortcut", "\x1b[97;33u", ""},
+		{"Kitty caps lock types an upper-case letter", "\x1b[97;65u", "A"},
+		{"Kitty shift with caps lock types a lower-case letter", "\x1b[97;66u", "a"},
+		{"Kitty caps lock leaves a digit alone", "\x1b[49;65u", "1"},
+		{"Kitty unreadable shifted key falls back to the case", "\x1b[97:55296;2u", "A"},
+		{"Kitty upper-case key code without shift keeps its character", "\x1b[65:97u", "A"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			k, ok := ParseKey([]byte(tc.input))

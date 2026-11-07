@@ -29,6 +29,10 @@ type Key struct {
 // identify shortcuts instead. These are modifier bits before adding one.
 const textShortcutModifiers = 2 | 4 | 8 | 16 | 32
 
+// capsLockModifier is Kitty's caps-lock bit, which inverts the case of a letter
+// without turning the event into a shortcut.
+const capsLockModifier = 64
+
 // String renders the key back to "ctrl+shift+x" notation.
 func (k Key) String() string {
 	var parts []string
@@ -209,8 +213,10 @@ func parseCSIKey(s string) (Key, bool) {
 		}
 		mod := 1
 		if len(fields) >= 2 {
-			modField := strings.SplitN(fields[1], ":", 2)
-			if len(modField) == 2 && modField[1] == "3" {
+			// The field is <modifiers>[:<event>]; a release is never typed, and
+			// a trailing field must not hide it.
+			modField := strings.Split(fields[1], ":")
+			if len(modField) >= 2 && modField[1] == "3" {
 				return Key{}, false // key release event
 			}
 			if modField[0] != "" {
@@ -225,14 +231,8 @@ func parseCSIKey(s string) (Key, bool) {
 		if (mod-1)&textShortcutModifiers == 0 {
 			if len(fields) >= 3 && fields[2] != "" {
 				k.Text = textCodepoints(fields[2])
-			} else if k.Text != "" && k.Shift {
-				if len(codes) >= 2 && codes[1] != "" {
-					k.Text = textCodepoints(codes[1])
-				} else {
-					// Case conversion covers letters without assuming a keyboard
-					// layout for symbols. Prefer a reported shifted key or text.
-					k.Text = strings.ToUpper(k.Text)
-				}
+			} else if k.Text != "" {
+				k.Text = shiftedText(k.Text, codes, mod-1)
 			}
 		}
 		return k, ok || k.Text != ""
@@ -309,6 +309,34 @@ func keyFromCodepoint(cp, mod int) (Key, bool) {
 		}
 	}
 	return k, true
+}
+
+// shiftedText reconstructs the character a Kitty key report types when the
+// terminal sent no associated text. The reported shifted key answers for Shift;
+// caps lock only inverts the case of a letter, so Shift with caps lock types the
+// base character. Case conversion covers letters without assuming a keyboard
+// layout for symbols, which is why a reported shifted key is preferred.
+func shiftedText(base string, codes []string, bits int) string {
+	upper := bits&1 != 0
+	if bits&capsLockModifier != 0 && isLetterText(base) {
+		upper = !upper
+	}
+	if !upper {
+		return base
+	}
+	if bits&1 != 0 && len(codes) >= 2 && codes[1] != "" {
+		if text := textCodepoints(codes[1]); text != "" {
+			return text
+		}
+	}
+	return strings.ToUpper(base)
+}
+
+// isLetterText reports whether the text is one letter, the only kind of
+// character caps lock changes.
+func isLetterText(s string) bool {
+	r, size := utf8.DecodeRuneInString(s)
+	return size == len(s) && unicode.IsLetter(r)
 }
 
 // textCodepoints decodes printable Unicode scalars without admitting control

@@ -41,7 +41,7 @@ Inside the help that F1 and `/docs` open ([Built-in documentation](../features/b
 
 | Key | Action |
 |---|---|
-| letters, backspace | edit the search (in the list) |
+| letters, backspace / shift+backspace | edit the search (in the list) |
 | up / down | move between the entries; on a page, scroll a line |
 | enter | open the entry at its section; on a page, scroll a line |
 | pgup / pgdn / space | scroll a page by a screen |
@@ -59,7 +59,7 @@ Editing keys inside the draft:
 | left / ctrl+b, right / ctrl+f | one character |
 | alt+left / ctrl+left / alt+b, alt+right / ctrl+right / alt+f | one word |
 | home / ctrl+a, end / ctrl+e | start / end of the line |
-| backspace, delete | one character back / forward |
+| backspace / shift+backspace, delete | one character back / forward |
 | ctrl+w / alt+backspace | delete the word before the cursor |
 | alt+d / alt+delete | delete the word after the cursor |
 | ctrl+u, ctrl+k | delete to the start / end of the line |
@@ -71,7 +71,7 @@ Menus, selectors and prompts:
 | up / down | suggestion menu, every selector | move the highlight |
 | enter / tab | suggestion menu | apply the highlighted row; enter on a slash command applies and submits in one stroke, so `/resume` + enter opens the picker directly |
 | escape | suggestion menu | close it |
-| typed characters, backspace | model, mode, theme and resume selectors | filter the list |
+| typed characters, backspace / shift+backspace | model, mode, theme and resume selectors | filter the list |
 | enter | selector, permission prompt, question | choose the highlighted option (a permission prompt offers the options the agent sent) |
 | escape / ctrl+c | selector, permission prompt, question | cancel; a cancelled permission prompt rejects the call |
 | space | question with `multiple: true` | toggle the highlighted option |
@@ -87,7 +87,7 @@ The markup window a pasted picture opens in on an X display ([Pasting and markin
 | backspace | while a label is typed, delete its last character |
 | ctrl+z | drop the label being typed, else take back the last step |
 
-Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); an Escape followed straight away by `/` waits for neither, and is never read as alt+`/` - the console takes the Escape and then the slash command, so a selector is closed and the next command typed in one movement; the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press.
+Platform notes from the code: a lone Escape is resolved after 10 ms locally and 100 ms when `SSH_CONNECTION` or `SSH_TTY` is set (`external/cli/tui/terminal.go`); an Escape followed straight away by `/` waits for neither, and is never read as alt+`/` - the console takes the Escape and then the slash command, so a selector is closed and the next command typed in one movement; the backslash-and-enter newline exists for terminals that do not report shift+enter; `ctrl+c` on a non-empty editor clears it, so the exit needs an empty editor and a second press; a character a terminal reports as an encoded key while Shift is held (xterm's modifyOtherKeys, which the console turns on, and Kitty's key reports) is typed as text rather than read as a shortcut, so typing does not stop at the first letter of a capitalised word.
 
 ## Web UI
 
