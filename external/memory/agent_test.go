@@ -22,15 +22,18 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
 
-func TestPromptTemplateRendersToolsAndReadOnlyAddendum(t *testing.T) {
+func TestPromptTemplateOmitsCatalogAndRendersReadOnlyAddendum(t *testing.T) {
 	full, err := prompts.RenderSource("memory", PromptTemplate(false), prompts.TemplateData{CWD: "/w", Tools: "- `coddy_memory_search`"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"You are Coddy's memory subagent", "Working directory: /w", "## Available tools", "coddy_memory_search", "(no memory hits)"} {
+	for _, want := range []string{"You are Coddy's memory subagent", "Working directory: /w", "(no memory hits)"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("rendered template lacks %q", want)
 		}
+	}
+	if strings.Contains(full, "## Available tools") || strings.Contains(full, "- `coddy_memory_search`") {
+		t.Error("the bundled template must not duplicate the native catalog")
 	}
 	if strings.Contains(full, "read-only ask mode") {
 		t.Error("the full template must not carry the read-only addendum")

@@ -271,7 +271,7 @@ prompts:
   #
   # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is config.Prompts in internal/config/prompts.go.
   #   {{.CWD}}      - session working directory
-  #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
+  #   {{.Tools}}    - optional markdown catalog for custom templates; native tool definitions are always sent separately
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.Rules}}    - the AGENTS.md and DESIGN.md of the agent home and of the workspace, then the always-on rules
   #   {{.Instructions}} - the files of instructions.files. A template that prints neither block still gets the
@@ -280,7 +280,7 @@ prompts:
   #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, Memory (session notes).
+  # Built-in templates order: Skills, Memory (session notes). They omit the duplicate tool catalog.
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
   # Coddy sends the clock and the checklist after the history instead, in a <turn_context> block,
@@ -809,4 +809,4 @@ models:
 В настройках откройте провайдера, раскройте **Расширенные настройки** и выберите **User-Agent**.
 Сохраните провайдера, чтобы применить выбор к новым вызовам.
 
-<!-- docsgen:source sha256=ea22bc82474aec90 -->
+<!-- docsgen:source sha256=79c3c1ec226d518c -->

@@ -191,6 +191,11 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.
 	full = prompts.WithIdentity(full)
+	// Custom templates may still opt into the Markdown catalog. Categorize it
+	// only when it was rendered; native definitions are counted separately.
+	if !strings.Contains(full, toolsMD) {
+		toolsMD = ""
+	}
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,
@@ -285,8 +290,8 @@ func offersTool(defs []llm.ToolDefinition, name string) bool {
 }
 
 // buildTemplatedChildPrompt renders the system prompt of a system child that
-// carries a template of its own (the memory subagent): the template with the
-// working directory and the tool list, then the environment block, the hook
+// carries a template of its own: the template with the working directory and
+// an optional custom tool list, then the environment block, the hook
 // context and the identity line as for every prompt. Skills, rules, project
 // instructions, the subagent catalog and the session memory are not
 // rendered: the child's task is not the workspace's, and a template that
@@ -308,6 +313,11 @@ func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefini
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
 	full = prompts.WithIdentity(full)
+	// Custom templates may still opt into the Markdown catalog. Categorize it
+	// only when it was rendered; native definitions are counted separately.
+	if !strings.Contains(full, toolsMD) {
+		toolsMD = ""
+	}
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,

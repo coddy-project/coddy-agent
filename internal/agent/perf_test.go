@@ -141,12 +141,11 @@ func BenchmarkContextOfThisRepositoryRules(b *testing.B) {
 }
 
 // BenchmarkToolOfferOfAModelAllowlist measures what a toolset spares a
-// small-context local model: the tools a request offers, what the context
-// meter counts for them (the list the system message prints plus the schemas)
-// the size of the tools array as an OpenAI-compatible request carries it and
-// of the tool list the system message prints, for a model with no lists and for the dozen tools a coding session on a local
-// model ever calls. The timing is the building of both sets and matters less
-// than the metrics.
+// small-context local model: the number of tools offered, the context meter's
+// complete native definitions plus any rendered catalog, the OpenAI-compatible
+// tools array, and the optional system-message catalog. It compares a model
+// with no lists against the dozen tools a local coding model might call. The
+// timing is the building of both sets and matters less than the metrics.
 func BenchmarkToolOfferOfAModelAllowlist(b *testing.B) {
 	allow := []string{"read", "write", "edit", "apply_patch", "glob", "grep", "print_tree", "keep_result",
 		"run_command", "background_output", "background_wait", "background_stop", "compact_context"}
