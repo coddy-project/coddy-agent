@@ -1382,14 +1382,14 @@ try {
     await frameFor(fo.page, "a.html");
     const bFrame = await frameFor(fo.page, "b.html");
     // Zoom in at A until it fills the board, so B is off screen.
-    await fo.page.evaluate(async () => {
+    const zoomed = await fo.page.evaluate(async () => {
       const board = document.querySelector("[data-testid=canvas-board]");
       const a = () =>
         document
           .querySelector('iframe.canvas-frame-page[title="a.html"]')
           .getBoundingClientRect();
       for (let i = 0; i < 400; i++) {
-        if (a().width >= board.getBoundingClientRect().width * 0.9) break;
+        if (a().width >= board.getBoundingClientRect().width * 0.9) return true;
         const r = a();
         board.dispatchEvent(
           new WheelEvent("wheel", {
@@ -1402,7 +1402,9 @@ try {
         );
         await new Promise((res) => requestAnimationFrame(res));
       }
+      return false;
     });
+    check("the focus fixture zoomed in until A fills the board", zoomed);
     const view = () =>
       fo.page.evaluate(() => {
         const board = document.querySelector("[data-testid=canvas-board]");

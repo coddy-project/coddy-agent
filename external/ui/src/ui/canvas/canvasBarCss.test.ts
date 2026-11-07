@@ -89,6 +89,5 @@ test("the bar has no Stop of its own beside Send", () => {
 // same clipping and leaves nothing to scroll.
 test("the board clips without being a scroll container", () => {
   const body = ruleBody(".canvas-board {");
-  expect(body).toContain("overflow: clip");
-  expect(body).not.toContain("overflow: hidden");
+  expect(body).toMatch(/overflow: hidden;\s*overflow: clip;/);
 });

@@ -74,12 +74,14 @@
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
-// The camera is the only thing that moves the board: clip, not hidden, so
-// the board is no scroll container a page's focus() could scroll (#679).
+// Where clip is supported, the camera is the only thing that moves the
+// board: the board is no scroll container a page's focus() could scroll
+// (#679). hidden keeps the clipping where clip is unsupported.
 .canvas-board {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   overflow: clip;
   touch-action: none;
   cursor: grab;
