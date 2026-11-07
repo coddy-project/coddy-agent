@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -73,11 +75,11 @@ func TestKimiCLIAuthConcurrentReplacement(t *testing.T) {
 				done <- err
 				return
 			}
-			if err := os.Rename(tmp, path); err != nil {
+			if err := retryKimiCLITestReplacement(func() error { return os.Rename(tmp, path) }, runtime.GOOS == "windows"); err != nil {
 				done <- err
 				return
 			}
-			if err := os.Remove(path); err != nil {
+			if err := retryKimiCLITestReplacement(func() error { return os.Remove(path) }, runtime.GOOS == "windows"); err != nil {
 				done <- err
 				return
 			}
@@ -95,6 +97,34 @@ func TestKimiCLIAuthConcurrentReplacement(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func retryKimiCLITestReplacement(op func() error, windows bool) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := op()
+		if err == nil || !windows || !errors.Is(err, syscall.Errno(32)) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestKimiCLIAuthReplacementRetriesWindowsSharingViolation(t *testing.T) {
+	attempts := 0
+	err := retryKimiCLITestReplacement(func() error {
+		attempts++
+		if attempts < 3 {
+			return syscall.Errno(32)
+		}
+		return nil
+	}, true)
+	if err != nil || attempts != 3 {
+		t.Fatalf("attempts=%d err=%v", attempts, err)
+	}
+	if err := retryKimiCLITestReplacement(func() error { return os.ErrPermission }, true); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("unexpected error %v", err)
 	}
 }
 
