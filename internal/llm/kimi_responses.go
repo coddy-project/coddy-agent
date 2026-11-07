@@ -92,8 +92,7 @@ func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []To
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = resp.Body.Close()
-		return nil, &httpStatusError{label: "kimi responses", status: resp.StatusCode, header: resp.Header.Clone()}
+		return nil, kimiStatusError("kimi responses", resp)
 	}
 	return resp, nil
 }

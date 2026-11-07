@@ -168,8 +168,7 @@ func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message,
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = resp.Body.Close()
-		return nil, &httpStatusError{label: "kimi anthropic", status: resp.StatusCode, header: resp.Header.Clone()}
+		return nil, kimiStatusError("kimi anthropic", resp)
 	}
 	return resp, nil
 }
