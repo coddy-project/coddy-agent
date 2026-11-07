@@ -14,7 +14,7 @@ func TestKimiNativeManagedStore(t *testing.T) {
 	if !KimiRefreshSupported() {
 		t.Fatal("managed Kimi store is unavailable")
 	}
-	s := NewKimiCredentialStore(t.TempDir())
+	s := NewKimiCredentialStore(privateKimiTestDir(t))
 	if _, state, err := s.Load("global"); err != nil || state != KimiCredentialMissing {
 		t.Fatalf("empty store: %v, %v", state, err)
 	}
@@ -47,7 +47,7 @@ func TestKimiNativeManagedStore(t *testing.T) {
 }
 
 func TestKimiNativeRefreshAndAmbiguousOutcome(t *testing.T) {
-	store := NewKimiCredentialStore(t.TempDir())
+	store := NewKimiCredentialStore(privateKimiTestDir(t))
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
 		t.Fatal(err)
 	}
