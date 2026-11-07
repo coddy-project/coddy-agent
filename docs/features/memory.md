@@ -183,7 +183,7 @@ The field table is in the [config.yaml reference](../reference/config.md#memory)
 
 ## Cost and latency
 
-Memory costs tokens only when the model asks. A turn that never spawns the memory subagent runs no memory model at all; a turn that does pays for one child conversation: the child's own system prompt (the template, the environment block, six tool definitions) and its rounds, one model call at least, more when it uses tools. Pinning a small, fast model with `memory.model` keeps the cost of recall low while the main agent stays on the model you chose for it. A guide adds at most 8 KiB per root to the child's task on every run.
+Memory costs tokens only when the model asks. A turn that never spawns the memory subagent runs no memory model at all; a turn that does pays for one child conversation: the child's own system prompt (the template and environment block), its permitted native tool definitions and its rounds, one model call at least, more when it uses tools. Pinning a small, fast model with `memory.model` keeps the cost of recall low while the main agent stays on the model you chose for it. A guide adds at most 8 KiB per root to the child's task on every run.
 
 ## Testing
 
