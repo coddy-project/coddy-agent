@@ -1004,6 +1004,13 @@ func TestCodexResponseEventOverloadRetry(t *testing.T) {
 		wantErr       bool
 		wantTransient bool
 		wantStreamed  string
+		// wantStatus and wantOutcome pin what the rest of Coddy reads off the
+		// error: the status UpstreamStatus hands the HTTP surface and the
+		// compaction, and the outcome the exporter counts. A 503 reached by a
+		// scan of the message text rather than by the event's fields would
+		// pass the retry assertions above and fail these.
+		wantStatus  int
+		wantOutcome string
 	}{
 		{name: "response.failed overload before any output is retried and succeeds",
 			scripts:      []func(io.Writer){failed("server_is_overloaded", overloadMessage), hello},
@@ -1013,23 +1020,29 @@ func TestCodexResponseEventOverloadRetry(t *testing.T) {
 			wantRequests: 2, wantStreamed: "Hello"},
 		{name: "response.failed overload on every attempt ends with the provider's error after the retries",
 			scripts:      []func(io.Writer){failed("server_is_overloaded", overloadMessage)},
-			wantRequests: 3, wantErr: true, wantTransient: true},
+			wantRequests: 3, wantErr: true, wantTransient: true,
+			wantStatus: 503, wantOutcome: "server_error"},
 		{name: "response.failed overload after a text delta is not replayed",
 			scripts:      []func(io.Writer){afterText(failed("server_is_overloaded", overloadMessage)), hello},
-			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel"},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel",
+			wantStatus: 503, wantOutcome: "server_error"},
 		{name: "flat error overload after a text delta is not replayed",
 			scripts:      []func(io.Writer){afterText(flat("server_is_overloaded", overloadMessage)), hello},
-			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel"},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel",
+			wantStatus: 503, wantOutcome: "server_error"},
 		{name: "response.failed with another code is final",
 			scripts:      []func(io.Writer){failed("invalid_prompt", "The prompt was refused."), hello},
-			wantRequests: 1, wantErr: true},
+			wantRequests: 1, wantErr: true, wantOutcome: "error"},
 		// The words of a message are not a verdict: only the code is.
 		{name: "response.failed with another code that says overloaded is final",
 			scripts:      []func(io.Writer){failed("invalid_prompt", overloadMessage), hello},
-			wantRequests: 1, wantErr: true},
+			wantRequests: 1, wantErr: true, wantOutcome: "error"},
+		// A code the message never names reaches the overflow test through the
+		// message both events are now written into, so the request is counted
+		// as the refusal it is rather than as an unexplained failure.
 		{name: "flat error with another code that says overloaded is final",
 			scripts:      []func(io.Writer){flat("context_length_exceeded", overloadMessage), hello},
-			wantRequests: 1, wantErr: true},
+			wantRequests: 1, wantErr: true, wantOutcome: "context_overflow"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1070,6 +1083,12 @@ func TestCodexResponseEventOverloadRetry(t *testing.T) {
 			}
 			if got := IsTransientProviderError(err); got != tc.wantTransient {
 				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.wantTransient)
+			}
+			if got := UpstreamStatus(err); got != tc.wantStatus {
+				t.Errorf("UpstreamStatus = %d, want %d: the status is read off the event's fields", got, tc.wantStatus)
+			}
+			if got := CallOutcome(err); got != tc.wantOutcome {
+				t.Errorf("CallOutcome = %q, want %q", got, tc.wantOutcome)
 			}
 		})
 	}

@@ -203,6 +203,19 @@ func (s *transportRetryState) aCodexProviderWhoseResponseFailsAsOverloadedOnce()
 	})
 }
 
+// aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce is the same backend
+// with the overload in the other event the Responses API reports one in: a
+// flat error event whose code is a field of the event itself, which carries no
+// error member for the SDK to intercept (issue #602).
+func (s *transportRetryState) aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce() error {
+	return s.aCodexProviderWhoseFirstAnswerIs(func(w io.Writer) {
+		sse(w, "error", map[string]any{
+			"code": "server_is_overloaded", "param": nil,
+			"message": "Our servers are currently overloaded. Please try again later.",
+		})
+	})
+}
+
 // aCodexProviderWhoseFirstAnswerIs runs the real Codex provider against a
 // backend that answers its first request with first and every later one with
 // a whole answer.
@@ -449,6 +462,7 @@ func initializeTransportRetryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an "openai" provider whose upstream goes silent on the first connection, pings included, and then streams a completion$`, s.aProviderWhoseUpstreamGoesSilentOnFirstConnection)
 	sc.Step(`^a "codex" provider whose upstream reports an in-band overload once before any output and then streams a completion$`, s.aCodexProviderWhoseUpstreamReportsAnOverloadOnce)
 	sc.Step(`^a "codex" provider whose upstream fails the response as overloaded once before any output and then streams a completion$`, s.aCodexProviderWhoseResponseFailsAsOverloadedOnce)
+	sc.Step(`^a "codex" provider whose upstream sends a flat overloaded error event once before any output and then streams a completion$`, s.aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce)
 	sc.Step(`^(\d+) requests? reached the upstream handler$`, s.requestsReachedTheHandler)
 	sc.Step(`^a streaming completion is requested$`, s.aTransportRetryStreamingCompletionIsRequested)
 	sc.Step(`^the call succeeds with text "([^"]*)" in (\d+) upstream requests$`, s.theCallSucceedsWithTextInRequests)
