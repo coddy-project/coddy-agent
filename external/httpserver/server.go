@@ -720,7 +720,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
+	resolve := s.resolveDirectSession
+	if httpModelIsCoddyProfile(model) {
+		resolve = s.resolveSession
+	}
+	st, sessionID, createdNew, err := resolve(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
@@ -1029,6 +1033,23 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		return nil, "", false, err
 	}
 	return st, newID, true, nil
+}
+
+// resolveDirectSession is resolveSession for a call to a direct model. The
+// header still names a session the call is kept in. Without it the call is
+// stateless (issue #585): a provider-style client sends one request per model
+// step and brings the whole conversation each time, so a stored session would
+// only cost it time and disk. Nothing names the state to the client, since
+// nothing is left to continue.
+func (s *Server) resolveDirectSession(ctx context.Context, r *http.Request) (*session.State, string, bool, error) {
+	if strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID")) != "" {
+		return s.resolveSession(ctx, r)
+	}
+	if _, ok := session.ParseRequestedOrigin(r.Header.Get(session.OriginHeader)); !ok {
+		return nil, "", false, errInvalidOriginHeader
+	}
+	st := s.mgr.NewEphemeralState()
+	return st, st.GetID(), false, nil
 }
 
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {

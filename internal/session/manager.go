@@ -1298,6 +1298,14 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 	return st, nil
 }
 
+// NewEphemeralState is the conversation of one stateless model call (issue
+// #585): a state in memory that holds the messages of that call and reads the
+// provider listings of this manager. It has no bundle, no persistence hook and
+// no entry among the live sessions, so nothing outlives the caller's reference.
+func (m *Manager) NewEphemeralState() *State {
+	return &State{ID: NewSessionID(), contextWindows: m, ephemeral: true}
+}
+
 // ForgetLiveSession disconnects MCP clients for the id and removes it from the
 // active map (does not touch disk). What the session keeps in process memory
 // only is set aside for the next load of the same id, unless the session is
@@ -1566,6 +1574,11 @@ func admissionFor(opts *PromptRunOpts) turnAdmission {
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
+	if st != nil && st.ephemeral {
+		// The lock is a file lock on a bundle; this state has none, and nothing
+		// else can reach it, so there is no turn to exclude.
+		return func() {}, nil
+	}
 	return m.acquireTurnLockWithReloadDrain(sessionID, st)
 }
 
