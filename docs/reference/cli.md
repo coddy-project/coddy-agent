@@ -312,7 +312,7 @@ Usage of providers:
   -no-config
     	login: do not add the provider and its models to config.yaml after login
   -type string
-    	login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in
+    	login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex, devin or kimi), so another profile of a type is created by signing it in
 ```
 
 ### coddy plugin

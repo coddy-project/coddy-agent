@@ -85,12 +85,82 @@ of another provider.
 
 *The first start with no `config.yaml`: the line in the warning colour points at `/login`, and the footer names no model.*
 
-`/login` runs the sign-in of `coddy providers login` without leaving the
-console:
+### The provider picker
+
+A console that starts with no provider that can answer opens the picker by
+itself, before the first prompt, the way the web UI opens its own on a first
+run ([Web UI](web-ui.md#first-run-onboarding)). It offers the same providers in
+the same order, and the row it opens on is the same one:
+
+| Row | What it is | What the console asks for |
+|---|---|---|
+| **NeuralDeep** | API key or account sign-in on either hub | the hub, then the device sign-in |
+| **OpenCode** | OpenCode Go or Console with account sign-in | the gateway, then the device sign-in |
+| **OpenAI** | GPT models and the OpenAI API | the API key |
+| **Anthropic** | Claude models | the API key |
+| **Codex** | your ChatGPT subscription through OAuth | the device sign-in, or nothing when this machine has one |
+| **Devin** | Devin models with browser sign-in | the browser sign-in, or nothing when this machine has one |
+| **Kimi** | Kimi Code subscription or Kimi Platform API key | the service and region, then device sign-in or an API key |
+| **OpenAI-compatible** | Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own | the address of the endpoint, then the API key |
+| **ACP agent** | an agent of your own this machine runs: Claude Code, Codex, Gemini | the command that speaks ACP |
+
+Kimi offers Kimi Code and Kimi Platform in global (`kimi.ai`, the default) and China (`kimi.com`) variants. The picker asks for a Platform key. For a subscription it uses an eligible existing login or starts device sign-in. An existing `kimi` row with another mode or region is left unchanged. An eligible existing Kimi CLI login is read without modification from `KIMI_CODE_HOME` (default `~/.kimi-code`); its source is separate from a Coddy-managed login. Provider requests, including sign-in, use the row proxy.
+
+![Kimi service selector in the console](../assets/console/kimi-picker-dark-1280.png)
+
+*The console offers both services in both regions.*
+
+Arrows move, typing filters, Enter takes the row and Escape puts the picker
+away: the header keeps pointing at `/login`, which opens it again, so nothing
+about it is a one-shot screen. A row that signs in runs the sign-in below; a
+row that takes a key is asked for its endpoint where it has none of its own and
+then for the key; an ACP agent is asked only for the command that starts it,
+because the agent signs itself in and Coddy stores no credential for it. An empty answer at the key prompt changes no credential: a row
+`config.yaml` already holds keeps its `api_key` or its `api_key_command`, and a
+row with neither reads its `NAME_API_KEY` variable, which is how a local server
+with no key works. Coddy then asks the provider what it serves, the way that row
+asks it - the endpoint and the credential it already carries, unless the setup
+named another endpoint - and offers that list; the model picked becomes
+`models[]`, the session's model and, when nothing that can be run was named
+before, `agent.model`. A provider that cannot be reached says why and the model
+is named by hand instead, so a setup is never stuck behind a listing.
+
+A Codex or a Devin sign-in is one account for every program on the machine, so
+the picker looks for one before it asks for anything: with the Codex CLI's
+`auth.json` or the Devin CLI's credentials already on disk, it says the
+provider is signed in and goes straight to the models, and nothing is written
+but the row and the model you pick. The other two sign-ins belong to the hub
+they were taken from, and the picker has just asked which hub to use, so
+NeuralDeep and OpenCode sign in every time. Only a sign-in counts: a key in
+`DEVIN_API_KEY` or in `config.yaml` lets the row answer but is not one, and
+the picker still signs in. One CLI login is one account and serves one row,
+the only row of its type or, where several share it, the row named after the
+type ([Several profiles of one provider
+type](../getting-started/configuration.md#several-profiles-of-one-provider-type)).
+The picker writes exactly that row, `codex` or `devin`, so the login it finds
+is always the one meant for it, whatever else `config.yaml` lists; a row of
+your own beside it keeps signing in for itself.
+
+A provider `config.yaml` already lists keeps everything the picker does not ask
+about - a credential helper, a proxy, a timeout - because only what the setup
+answered is written. While the picker waits for a provider to list its models,
+`/login` says so instead of opening a second list, and a permission or question
+prompt that comes up then keeps the screen: the setup stops and says how to
+start it again.
+
+![The provider picker on the first start of a fresh install](../assets/cli-tui/login-provider-picker-dark-1280.png)
+
+*The picker on a first start: NeuralDeep first and highlighted, the eight providers in the order the web UI shows them.*
+
+### `/login`
+
+`/login` opens that picker again at any time; a name after it skips the picker
+and runs the sign-in of `coddy providers login` without leaving the console:
 
 | Command | Signs in to | How |
 |---|---|---|
-| `/login` | NeuralDeep | device code: open the hub's page, confirm the code |
+| `/login` | the picker above | arrows, Enter, Escape |
+| `/login neuraldeep` | NeuralDeep | device code: open the hub's page, confirm the code |
 | `/login codex` | Codex (ChatGPT) | device code |
 | `/login devin` | Devin | browser sign-in; the page sends the browser back to this machine |
 | `/login opencode` | OpenCode | device code, then the organization on the page |
@@ -100,10 +170,11 @@ The console prints the page to open and the code to confirm, and opens the page
 in this machine's browser when it has one; over SSH it prints the address only,
 for any browser, a phone's included. Escape stops the sign-in. A Devin sign-in
 whose browser runs on another machine completes from the address that browser
-was sent back to: paste it into the editor and press Enter. A bare `/login`
-signs in against the NeuralDeep deployment for Russia; for the international
-mirror, give the `neuraldeep` row `api_base: https://api.neuraldeep.tech/v1`
-first and then run `/login neuraldeep` ([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
+was sent back to: paste it into the editor and press Enter. The picker asks
+which NeuralDeep deployment to sign in against, Russia or the international
+mirror; `/login neuraldeep` takes the one the `neuraldeep` row's `api_base`
+names, and the deployment for Russia when it names none
+([NeuralDeep](../getting-started/configuration.md#neuraldeep)).
 
 Once the sign-in succeeds, the console adds the provider row and every model the
 account serves to `config.yaml`, and `agent.model` when none is set, the same
@@ -120,9 +191,9 @@ another type, such as `openai` or `anthropic`, takes a key, and `/login` says
 so; an `acp` agent signs in on its own. Over `--remote` the configuration is the
 server's, so `/login` sends you there.
 
-![The console after a bare /login: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
+![The console after the picker signed in: the hub's page and the code, Signed in to NeuralDeep, what config.yaml gained, and the footer on the new model with its usage](../assets/cli-tui/login-signed-in-dark-1280.png)
 
-*A bare `/login` on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
+*NeuralDeep taken from the picker on a fresh install: the page and the code, the account, the provider and its five models in `config.yaml`, and the footer on `neuraldeep/qwen3.8-27b` with the account usage.*
 
 
 ## Live file drafts
@@ -424,8 +495,8 @@ here too.
 agent has had `background_list`, `background_output` and `background_stop`
 all along; this is the operator's side of the same pool. Every task is one
 row: a status mark, a tag that says what stands behind it (`shell` for a
-command, the agent's name for a subagent run, `memory` for the memory run of
-a turn), the title - the command, or what the agent was asked to do - and how
+command, the agent's name for a subagent run, `memory` for a delegation to the
+memory subagent), the title - the command, or what the agent was asked to do - and how
 it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
 model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
 newest first, the way the web UI's Tasks panel lists them. A running task that
@@ -608,6 +679,13 @@ multi-select via space, and a free-text **Custom answer...** unless the question
 sets `custom` to `false`; the typed text joins the options ticked beside it),
 model/reasoning/permission/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
+
+A selector sizes its list to the terminal when it opens and again on every
+resize, so a short screen - a phone, a split pane - still shows what the choice
+is about. Its borders, its title, the body a trust prompt or `/goal` prints
+above the list, the help line, the scroll indicator and the footer under the
+modal keep their rows; the list takes what is left, down to a single row, and
+scrolls through the rest.
 
 A background subagent keeps working after the turn that spawned it has ended,
 and when it needs a permission it asks through the same modal, titled
@@ -957,6 +1035,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
 *A prompt sent before the servers answered waits for its tool list on the status line*
 
+![The ctrl+l model selector in a nine-row terminal](../assets/cli-tui/23-short-terminal-selector.png)
+
+*A nine-row terminal: the list gives up rows so the borders, the title, the highlighted model, the `(6/8)` scroll indicator, the help line and the footer all stay on screen*
+
 ![The usage footer with the account windows](../assets/cli-tui/09-usage-footer.png)
 
 *The usage footer with the account windows*
@@ -1031,10 +1113,16 @@ and types `@ment` against a provider that is never asked anything.
 `examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
 `/model --once /reasoning --count=3`, with a temporary home standing in for
 `HOME` too, so the header lists the bundled skills only.
-`login-signed-in-dark-1280` comes from `examples/cli/capture_login.py`: a
-bare `/login` on an empty `CODDY_HOME`, with the hub and the API base pointed
-at a local stand-in that answers the device sign-in, the account, the tier's
-models and the usage, so neither a hub nor a key is needed.
+`login-provider-picker-dark-1280` and `login-signed-in-dark-1280` both come
+from `examples/cli/capture_login.py`: the picker a fresh console opens by
+itself on an empty `CODDY_HOME`, and then NeuralDeep taken from it, with the
+hub and the API base pointed at a local stand-in that answers the device
+sign-in, the account, the tier's models and the usage, so neither a hub nor a
+key is needed. `23-short-terminal-selector` comes from
+`examples/cli/capture_short_terminal.py`, which opens the `ctrl+l` selector in
+a nine-row pty against a provider that only lists its models; `CODDY_BIN` and
+`CLI_E2E_ROWS` point the same script at another binary or another height,
+which is how the state before a fix is captured beside the state after it.
 
 
 ## Testing

@@ -316,11 +316,6 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
-	case "memory_run":
-		var u acp.MemoryRunUpdate
-		if json.Unmarshal([]byte(f.data), &u) == nil {
-			_ = t.sender.SendSessionUpdate(t.sessionID, u)
-		}
 	case "user_message":
 		// A queued message the turn has just read, or a deferred one that
 		// starts a prompt of its own: the operator's message, where it

@@ -321,20 +321,20 @@ func TestModelToolListsRefuseAResumedApproval(t *testing.T) {
 	}
 }
 
-// The memory subagent is a system child whose tool set the runtime fixes; an
+// A child the runtime shapes (Kind is set) has a tool set of its own; an
 // allowlist written for the main loop must not strip it.
 func TestModelToolListsLeaveSystemChildrenAlone(t *testing.T) {
 	meta := session.SubagentMeta{Name: session.SubagentKindMemory, Kind: session.SubagentKindMemory, ParentSessionID: "sess_parent", TaskID: "bg_1", Depth: 1, Tools: []string{"read", "grep"}}
 	ag, _, _ := modelToolsAgentMeta(t, session.ModeAgent, "", &meta, toolRow{Model: "fake/model", Tools: []string{"read"}})
 	if entry := ag.activeToolset(); entry != nil {
-		t.Fatalf("a system child is bound by the model's lists: %+v", entry)
+		t.Fatalf("a Kind child is bound by the model's lists: %+v", entry)
 	}
 	if got := offeredNames(ag, "agent"); strings.Join(got, ",") != "grep,read" {
-		t.Fatalf("the system child offers %v, want its own set grep,read", got)
+		t.Fatalf("the Kind child offers %v, want its own set grep,read", got)
 	}
 }
 
-// A spawned child that is not a system child is bound by the lists of the
+// A spawned child with no Kind is bound by the lists of the
 // model it runs on, on top of its effective set.
 func TestModelToolListsNarrowAChildOnTopOfItsEffectiveSet(t *testing.T) {
 	meta := session.SubagentMeta{Name: "explore", ParentSessionID: "sess_parent", TaskID: "bg_1", Depth: 1, Tools: []string{"read", "grep", "write", "glob"}}

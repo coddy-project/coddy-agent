@@ -6,7 +6,7 @@
 #     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
-#     memory          long-term memory copilot and /coddy memory REST (see external/memory/)
+#     memory          long-term memory subagent and /coddy memory REST (see external/memory/)
 #     gateway.telegram  Telegram bot gateway only (coddy serve; see external/gateway/)
 #     gateway.pachca  Pachca bot gateway only (coddy serve; see external/gateway/pachca/)
 #     gateway         all messenger gateways: Telegram and Pachca (superset of both)

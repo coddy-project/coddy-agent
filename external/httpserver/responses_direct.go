@@ -79,7 +79,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 	if req.Instructions != nil && *req.Instructions != "" {
 		messages = append([]llm.Message{{Role: llm.RoleSystem, Content: *req.Instructions}}, messages...)
 	}
-	st, sid, created, err := s.resolveSession(r.Context(), r)
+	st, sid, created, err := s.resolveDirectSession(r.Context(), r)
 	if err != nil {
 		switch {
 		case errors.Is(err, errSessionNotFound):

@@ -141,5 +141,9 @@ func linkCount(path string) uint64 {
 	return uint64(info.NumberOfLinks)
 }
 
+// DirSyncDurable reports that no directory flush exists on this platform:
+// syncDir is a no-op, so write-then-rename durability cannot be proven.
+const DirSyncDurable = false
+
 // syncDir has nothing to flush: Windows offers no folder handle to fsync.
 func syncDir(string) error { return nil }

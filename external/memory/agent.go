@@ -11,6 +11,9 @@ package memory
 
 import (
 	_ "embed"
+	"errors"
+	"fmt"
+	"io/fs"
 	"strings"
 	"unicode/utf8"
 
@@ -44,19 +47,112 @@ func PromptTemplate(readOnly bool) string {
 	return promptTemplate
 }
 
-// TaskMessage is the child's task: the user message behind a preamble, cut
-// at the bound a spawn_agent prompt has (32 KiB) with a marker, so the pass
-// sees a bounded input (issue #266).
-func TaskMessage(userText string) string {
-	text := strings.TrimSpace(userText)
-	if len(text) > subagents.MaxPromptBytes {
-		cut := text[:subagents.MaxPromptBytes]
-		for len(cut) > 0 && !utf8.ValidString(cut) {
-			cut = cut[:len(cut)-1]
-		}
-		text = strings.TrimSpace(cut) + cutMarker
+// guideMaxBytes bounds one guide. Guides reads no more of a file than this and
+// ends a guide cut at it with guideCutMarker, so the task is at most the user
+// message's bound (subagents.MaxPromptBytes) plus two guides of this size,
+// their markers and their headings.
+const guideMaxBytes = 8 * 1024
+
+// guideCutMarker replaces the tail of a guide over guideMaxBytes.
+const guideCutMarker = "\n\n[the rest of the guide was cut: it exceeded the memory subagent's guide bound]"
+
+// Guide is the AGENTS.md at the root of one memory scope, the text that
+// tells the child how the notes of that root are kept.
+type Guide struct {
+	// Path is the guide's scope:relative path, global:AGENTS.md.
+	Path string
+	// Text is the file, trimmed and cut at guideMaxBytes: a cut guide ends
+	// with guideCutMarker.
+	Text string
+}
+
+// Guides reads the guide of the global memory root and then the one of the
+// project root of cwd, through the store, so a guide is read under the rules
+// of any note of its root (a project guide that is a link out of the root is
+// refused), and reads no more than guideMaxBytes of it. A missing or empty
+// guide is absent from the result; one that cannot be read for any other
+// reason (a link out of the project root, a named pipe, no permission, a
+// link that loops) is absent too and reported in the error, and the other
+// level is still returned. The two levels stay apart: neither is merged into
+// the other.
+func Guides(cfg *config.Config, cwd string) ([]Guide, error) {
+	store, err := memstorage.NewStore(&cfg.Memory, cfg.Paths, cwd)
+	if err != nil {
+		return nil, err
 	}
-	return taskPreamble + text
+	var guides []Guide
+	var refused []error
+	for _, scope := range []string{"global", "project"} {
+		path := scope + ":" + memstorage.GuideName
+		head, more, err := store.ReadHead(path, guideMaxBytes)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				refused = append(refused, fmt.Errorf("%s: %w", path, err))
+			}
+			continue
+		}
+		text := strings.TrimSpace(string(head))
+		if text == "" {
+			continue
+		}
+		if more {
+			// Trimming the head must not hide that the file went on.
+			text += guideCutMarker
+		}
+		guides = append(guides, Guide{Path: path, Text: text})
+	}
+	return guides, errors.Join(refused...)
+}
+
+// TaskMessage is the child's task: the guides of the memory roots, each under
+// a heading that names it and quoted line by line, then the user message
+// behind a preamble. The user message is cut at the bound a spawn_agent prompt
+// has (32 KiB), with a marker, and the guides arrive cut by Guides, so the
+// pass sees a bounded input (issue #266). Without guides the task is the
+// preamble and the message alone.
+func TaskMessage(userText string, guides []Guide) string {
+	var b strings.Builder
+	for _, g := range guides {
+		b.WriteString("Memory guide (" + g.Path + "):\n" + quoteLines(g.Text) + "\n\n")
+	}
+	text, cut := cutBytes(strings.TrimSpace(userText), subagents.MaxPromptBytes)
+	if cut {
+		text += cutMarker
+	}
+	b.WriteString(taskPreamble + text)
+	return b.String()
+}
+
+// quoteLines writes text as a Markdown blockquote, "> " before every line and
+// ">" alone for an empty one. The child's task is resolved for @ references
+// like any prompt, and a guide arrives with a checkout: a reference in it
+// ("@~/.aws/credentials") would attach that file to the child's request. A
+// quoted line is prose to the mention grammar, a fence the guide opens and
+// never closes cannot swallow the user message after it, and the guide stays
+// readable text.
+func quoteLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if l == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// cutBytes cuts s to at most max bytes without splitting a character, the
+// cut end trimmed, and says whether it cut anything.
+func cutBytes(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	cut := s[:max]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimSpace(cut), true
 }
 
 // ToolNames is the child's tool allowlist: the six memory tools, or the

@@ -134,8 +134,8 @@ func TestResponsesDirectStringInputReturnsResponseObject(t *testing.T) {
 	if u.Get("input_tokens").Int() != 11 || u.Get("output_tokens").Int() != 7 || u.Get("total_tokens").Int() != 18 {
 		t.Fatalf("usage = %s", u.Raw)
 	}
-	if got := res.Header.Get("X-Coddy-Session-ID"); !strings.HasPrefix(got, "sess_") {
-		t.Fatalf("X-Coddy-Session-ID = %q", got)
+	if got := res.Header.Get("X-Coddy-Session-ID"); got != "" {
+		t.Fatalf("a call without the header named session %q", got)
 	}
 	// The provider saw exactly the one user message: no instructions, no leak.
 	if len(p.seenMsgs) != 1 || p.seenMsgs[0].Role != llm.RoleUser || p.seenMsgs[0].Content != "hi" {

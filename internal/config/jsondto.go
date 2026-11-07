@@ -104,7 +104,11 @@ type InstructionsJSON struct {
 type ProviderJSON struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
+	Mode          string `json:"mode,omitempty"`
+	Region        string `json:"region,omitempty"`
+	KimiIdentity  string `json:"kimi_identity,omitempty"`
 	APIBase       string `json:"api_base,omitempty"`
+	UserAgent     string `json:"user_agent,omitempty"`
 	APIKey        string `json:"api_key,omitempty"`
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
@@ -120,11 +124,12 @@ type ProviderJSON struct {
 // ModelJSON mirrors ModelEntry for JSON APIs.
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string  `json:"model"`
-	MaxTokens        int     `json:"max_tokens"`
-	Temperature      float64 `json:"temperature"`
-	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
-	Multimodal       bool    `json:"multimodal,omitempty"`
+	Model            string             `json:"model"`
+	KimiMetadata     *KimiModelMetadata `json:"kimi_metadata,omitempty"`
+	MaxTokens        int                `json:"max_tokens"`
+	Temperature      float64            `json:"temperature"`
+	MaxContextTokens int                `json:"max_context_tokens,omitempty"`
+	Multimodal       bool               `json:"multimodal,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
@@ -329,9 +334,6 @@ type MemoryJSON struct {
 	Model            string   `json:"model,omitempty"`
 	FallbackModels   []string `json:"fallback_models,omitempty"`
 	Dir              string   `json:"dir,omitempty"`
-	WaitSeconds      *int     `json:"wait_seconds,omitempty"`
-	TimeoutSeconds   int      `json:"timeout_seconds,omitempty"`
-	KeepRuns         *int     `json:"keep_runs,omitempty"`
 	RecallMaxTurns   int      `json:"recall_max_turns,omitempty"`
 	PersistMaxTurns  int      `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int      `json:"copilot_max_tokens,omitempty"`
@@ -629,7 +631,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model,
 		FallbackModels: append([]string(nil), c.Memory.FallbackModels...), Dir: c.Memory.Dir,
-		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 		MaxNoteChars:     cloneIntPtr(c.Memory.MaxNoteChars),
@@ -890,7 +891,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model,
 		FallbackModels: append([]string(nil), j.Memory.FallbackModels...), Dir: j.Memory.Dir,
-		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 		MaxNoteChars:     cloneIntPtr(j.Memory.MaxNoteChars),

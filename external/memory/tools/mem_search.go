@@ -46,7 +46,7 @@ func memorySearchTool(store *memstorage.Store, mem *config.MemoryConfig) *toolin
 			}
 			var b strings.Builder
 			for i, h := range hits {
-				_, _ = fmt.Fprintf(&b, "### Hit %d (%s score=%d path=%s)\n%s\n\n", i+1, h.Scope, h.Score, h.Path, h.Snippet)
+				_, _ = fmt.Fprintf(&b, "### Hit %d (%s score=%.2f path=%s)\n%s\n\n", i+1, h.Scope, h.Score, h.Path, h.Snippet)
 			}
 			return b.String(), nil
 		},

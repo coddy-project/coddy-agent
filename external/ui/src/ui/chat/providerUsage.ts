@@ -407,6 +407,8 @@ export function usageProviderBrand(u: ProviderUsage): string {
       return "Codex";
     case "devin":
       return "Devin";
+    case "kimi":
+      return "Kimi";
     default:
       return u.provider;
   }

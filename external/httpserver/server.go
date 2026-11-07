@@ -148,6 +148,7 @@ type Server struct {
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
+	devinAuthLogins      map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -187,12 +188,7 @@ func (s *Server) Drain() {
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
-	// A memory run stopped mid-persist loses its note: running memory runs get
-	// the drain grace before the pool is closed.
-	if n := agent.MemoryRunsInFlight(); n > 0 {
-		s.log.Info("waiting for memory runs before draining the task pool", "runs", n, "grace", agent.MemoryDrainGrace)
-		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
-	}
+	s.cancelDevinAuthLogins("")
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more.
@@ -224,6 +220,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
+		devinAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
@@ -293,6 +290,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
+	s.registerOnboardingRoutes()
 	s.registerWallpaperRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
@@ -376,9 +374,13 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
+		UserAgent:         rm.UserAgent,
 		ProxyURL:          rm.ProxyURL,
 		AuthPath:          rm.AuthPath,
 		NoCLILogin:        rm.NoCLILogin,
@@ -406,9 +408,13 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 	in := llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
+		UserAgent:         rm.UserAgent,
 		ProxyURL:          rm.ProxyURL,
 		AuthPath:          rm.AuthPath,
 		NoCLILogin:        rm.NoCLILogin,
@@ -431,11 +437,13 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
-// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
-// while no credential is configured (open_server_guard.go).
+// Handler returns the root HTTP handler: the gzip of JSON answers wraps the OpenAI error
+// normalizer wraps CORS wraps the open-server guard wraps the auth gate wraps the route mux.
+// CORS and the auth gate are no-ops unless configured; the guard applies only while no
+// credential is configured (open_server_guard.go). The gzip stays outermost because the
+// normalizer reads an error body as JSON and rewrites it.
 func (s *Server) Handler() http.Handler {
-	return s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux))))
+	return gzipJSON(s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -712,7 +720,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
+	resolve := s.resolveDirectSession
+	if httpModelIsCoddyProfile(model) {
+		resolve = s.resolveSession
+	}
+	st, sessionID, createdNew, err := resolve(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
@@ -1021,6 +1033,23 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		return nil, "", false, err
 	}
 	return st, newID, true, nil
+}
+
+// resolveDirectSession is resolveSession for a call to a direct model. The
+// header still names a session the call is kept in. Without it the call is
+// stateless (issue #585): a provider-style client sends one request per model
+// step and brings the whole conversation each time, so a stored session would
+// only cost it time and disk. Nothing names the state to the client, since
+// nothing is left to continue.
+func (s *Server) resolveDirectSession(ctx context.Context, r *http.Request) (*session.State, string, bool, error) {
+	if strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID")) != "" {
+		return s.resolveSession(ctx, r)
+	}
+	if _, ok := session.ParseRequestedOrigin(r.Header.Get(session.OriginHeader)); !ok {
+		return nil, "", false, errInvalidOriginHeader
+	}
+	st := s.mgr.NewEphemeralState()
+	return st, st.GetID(), false, nil
 }
 
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {

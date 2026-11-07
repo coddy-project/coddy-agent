@@ -4,10 +4,8 @@
  * transcript's spacer, `--chat-composer-reserve`.
  *
  * A transcript parked at its end puts its newest row two row gaps above the
- * block's first visible edge (`TRANSCRIPT_END_GAP_ROWS`): one row gap read as
- * pressed against the composer's card. The live line stands the same two row
- * gaps under the row above it by default (its padding, styles/chat/_messages.scss); without a
- * checklist the active line reduces that top gap by 4px. The
+ * block's first visible edge (`TRANSCRIPT_END_GAP_ROWS`). The live line
+ * keeps the transcript's own rhythm instead (styles/chat/_messages.scss). The
  * block's padding over its card is empty and does not count, and where the
  * scroll content ends is not always where the block ends: on the stacked shell
  * the document's content stops above the shell's own bottom padding while the
@@ -45,6 +43,7 @@ export function composerReserveFor(m: {
  * The block's empty padding over its first visible edge: the card wrapper's
  * own padding while the card is the block's top, none while a usage banner
  * stands over it (the wrapper's padding then lies under the banner).
+ *
  */
 export function blockEdgePaddingTop(host: Element): number {
   if (host.querySelector(":scope > .usage-banner")) return 0;

@@ -40,8 +40,12 @@ type UILogEntry struct {
 
 // GenerationSummary is UI-only metadata, kept out of the model's history.
 type GenerationSummary struct {
-	OutputTokens    int     `json:"outputTokens"`
-	TokensPerSecond float64 `json:"tokensPerSecond"`
+	OutputTokens int `json:"outputTokens"`
+	// TokensPerSecond is zero when the turn had no measurable generation
+	// window: an agent behind an acp row streams its answer around waits of
+	// its own, so what it writes per second says nothing about a model. The
+	// line still carries the clock and the token count.
+	TokensPerSecond float64 `json:"tokensPerSecond,omitempty"`
 	// ElapsedMs is how long the turn had run when it ended, the clock its live
 	// line showed; absent on a row saved before it was kept.
 	ElapsedMs int64 `json:"elapsedMs,omitempty"`
@@ -50,14 +54,20 @@ type GenerationSummary struct {
 // GenerationProgress replays a saved average through the same event as live
 // completion. Callers only use it for entries with a Generation summary.
 func (row UILogEntry) GenerationProgress() acp.TurnProgressUpdate {
-	return acp.TurnProgressUpdate{
-		SessionUpdate:   acp.UpdateTypeTurnProgress,
-		StartedAt:       strings.TrimPrefix(row.ID, "generation_"),
-		ElapsedMs:       row.Generation.ElapsedMs,
-		OutputTokens:    row.Generation.OutputTokens,
-		TokensPerSecond: &row.Generation.TokensPerSecond,
-		Completed:       true,
+	u := acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     strings.TrimPrefix(row.ID, "generation_"),
+		ElapsedMs:     row.Generation.ElapsedMs,
+		OutputTokens:  row.Generation.OutputTokens,
+		Completed:     true,
 	}
+	// A turn whose generation could not be measured carries no speed, live
+	// or replayed; the field is absent rather than zero.
+	if row.Generation.TokensPerSecond > 0 {
+		speed := row.Generation.TokensPerSecond
+		u.TokensPerSecond = &speed
+	}
+	return u
 }
 
 // AppendGenerationSummary replaces a continued run's cumulative summary and
@@ -80,7 +90,7 @@ func (s *State) AppendGenerationSummary(startedAt time.Time, turn, tokens int, s
 	s.touchPersist()
 }
 
-// CountUserTurns counts llm.RoleUser messages in order (matches memory copilot turn index).
+// CountUserTurns counts llm.RoleUser messages in order (matches memory subagent turn index).
 func CountUserTurns(msgs []llm.Message) int {
 	n := 0
 	for _, m := range msgs {

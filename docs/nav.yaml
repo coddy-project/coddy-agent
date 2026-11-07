@@ -115,6 +115,9 @@ groups:
       - path: features/mcp.md
         title: MCP servers
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
+      - path: features/kimi.md
+        title: Kimi
+        summary: Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security.
       - path: features/devin.md
         title: Devin
         summary: Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
@@ -162,7 +165,7 @@ groups:
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
       - path: features/memory.md
         title: Long-term memory
-        summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
+        summary: The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost.
       - path: features/decisions.md
         title: Command safety (decisions)
         summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."
@@ -282,7 +285,7 @@ groups:
         summary: Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
       - path: contributing/syntax-highlighting-audit.md
         title: Syntax highlighting audit
-        summary: The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
+        summary: The NeuralDeep audit of code highlighting across the eight themes, its fixtures and how to re-run it.
       - path: ../AGENTS.md
         title: Agent notes
         summary: The repository map and contributor notes for coding agents.

@@ -266,3 +266,14 @@ func TestUpdateStillAcceptsNoRestart(t *testing.T) {
 		t.Fatalf("coddy update --no-restart: %v", err)
 	}
 }
+
+func TestPackagingKimiLogin(t *testing.T) {
+	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
+	if !strings.Contains(zsh, "type:(neuraldeep opencode codex devin kimi)") {
+		t.Error("zsh provider type completion omits kimi")
+	}
+	man := readRepoFile(t, "../../packaging/man/coddy.1")
+	if !strings.Contains(man, "Kimi login") || !strings.Contains(man, `devin ", " kimi`) {
+		t.Error("man page omits Kimi login or provider type")
+	}
+}

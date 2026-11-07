@@ -127,13 +127,11 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
 }
 
 /**
- * The word in a card's tag: what stands behind the task. A subagent run is known by its
- * agent's name, the memory run of a turn by what it is, a shell command by being one.
+ * The word in a card's tag: what stands behind the task. An agent run is known by its
+ * agent's name - a delegated memory run says `memory`, the goal supervisor's own child
+ * `goal-verifier` - and a shell command by being one.
  */
 export function taskTag(task: BackgroundTask): string {
-  if (task.agent?.system) {
-    return t("tasks.tag.memory");
-  }
   if (isAgentTask(task)) {
     return agentTaskName(task) || t("tasks.tag.agent");
   }
@@ -145,7 +143,7 @@ export function taskTag(task: BackgroundTask): string {
 
 /**
  * The title of a card: the work itself. The pool labels an agent run
- * `agent <name>: <description>` and a memory run `memory: <first line>`; the tag already
+ * `agent <name>: <description>` and a memory run `memory: <task>`; the tag already
  * says the first half, so the title keeps the second. A run nobody described gets a
  * plain name rather than an empty title.
  */
@@ -476,7 +474,7 @@ export function agentTranscriptSessionId(task: BackgroundTask): string | null {
 /**
  * How many tasks a chat has and how many of them run right now, as its surfaces count
  * them: the live status line and the control in the chat header. A system task - the
- * memory run the runtime starts for every turn - is left out of both numbers, like
+ * goal supervisor's own children - is left out of both numbers, like
  * `Pool.RunningCount` leaves it out on the server: it is not work the model or the
  * operator started, and counting it would make every turn read as one running task.
  */

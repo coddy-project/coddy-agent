@@ -163,6 +163,35 @@ test("a group's description is the (i) beside its legend", () => {
   expect(hint).toHaveAttribute("aria-label", "About Settings");
 });
 
+// A fieldset's description is behind the (i) beside its legend, folded or
+// not: a folded block that drops it leaves the reader with a name alone and
+// no way to find out what the block is (DESIGN.md, Field descriptions).
+test("a folded group carries its description behind the (i) by its legend", () => {
+  render(
+    <Harness
+      groups={[
+        { id: "main", legend: "Settings" },
+        {
+          id: "more",
+          legend: "Advanced",
+          description: "What one process lends another.",
+          paths: ["timeout"],
+          collapsible: true,
+        },
+      ]}
+    />,
+  );
+  const legend = screen
+    .getByTestId("settings-group-more")
+    .querySelector("legend")!;
+  expect(legend.querySelector(".field-hint")).toHaveAttribute(
+    "aria-label",
+    "About Advanced",
+  );
+  // And it is the legend's own hint, not a paragraph under the name.
+  expect(legend.textContent).not.toContain("What one process lends another.");
+});
+
 test("a collapsible group starts folded and opens from its legend", () => {
   render(
     <Harness

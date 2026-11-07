@@ -24,6 +24,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`KIMI_CODE_HOME`** - Kimi CLI state directory used by an eligible `type: kimi` subscription row when Coddy has no managed credential. Default `~/.kimi-code`; see [Kimi](../features/kimi.md).
 - **`CODEX_HOME`** - Codex CLI state directory read by a **`type: codex`** provider when no Coddy-managed credential exists: the only codex row, or the row named **`codex`** among several ([Several profiles of one provider type](#several-profiles-of-one-provider-type)). Default **`~/.codex`**.
 - **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 - **`CODDY_DEVIN_CLI_CREDENTIALS`** - the Devin CLI **`credentials.toml`** read by **`type: devin`** providers when no Coddy-managed login exists. Default **`~/.local/share/devin/credentials.toml`** (or under **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** and **`CODDY_DEVIN_API_URL`** move the Devin endpoints for the whole process, for stands and tests; see [Devin](../features/devin.md).
@@ -276,7 +277,7 @@ prompts:
   #   {{.Instructions}} - the files of instructions.files. A template that prints neither block still gets the
   #                   documents and those files: in {{.Instructions}} when it has it, otherwise appended after it
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
+  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it comes back as the tool result of the spawn_agent call that delegated to it
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
   # Built-in templates order: Tools, Skills, Memory (session notes).
@@ -312,17 +313,14 @@ compaction:
                            # model is the last resort whether or not it is listed
 
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
-# subagent in the background task pool (docs/features/memory.md).
+# Linked with the memory build tag; enable at runtime with memory.enable. The model then delegates to the memory
+# subagent on demand through spawn_agent with agent: "memory" (docs/features/memory.md).
 memory:
   enable: false
   # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
   # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
-  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
-  timeout_seconds: 300  # hard limit of one memory run
-  keep_runs: 20         # finished memory runs kept per session in the Tasks panel; 0 keeps all
   recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
@@ -801,3 +799,15 @@ models:
 ```
 
 Coddy reads the reasoning levels of such an id from the model behind the vendor, so **`openrouter/qwen/qwen3.8-flash`** offers the levels of **`qwen3.8-flash`**. The aggregator's model listing names the request parameters each model takes (**`supported_parameters`**), and Coddy reads it together with the model's context window. When the listing names the unified **`reasoning`** object and not **`reasoning_effort`**, the chosen level goes out as **`reasoning: {"effort": "<level>"}`** and **`off`** as **`reasoning: {"enabled": false}`**; the Qwen3 **`chat_template_kwargs`** switch goes only to a server whose listing names it or lists nothing. The model's reasoning comes back in the **`reasoning`** field of the answer and shows in the chat like any other, with the tokens the aggregator reports for it (**`usage.completion_tokens_details.reasoning_tokens`**) next to its duration ([Web UI](../surfaces/web-ui.md#transcript-message-types)).
+
+### Compatible provider client identity
+
+For OpenAI-compatible and Anthropic-compatible providers, omit
+`providers[].user_agent` or leave it empty to keep the provider SDK identity
+(`OpenAI/Go` or `Anthropic/Go`). The explicit `openai` and `anthropic` values also
+keep the current protocol SDK identity after switching provider type.
+Select `coddy` to send `Coddy/<running version>` (`dev` in an unstamped build).
+The setting applies to blocking and streaming requests and model listing,
+including the unsaved provider preview. Other provider types ignore it.
+In Settings, open a provider, expand **Advanced settings** and choose **User-Agent**.
+Save the provider to apply the choice to new calls.

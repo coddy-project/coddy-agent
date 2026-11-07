@@ -6,6 +6,8 @@ import {
   workspaceScope,
 } from "./chat/workspaceScope";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -132,7 +134,6 @@ import {
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
-import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
 import type {
@@ -330,6 +331,12 @@ import { parseSchedulerJobRef, schedulerJobRef } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
 import { MCP_SECTION_ID } from "./settings/settingsSections";
+import {
+  fetchOnboardingStatus,
+  shouldShowOnboarding,
+} from "./onboarding/onboardingStatus";
+import { TOUR_STEPS } from "./onboarding/tourSteps";
+import { isTourSeen, markTourSeen, resetTour } from "./onboarding/tourState";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 import { AttentionTracker } from "./pwa/attentionTracker";
 import { onNotificationOpen } from "./pwa/notifications";
@@ -337,6 +344,17 @@ import type {
   CanvasChangedEvent,
   SubagentPermissionEvent,
 } from "./chat/serverEvents";
+
+const ProviderPickerDialog = lazy(() =>
+  import("./onboarding/ProviderPickerDialog").then((module) => ({
+    default: module.ProviderPickerDialog,
+  })),
+);
+const GuidedTour = lazy(() =>
+  import("./onboarding/GuidedTour").then((module) => ({
+    default: module.GuidedTour,
+  })),
+);
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -1241,6 +1259,17 @@ export function App() {
   useEffect(() => {
     configEpochRef.current = configEpoch;
   }, [configEpoch]);
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void fetchOnboardingStatus().then((status) => {
+      if (live) setShowProviderPicker(shouldShowOnboarding(status));
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const [sessionsOpen, setSessionsOpen] = useState(
     () =>
       initialRoute.branch === "history" ||
@@ -5227,7 +5256,6 @@ export function App() {
         tokenBaselineRef: tokenBaselineForSession(key),
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,
@@ -5580,6 +5608,12 @@ export function App() {
         );
         naming = startSuggestSessionTitle({
           userText: text,
+          model: (() => {
+            const typed = sessionScopedModelCommand(text);
+            return typed && llmModelIds.includes(typed)
+              ? typed
+              : llmModel.trim();
+          })(),
           // The folder this chat was started in, as the send saw it: the
           // server describes the slash commands of that workspace.
           scope: workspaceScope(sid, namingFolder),
@@ -6013,7 +6047,6 @@ export function App() {
         tokenBaselineRef: tokenBaselineForSession(streamKey),
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,
@@ -7311,6 +7344,17 @@ export function App() {
     }
   }, [sessionId, clearSessionRoute]);
 
+  const maybeStartTour = useCallback(() => {
+    if (!isTourSeen()) setShowTour(true);
+  }, []);
+
+  const restartOnboarding = useCallback(() => {
+    closeToChat();
+    resetTour();
+    setShowTour(false);
+    setShowProviderPicker(true);
+  }, [closeToChat]);
+
   // The swarm screen over a chat has no close control of its own: Escape
   // takes it down as the backdrop does, back to the chat.
   const onCloseSwarm = useCallback(() => {
@@ -8114,6 +8158,9 @@ export function App() {
                 setConfigEpoch((e) => e + 1);
                 void refreshConfiguredRemotes();
               }}
+              {...(atSwarmRoot
+                ? {}
+                : { onRestartOnboarding: restartOnboarding })}
               initialSection={settingsSection}
               initialItem={settingsItem}
               initialField={settingsField}
@@ -8492,6 +8539,38 @@ export function App() {
             onFetchToolCallFull={handleFetchToolCallFull}
           />
         )}
+        {/* Rendered only while one of them shows: both are lazy chunks, and
+            mounting them at startup would fetch first-run code on every load
+            (DESIGN.md: "chunks loaded only when shown"). */}
+        {showProviderPicker || showTour ? (
+          <Suspense fallback={null}>
+            {showProviderPicker ? (
+              <ProviderPickerDialog
+                open
+                onSaved={() => {
+                  setShowProviderPicker(false);
+                  setConfigEpoch((epoch) => epoch + 1);
+                  void refreshConfiguredRemotes();
+                  maybeStartTour();
+                }}
+                onSkip={() => {
+                  setShowProviderPicker(false);
+                  maybeStartTour();
+                }}
+              />
+            ) : null}
+            {showTour ? (
+              <GuidedTour
+                open
+                steps={TOUR_STEPS}
+                onClose={() => {
+                  markTourSeen();
+                  setShowTour(false);
+                }}
+              />
+            ) : null}
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,9 +11,105 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
+
+// describeMaxTokens is the output cap of the naming call: a title is a short
+// phrase and tags are one line, so neither route lets the model write an essay
+// for a label. The default path clamps to the same number inline.
+const describeMaxTokens = 96
+
+func describeTokenLimit(cfg *config.Config, model string) int {
+	if entry := cfg.FindModelEntry(model); entry != nil && entry.MaxTokens > 0 && entry.MaxTokens < describeMaxTokens {
+		return entry.MaxTokens
+	}
+	return describeMaxTokens
+}
+
+// describeProvider names the conversation with the model the chat itself talks
+// to, so a first message is titled by the model its operator chose. Choosing
+// from the configuration alone (providerFactory) takes the first model of the
+// list, and that one's credential is the least likely to have been refreshed:
+// one dead token used to leave every new conversation unlabelled, with no title
+// and no tags, while the chats went on working on their own models.
+//
+// The default answers for a request that names no session, and for a session
+// whose model cannot be built: naming a chat is a convenience, so it costs
+// another try rather than the label.
+func (s *Server) describeProvider(r *http.Request, requestedModel, text string) (llm.Provider, error) {
+	cfg := s.activeCfg()
+	if cfg == nil {
+		return nil, fmt.Errorf("config unavailable")
+	}
+	if line, err := session.ParseSettingsCommands(text); err == nil {
+		if line.Session.Model != nil && cfg.FindModelEntry(*line.Session.Model) != nil {
+			requestedModel = *line.Session.Model
+		}
+		for _, change := range line.Turns {
+			if change.Model != nil && cfg.FindModelEntry(*change.Model) != nil {
+				requestedModel = *change.Model
+			}
+		}
+	}
+	model := strings.TrimSpace(requestedModel)
+	if cfg.ModelRunsACPAgent(model) {
+		model = cfg.FirstNonACPModelID()
+	}
+	if model != "" {
+		maxTok := describeTokenLimit(cfg, model)
+		if p, err := s.makeLLMFromYAML(cfg, model, llm.RequestOptions{MaxTokens: &maxTok}); err == nil {
+			return p, nil
+		} else {
+			s.log.Debug("describe requested model", "model", model, "error", err)
+		}
+	}
+	if p, ok := s.describeSessionProvider(r, cfg); ok {
+		return p, nil
+	}
+	return s.providerFactory(cfg)
+}
+
+// describeSessionProvider builds the provider of the session named by the
+// request's header, reporting whether one was usable. An acp agent answers
+// inside a session only and would take the naming request for a task, so such
+// a model borrows one of another type the way the default does.
+func (s *Server) describeSessionProvider(r *http.Request, cfg *config.Config) (llm.Provider, bool) {
+	sessionID := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if sessionID == "" || s.mgr == nil {
+		return nil, false
+	}
+	if err := session.ValidateFolderSessionID(sessionID); err != nil {
+		return nil, false
+	}
+	st := s.mgr.SessionByID(sessionID)
+	if st == nil {
+		return nil, false
+	}
+	modelID := effectiveYAMLModel(cfg, st)
+	if modelID == "" {
+		return nil, false
+	}
+	if cfg.ModelRunsACPAgent(modelID) {
+		if modelID = cfg.FirstNonACPModelID(); modelID == "" {
+			return nil, false
+		}
+	}
+	// A name and its tags are one short line: the same cap the default path
+	// sends, so neither route lets the model write an essay for a title.
+	maxTok := describeTokenLimit(cfg, modelID)
+	provider, err := s.makeLLMFromYAML(cfg, modelID, llm.RequestOptions{MaxTokens: &maxTok})
+	if err != nil {
+		// A model the session selected but the configuration no longer
+		// holds: the default gets the turn rather than the chat going
+		// unlabelled, and the journal says which model was asked for.
+		s.log.Debug("describe session model", "session", sessionID, "model", modelID, "error", err)
+		return nil, false
+	}
+	return provider, true
+}
 
 // A first message that invokes a slash command carries no words to name a
 // conversation by: "/rpa-init" alone is a token the model can only repeat or

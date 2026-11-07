@@ -9,6 +9,7 @@ Feature: A wallpaper of one's own under the web UI
     And clear background keeps the server file and clears only the browser selection
     And the page carries the wallpaper and its dimming while one is set
     And the wallpaper covers the viewport, dimmed toward the theme's canvas colour
+    And the wallpaper leaves the root nothing but the canvas colour
 
   Scenario: Readable pictures have no numeric size or geometry restrictions
     Then readable pictures of any geometry can become the wallpaper

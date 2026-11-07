@@ -24,6 +24,7 @@
 - **`CODDY_HOME`** - каталог состояния агента. По умолчанию **`~/.coddy`**. В нём лежат `config.yaml`, `sessions/`, `skills/`, учётные данные провайдеров под управлением Coddy в `providers/`, а при использовании необязательного cron-планировщика ещё и **`scheduler/`**;
 - **`CODDY_CWD`** - рабочий каталог по умолчанию, когда `session/new` присылает пустой `cwd`. По умолчанию это рабочий каталог процесса при запуске. Если переменная задана, она значит то же, что флаг **`--cwd`**;
 - **`CODDY_CONFIG`** - явный путь к `config.yaml`. То же, что **`--config`**;
+- **`KIMI_CODE_HOME`** - каталог состояния Kimi CLI, который подходящая строка подписки `type: kimi` читает при отсутствии собственных учётных данных Coddy. По умолчанию `~/.kimi-code`; см. [Kimi](../features/kimi.md);
 - **`CODEX_HOME`** - каталог состояния Codex CLI, который читает провайдер **`type: codex`**, если нет учётных данных под управлением Coddy, причём только единственная строка codex или, если их несколько, строка с именем **`codex`** ([Несколько профилей одного типа провайдера](#несколько-профилей-одного-типа-провайдера)). По умолчанию **`~/.codex`**;
 - **`CODDY_CODEX_BASE_URL`** - переопределение эндпоинта бэкенда Codex (по умолчанию **`https://chatgpt.com/backend-api/codex`**). Оно намеренно действует на уровне процесса - **`api_base`** для **`type: codex`** по-прежнему игнорируется, чтобы документ настроек не мог перенаправить OAuth-токен ChatGPT. Его используют исполняемые спецификации и самостоятельно развёрнутые шлюзы Codex;
 - **`CODDY_DEVIN_CLI_CREDENTIALS`** - файл **`credentials.toml`** Devin CLI, который читают провайдеры **`type: devin`**, если собственного входа Coddy нет. По умолчанию **`~/.local/share/devin/credentials.toml`** (или внутри **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** и **`CODDY_DEVIN_API_URL`** переносят эндпоинты Devin для всего процесса, для стендов и тестов; см. [Devin](../features/devin.md).
@@ -312,17 +313,14 @@ compaction:
                            # model is the last resort whether or not it is listed
 
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
-# subagent in the background task pool (docs/features/memory.md).
+# Linked with the memory build tag; enable at runtime with memory.enable. The model then delegates to the memory
+# subagent on demand through spawn_agent with agent: "memory" (docs/features/memory.md).
 memory:
   enable: false
   # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
   # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
-  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
-  timeout_seconds: 300  # hard limit of one memory run
-  keep_runs: 20         # finished memory runs kept per session in the Tasks panel; 0 keeps all
   recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
@@ -798,4 +796,16 @@ models:
 
 Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
 
-<!-- docsgen:source sha256=7f1e2b6fe4aa00f3 -->
+### Имя клиента совместимого провайдера
+
+Для OpenAI- и Anthropic-совместимых провайдеров не задавайте
+`providers[].user_agent` или оставьте пустое значение, чтобы сохранить имя SDK
+провайдера (`OpenAI/Go` или `Anthropic/Go`). Значения `openai` и `anthropic` тоже
+сохраняют имя SDK текущего протокола при смене типа провайдера.
+Выберите `coddy`, чтобы передавать `Coddy/<running version>` (`dev` в сборке без версии).
+Настройка действует для непотоковых и потоковых запросов, а также для списка моделей,
+включая предпросмотр несохранённого провайдера. Другие типы провайдеров её игнорируют.
+В настройках откройте провайдера, раскройте **Расширенные настройки** и выберите **User-Agent**.
+Сохраните провайдера, чтобы применить выбор к новым вызовам.
+
+<!-- docsgen:source sha256=64a3304badf4d7ab -->

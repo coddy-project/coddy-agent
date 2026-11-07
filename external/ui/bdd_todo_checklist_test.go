@@ -21,8 +21,8 @@ func TestTodoChecklistWebUIFeature(t *testing.T) {
 			sc.Step(`^a conversation whose checklist has work left shows the list under its newest message$`, func() error {
 				return runVitestScenario(app, "opening a conversation shows its checklist under the newest message")
 			})
-			sc.Step(`^the checklist adds 6px above the transcript gap and gives it back on exit$`, func() error {
-				return runVitestScenario("src/ui/messages/todoChecklistCss.test.ts", "the checklist adds 6px above the transcript gap and gives it back on exit")
+			sc.Step(`^the checklist stands on the transcript's own gap and gives it back on exit$`, func() error {
+				return runVitestScenario("src/ui/messages/todoChecklistCss.test.ts", "the checklist stands on the transcript's own gap and gives it back on exit")
 			})
 			sc.Step(`^the item in progress is marked as the current step with a still mark of its own$`, func() error {
 				if err := runVitestScenario(card, "the item in progress is named on its row as the current step"); err != nil {
@@ -40,8 +40,8 @@ func TestTodoChecklistWebUIFeature(t *testing.T) {
 			sc.Step(`^the checklist stays while the turn that finished it runs and leaves once the turn is over$`, func() error {
 				return runVitestScenario(app, "a finished checklist stays while its turn runs and leaves once the turn is over")
 			})
-			sc.Step(`^the checklist stands above the live line and only at the newest end of the transcript$`, func() error {
-				return runVitestScenario(list, "the todo checklist stands above the live line, only at the newest end of the transcript")
+			sc.Step(`^the live line stands above the checklist and only at the newest end of the transcript$`, func() error {
+				return runVitestScenario(list, "the live line stands above the todo checklist, only at the newest end of the transcript")
 			})
 			sc.Step(`^a click on the list's head folds it to the item in progress and the choice is remembered$`, func() error {
 				return runVitestScenario(card, "a click on the head folds the list to the item in progress, and the choice is remembered")

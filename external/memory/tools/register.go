@@ -1,6 +1,6 @@
 //go:build memory
 
-// Package memtools defines coddy_memory_* tools for the memory copilot sub-agent.
+// Package memtools defines coddy_memory_* tools for the memory subagent.
 package memtools
 
 import (
@@ -39,7 +39,7 @@ func ExecTool(store *memstorage.Store, mem *config.MemoryConfig, name, inputJSON
 	return Exec(context.Background(), PersistTools(store, mem), name, inputJSON, &tooling.Env{})
 }
 
-// PersistTools is the full memory copilot tool list (search through delete).
+// PersistTools is the full memory subagent tool list (search through delete).
 func PersistTools(store *memstorage.Store, mem *config.MemoryConfig) []*tooling.Tool {
 	return []*tooling.Tool{
 		memorySearchTool(store, mem),

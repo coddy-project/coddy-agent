@@ -33,8 +33,9 @@ var (
 	// ErrInvalidPath refuses a path that would leave its root by its own
 	// spelling: "..", an absolute path, a volume name.
 	ErrInvalidPath = errors.New("invalid path: it must stay inside the memory root")
-	// ErrNotNote refuses a file that is not a .md or .txt note.
-	ErrNotNote = errors.New("memory file must end with .md or .txt")
+	// ErrNotNote refuses what is not a note: a file that does not end in .md
+	// or .txt, or one that is not a regular file (a named pipe, a device).
+	ErrNotNote = errors.New("not a memory note: it must be a regular file ending in .md or .txt")
 	// ErrNotDir answers a listing of something that is not a folder.
 	ErrNotDir = errors.New("not a directory")
 	// ErrScopeRoot refuses deleting a root itself.
@@ -48,7 +49,7 @@ var (
 // relative to the root, "." for the root itself, as cleanRel returns them.
 // *os.Root is one; dirRoot is the other.
 type rootFS interface {
-	ReadFile(name string) ([]byte, error)
+	OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 	MkdirAll(name string, perm fs.FileMode) error
 	Stat(name string) (fs.FileInfo, error)
@@ -65,7 +66,9 @@ type dirRoot struct{ dir string }
 
 func (d dirRoot) path(name string) string { return filepath.Join(d.dir, filepath.FromSlash(name)) }
 
-func (d dirRoot) ReadFile(name string) ([]byte, error) { return os.ReadFile(d.path(name)) }
+func (d dirRoot) OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
+	return os.OpenFile(d.path(name), flag, perm)
+}
 
 func (d dirRoot) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(d.path(name), data, perm)
@@ -101,9 +104,9 @@ func outside(err error) error {
 	return err
 }
 
-func (r projectRoot) ReadFile(name string) ([]byte, error) {
-	b, err := r.Root.ReadFile(name)
-	return b, outside(err)
+func (r projectRoot) OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
+	f, err := r.Root.OpenFile(name, flag, perm)
+	return f, outside(err)
 }
 
 func (r projectRoot) WriteFile(name string, data []byte, perm fs.FileMode) error {
@@ -240,17 +243,27 @@ func openRealDir(parent *os.Root, name, display string, create bool) (*os.Root, 
 }
 
 // collectFiles lists the notes under a root as slash paths relative to it.
-// Folders that are links are not descended into, as before; a note that is
-// a link is listed, and reading it is the root's to allow.
+// Folders that are links are not descended into, as before; a note that is a
+// link is listed when it resolves to a regular file, and reading it is the
+// root's to allow. A named pipe, a socket or a device is never a note: a read
+// of one can block for good.
 func collectFiles(fsys fs.FS) []string {
 	var out []string
 	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && isMemoryFile(d.Name()) {
-			out = append(out, p)
+		if d.IsDir() || !isMemoryFile(d.Name()) {
+			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			if info, err := fs.Stat(fsys, p); err != nil || !info.Mode().IsRegular() {
+				return nil
+			}
+		} else if !d.Type().IsRegular() {
+			return nil
+		}
+		out = append(out, p)
 		return nil
 	})
 	return out

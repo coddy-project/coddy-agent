@@ -4,6 +4,9 @@ package platform
 
 import "os"
 
+// DirSyncDurable reports that no directory flush exists on this platform.
+const DirSyncDurable = false
+
 func linkCount(string) uint64 { return 0 }
 
 func syncDir(string) error { return nil }

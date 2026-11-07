@@ -54,6 +54,7 @@ What the agent can do and how each capability is configured.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
+- [Kimi](features/kimi.md) - Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security.
 - [Devin](features/devin.md) - Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
 - [OpenCode](features/opencode.md) - Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection.
 - [ACP agent as a model](features/acp-provider.md) - Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process.
@@ -69,7 +70,7 @@ What the agent can do and how each capability is configured.
 - [Preview server](features/preview-server.md) - Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
 - [Canvas](features/canvas.md) - Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
-- [Long-term memory](features/memory.md) - The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
+- [Long-term memory](features/memory.md) - The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost.
 - [Command safety (decisions)](features/decisions.md) - The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.
 - [Session export](features/session-export.md) - /export and coddy sessions export, formats, path rules, trimming options, the JSON document.
 
@@ -120,6 +121,6 @@ How Coddy is built, tested, documented and released.
 - [OpenCode hooks](contributing/opencode-hooks.md) - Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository.
 - [ZCode hooks](contributing/zcode-hooks.md) - Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
 - [Kimi Code hooks](contributing/kimi-code-hooks.md) - Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository.
-- [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
+- [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the eight themes, its fixtures and how to re-run it.
 - [Agent notes](../AGENTS.md) - The repository map and contributor notes for coding agents.
 <!-- docsgen:nav:end -->

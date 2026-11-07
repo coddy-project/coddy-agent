@@ -6,3 +6,7 @@
 # Canvas fixtures are compared byte for byte with what Coddy writes (Obsidian's
 # own sample among them): no line-ending conversion.
 internal/canvas/testdata/** -text
+
+# The generated CLI reference preserves flag.PrintDefaults' space-tab indent.
+docs/reference/cli.md whitespace=-space-before-tab
+docs/ru/reference/cli.md whitespace=-space-before-tab
