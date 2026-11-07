@@ -185,6 +185,33 @@ function seedWorkspace(dir) {
     "notes/brief.md":
       "# Brief\n\nA shop for the workshop: **three** products, one checkout.\n",
     "design/shop.canvas": OBSIDIAN_CANVAS,
+    // A board whose second page takes the focus while it is off screen
+    // (issue #679); the check calls B's focus() itself, once A fills the board.
+    "focus/a.html": `<!doctype html><title>A</title><style>body{margin:0;height:100vh;display:grid;place-items:center;background:#1e3a5f;color:#fff;font:600 64px system-ui}</style><p>Page A</p>`,
+    "focus/b.html": `<!doctype html><title>B</title><style>body{margin:0;height:100vh;display:grid;place-items:center;align-content:center;gap:24px;background:#5f1e3a;color:#fff;font:600 64px system-ui}input{font:24px system-ui;padding:8px}</style><p>Page B</p><input placeholder="B's field">`,
+    "focus/focus.canvas": JSON.stringify({
+      nodes: [
+        {
+          id: "aaaaaaaaaaaaaaaa",
+          type: "file",
+          file: "focus/a.html",
+          x: 0,
+          y: 0,
+          width: 800,
+          height: 600,
+        },
+        {
+          id: "bbbbbbbbbbbbbbbb",
+          type: "file",
+          file: "focus/b.html",
+          x: 3000,
+          y: 2000,
+          width: 800,
+          height: 600,
+        },
+      ],
+      edges: [],
+    }),
   };
   for (const [rel, body] of Object.entries(files)) {
     const p = path.join(dir, rel);
@@ -1340,6 +1367,92 @@ try {
     await tab.close();
   } else {
     check("a frame on the open node", false, JSON.stringify(openBoard));
+  }
+
+  // ----------------------------------------- a page that takes the focus
+  // A page whose focus() reaches its frame off screen leaves the board where
+  // the person put it: the camera is the only thing that moves the board, and
+  // the board is no scroll container a focus could scroll (issue #679).
+  {
+    const fo = await openPage();
+    await fo.page.goto(
+      `${RELAY}/?lang=en#/s/${sid}/files?path=focus%2Ffocus.canvas`,
+    );
+    await fo.page.getByTestId("canvas-view").waitFor();
+    await frameFor(fo.page, "a.html");
+    const bFrame = await frameFor(fo.page, "b.html");
+    // Zoom in at A until it fills the board, so B is off screen.
+    const zoomed = await fo.page.evaluate(async () => {
+      const board = document.querySelector("[data-testid=canvas-board]");
+      const a = () =>
+        document
+          .querySelector('iframe.canvas-frame-page[title="a.html"]')
+          .getBoundingClientRect();
+      for (let i = 0; i < 400; i++) {
+        if (a().width >= board.getBoundingClientRect().width * 0.9) return true;
+        const r = a();
+        board.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: -20,
+            clientX: r.x + r.width / 2,
+            clientY: r.y + r.height / 2,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((res) => requestAnimationFrame(res));
+      }
+      return false;
+    });
+    check("the focus fixture zoomed in until A fills the board", zoomed);
+    const view = () =>
+      fo.page.evaluate(() => {
+        const board = document.querySelector("[data-testid=canvas-board]");
+        const world = document.querySelector("[data-testid=canvas-world]");
+        const rect = (title) => {
+          const r = document
+            .querySelector(`iframe.canvas-frame-page[title="${title}"]`)
+            .getBoundingClientRect();
+          return [r.x, r.y, r.width, r.height].map(Math.round);
+        };
+        const b = board.getBoundingClientRect();
+        const bRect = rect("b.html");
+        return {
+          scroll: [board.scrollLeft, board.scrollTop],
+          transform: world.style.transform,
+          a: rect("a.html"),
+          bOnScreen:
+            bRect[0] < b.right &&
+            bRect[0] + bRect[2] > b.left &&
+            bRect[1] < b.bottom &&
+            bRect[1] + bRect[3] > b.top,
+          focus: document.activeElement?.getAttribute("title") || "",
+        };
+      });
+    const before = await view();
+    check(
+      "zoomed in on A, B is off screen",
+      !before.bOnScreen,
+      JSON.stringify(before),
+    );
+    // What a composer or a dialog of the page does when it opens.
+    await bFrame.evaluate(() => document.querySelector("input").focus());
+    await fo.page.waitForTimeout(500);
+    const after = await view();
+    check(
+      "the off-screen page took the focus",
+      after.focus === "b.html",
+      JSON.stringify(after),
+    );
+    check(
+      "a page's focus() leaves the board where the person put it",
+      after.scroll[0] === 0 &&
+        after.scroll[1] === 0 &&
+        after.transform === before.transform &&
+        after.a.every((v, i) => Math.abs(v - before.a[i]) <= 1),
+      JSON.stringify({ before, after }),
+    );
+    await fo.context.close();
   }
 
   // ------------------------------------------------------- documentation shots
