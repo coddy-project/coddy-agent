@@ -682,6 +682,50 @@ func TestDevinProviderAgainstStand(t *testing.T) {
 	}
 }
 
+// The message is a real Devin 429 (GetChatMessage, server.codeium.com). The
+// endpoint sends no Retry-After header and no absolute "Limit resets at:"
+// phrase: the only thing naming the moment the window reopens is its own
+// prose. Without reading it the wrapper saw an unexplained 429, spent every
+// retry inside the same window, and the turn ended on the raw error with
+// nothing for agent.wait_for_limit_reset to wait for.
+func TestDevinRateLimitNamesItsResetToTheRetryWrapper(t *testing.T) {
+	const message = "Reached free model rate limit. Upgrade to Max for higher limits, " +
+		"or switch to a different model. Your limit will reset in 20 minutes (at 01:01 UTC)."
+	stand := devinfake.New(devinfake.Options{
+		Models: []devinfake.Model{{UID: "fam-low", Family: "fam", FamilyLabel: "Fam", Default: true, ContextWindow: 100000, MaxOutput: 8000}},
+		Reply: func(devinfake.ChatRequest, int) devinfake.Turn {
+			return devinfake.Turn{ErrorCode: "resource_exhausted", ErrorMessage: message}
+		},
+	})
+	ts := httptest.NewServer(stand)
+	defer ts.Close()
+	devinTestEnv(t, ts.URL)
+
+	prov, err := NewProvider(ProviderInput{
+		Name: "devin", Type: "devin", Model: "fam", APIKey: "devin-session-token$stand-token",
+		// A millisecond base keeps the ladder off the clock: 20 minutes is
+		// far beyond what these retries could ever wait out.
+		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) {
+		t.Fatalf("err = %v (%T), want a QuotaResetError", err, err)
+	}
+	if reset.Delay < 19*time.Minute || reset.Delay > 21*time.Minute {
+		t.Fatalf("reported pause = %v, want ~20m", reset.Delay)
+	}
+	if until := time.Until(reset.ResetAt); until < 19*time.Minute || until > 21*time.Minute {
+		t.Fatalf("reset at %v, %v from now, want ~20m", reset.ResetAt, until)
+	}
+	if n := len(stand.Chats()); n != 1 {
+		t.Fatalf("chat requests = %d, want 1: a pause the retries cannot cover is reported after one request", n)
+	}
+}
+
 func TestDevinSignInCallbackAndPaste(t *testing.T) {
 	stand := devinfake.New(devinfake.Options{})
 	ts := httptest.NewServer(stand)

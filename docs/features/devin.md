@@ -93,6 +93,8 @@ What the panel shows is what the plan reports:
 - an **ACU** plan reads a single `acu` meter from the consumed/limit pair, with no reset clock;
 - a **credits** plan, an unknown billing strategy, or a status that names only the plan reads as the plan alone - Coddy invents no meter, request count or reset the server did not send, and a missing quota reads as `quota unavailable` rather than `0%`.
 
+A plan's quota is not the only thing that can stop a turn. A model can refuse one on a rate limit of its own - `HTTP 429 resource_exhausted: Reached free model rate limit ... Your limit will reset in 20 minutes` - and no field of `GetUserStatus` carries that limit, so the `day` and `week` meters read 100 % remaining while that model refuses every request. Devin sends no `Retry-After` header with the refusal and writes the moment the window reopens into the message instead. Coddy reads that phrase, so the reset time reaches the panel and the turn does not end on a bare error, and [`agent.wait_for_limit_reset`](../reference/config.md#agent) waits the limit out and re-issues the same call, with the countdown in the panel meanwhile. Until such a limit is hit nothing shows it, because the account reports no counter for it.
+
 `usage_limits_panel: false` on the row hides the panel everywhere and stops the `GetUserStatus` reads. The protocol is not published by Cognition, so the read follows the editor's current wire shape (the 3.10.31 descriptors) and can break when Devin moves it.
 
 ## Configuration
