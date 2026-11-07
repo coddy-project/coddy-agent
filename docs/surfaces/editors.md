@@ -64,6 +64,20 @@ Coddy's own modes (`agent` / `plan` / `ask`), its configured models and its perm
 
 Any ACP client extension works; the one in Coddy's [VS Code demo video](../assets/video/vscode-acp.mp4) is the **ACP Client** extension (`formulahendry.acp-client`). Point the extension at the binary the same way as Zed: the command is the absolute path of `coddy`, the arguments are `acp` plus any flags. What the extension's panel can show is what the protocol carries - the mode, model and permission-mode selectors that `session/new` returns, the tool calls and file changes of a turn, the slash commands, and the sessions that `session/list` and `session/load` give it. Where the command is configured belongs to the extension; Coddy only sees the process it is spawned as.
 
+## Coddy TUI
+
+[coddy-tui](https://github.com/vakovalskii/coddy-tui) is a terminal client of `coddy acp`: the Qwen Code interface (Ink, Apache-2.0) with Russian localisation, image thumbnails, a follow-up queue and session summaries, whose engine is Coddy. It spawns `coddy acp` in the working directory on start, so the header shows the agent's model and the agent's slash commands, modes and permission prompts appear in the TUI; sessions land in the same store as every other surface. The source is the git submodule `external/tui-qwen`; the Go binary does not embed it.
+
+```bash
+make tui-qwen                           # Node.js 22+: submodule, build, npm archive in build/
+npm i -g build/coddy-tui-*.tgz
+export CODDY_BIN="$HOME/.local/bin/coddy"
+export CODDY_ACP_ARGS="--remote 127.0.0.1:12345 --remote-token $CODDY_REMOTE_TOKEN"  # optional
+cd ~/project && coddy-tui
+```
+
+`CODDY_BIN` is the binary to spawn (default `coddy` on `PATH`), `CODDY_ACP_ARGS` the flags after `acp` - `--config`, `--home`, or `--remote` to attach the terminal to a running `coddy serve`, so a conversation started there is live in the web UI. Keys, environment and the differences from upstream Qwen Code are in the project's `CODDY-TUI.md`.
+
 ## Obsidian and other clients
 
 Coddy's README lists Obsidian among the clients. There is no Obsidian-specific code in the repository: a plugin or an application that implements the client side of ACP connects like any other client - it spawns `coddy acp` and speaks JSON-RPC over the pipe. If a client can run a command and read its stdout line by line, the rest is the protocol reference.
