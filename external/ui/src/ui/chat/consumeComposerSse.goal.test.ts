@@ -54,7 +54,6 @@ async function drive(
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryRunToItems: (prev) => prev,
     ...extra,
   };
   const res = await consumeComposerSseReader(params);

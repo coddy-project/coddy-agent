@@ -47,7 +47,7 @@ const (
 // liveStatus is the current step of a running turn. counts says the step shows a clock
 // of its own after the phrase. The turn's clock leads the line and covers the model's
 // own phases - waiting, thinking, responding - so only a step that runs something other
-// than the model (a tool call, the memory run) counts; a step blocked on the operator
+// than the model (a tool call) counts; a step blocked on the operator
 // never does, because a climbing counter there would be a lie.
 // step identifies the step the phrase belongs to and is never rendered: two calls in a
 // row can share a phrase ("Reading a file" twice), and without it the second one would

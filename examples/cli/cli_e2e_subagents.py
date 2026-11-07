@@ -65,8 +65,8 @@ def messages_text(session_dir: Path, role: str | None = None) -> str:
 def wait_agent_task(parent: Path, timeout: float = 60.0) -> dict:
     """Poll the parent bundle for the finished task of the spawned definition.
 
-    The per-turn memory run is a task of kind agent as well (agent.system true)
-    and is usually bg_1, so the task is told apart by the definition's name.
+    Several runs can sit under one session (a memory spawn is a task of kind
+    agent too), so the task is told apart by the definition's name.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:

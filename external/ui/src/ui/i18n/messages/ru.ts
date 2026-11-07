@@ -828,15 +828,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.dir.desc":
     "Файловый корень markdown-файлов памяти; пусто - ${CODDY_HOME}/memory.",
   "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
-  "settings.schema.memory.wait_seconds.label": "Ожидание отчёта (секунды)",
-  "settings.schema.memory.wait_seconds.desc":
-    "Сколько ход ждёт отчёт субагента памяти перед первым вызовом модели; 0 не ждёт (по умолчанию 20).",
-  "settings.schema.memory.timeout_seconds.label": "Таймаут прогона (секунды)",
-  "settings.schema.memory.timeout_seconds.desc":
-    "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
-  "settings.schema.memory.keep_runs.label": "Прогонов на сессию",
-  "settings.schema.memory.keep_runs.desc":
-    "Сколько завершённых прогонов памяти сессия хранит в панели задач, запись задачи и транскрипт ребёнка вместе; 0 хранит все (по умолчанию 20).",
   "settings.schema.memory.recall_max_turns.label": "Максимум раундов выборки",
   "settings.schema.memory.recall_max_turns.desc":
     "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
@@ -2316,7 +2307,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.orphaned": "Осиротела",
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "агент",
-  "tasks.tag.memory": "память",
   "tasks.tag.server": "сервер",
   "tasks.openServer": "Открыть в новой вкладке",
   "tasks.untitledAgentRun": "Запуск субагента",

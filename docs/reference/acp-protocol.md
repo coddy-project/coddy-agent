@@ -661,28 +661,6 @@ provider type without a source, and together with `disabled: true` for a row
 whose usage limits panel is switched off (`providers[].usage_limits_panel:
 false`); such a row is never read and the update is never sent for it.
 
-### `memory_run` - The memory subagent run of a turn
-
-When `memory.enable` is true, every user turn starts a **memory subagent**: a child agent run in the background task pool with its own session bundle and task log ([Long-term memory](../features/memory.md)). This update reports that run and nothing of its text: `started` once the task is launched, `finished` once it settled while the turn was still running (a run that outlives the turn sends nothing more), `skipped` when no run could start. It is neither persisted nor replayed by `session/load`; the run's record is the task (kind `agent`, `agent.system` true) and the child transcript it names.
-
-| Field | Meaning |
-|---|---|
-| `status` | `started`, `finished` or `skipped` |
-| `taskId`, `childSessionId` | the pool task and the child session of the run; empty on a skip |
-| `taskStatus` | the pool's verdict on `finished`: `succeeded`, `failed`, `timed_out`, `stopped` |
-| `durationMs` | how long the run took, on `finished` |
-| `delivered` | whether a non-empty report reached the main model in this turn, in the turn context block of the first request or of a later step |
-| `reason` | why the run was skipped, or the error a failed run ended with |
-
-```json
-{"sessionUpdate": "memory_run", "status": "started", "taskId": "bg_3", "childSessionId": "sess_9f1c2a7d4e5b6c8d9e0f1a2b"}
-{"sessionUpdate": "memory_run", "status": "finished", "taskId": "bg_3", "childSessionId": "sess_9f1c2a7d4e5b6c8d9e0f1a2b", "taskStatus": "succeeded", "durationMs": 3210, "delivered": true}
-{"sessionUpdate": "memory_run", "status": "finished", "taskId": "bg_4", "childSessionId": "sess_0a1b2c3d4e5f60718293a4b5", "taskStatus": "failed", "durationMs": 1200, "reason": "402 Payment Required: subscription expired"}
-{"sessionUpdate": "memory_run", "status": "skipped", "reason": "memory runs in flight for this session: 2 of 2"}
-```
-
-A client shows a `Working with memory` phrase between `started` and `finished`, and drops it when the turn ends: it must not wait for `finished`, because a run that outlives the turn never sends it. The console prints one line when the run settles inside the turn. The updates `memory_phase` and `memory_message_chunk` of earlier releases no longer exist.
-
 ### `background_wake` - A turn nobody typed
 
 A task the model started with `notify_on_finish` wakes the agent when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)). Under `coddy acp` the woken turn runs with the client as its sender: its `session/update` notifications arrive outside any `session/prompt` the client sent, and a gated tool inside it is asked with `session/request_permission` like any other. The turn opens with this update, sent before its first message is persisted and in its place: the message is the instruction the model reads, and it is not sent as a `user_message_chunk`, live or on `session/load`.

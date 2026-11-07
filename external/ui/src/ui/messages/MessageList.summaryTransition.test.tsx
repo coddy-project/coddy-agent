@@ -13,11 +13,6 @@ const summary: TranscriptItem = {
   generation: { outputTokens: 100 },
 };
 const wake: TranscriptItem = { id: "wake", type: "background_wake", tasks: [] };
-const memory: TranscriptItem = {
-  id: "memory",
-  type: "memory_run",
-  status: "started",
-};
 const tool: TranscriptItem = {
   id: "tool",
   type: "tool_call",
@@ -29,16 +24,16 @@ const todo = [{ content: "Check", status: "in_progress" }];
 
 test("an invisible wake cannot leave two adjacent status lines above the checklist", () => {
   const { rerender } = render(
-    <MessageList items={[summary, wake, memory]} generating todoPlan={todo} />,
+    <MessageList items={[summary, wake]} generating todoPlan={todo} />,
   );
   expect(screen.queryByTestId("generation-summary")).toBeNull();
   expect(screen.getByTestId("typing-dots").nextElementSibling).toBe(
     screen.getByTestId("todo-checklist"),
   );
-  rerender(<MessageList items={[summary, wake, memory]} todoPlan={todo} />);
+  rerender(<MessageList items={[summary, wake]} todoPlan={todo} />);
   expect(screen.getByTestId("generation-summary")).toBeInTheDocument();
   expect(screen.queryByTestId("live-line-slot")).toBeNull();
-  rerender(<MessageList items={[summary, wake, memory]} runningTasks={1} />);
+  rerender(<MessageList items={[summary, wake]} runningTasks={1} />);
   expect(screen.getByTestId("generation-summary")).toHaveTextContent(
     "1 running task",
   );

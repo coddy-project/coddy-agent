@@ -165,7 +165,7 @@ groups:
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
       - path: features/memory.md
         title: Long-term memory
-        summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
+        summary: The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost.
       - path: features/decisions.md
         title: Command safety (decisions)
         summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer."

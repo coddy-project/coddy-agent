@@ -14,7 +14,7 @@ type FallbackCandidate struct {
 // unauthorised or out of quota fails before its first byte and falls back; a
 // stream that broke after text or a tool call was already delivered does not,
 // because the caller has consumed that output and a second model would answer
-// the same request twice. That is what the memory copilot's round-level
+// the same request twice. That is what the memory subagent's round-level
 // fallback did (issue #247), minus the round streamed twice.
 type fallbackChain struct {
 	candidates []FallbackCandidate

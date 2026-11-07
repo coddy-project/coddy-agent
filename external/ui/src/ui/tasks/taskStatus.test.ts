@@ -380,10 +380,10 @@ describe("countRunningTasks", () => {
     ).toBe(2);
   });
 
-  test("leaves out the memory run the runtime starts for every turn", () => {
+  test("leaves out the runtime's own system task", () => {
     expect(
       countRunningTasks([
-        row({ id: "bg_1", agent: { name: "memory", system: true } }),
+        row({ id: "bg_1", agent: { name: "goal-verifier", system: true } }),
         row({ id: "bg_2", agent: { name: "explore" } }),
       ]),
     ).toBe(1);

@@ -2,7 +2,7 @@
 
 package memtools
 
-// Tool names for the memory copilot (never exposed to the main agent).
+// Tool names for the memory subagent (never exposed to the main agent).
 const (
 	NameSearch = "coddy_memory_search"
 	NameList   = "coddy_memory_list"

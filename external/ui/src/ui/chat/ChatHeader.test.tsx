@@ -81,11 +81,11 @@ test("with tasks the control says how many are running out of how many there are
         task({ id: "bg_1" }),
         task({ id: "bg_2", status: "succeeded", running: false }),
         task({ id: "bg_3", status: "failed", running: false }),
-        // The memory run of a turn is a system task: neither running nor total.
+        // A system task (the goal supervisor's own child): neither running nor total.
         task({
           id: "bg_4",
           kind: "agent",
-          agent: { name: "memory", system: true },
+          agent: { name: "goal-verifier", system: true },
         }),
       ]}
       onOpenTasks={() => {}}

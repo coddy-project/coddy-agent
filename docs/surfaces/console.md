@@ -495,8 +495,8 @@ here too.
 agent has had `background_list`, `background_output` and `background_stop`
 all along; this is the operator's side of the same pool. Every task is one
 row: a status mark, a tag that says what stands behind it (`shell` for a
-command, the agent's name for a subagent run, `memory` for the memory run of
-a turn), the title - the command, or what the agent was asked to do - and how
+command, the agent's name for a subagent run, `memory` for a delegation to the
+memory subagent), the title - the command, or what the agent was asked to do - and how
 it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
 model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
 newest first, the way the web UI's Tasks panel lists them. A running task that

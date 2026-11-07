@@ -55,9 +55,6 @@ type SessionState interface {
 	GetMCPToolFilter() func(server, tool string) bool
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
-	GetMemoryCopilotBlock() string
-	SetMemoryCopilotBlock(text string)
-	ClearMemoryCopilotBlock()
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
 	GetPersistedSessionDir() string
@@ -170,9 +167,6 @@ type Agent struct {
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
-	// memoryRun is the memory subagent this turn started, or nil
-	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
-	memoryRun *memoryTurnRun
 	// docKeys are the keys of the documents the system prompt this turn froze
 	// carries (documentKeys, rules_prompt.go).
 	docKeysMu sync.Mutex
@@ -269,7 +263,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.turnHookContext = ""
 
 	// Build the user message from prompt content blocks.
-	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
 	if queued, batch := session.TakeQueuedPromptBatch(ctx, a.state.GetID()); batch {
@@ -381,10 +374,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// run below, the first model call - so a surface counts from the start.
 	a.beginTurnProgress()
 	defer a.endTurnProgress()
-	a.runMemoryBeforeTurn(ctx, userText, mode)
-	// A report that lands after this turn returned is history in the Tasks
-	// drawer, never the next turn's context.
-	defer a.finishMemoryTurn()
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -605,8 +594,9 @@ const maxProviderRecoveries = 2
 const maxUnattendedProviderRecoveries = 5
 
 // providerRecoveryBudget is how many consecutive failed calls of its provider
-// this turn rides out. The memory child keeps the interactive budget: its
-// report only matters to the user turn that is waiting for it.
+// this turn rides out. A child the runtime shapes (Kind is set) keeps the
+// interactive budget: a memory run answers to the turn that delegated to it,
+// so it rides out the same two failures an interactive turn does.
 func (a *Agent) providerRecoveryBudget() int {
 	if a.subagent != nil && a.subagent.Kind == "" {
 		return maxUnattendedProviderRecoveries
@@ -3307,7 +3297,7 @@ func (a *Agent) withChildFallbacks(primary llm.Provider, modelID string, mk func
 // turnProviderInput is llmProviderInput plus the bounds of a user turn: the
 // first-token timer as the call's own budget, and with the wait on, the
 // wait's maximum as the turn's budget and the turn's ledger. Helpers
-// (compaction, the memory copilot) use llmProviderInput alone and never
+// (compaction, the memory subagent) use llmProviderInput alone and never
 // see the option.
 func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	in := a.llmProviderInput(rm)

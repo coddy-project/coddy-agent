@@ -120,7 +120,6 @@ export function MessageList(props: {
     const item = props.items[lastVisibleIndex]!;
     if (
       item.type !== "background_wake" &&
-      item.type !== "memory_run" &&
       (item.type !== "assistant_message" || item.content.trim() !== "")
     )
       break;
@@ -271,11 +270,6 @@ export function MessageList(props: {
           // row, never a user bubble, since nobody typed the instruction the
           // model read. It opens a turn and has no edit or copy controls.
           return <GoalTurnMessage key={it.id} rowId={it.id} turn={it.turn} />;
-        }
-        if (it.type === "memory_run") {
-          // The memory subagent's run is the live status line's business and
-          // the Tasks drawer's record; the transcript shows nothing for it.
-          return null;
         }
         if (it.type === "assistant_message") {
           // Whitespace alone is a zero-height row that still takes the column's

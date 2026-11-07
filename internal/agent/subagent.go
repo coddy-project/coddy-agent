@@ -545,7 +545,7 @@ func (s *subagentSender) RequestQuestion(context.Context, acp.QuestionRequestPar
 // subagentHandle is the pool's view of a child run: Stop cancels the child,
 // Wait blocks until the run settled, and there is no OS process behind it.
 // A run that failed hands its error to the pool through Wait, so the task
-// record says why (the drawer row, the console line, the memory_run update).
+// record says why (the drawer row, the console line).
 type subagentHandle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -570,8 +570,8 @@ func (h *subagentHandle) PID() int                    { return 0 }
 func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
 // subagentRun is the bookkeeping of one child run: a spawn from the parent's
-// side, a system child such as the memory subagent (def nil, system true), or
-// a scheduled run from the daemon's.
+// side, a system child the runtime starts on its own behalf (def nil,
+// system true), or a scheduled run from the daemon's.
 type subagentRun struct {
 	// name is what the run is called in logs and reports: the definition
 	// name of a spawn, the system agent's name, the job id (or its
@@ -701,10 +701,24 @@ func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 }
 
 // subagentDefinitions loads the definitions visible for this session's cwd.
+// The bundled memory definition is left out while the feature is off (or the
+// tag is not compiled in), so the parent never sees a spawn the gate would
+// refuse.
 func (a *Agent) subagentDefinitions() []*subagents.Definition {
 	loader := subagents.NewLoader(a.cfg.Subagents.SearchDirs(), a.cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = a.log
-	return loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
+	defs := loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
+	if a.memorySpawnVisible(a.cfg) {
+		return defs
+	}
+	out := defs[:0]
+	for _, def := range defs {
+		if def.Builtin && def.Name == session.SubagentKindMemory {
+			continue
+		}
+		out = append(out, def)
+	}
+	return out
 }
 
 // subagentCatalogBlock renders the Subagents section for the system prompt, or
@@ -848,6 +862,18 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		return "", fmt.Errorf("unknown subagent %q; available: %s", req.Agent, strings.Join(subagents.VisibleNames(spawnable), ", "))
 	}
 	cwd := a.state.GetCWD()
+
+	// A spawn under the bundled memory definition is a run of the memory
+	// subagent: the memory package supplies its tools, prompt template and
+	// the guides of the memory roots instead of the definition. Only a
+	// build with the memory tag runs one.
+	memChild := def.Builtin && def.Name == session.SubagentKindMemory
+	if memChild {
+		if err := a.memorySpawnCheck(cfg); err != nil {
+			return "", err
+		}
+	}
+
 	workspace := subagents.CanonicalWorkspace(cwd)
 	policy := cfg.Subagents.ResolvedProjectTrust()
 	store := subagents.NewTrustStore(cfg.Paths.Home)
@@ -868,6 +894,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			return "", fmt.Errorf("spawn_agent: the run of subagent %s being resumed worked in %s, not in a worktree of its own; a resumed run goes on where it worked, so drop isolation or start a new subagent", def.Name, resumed.cwd)
 		}
 		isolated = resumed.worktree != ""
+	}
+	if memChild && isolated {
+		return "", fmt.Errorf("spawn_agent: the memory subagent works on this session's memory roots and cannot run in a worktree")
 	}
 
 	// The parent mode is the mode this turn was admitted in, not the live
@@ -893,17 +922,20 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	if childDepth > maxDepth || (childDepth == maxDepth && len(childSpawns) == 0) {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
-	parentNames := a.parentToolNames(parentMode)
-	effective := subagents.EffectiveTools(parentNames, modeToolNames(childMode, parentNames), def, exclusions)
-	if len(effective) == 0 {
-		return "", fmt.Errorf("subagent %q would have no tools at all: its allowlist %v leaves nothing of this session's tool set (after the denylist and the mandatory exclusions); fix the definition or pick another subagent",
-			def.Name, def.Tools)
-	}
+	var effective []string
 	connectMCP := false
-	for _, n := range effective {
-		if strings.Contains(n, "__") {
-			connectMCP = true
-			break
+	if !memChild {
+		parentNames := a.parentToolNames(parentMode)
+		effective = subagents.EffectiveTools(parentNames, modeToolNames(childMode, parentNames), def, exclusions)
+		if len(effective) == 0 {
+			return "", fmt.Errorf("subagent %q would have no tools at all: its allowlist %v leaves nothing of this session's tool set (after the denylist and the mandatory exclusions); fix the definition or pick another subagent",
+				def.Name, def.Tools)
+		}
+		for _, n := range effective {
+			if strings.Contains(n, "__") {
+				connectMCP = true
+				break
+			}
 		}
 	}
 
@@ -959,9 +991,11 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	// so what is decided here is whether anything is left. It does not decide
 	// which MCP servers are dialed: a server no model needs is switched off in
 	// its declaration.
-	if ts := cfg.ResolveToolset(model, ""); len(narrowToolNamesByToolset(effective, ts)) == 0 {
-		return "", fmt.Errorf("subagent %q would have no tools at all on model %s: its toolset %q leaves nothing of its effective set %v; adjust the toolset or choose another model",
-			def.Name, model, ts.Name, effective)
+	if !memChild {
+		if ts := cfg.ResolveToolset(model, ""); len(narrowToolNamesByToolset(effective, ts)) == 0 {
+			return "", fmt.Errorf("subagent %q would have no tools at all on model %s: its toolset %q leaves nothing of its effective set %v; adjust the toolset or choose another model",
+				def.Name, model, ts.Name, effective)
+		}
 	}
 
 	parentID := a.state.GetID()
@@ -1055,26 +1089,33 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		}
 		modelNote += note
 	}
+	spec := session.SubagentSpec{
+		ID:                childID,
+		ParentSessionID:   parentID,
+		Name:              def.Name,
+		CWD:               childCWD,
+		Mode:              childMode,
+		PermissionMode:    childPerm,
+		SelectedModelID:   model,
+		SelectedReasoning: reasoning,
+		Title:             label,
+		Role:              def.Role,
+		Tools:             effective,
+		Spawns:            childSpawns,
+		Depth:             childDepth,
+		MaxTurns:          def.MaxTurns,
+		ConnectMCP:        connectMCP,
+		ClientMCPServers:  a.parentSessionMCPDeclarations(),
+		Resume:            resumed != nil,
+	}
+	if memChild {
+		// The memory package rewrites the spec into a run of the memory
+		// subagent: its own tool set, prompt template, model and the
+		// guides of the memory roots ahead of the task.
+		a.memorySpawnSpec(cfg, &spec, &prompt, parentMode, a.state.EffectiveModelID(cfg))
+	}
 	snap, run, err := a.launchChildRun(ctx, rt, childLaunch{
-		spec: session.SubagentSpec{
-			ID:                childID,
-			ParentSessionID:   parentID,
-			Name:              def.Name,
-			CWD:               childCWD,
-			Mode:              childMode,
-			PermissionMode:    childPerm,
-			SelectedModelID:   model,
-			SelectedReasoning: reasoning,
-			Title:             label,
-			Role:              def.Role,
-			Tools:             effective,
-			Spawns:            childSpawns,
-			Depth:             childDepth,
-			MaxTurns:          def.MaxTurns,
-			ConnectMCP:        connectMCP,
-			ClientMCPServers:  a.parentSessionMCPDeclarations(),
-			Resume:            resumed != nil,
-		},
+		spec:            spec,
 		def:             def,
 		prompt:          prompt,
 		parentMode:      mode,
@@ -1141,7 +1182,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 // childLaunch is what a launcher decided about a child run before the pool is
 // involved: the session to build, the task to register and the parent-side
 // bookkeeping. spawnSubagentInMode fills it for a definition the model
-// chose; the memory runtime fills it for the system child of a user turn.
+// chose.
 type childLaunch struct {
 	spec session.SubagentSpec
 	// def is the definition behind a spawn_agent child; nil for a system child.
@@ -1155,7 +1196,7 @@ type childLaunch struct {
 	// timeoutSeconds is the run's hard limit; expectedSeconds the estimate.
 	timeoutSeconds, expectedSeconds int
 	// detached runs the child on a context that outlives the launching tool
-	// call (a background spawn, every memory run).
+	// call (a background spawn).
 	detached bool
 	// notify wakes the parent when the task finishes (background spawns only).
 	notify bool
