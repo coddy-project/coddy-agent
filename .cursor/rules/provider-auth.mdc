@@ -21,3 +21,12 @@ alwaysApply: false
 - An unsaved retyped sign-in probes the requested provider type and only the current proxy.
 - Usage invalidation applies only to the owning row.
 - Provider requests still obey the provider-proxy rule.
+- A provider's authentication, credential storage and sign-in work on every
+  supported OS (Windows, macOS, Linux, Android): a platform difference gets a
+  real per-OS implementation or a working fallback, never a deliberate refusal
+  on a supported OS. Gate the difference on `runtime.GOOS` /
+  `internal/platform` behind a per-OS file with a working default, not a blanket
+  error based on the OS alone. Unsafe paths, invalid credentials and failed
+  permission checks remain errors. Each OS is proven by a test that runs there (the `windows-latest` /
+  `macos-latest` jobs, the Android cross-build plus a Termux run), not by
+  `GOOS=<os> go build` alone.

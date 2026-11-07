@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,15 @@ func TestKimiCredentialsMutationsRequireDurability(t *testing.T) {
 	previous := kimiDirSyncDurable
 	kimiDirSyncDurable = false
 	defer func() { kimiDirSyncDurable = previous }()
+	if runtime.GOOS == "windows" {
+		if err := s.saveForTest("global", kimiTestCredential("a", "r", 0)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Remove("global"); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	if err := s.saveForTest("global", kimiTestCredential("a", "r", 0)); !errors.Is(err, ErrKimiStoreUnsupported) {
 		t.Fatalf("save: %v", err)
 	}

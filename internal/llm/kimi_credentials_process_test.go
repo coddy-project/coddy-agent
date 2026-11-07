@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"runtime"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -39,9 +38,6 @@ func TestKimiCredentialLogoutSubprocess(t *testing.T) {
 	dir := os.Getenv("KIMI_LOGOUT_HELPER")
 	if dir == "" {
 		return
-	}
-	if runtime.GOOS == "windows" {
-		t.Fatal("unsupported")
 	}
 	if err := NewKimiCredentialStore(dir).Remove("global"); err != nil {
 		t.Fatal(err)

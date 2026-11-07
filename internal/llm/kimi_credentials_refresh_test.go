@@ -258,9 +258,6 @@ func TestKimiAccessTokenCrossProcessSingleRotation(t *testing.T) {
 	if !KimiRefreshSupported() {
 		t.Skip("managed Kimi storage requires secure durable locking")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the refresh layer fails closed on Windows; see TestKimiAccessTokenUnsupportedPlatform")
-	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
 	if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
@@ -307,9 +304,6 @@ func TestKimiAccessTokenCrossProcessSingleRotation(t *testing.T) {
 func TestKimiAccessTokenLogoutOrdering(t *testing.T) {
 	if !KimiRefreshSupported() {
 		t.Skip("managed Kimi storage requires secure durable locking")
-	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the refresh layer fails closed on Windows")
 	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)
@@ -640,11 +634,17 @@ func TestKimiAccessTokenUnsupportedPlatform(t *testing.T) {
 	}
 
 	kimiLockAvailable, kimiDirSyncDurable = true, false
-	if _, err := r.AccessToken(context.Background()); !errors.Is(err, ErrKimiStoreUnsupported) {
-		t.Fatalf("no durable dir sync must fail closed on refresh, got %v", err)
-	}
-	if s.calls.Load() != 0 {
-		t.Fatal("no remote call without durable intent")
+	if runtime.GOOS == "windows" {
+		if token, err := r.AccessToken(context.Background()); err != nil || token != "a2" || s.calls.Load() != 1 {
+			t.Fatalf("best-effort refresh: token=%q calls=%d err=%v", token, s.calls.Load(), err)
+		}
+	} else {
+		if _, err := r.AccessToken(context.Background()); !errors.Is(err, ErrKimiStoreUnsupported) {
+			t.Fatalf("no durable dir sync must fail closed on refresh, got %v", err)
+		}
+		if s.calls.Load() != 0 {
+			t.Fatal("no remote call without durable intent")
+		}
 	}
 }
 
@@ -653,9 +653,6 @@ func TestKimiAccessTokenUnsupportedPlatform(t *testing.T) {
 func TestKimiRefreshIntentSurvivesProcessDeath(t *testing.T) {
 	if !KimiRefreshSupported() {
 		t.Skip("managed Kimi storage requires secure durable locking")
-	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the refresh layer fails closed on Windows")
 	}
 	dir := privateKimiTestDir(t)
 	store := NewKimiCredentialStore(dir)

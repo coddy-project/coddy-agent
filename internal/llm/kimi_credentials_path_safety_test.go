@@ -97,7 +97,7 @@ func TestKimiCredentialRejectsSymlinkIntent(t *testing.T) {
 }
 
 func TestKimiCredentialRejectsSymlinkLoginMarker(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" && runtime.GOOS != "darwin" {
 		t.Skip("secure store unsupported")
 	}
 	s := NewKimiCredentialStore(privateKimiTestDir(t))
@@ -125,7 +125,7 @@ func TestKimiCredentialRejectsSymlinkLoginMarker(t *testing.T) {
 }
 
 func TestKimiCredentialAnchorsDirectory(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" && runtime.GOOS != "darwin" {
 		t.Skip("secure store unsupported")
 	}
 	parent := privateKimiTestDir(t)
@@ -162,7 +162,7 @@ func TestKimiCredentialAnchorsDirectory(t *testing.T) {
 }
 
 func TestKimiCredentialParentTrust(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" && runtime.GOOS != "darwin" {
 		t.Skip("secure store unsupported")
 	}
 	parent := privateKimiTestDir(t)
@@ -190,7 +190,7 @@ func TestKimiCredentialParentTrust(t *testing.T) {
 }
 
 func TestKimiCredentialRejectsLinkInWritableParent(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" && runtime.GOOS != "darwin" {
 		t.Skip("secure store unsupported")
 	}
 	base := privateKimiTestDir(t)

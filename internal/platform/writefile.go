@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 )
@@ -127,10 +128,14 @@ func WritePrivateFileInRoot(root *os.Root, name string, data []byte) (WriteRepor
 	return report, nil
 }
 
-// SyncRoot flushes the already opened directory, preserving fault injection.
+// SyncRoot flushes the already opened directory where supported, preserving
+// fault injection. On Windows it is a no-op, as is SyncDir.
 func SyncRoot(root *os.Root) error {
 	if dirSyncFault.Load() {
 		return ErrInjectedWriteFault
+	}
+	if runtime.GOOS == "windows" {
+		return nil
 	}
 	f, err := root.Open(".")
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -149,7 +150,11 @@ func TestKimiLoginRejectsUnsafeCorruptCredential(t *testing.T) {
 	if err := os.WriteFile(outside, []byte(`{`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, s.CredentialPath("global")); err != nil {
+	if runtime.GOOS == "windows" {
+		if err := os.Mkdir(s.CredentialPath("global"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := os.Symlink(outside, s.CredentialPath("global")); err != nil {
 		t.Fatal(err)
 	}
 	attempt, err := s.BeginLogin(context.Background(), "global")

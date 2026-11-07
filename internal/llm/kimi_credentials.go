@@ -16,22 +16,23 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
-// The Kimi credential layer keeps a subscription credential durable across
-// the processes that may share it (the console, coddy serve, a scheduled
+// The Kimi credential layer shares a subscription credential across
+// the processes that may use it (the console, coddy serve, a scheduled
 // run) while the provider rotates the refresh token on every refresh. Three
 // files per identity live under the store directory:
 //
 //	kimi-<region>-auth.json      - the credential itself, 0600
 //	kimi-<region>-auth.lock      - the inter-process lock, 0600
-//	kimi-<region>-refresh.intent - the durable refresh intent, 0600
+//	kimi-<region>-refresh.intent - the refresh intent, 0600 on Unix
 //
-// The intent is written and synced before a refresh request goes out. A
+// The intent is written before a refresh request goes out. Its file is synced,
+// but Windows cannot guarantee the directory entry survives power loss. A
 // refresh that commits removes it; an intent that outlives its writer marks
 // the credential uncertain, because the refresh token may already be
 // rotated on the server and must never be sent again.
 
 // KimiCredential is the persisted OAuth credential of one Kimi provider and
-// region. Generation counts durable commits under the lock: a reader that
+// region. Generation counts commits under the lock: a reader that
 // finds a different generation than it read before knows a peer wrote.
 type KimiCredential struct {
 	AccessToken  string `json:"access_token"`
@@ -107,12 +108,10 @@ var (
 	kimiDirSyncDurable = platform.DirSyncDurable
 )
 
-// KimiRefreshSupported reports whether this build can run a refresh with the
-// guarantees it is written around: an inter-process lock and a durable
-// directory flush. Where it is false a refresh attempt fails closed with
-// ErrKimiStoreUnsupported instead of racing token rotation.
+// KimiRefreshSupported reports whether this build can use the managed store.
+// Windows uses best-effort intent persistence without a durable directory flush.
 func KimiRefreshSupported() bool {
-	return kimiSecureStoreAvailable && kimiLockAvailable && kimiDirSyncDurable
+	return kimiSecureStoreAvailable && kimiLockAvailable && (kimiDirSyncDurable || runtime.GOOS == "windows")
 }
 
 const (
@@ -123,7 +122,7 @@ const (
 	kimiLockRetry = 50 * time.Millisecond
 )
 
-// KimiCredentialStore is the durable credential slot of one directory for
+// KimiCredentialStore is the credential slot of one directory for
 // every Kimi region identity that may exist there. Reads are lock-free
 // (writers commit by rename); every mutation - save, remove, refresh -
 // runs under an in-process mutex and an inter-process file lock so a
@@ -326,8 +325,8 @@ func (s *KimiCredentialStore) saveUnlocked(region string, cred KimiCredential) e
 	return s.writeDurable(credPath, data)
 }
 
-// writeIntent commits a refresh intent durably (temp file, fsync, rename,
-// directory flush) before the refresh request it describes is allowed out.
+// writeIntent commits a refresh intent (temp file, sync, rename, and directory
+// flush where available) before the refresh request it describes is allowed out.
 // Callers hold the identity lock.
 func (s *KimiCredentialStore) writeIntent(region string, in kimiRefreshIntent) error {
 	if s.root == nil {
@@ -351,8 +350,8 @@ func (s *KimiCredentialStore) writeIntent(region string, in kimiRefreshIntent) e
 	return s.writeDurable(intentPath, data)
 }
 
-// removeIntent deletes the intent file and flushes the directory so a crash
-// cannot resurrect it. Callers hold the identity lock.
+// removeIntent deletes the intent file and flushes the directory where available.
+// Callers hold the identity lock.
 func (s *KimiCredentialStore) removeIntent(intentPath string) error {
 	if s.root == nil {
 		root, err := openKimiRoot(s.dir, false)
@@ -370,9 +369,9 @@ func (s *KimiCredentialStore) removeIntent(intentPath string) error {
 	return s.syncDir()
 }
 
-// writeDurable commits data to path with owner-only permissions through a
-// synced temp file and an atomic rename, and treats an unconfirmed directory
-// flush as a write failure rather than silently claiming durability.
+// writeDurable commits data through a synced temp file and an atomic rename.
+// Unix flushes the directory and its ancestors; Windows relies on inherited
+// DACLs and has no confirmed directory flush.
 func (s *KimiCredentialStore) writeDurable(path string, data []byte) error {
 	if s.root == nil {
 		return errors.New("kimi credentials: directory not open")
@@ -413,7 +412,7 @@ func (s *KimiCredentialStore) acquireScopedLock(ctx context.Context, lockPath, c
 	if !kimiLockAvailable {
 		return nil, nil, fmt.Errorf("%w: no inter-process file lock on %s", ErrKimiStoreUnsupported, runtime.GOOS)
 	}
-	if !kimiDirSyncDurable {
+	if !kimiDirSyncDurable && runtime.GOOS != "windows" {
 		return nil, nil, fmt.Errorf("%w: no durable directory flush on %s", ErrKimiStoreUnsupported, runtime.GOOS)
 	}
 	wait := s.lockWait

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// kimiRefreshIntent is the durable intent written under the identity lock
+// kimiRefreshIntent is the intent written under the identity lock
 // before a refresh request is sent. It records the credential generation the
 // refresh started from and the generation it intends to commit, so a later
 // process can tell a completed rotation (the credential's generation matches
@@ -214,14 +214,15 @@ func (r *KimiCredentialRefresher) accessToken(ctx context.Context, force bool) (
 }
 
 // lockedRefresh runs the refresh critical section under the identity lock:
-// re-read, durable intent, request, durable commit, intent cleanup.
+// re-read, intent, request, commit, intent cleanup.
 func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock KimiCredential, force bool) (string, error) {
 	credPath, lockPath, intentPath, err := r.store.paths(r.region)
 	if err != nil {
 		return "", err
 	}
-	// The intent mechanism only works when the directory flush is real.
-	if !kimiDirSyncDurable {
+	// Windows retains the intent on observed failures but cannot guarantee it
+	// survives a power loss. Other platforms require a durable directory flush.
+	if !kimiDirSyncDurable && runtime.GOOS != "windows" {
 		return "", fmt.Errorf("%w: no durable directory flush on %s", ErrKimiStoreUnsupported, runtime.GOOS)
 	}
 	scoped, release, err := r.store.acquireScopedLock(ctx, lockPath, credPath)
@@ -269,7 +270,7 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 		return "", errors.New("kimi credentials: invalid device identifier")
 	}
 
-	// Durable intent before the request: a process that dies between here
+	// Intent before the request: a process that dies between here
 	// and the commit below leaves this marker, and the next load fails
 	// closed instead of reusing a possibly rotated refresh token.
 	intent := kimiRefreshIntent{
@@ -315,7 +316,7 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 
 // resolveUnauthorized decides what a 401/invalid_grant means. A peer that
 // rotated while our request was in flight wins: its credential is adopted,
-// not tombstoned. With no peer write, the rejection is durable-recorded as
+// not tombstoned. With no peer write, the rejection is recorded as
 // a tombstone so every later process reads "sign in again". Peer detection
 // reads the credential alone (checkIntent=false): a moved file is a peer
 // write regardless of intent bookkeeping - including our own intent, which
