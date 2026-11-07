@@ -19,7 +19,7 @@ Feature: Setting up a model provider from the console
     Given a coddy console app with no model provider configured
     When the console app starts
     Then the screen shows "Set up a model provider"
-    And the provider picker lists "NeuralDeep, OpenCode, OpenAI, Anthropic, Codex, Devin, OpenAI-compatible, ACP agent" in that order
+    And the provider picker lists "NeuralDeep, OpenCode, OpenAI, Anthropic, Codex, Devin, Kimi, OpenAI-compatible, ACP agent" in that order
     When the operator presses escape
     Then the screen shows "Type /login to pick one"
     And the screen does not show "same agent as ACP and HTTP"
@@ -52,6 +52,24 @@ Feature: Setting up a model provider from the console
     Then config.yaml lists the provider "custom" with the model "custom/mini-1"
     And config.yaml names "custom/mini-1" as agent.model
     And the footer shows "(custom) mini-1"
+
+  Scenario: An existing Kimi CLI login reaches model discovery
+    Given a synthetic Kimi CLI login and a stand-in discovery proxy
+    And a coddy console app with a Kimi provider using the stand-in proxy
+    When the console app starts
+    And the operator submits the command "/login"
+    And the operator picks "Kimi" in the provider picker
+    And the operator confirms the highlighted row
+    Then the screen shows "Kimi: model"
+    And Kimi discovery reached the proxy without changing the CLI credential
+
+  Scenario: The picker offers Kimi platform in China
+    Given a coddy console app with no model provider configured
+    When the console app starts
+    And the operator picks "Kimi" in the provider picker
+    Then the screen shows "Kimi: which service"
+    When the operator picks "Kimi Platform API key - platform.kimi.com" from the list
+    Then the screen shows "Kimi: API key"
 
   Scenario: The picker connects an agent of the operator's own over ACP
     Given a stand-in ACP agent that lists the model "own-1"

@@ -194,7 +194,7 @@ func (m *Manager) notifyUsageObservers(sessionID string, u acp.ProviderUsageUpda
 // providerUsageSource says whether a provider type has a usage source.
 func providerUsageSource(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "neuraldeep", "codex", "devin":
+	case "neuraldeep", "codex", "devin", "kimi":
 		return true
 	default:
 		return false
@@ -204,7 +204,11 @@ func providerUsageSource(providerType string) bool {
 // providerUsageEnabled says whether a row is read at all: its type has a
 // usage source and its panel is on (providers[].usage_limits_panel).
 func providerUsageEnabled(prov *config.ProviderConfig) bool {
-	return prov != nil && providerUsageSource(prov.Type) && prov.EffectiveUsageLimitsPanel()
+	return prov != nil && providerUsageSource(prov.Type) && (!strings.EqualFold(strings.TrimSpace(prov.Type), "kimi") || strings.TrimSpace(prov.Mode) != "platform") && prov.EffectiveUsageLimitsPanel()
+}
+
+func usageAuthPath(cfg *config.Config, prov *config.ProviderConfig) string {
+	return config.ProviderConfigAuthPath(cfg.Paths.Home, *prov)
 }
 
 // ProviderUsage returns the account usage behind the named provider row. A
@@ -232,6 +236,10 @@ func (m *Manager) CachedProviderUsage() map[string]acp.ProviderUsageUpdate {
 	out := make(map[string]acp.ProviderUsageUpdate, len(m.usage.entries))
 	for name, e := range m.usage.entries {
 		if e.update == nil || cfg == nil || !providerUsageEnabled(cfg.FindProvider(name)) {
+			continue
+		}
+		prov := cfg.FindProvider(name)
+		if strings.EqualFold(strings.TrimSpace(prov.Type), "kimi") && e.fingerprint != providerUsageFingerprint(*prov, usageAuthPath(cfg, prov), cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)) {
 			continue
 		}
 		out[name] = m.usageDeliverableLocked(e, now)
@@ -269,7 +277,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 			Disabled:      providerUsageSource(prov.Type),
 		}, nil
 	}
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
@@ -430,7 +438,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	if !providerUsageEnabled(prov) {
 		return
 	}
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 	if e.fingerprint != fingerprint {
@@ -488,7 +496,7 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		mapped, err := m.fetchProviderUsage(ctx, provider, authPath, cliLogin)
+		mapped, boundFingerprint, err := m.fetchProviderUsageBound(ctx, provider, authPath, cliLogin)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -497,6 +505,25 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			m.usage.mu.Unlock()
 			close(done)
 			return
+		}
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "kimi") {
+			cfg := m.activeCfg()
+			var current *config.ProviderConfig
+			if cfg != nil {
+				current = cfg.FindProvider(name)
+			}
+			want := boundFingerprint
+			if want == "" {
+				want = e.fingerprint
+			}
+			if errors.Is(err, errUsageSuperseded) || !providerUsageEnabled(current) || usageAuthPath(cfg, current) != authPath || providerUsageFingerprint(*current, authPath, cfg.ProviderMayUseCLILogin(current.Name, current.Type)) != want {
+				m.usageInvalidateLocked(e)
+				e.inflight, e.inflightCancel = nil, nil
+				m.usage.mu.Unlock()
+				close(done)
+				return
+			}
+			e.fingerprint = want
 		}
 		e.inflight, e.inflightCancel = nil, nil
 		if err == nil {
@@ -721,7 +748,7 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		return
 	}
 	cfg := m.activeCfg()
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
@@ -776,7 +803,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		return
 	}
 	cfg := m.activeCfg()
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 

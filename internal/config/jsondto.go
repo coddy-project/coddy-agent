@@ -104,6 +104,9 @@ type InstructionsJSON struct {
 type ProviderJSON struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
+	Mode          string `json:"mode,omitempty"`
+	Region        string `json:"region,omitempty"`
+	KimiIdentity  string `json:"kimi_identity,omitempty"`
 	APIBase       string `json:"api_base,omitempty"`
 	UserAgent     string `json:"user_agent,omitempty"`
 	APIKey        string `json:"api_key,omitempty"`
@@ -121,11 +124,12 @@ type ProviderJSON struct {
 // ModelJSON mirrors ModelEntry for JSON APIs.
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string  `json:"model"`
-	MaxTokens        int     `json:"max_tokens"`
-	Temperature      float64 `json:"temperature"`
-	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
-	Multimodal       bool    `json:"multimodal,omitempty"`
+	Model            string             `json:"model"`
+	KimiMetadata     *KimiModelMetadata `json:"kimi_metadata,omitempty"`
+	MaxTokens        int                `json:"max_tokens"`
+	Temperature      float64            `json:"temperature"`
+	MaxContextTokens int                `json:"max_context_tokens,omitempty"`
+	Multimodal       bool               `json:"multimodal,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.

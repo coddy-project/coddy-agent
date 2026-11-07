@@ -115,6 +115,9 @@ groups:
       - path: features/mcp.md
         title: MCP servers
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
+      - path: features/kimi.md
+        title: Kimi
+        summary: Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security.
       - path: features/devin.md
         title: Devin
         summary: Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.

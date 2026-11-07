@@ -6,6 +6,7 @@ import { IconCheck, IconPlus, IconSync } from "./icons";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import {
   modelDisplayName,
+  kimiSourceMatches,
   providerRowFetchable,
   useAutoProviderModels,
   type FetchedModel,
@@ -64,6 +65,13 @@ export function ProviderModelList(props: {
     contextWindow?: number | undefined,
     maxTokens?: number | undefined,
     multimodal?: boolean | undefined,
+    kimiMetadata?: {
+      model: string;
+      protocol: string;
+      mode: string;
+      region: string;
+    },
+    listing?: FetchedModel,
   ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
@@ -142,16 +150,48 @@ export function ProviderModelList(props: {
         aria-pressed={isListed}
         title={action}
         aria-label={name}
-        onClick={() =>
-          isListed
-            ? onRemoveModel(full)
-            : onAddModel(
-                full,
-                model?.context_window || model?.catalog?.context_window,
-                catalogFor(model)?.max_tokens,
-                catalogFor(model)?.multimodal,
-              )
-        }
+        onClick={() => {
+          if (isListed) {
+            onRemoveModel(full);
+            return;
+          }
+          const validModel =
+            model &&
+            (str(provider.type).trim() === "kimi" || model.kimi_source) &&
+            !kimiSourceMatches(model, provider)
+              ? undefined
+              : model;
+          const args = [
+            full,
+            validModel?.context_window || validModel?.catalog?.context_window,
+            catalogFor(validModel)?.max_tokens,
+            validModel?.kimi_source
+              ? validModel.kimi_image_input
+              : catalogFor(validModel)?.multimodal,
+          ] as const;
+          const source = validModel?.kimi_source;
+          if (
+            source &&
+            validModel?.kimi_protocol &&
+            kimiSourceMatches(validModel, provider)
+          ) {
+            const metadata = {
+              model: full,
+              protocol: validModel.kimi_protocol,
+              mode: source.mode,
+              region: source.region,
+            };
+            onAddModel(...args, metadata, validModel);
+          } else if (
+            source &&
+            validModel &&
+            kimiSourceMatches(validModel, provider)
+          ) {
+            onAddModel(...args, undefined, validModel);
+          } else {
+            onAddModel(...args);
+          }
+        }}
       >
         {isListed ? <IconCheck /> : <IconPlus />}
       </button>

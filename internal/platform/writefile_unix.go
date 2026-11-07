@@ -7,6 +7,10 @@ import (
 	"syscall"
 )
 
+// DirSyncDurable reports that flushing a folder entry is implemented on this
+// platform, so a write-then-rename sequence can be made crash durable.
+const DirSyncDurable = true
+
 // linkCount is the number of names the file at path has, 0 when unknown.
 func linkCount(path string) uint64 {
 	info, err := os.Stat(path)

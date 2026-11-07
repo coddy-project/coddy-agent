@@ -7,11 +7,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -395,5 +398,175 @@ func TestOnlyAMachineWideSignInSkipsTheSignInStep(t *testing.T) {
 	}
 	if in.NoCLILogin {
 		t.Fatal("the row a fresh install would write may use the Codex CLI's login")
+	}
+}
+
+func TestKimiPresetExists(t *testing.T) {
+	if _, ok := providerpreset.ByID("kimi"); !ok {
+		t.Fatal("Kimi is absent from the picker")
+	}
+}
+
+func TestKimiPlatformSetupCarriesRouteAndKeepsExistingModel(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "kimi", Type: "kimi", Mode: "platform", Region: "china", Proxy: "http://proxy:8080"}}, Models: []config.ModelEntry{{Model: "kimi/kimi-for-coding", MaxTokens: 123}}}
+	run := &providerSetupRun{preset: preset(t, "kimi"), kimiMode: "platform", kimiRegion: "china", apiKey: "test-key"}
+	in := providerListInput(context.Background(), cfg, run)
+	if in.Mode != "platform" || in.Region != "china" || in.ProxyURL != "http://proxy:8080" {
+		t.Fatalf("wrong route: %+v", in)
+	}
+	cmds, _ := providerSetupCommands(cfg, run, "kimi/kimi-for-coding", nil)
+	if _, ok := valueAt(cmds, "models[model=kimi/kimi-for-coding]"); ok {
+		t.Fatal("existing model overwritten")
+	}
+	fresh, _ := providerSetupCommands(&config.Config{}, run, "kimi/kimi-for-coding", nil)
+	row, _ := valueAt(fresh, "providers[name=kimi]")
+	for _, want := range []string{`"mode":"platform"`, `"region":"china"`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("row %s lacks %s", row, want)
+		}
+	}
+}
+
+func TestKimiProbeUsesManagedIdentity(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef"
+	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir()}, Providers: []config.ProviderConfig{{Name: "kimi", Type: "kimi", KimiIdentity: id, Mode: "subscription", Region: "china"}}}
+	in := providerListInput(context.Background(), cfg, &providerSetupRun{preset: preset(t, "kimi"), kimiMode: "subscription", kimiRegion: "china"})
+	if in.KimiIdentity != id || in.AuthPath != config.ProviderConfigAuthPath(cfg.Paths.Home, cfg.Providers[0]) {
+		t.Fatalf("managed identity lost: %+v", in)
+	}
+}
+
+func TestKimiPresetRecognizesGlobalCLILogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("KIMI_CODE_HOME", home)
+	dir := filepath.Join(home, "credentials")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kimi-code-env-0e4f99c69cc27850.json"), []byte(`{"access_token":"synthetic"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir()}}
+	if !presetAlreadySignedIn(cfg, preset(t, "kimi")) {
+		t.Fatal("global CLI login was ignored")
+	}
+}
+
+func TestKimiPresetCredentialSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("KIMI_CODE_HOME", home)
+	dir := filepath.Join(home, "credentials")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	china := filepath.Join(dir, "kimi-code.json")
+	original := []byte(`{"access_token":"synthetic-china","refresh_token":"do-not-use"}`)
+	if err := os.WriteFile(china, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir()}}
+	p := preset(t, "kimi")
+	for _, tc := range []struct {
+		mode, region string
+		want         bool
+	}{
+		{"subscription", "global", false}, {"subscription", "china", true}, {"platform", "china", false},
+	} {
+		if got := presetAlreadySignedIn(cfg, p, tc.mode, tc.region); got != tc.want {
+			t.Errorf("%s/%s = %v, want %v", tc.mode, tc.region, got, tc.want)
+		}
+	}
+	p.ProviderName = "other"
+	cfg.Providers = []config.ProviderConfig{{Name: "kimi", Type: "kimi"}, {Name: "other", Type: "kimi"}}
+	if presetAlreadySignedIn(cfg, p, "subscription", "china") {
+		t.Fatal("another row used the CLI credential")
+	}
+	after, err := os.ReadFile(china)
+	if err != nil || string(after) != string(original) {
+		t.Fatal("CLI credential changed")
+	}
+}
+
+func TestKimiCatalogModelMetadata(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		mode, region, protocol string
+		image                  *bool
+	}{
+		{"subscription", "global", "kimi", &yes}, {"subscription", "china", "anthropic", &no}, {"platform", "china", "openai_responses", &yes},
+	} {
+		t.Run(tc.mode+tc.region+tc.protocol, func(t *testing.T) {
+			run := &providerSetupRun{preset: preset(t, "kimi"), kimiMode: tc.mode, kimiRegion: tc.region}
+			listed := &llm.ModelEntry{ID: "selected", ContextWindow: 131072, KimiProtocol: tc.protocol, KimiImageInput: tc.image, KimiReasoningLevels: []string{"low", "high"}, KimiDefaultReasoning: "high"}
+			cmds, _ := providerSetupCommands(&config.Config{}, run, "kimi/selected", listed)
+			raw, ok := valueAt(cmds, "models[model=kimi/selected]")
+			if !ok {
+				t.Fatal("model was not staged")
+			}
+			var entry config.ModelEntry
+			if err := yaml.Unmarshal([]byte(raw), &entry); err != nil {
+				t.Fatal(err)
+			}
+			if entry.KimiMetadata == nil || entry.KimiMetadata.Model != "kimi/selected" || entry.KimiMetadata.Mode != tc.mode || entry.KimiMetadata.Region != tc.region || entry.KimiMetadata.Protocol != tc.protocol {
+				t.Errorf("metadata: %+v", entry.KimiMetadata)
+			}
+			if entry.MaxContextTokens != 131072 || entry.Multimodal != *tc.image || (entry.ReasoningLevels == nil || !slices.Equal(*entry.ReasoningLevels, []string{"low", "high"})) || entry.ReasoningDefault != "high" {
+				t.Errorf("capabilities: %+v", entry)
+			}
+		})
+	}
+}
+
+func TestKimiUnsupportedAndManualCatalogModel(t *testing.T) {
+	run := &providerSetupRun{preset: preset(t, "kimi"), kimiMode: "platform", kimiRegion: "global"}
+	bad := &llm.ModelEntry{ID: "bad", KimiProtocol: "future-protocol"}
+	cmds, _ := providerSetupCommands(&config.Config{}, run, "kimi/bad", bad)
+	if _, ok := valueAt(cmds, "models[model=kimi/bad]"); ok {
+		t.Fatal("unsupported protocol was saved")
+	}
+	if _, ok := valueAt(cmds, "agent.model"); ok {
+		t.Fatal("unsupported protocol became default")
+	}
+	cmds, _ = providerSetupCommands(&config.Config{}, run, "kimi/manual", nil)
+	raw, _ := valueAt(cmds, "models[model=kimi/manual]")
+	var row map[string]any
+	if err := json.Unmarshal([]byte(raw), &row); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := row["kimi_metadata"]; ok {
+		t.Fatal("manual model invented metadata")
+	}
+	cfg := &config.Config{Models: []config.ModelEntry{{Model: "kimi/selected", MaxContextTokens: 99}}}
+	cmds, _ = providerSetupCommands(cfg, run, "kimi/selected", &llm.ModelEntry{ID: "selected", KimiProtocol: "kimi", ContextWindow: 200})
+	if _, ok := valueAt(cmds, "models[model=kimi/selected]"); ok {
+		t.Fatal("existing model was overwritten")
+	}
+}
+
+func TestKimiCatalogCanonicalDefaultsAndUnknownCapabilities(t *testing.T) {
+	run := &providerSetupRun{preset: preset(t, "kimi")}
+	listed := &llm.ModelEntry{ID: "selected", KimiProtocol: "kimi"}
+	cmds, _ := providerSetupCommands(&config.Config{}, run, "kimi/selected", listed)
+	raw, ok := valueAt(cmds, "models[model=kimi/selected]")
+	if !ok {
+		t.Fatal("model was not staged")
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(raw), &row); err != nil {
+		t.Fatal(err)
+	}
+	md, ok := row["kimi_metadata"].(map[string]any)
+	if !ok || md["mode"] != "subscription" || md["region"] != "global" {
+		t.Fatalf("wrong defaults: %v", row)
+	}
+	for _, key := range []string{"multimodal", "reasoning_levels", "reasoning_default"} {
+		if _, ok := row[key]; ok {
+			t.Errorf("unknown %s was invented", key)
+		}
+	}
+	run.kimiRegion = "invalid"
+	cmds, _ = providerSetupCommands(&config.Config{}, run, "kimi/selected", listed)
+	if len(cmds) != 0 {
+		t.Fatalf("invalid region accepted: %v", cmds)
 	}
 }

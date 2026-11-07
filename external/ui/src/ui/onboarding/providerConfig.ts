@@ -1,4 +1,7 @@
-import type { FetchedModel } from "../settings/useProviderModels";
+import {
+  kimiSourceMatches,
+  type FetchedModel,
+} from "../settings/useProviderModels";
 
 export type ProviderPresetId =
   | "openai"
@@ -8,6 +11,7 @@ export type ProviderPresetId =
   | "codex"
   | "opencode"
   | "devin"
+  | "kimi"
   | "acp";
 
 export type ProviderPreset = {
@@ -22,6 +26,7 @@ export type ProviderPreset = {
     | "codex"
     | "opencode"
     | "devin"
+    | "kimi"
     | "acp";
   apiBase?: string;
   // apiBaseExample is the placeholder of an endpoint the operator types: one
@@ -128,6 +133,15 @@ export const PROVIDER_PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
     envKey: "${DEVIN_API_KEY}",
   },
   {
+    id: "kimi",
+    label: "Kimi",
+    descriptionKey: "onboarding.provider.kimi.description",
+    providerName: "kimi",
+    providerType: "kimi",
+    multimodal: false,
+    defaultModel: "kimi/kimi-for-coding",
+  },
+  {
     id: "compatible",
     label: "OpenAI-compatible",
     descriptionKey: "onboarding.provider.compatible.description",
@@ -230,6 +244,9 @@ export function buildOnboardingConfig(input: {
   baseDoc: Record<string, unknown>;
   catalog: FetchedModel[];
   managedLogin: boolean;
+  kimiMode?: "subscription" | "platform";
+  kimiRegion?: "global" | "china";
+  kimiIdentity?: string;
 }): Record<string, unknown> {
   const { preset, baseDoc } = input;
   const providers = rows(baseDoc.providers);
@@ -241,7 +258,13 @@ export function buildOnboardingConfig(input: {
     name: preset.providerName,
     type: preset.providerType,
   };
+  if (preset.providerType === "kimi") {
+    provider.mode = input.kimiMode ?? "subscription";
+    provider.region = input.kimiRegion ?? "global";
+    if (input.kimiIdentity) provider.kimi_identity = input.kimiIdentity;
+  }
   const keyless =
+    (preset.providerType === "kimi" && input.kimiMode !== "platform") ||
     preset.providerType === "codex" ||
     // An ACP agent is a program this machine runs and signs itself in; the
     // row carries its command, never a key.
@@ -292,7 +315,8 @@ export function buildOnboardingConfig(input: {
     delete provider.api_base;
   } else if (
     preset.providerType === "codex" ||
-    preset.providerType === "devin"
+    preset.providerType === "devin" ||
+    preset.providerType === "kimi"
   ) {
     delete provider.api_base;
   } else {
@@ -309,33 +333,53 @@ export function buildOnboardingConfig(input: {
   else providers[providerIndex] = provider;
 
   const model = providerModelRef(preset, input.modelId);
-  const listed = catalogEntry(preset, input.modelId, input.catalog);
+  const candidate = catalogEntry(preset, input.modelId, input.catalog);
+  const listed =
+    preset.providerType === "kimi" &&
+    candidate &&
+    !kimiSourceMatches(candidate, provider)
+      ? undefined
+      : candidate;
   const models = rows(baseDoc.models);
   const existingModel = models.find((row) => String(row.model || "") === model);
-  const modelRow: Record<string, unknown> = { ...existingModel, model };
-  modelRow.max_tokens =
-    listed?.catalog?.max_tokens ?? existingModel?.max_tokens ?? 8192;
-  // A listed model's own window wins; preset.maxContextTokens is the window of
-  // the preset's default model and only a fallback for a model nothing listed.
-  const contextWindow =
-    listed?.context_window ||
-    listed?.catalog?.context_window ||
-    preset.maxContextTokens;
-  if (contextWindow) modelRow.max_context_tokens = contextWindow;
-  modelRow.multimodal = listed?.catalog
-    ? listed.catalog.multimodal === true
-    : preset.multimodal;
-  if (["openai", "codex", "devin"].includes(preset.id)) {
-    modelRow.reasoning_default = existingModel?.reasoning_default ?? "medium";
-    delete modelRow.temperature;
-  } else if (!existingModel || existingModel.temperature === undefined) {
-    modelRow.temperature = 0.2;
+  if (!existingModel) {
+    const modelRow: Record<string, unknown> = { model };
+    const catalog =
+      listed?.catalog &&
+      (!listed.context_window ||
+        listed.context_window === listed.catalog.context_window)
+        ? listed.catalog
+        : undefined;
+    modelRow.max_tokens = catalog?.max_tokens ?? 8192;
+    const contextWindow =
+      listed?.context_window ||
+      listed?.catalog?.context_window ||
+      preset.maxContextTokens;
+    if (contextWindow) modelRow.max_context_tokens = contextWindow;
+    if (
+      preset.providerType !== "kimi" ||
+      listed?.kimi_image_input !== undefined
+    ) {
+      modelRow.multimodal =
+        listed?.kimi_image_input ??
+        (catalog ? catalog.multimodal === true : preset.multimodal);
+    }
+    if (listed?.kimi_protocol && listed.kimi_source)
+      modelRow.kimi_metadata = {
+        model,
+        protocol: listed.kimi_protocol,
+        mode: listed.kimi_source.mode,
+        region: listed.kimi_source.region,
+      };
+    if (listed?.kimi_reasoning_levels)
+      modelRow.reasoning_levels = listed.kimi_reasoning_levels;
+    if (listed?.kimi_default_reasoning)
+      modelRow.reasoning_default = listed.kimi_default_reasoning;
+    if (["openai", "codex", "devin"].includes(preset.id))
+      modelRow.reasoning_default ??= "medium";
+    else modelRow.temperature = 0.2;
+    models.push(modelRow);
   }
-  const modelIndex = models.findIndex(
-    (row) => String(row.model || "") === model,
-  );
-  if (modelIndex < 0) models.push(modelRow);
-  else models[modelIndex] = modelRow;
 
   return {
     ...baseDoc,

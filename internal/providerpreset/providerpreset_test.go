@@ -283,3 +283,20 @@ func readWebMessages(t *testing.T) map[string]string {
 	}
 	return out
 }
+
+// Both pickers offer the same mode and region combinations in the same order.
+func TestKimiServicesMatchTheWebPicker(t *testing.T) {
+	raw, err := os.ReadFile(filepath.FromSlash("../../external/ui/src/ui/onboarding/ProviderPickerDialog.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := regexp.MustCompile(`<option value="((?:subscription|platform):(?:global|china))">`).FindAllSubmatch(raw, -1)
+	if len(matches) != len(KimiServices) {
+		t.Fatalf("web offers %d Kimi services, console %d", len(matches), len(KimiServices))
+	}
+	for i, service := range KimiServices {
+		if got, want := string(matches[i][1]), service.Mode+":"+service.Region; got != want {
+			t.Errorf("service %d: web %q console %q", i, got, want)
+		}
+	}
+}

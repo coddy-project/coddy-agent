@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -31,8 +32,11 @@ type codexAuthLoginAttempt struct {
 	Connected    bool
 	Error        string
 	CreatedAt    time.Time
+	KimiIdentity string
 	// cancel stops the waiting goroutine when the server drains.
 	cancel context.CancelFunc
+	// cancelDurable invalidates a Kimi attempt in the credential store.
+	cancelDurable func() error
 	// paste is the pipe a sign-in that completes from a pasted callback
 	// address reads (Devin); nil for the device flows, which have none.
 	paste *io.PipeWriter
@@ -40,13 +44,20 @@ type codexAuthLoginAttempt struct {
 
 // stop ends an attempt: the wait it holds and, where the sign-in reads one,
 // the pipe its pasted answer would arrive on.
-func (a *codexAuthLoginAttempt) stop() {
+func (a *codexAuthLoginAttempt) stop() error {
 	if a.cancel != nil {
 		a.cancel()
 	}
 	if a.paste != nil {
 		_ = a.paste.Close()
 	}
+	if a.cancelDurable != nil {
+		return a.cancelDurable()
+	}
+	if strings.HasPrefix(a.ProviderName, "kimi:") && a.Status == "pending" {
+		return errors.New("kimi login invalidation not ready")
+	}
+	return nil
 }
 
 // registerAuthLoginAttempt records a new attempt and supersedes what it
@@ -54,17 +65,20 @@ func (a *codexAuthLoginAttempt) stop() {
 // second sign-in must not later re-store a credential the first one was
 // about to overwrite, and anything older than authLoginMaxAge is ended and
 // forgotten. The caller holds codexAuthMu.
-func registerAuthLoginAttempt(store map[string]*codexAuthLoginAttempt, loginID, provider string, attempt *codexAuthLoginAttempt) {
+func registerAuthLoginAttempt(store map[string]*codexAuthLoginAttempt, loginID, provider string, attempt *codexAuthLoginAttempt) error {
 	for id, old := range store {
 		stale := time.Since(old.CreatedAt) > authLoginMaxAge
 		if old.ProviderName == provider || stale {
-			old.stop()
+			if err := old.stop(); err != nil {
+				return err
+			}
 		}
 		if stale {
 			delete(store, id)
 		}
 	}
 	store[loginID] = attempt
+	return nil
 }
 
 type codexAuthLoginResponse struct {
@@ -86,21 +100,26 @@ func (s *Server) cancelCodexAuthLogins() {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.codexAuthLogins {
-		attempt.stop()
+		if err := attempt.stop(); err != nil {
+			s.log.Warn("provider login invalidation failed during shutdown")
+		}
 	}
 }
 
 // cancelCodexAuthLoginsFor stops the pending sign-ins of one provider. A new
 // login supersedes the previous one, and a sign-out must not leave a
 // background wait that later re-stores a credential the user just removed.
-func (s *Server) cancelCodexAuthLoginsFor(provider string) {
+func (s *Server) cancelCodexAuthLoginsFor(provider string) error {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.codexAuthLogins {
 		if attempt.ProviderName == provider {
-			attempt.stop()
+			if err := attempt.stop(); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func (s *Server) registerCodexAuthRoutes() {
@@ -154,7 +173,10 @@ func (s *Server) coddyProviderCodexAuthDelete(w http.ResponseWriter, r *http.Req
 	}
 	// A background device wait finishing after the sign-out would silently
 	// re-store the credential; supersede every pending attempt first.
-	s.cancelCodexAuthLoginsFor(name)
+	if err := s.cancelCodexAuthLoginsFor(name); err != nil {
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 	path := config.CodexAuthPath(s.activeCfg().Paths.Home, name)
 	if err := llm.RemoveCodexAuth(path); err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "could not remove Codex credentials")
@@ -205,8 +227,13 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 	// already visible to a concurrent start or sign-out and gets cancelled
 	// with everything else instead of slipping through the gap.
 	s.codexAuthMu.Lock()
-	registerAuthLoginAttempt(s.codexAuthLogins, loginID, name, attempt)
+	err = registerAuthLoginAttempt(s.codexAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
+	if err != nil {
+		cancel()
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 
 	// The issuer call answers this request, so it follows the request context,
 	// but a supersede or sign-out in the meantime aborts it as well.

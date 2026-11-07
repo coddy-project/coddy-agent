@@ -54,6 +54,7 @@ What the agent can do and how each capability is configured.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
 - [MCP servers](features/mcp.md) - Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
+- [Kimi](features/kimi.md) - Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security.
 - [Devin](features/devin.md) - Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
 - [OpenCode](features/opencode.md) - Using the OpenCode Go and Console gateways with account login or a service account key - model protocols, client headers and gateway selection.
 - [ACP agent as a model](features/acp-provider.md) - Serving a local ACP agent (Claude Code, Codex, OpenCode, ZCode, another Coddy) as a model - the acp block, one agent session per Coddy session, its permission requests, plan and ask modes, the agent process.

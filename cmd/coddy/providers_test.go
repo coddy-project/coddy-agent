@@ -541,7 +541,7 @@ func TestProvidersLoginTypeCreatesAProfile(t *testing.T) {
 	if _, err := resolveLoginProvider(cfg, "mine", "codex"); err == nil || !strings.Contains(err.Error(), `type "openai"`) {
 		t.Fatalf("--type against a listed row of another type: err = %v", err)
 	}
-	if _, err := resolveLoginProvider(cfg, "x", "openai"); err == nil || !strings.Contains(err.Error(), "neuraldeep, opencode, codex and devin") {
+	if _, err := resolveLoginProvider(cfg, "x", "openai"); err == nil || !strings.Contains(err.Error(), "neuraldeep, opencode, codex, devin and kimi") {
 		t.Fatalf("--type of a plain-key type: err = %v", err)
 	}
 	if prov, err := resolveLoginProvider(cfg, "codex", "codex"); err != nil || prov != &cfg.Providers[0] {

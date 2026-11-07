@@ -21,6 +21,7 @@ describe("PROVIDER_PRESETS", () => {
       "anthropic",
       "codex",
       "devin",
+      "kimi",
       "compatible",
       "acp",
     ]);

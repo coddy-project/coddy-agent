@@ -1304,6 +1304,8 @@ describe("settings search", () => {
   });
 
   test("the System tab is a tab and a result, and choosing it opens #/settings/status", async () => {
+    // This test checks search navigation; separate tests cover the lazy load.
+    await import("./SystemSection");
     await drawer();
     expect(screen.getByTestId("settings-tab-status").textContent).toContain(
       "System",
@@ -1397,6 +1399,27 @@ describe("settings search", () => {
     await frames.settle();
     expect(scrolledTo()).toHaveLength(3);
     expect(scrolledTo()[2]).toBe(boxOf("agent:llm_retry_max"));
+  });
+
+  test("a direct link reveals the current row after a config copy replaces its form", async () => {
+    await drawer({
+      section: "providers",
+      item: "openai",
+      field: "providers:proxy",
+    });
+    await frames.settle();
+    const old = boxOf("providers:proxy", rowForm("openai")!)!;
+    expect(isRinged(old)).toBe(true);
+    expect(advancedOpen(rowForm("openai")!)).toBe(true);
+    act(() => noteSettingsConfigReloaded());
+    await waitFor(() =>
+      expect(boxOf("providers:proxy", rowForm("openai")!)).not.toBe(old),
+    );
+    await frames.settle();
+    const current = boxOf("providers:proxy", rowForm("openai")!)!;
+    expect(advancedOpen(rowForm("openai")!)).toBe(true);
+    expect(isRinged(current)).toBe(true);
+    expectCursor(within(current).getByLabelText("Proxy URL"));
   });
 
   test("a stale anchor opens the tab and the row and says nothing", async () => {
@@ -2736,4 +2759,46 @@ describe("system status", () => {
       expect(statusReads(fetch)).toBe(0);
     });
   });
+});
+
+test("saving a selected Kimi model keeps its catalog metadata", async () => {
+  server.schema = AGENT_SCHEMA;
+  server.config = {
+    ...configFromSchema(AGENT_SCHEMA),
+    providers: [
+      { name: "kimi", type: "kimi", mode: "platform", region: "china" },
+    ],
+    models: [],
+  };
+  const fetch = stubServer();
+  const original = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (path, init) => {
+    if (String(path) === "/coddy/providers/models")
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          models: [{ id: "m1", kimi_protocol: "kimi" }],
+        }),
+      };
+    return original(path, init);
+  });
+  render(<Settings onClose={() => {}} initialSection="providers" />);
+  fireEvent.click(await screen.findByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+  fireEvent.click(screen.getByTestId("settings-save"));
+  await waitFor(() =>
+    expect(server.config.models).toEqual([
+      expect.objectContaining({
+        model: "kimi/m1",
+        kimi_metadata: {
+          model: "kimi/m1",
+          protocol: "kimi",
+          mode: "platform",
+          region: "china",
+        },
+      }),
+    ]),
+  );
 });

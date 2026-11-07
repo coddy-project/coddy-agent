@@ -26,6 +26,7 @@ paths:
 - Keep tests deterministic; avoid real network unless the test is explicitly integration-style and documented.
 - A test that touches files or paths holds on Windows too (a contributor's machine, and the `windows-latest` job, which runs the whole suite): build expected paths with **`filepath.Join`** / **`filepath.FromSlash`**, check POSIX mode bits only when **`runtime.GOOS != "windows"`**, put a path into a YAML fixture with **`%q`** (a double-quoted YAML string reads the `\U` of `C:\Users` as an escape), turn CRLF into LF before matching lines of a checked-out file (Git on Windows converts them), and make a remove or a rename fail by holding the file open (**`os.Open`** does not share delete access) rather than by `chmod` on its directory, which Windows ignores.
 - New HTTP behavior belongs in **`external/httpserver/server_test.go`** (and related files) with **`http` build tag parity.
+- A provider's auth, credential storage, usage or proxy path must work on every supported OS (Windows, macOS, Linux, Android), not refuse a platform deliberately. Cross-compiling is not proof it runs there: a per-OS difference is proven by a test that runs on that OS (the `windows-latest` / `macos-latest` jobs, the Android cross-build plus a Termux run), never by `GOOS=<os> go build` alone. A platform difference gets a real per-OS implementation or a working fallback behind `runtime.GOOS` / `internal/platform`, not a blanket error based on the OS alone.
 
 ## BDD feature specs (`features/`)
 
