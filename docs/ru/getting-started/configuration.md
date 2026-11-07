@@ -313,17 +313,14 @@ compaction:
                            # model is the last resort whether or not it is listed
 
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
-# subagent in the background task pool (docs/features/memory.md).
+# Linked with the memory build tag; enable at runtime with memory.enable. The model then delegates to the memory
+# subagent on demand through spawn_agent with agent: "memory" (docs/features/memory.md).
 memory:
   enable: false
   # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
   # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
-  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
-  timeout_seconds: 300  # hard limit of one memory run
-  keep_runs: 20         # finished memory runs kept per session in the Tasks panel; 0 keeps all
   recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
