@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -43,14 +42,21 @@ func clientToolLimitsOf(cfg *config.Config) clientToolLimits {
 	return l
 }
 
-// clientToolError is a tool list refused for a bound it broke; code is the
-// error.code the client receives.
+// clientToolError is a refused tool list that knows what to answer about
+// itself: param is the error.param of the field it concerns, "tools" when
+// empty, and code the error.code, which only a broken bound has.
 type clientToolError struct {
-	code string
-	msg  string
+	param string
+	code  string
+	msg   string
 }
 
 func (e *clientToolError) Error() string { return e.msg }
+
+// badToolChoice is a refusal about tool_choice rather than about the tools.
+func badToolChoice(msg string) error {
+	return &clientToolError{param: "tool_choice", msg: msg}
+}
 
 // tooManyClientTools names the count, the limit and what to change: a client
 // whose MCP servers offer more tools than the limit otherwise loses every turn
@@ -73,19 +79,18 @@ func clientToolParametersTooLarge(name string, size, limit int) error {
 }
 
 // writeClientToolError answers a refused tool list with the field it concerns
-// and, for a broken bound, its code. A broken bound always concerns "tools",
-// so it never meets the reading below, which is all the other refusals have:
-// a tool a client happens to name "tool_choice" would otherwise be reported
-// against the field of that name.
+// and, for a broken bound, its code. The field is carried by the refusal and
+// never read back out of its message: a message names the tool it is about,
+// and a client may call a tool "tool_choice", which would then be answered
+// against a field the request never sent.
 func writeClientToolError(w http.ResponseWriter, err error) {
-	var limitErr *clientToolError
-	if errors.As(err, &limitErr) {
-		writeOpenAIValidationErrorCode(w, err.Error(), "tools", limitErr.code)
-		return
+	param, code := "tools", ""
+	var toolErr *clientToolError
+	if errors.As(err, &toolErr) {
+		if toolErr.param != "" {
+			param = toolErr.param
+		}
+		code = toolErr.code
 	}
-	param := "tools"
-	if strings.Contains(err.Error(), "tool_choice") {
-		param = "tool_choice"
-	}
-	writeOpenAIValidationError(w, err.Error(), param)
+	writeOpenAIValidationErrorCode(w, err.Error(), param, code)
 }

@@ -154,10 +154,21 @@ func TestClientToolSchemaLimit(t *testing.T) {
 	}
 }
 
+// responsesToolBody is a direct Responses request offering one tool of the
+// given name and parameters, with an optional tool_choice.
+func responsesToolBody(name, params, choice string) string {
+	body := `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"` + name + `","parameters":` + params + `}]`
+	if choice != "" {
+		body += `,"tool_choice":` + choice
+	}
+	return body + "}"
+}
+
 // TestClientToolErrorNamesTheFieldItConcerns keeps error.param on the field the
-// refusal is about. The field of a refusal other than a broken bound is read
-// out of its message, so a tool a client happens to name "tool_choice" has to
-// stay a tools error, while an unsupported tool_choice stays its own.
+// refusal is about. Every message about a tool names that tool, and a client
+// may call one "tool_choice", so reading the field back out of the message
+// would answer such a request against a field it never sent; a refusal carries
+// its own field instead. An unsupported tool_choice still gets its own.
 func TestClientToolErrorNamesTheFieldItConcerns(t *testing.T) {
 	big := `{"type":"object","description":"` + strings.Repeat("x", 2000) + `"}`
 	cases := []struct {
@@ -168,13 +179,28 @@ func TestClientToolErrorNamesTheFieldItConcerns(t *testing.T) {
 	}{
 		{
 			name:      "a tool named tool_choice over the schema bound",
-			body:      `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"tool_choice","parameters":` + big + `}]}`,
+			body:      responsesToolBody("tool_choice", big, ""),
 			wantParam: "tools",
 			wantCode:  "tool_parameters_too_large",
 		},
 		{
+			name:      "a tool named tool_choice with invalid parameters",
+			body:      responsesToolBody("tool_choice", `3`, ""),
+			wantParam: "tools",
+		},
+		{
+			name:      "a tool named tool_choice asking to be strict",
+			body:      `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"tool_choice","parameters":{"type":"object"},"strict":true}]}`,
+			wantParam: "tools",
+		},
+		{
 			name:      "an unsupported tool_choice",
-			body:      `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"t","parameters":{"type":"object"}}],"tool_choice":"required"}`,
+			body:      responsesToolBody("t", `{"type":"object"}`, `"required"`),
+			wantParam: "tool_choice",
+		},
+		{
+			name:      "a tool_choice that is not a string",
+			body:      responsesToolBody("t", `{"type":"object"}`, `{"type":"function"}`),
 			wantParam: "tool_choice",
 		},
 	}
@@ -201,4 +227,27 @@ func TestClientToolErrorNamesTheFieldItConcerns(t *testing.T) {
 			}
 		})
 	}
+
+	// The chat endpoint rejects an unsupported tool_choice before the tool
+	// list is read, so a refusal that reaches this writer there is always
+	// about the tools, whatever a client named one of them.
+	t.Run("chat completions, a tool named tool_choice with invalid parameters", func(t *testing.T) {
+		state := &openAIPassthroughState{}
+		if err := state.reset(); err != nil {
+			t.Fatal(err)
+		}
+		defer state.close()
+		if err := state.startServer(); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"model":"local/qwen3-1.7b","messages":[{"role":"user","content":"hi"}],"stream":false,` +
+			`"tools":[{"type":"function","function":{"name":"tool_choice","parameters":3}}]}`
+		code, answer := state.postRaw(t, "/v1/chat/completions", body)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%d %s", code, answer)
+		}
+		if got := gjson.Get(answer, "error.param").String(); got != "tools" {
+			t.Errorf("error.param = %q, want tools: %s", got, answer)
+		}
+	})
 }

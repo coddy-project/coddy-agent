@@ -409,14 +409,14 @@ func responsesToolsToLLM(rawTools, rawChoice json.RawMessage, limits clientToolL
 	if choice := bytes.TrimSpace(rawChoice); len(choice) > 0 && !bytes.Equal(choice, []byte("null")) {
 		var s string
 		if err := json.Unmarshal(choice, &s); err != nil {
-			return nil, errors.New("tool_choice must be \"auto\" or \"none\"")
+			return nil, badToolChoice("tool_choice must be \"auto\" or \"none\"")
 		}
 		switch strings.TrimSpace(s) {
 		case "none":
 			return nil, nil
 		case "auto":
 		default:
-			return nil, fmt.Errorf("tool_choice %q is not supported", s)
+			return nil, badToolChoice(fmt.Sprintf("tool_choice %q is not supported", s))
 		}
 	}
 	return tools, nil
