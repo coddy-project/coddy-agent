@@ -122,9 +122,10 @@ func (m *selectorModal) addChrome(c tui.Component) {
 
 // HandleInput routes navigation to the list and printable input to the filter.
 func (m *selectorModal) HandleInput(data []byte) {
+	s := string(data)
 	if key, ok := tui.ParseKey(data); ok {
 		switch key.String() {
-		case "backspace":
+		case "backspace", "shift+backspace":
 			if m.filter != "" {
 				m.filter = tui.TrimLastGrapheme(m.filter)
 				m.list.SetFilter(m.filter)
@@ -141,8 +142,10 @@ func (m *selectorModal) HandleInput(data []byte) {
 			}
 			return
 		}
+		if key.Text != "" {
+			s = key.Text
+		}
 	}
-	s := string(data)
 	if len(s) > 0 && !strings.ContainsRune(s, 0x1b) && s[0] >= 0x20 && s[0] != 0x7f {
 		m.filter += tui.SanitizeText(s)
 		m.list.SetFilter(m.filter)
