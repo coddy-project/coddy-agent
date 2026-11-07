@@ -1040,3 +1040,75 @@ describe("ProviderPickerDialog", () => {
     expect(screen.queryByTestId("provider-skip")).toBeNull();
   });
 });
+
+it("does not save a Kimi catalog after the selected variant changes during its request", async () => {
+  initLocale("en");
+  let answer!: (value: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    answer = resolve;
+  });
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/coddy/config" && !init?.method)
+        return new Response(
+          JSON.stringify({
+            providers: [{ name: "kimi", type: "kimi" }],
+            models: [],
+          }),
+          { status: 200 },
+        );
+      if (url.includes("kimi-auth?"))
+        return new Response(
+          JSON.stringify({ connected: true, source: "cli" }),
+          { status: 200 },
+        );
+      if (url === "/coddy/providers/models") return pending;
+      if (url === "/coddy/config/validate")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url === "/coddy/config" && init?.method === "PUT")
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response("not found", { status: 404 });
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderPicker();
+  fireEvent.click(screen.getByTestId("provider-card-kimi"));
+  await screen.findByText("Using Kimi CLI credentials");
+  fireEvent.click(screen.getByTestId("provider-save"));
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => String(url) === "/coddy/providers/models",
+      ),
+    ).toBe(true),
+  );
+  fireEvent.change(screen.getByTestId("kimi-variant"), {
+    target: { value: "platform-global" },
+  });
+  answer(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        models: [
+          {
+            id: "subscription-only",
+            kimi_protocol: "kimi",
+            kimi_image_input: true,
+          },
+        ],
+      }),
+      { status: 200 },
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("provider-save")).not.toBeDisabled(),
+  );
+  expect(
+    fetchMock.mock.calls.some(
+      ([url, init]) => url === "/coddy/config" && init?.method === "PUT",
+    ),
+  ).toBe(false);
+  cleanup();
+  vi.unstubAllGlobals();
+});

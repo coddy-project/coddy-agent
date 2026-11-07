@@ -3461,3 +3461,72 @@ test("Kimi credential search targets stay stable when switching mode and clearin
     }),
   ).toEqual(fields(platform));
 });
+
+test("Kimi provider list seeds image and reasoning capabilities into new logical models", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [
+          {
+            id: "vision",
+            kimi_protocol: "kimi",
+            kimi_image_input: true,
+            context_window: 100000,
+            kimi_reasoning_levels: ["low", "high"],
+            kimi_default_reasoning: "high",
+          },
+          { id: "text", kimi_protocol: "kimi", kimi_image_input: false },
+        ],
+      }),
+    })),
+  );
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [
+        { name: "kimi", type: "kimi", mode: "subscription", region: "global" },
+      ],
+      models: [{ model: "other/existing", multimodal: true }],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={AGENT_SCHEMA as JsonSchema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-vision"));
+  expect(latest.models).toContainEqual(
+    expect.objectContaining({
+      model: "kimi/vision",
+      multimodal: true,
+      max_context_tokens: 100000,
+      reasoning_levels: ["low", "high"],
+      reasoning_default: "high",
+      kimi_metadata: {
+        model: "kimi/vision",
+        protocol: "kimi",
+        mode: "subscription",
+        region: "global",
+      },
+    }),
+  );
+  fireEvent.click(screen.getByTestId("provider-model-toggle-text"));
+  expect(latest.models).toContainEqual(
+    expect.objectContaining({ model: "kimi/text", multimodal: false }),
+  );
+  expect(latest.models).toContainEqual({
+    model: "other/existing",
+    multimodal: true,
+  });
+});

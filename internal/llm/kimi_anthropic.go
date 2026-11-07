@@ -189,6 +189,7 @@ func (p *kimiAnthropicProvider) Complete(ctx context.Context, m []Message, t []T
 	root := gjson.ParseBytes(data)
 	r := &Response{StopReason: mapAnthropicStopReason(root.Get("stop_reason").String()), UsageIncomplete: true}
 	var blocks []anthropicReplayBlock
+	toolIDs := make(map[string]struct{})
 	for _, b := range root.Get("content").Array() {
 		switch b.Get("type").String() {
 		case "thinking":
@@ -206,6 +207,10 @@ func (p *kimiAnthropicProvider) Complete(ctx context.Context, m []Message, t []T
 			if id == "" || b.Get("name").String() == "" || !b.Get("input").IsObject() {
 				return nil, errors.New("kimi anthropic: invalid tool use")
 			}
+			if _, exists := toolIDs[id]; exists {
+				return nil, errors.New("kimi anthropic: duplicate tool use ID")
+			}
+			toolIDs[id] = struct{}{}
 			r.ToolCalls = append(r.ToolCalls, ToolCall{ID: id, Name: b.Get("name").String(), InputJSON: b.Get("input").Raw})
 			blocks = append(blocks, anthropicReplayBlock{Type: anthropicBlockToolUse, ID: id})
 		}
@@ -234,6 +239,7 @@ func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []Too
 	r := &Response{UsageIncomplete: true}
 	log := anthropicBlockLog{}
 	calls := map[int64]*ToolCall{}
+	toolIDs := make(map[string]struct{})
 	done := map[int64]bool{}
 	toolDelta := map[int64]bool{}
 	var inputKnown, outputKnown, terminal, emitted bool
@@ -312,6 +318,11 @@ func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []Too
 					err = errors.New("kimi anthropic: invalid tool use")
 					break
 				}
+				if _, exists := toolIDs[id]; exists {
+					err = errors.New("kimi anthropic: duplicate tool use ID")
+					break
+				}
+				toolIDs[id] = struct{}{}
 				log[index] = &anthropicReplayBlock{Type: anthropicBlockToolUse, ID: id}
 				calls[index] = &ToolCall{ID: id, Name: b.Get("name").String(), InputJSON: b.Get("input").Raw}
 				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: id, Name: b.Get("name").String()}})
@@ -449,21 +460,19 @@ func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []Too
 		}
 		return nil, fmt.Errorf("kimi anthropic stream: %w", err)
 	}
-	for _, b := range log.ordered() {
-		if b.Type != anthropicBlockToolUse {
-			continue
+	indices := make([]int64, 0, len(calls))
+	for i := range calls {
+		indices = append(indices, i)
+	}
+	sort.Slice(indices, func(i, j int) bool { return indices[i] < indices[j] })
+	for _, i := range indices {
+		c := calls[i]
+		if c.InputJSON == "" {
+			c.InputJSON = "{}"
 		}
-		for _, c := range calls {
-			if c.ID == b.ID {
-				if c.InputJSON == "" {
-					c.InputJSON = "{}"
-				}
-				r.ToolCalls = append(r.ToolCalls, *c)
-				v := *c
-				emit(StreamChunk{ToolCall: &v})
-				break
-			}
-		}
+		r.ToolCalls = append(r.ToolCalls, *c)
+		v := *c
+		emit(StreamChunk{ToolCall: &v})
 	}
 	return r, nil
 }

@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export interface FetchedModel {
   id: string;
   kimi_protocol?: string;
-  kimi_source?: { name: string; mode: string; region: string };
+  kimi_source?: {
+    name: string;
+    mode: string;
+    region: string;
+    identity: string;
+  };
+  kimi_image_input?: boolean;
+  kimi_thinking_type?: string;
+  kimi_reasoning_levels?: string[];
+  kimi_default_reasoning?: string;
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
@@ -71,6 +80,22 @@ export function providerModelsRequest(
   return out;
 }
 
+/** Whether Kimi listing data belongs to this exact provider identity. */
+export function kimiSourceMatches(
+  model: FetchedModel,
+  row: ProviderRow,
+): boolean {
+  const source = model.kimi_source;
+  return (
+    !!source &&
+    str(row.type).trim() === "kimi" &&
+    source.name === str(row.name).trim() &&
+    source.mode === (str(row.mode).trim() || "subscription") &&
+    source.region === (str(row.region).trim() || "global") &&
+    source.identity === str(row.kimi_identity).trim()
+  );
+}
+
 /** How long a changed provider id or type must stay still before the list is
  * fetched again: typing an id sends one request, not one per key. */
 export const AUTO_FETCH_DEBOUNCE_MS = 600;
@@ -94,6 +119,10 @@ type ModelsResponse = {
   models?: {
     id?: string;
     kimi_protocol?: string;
+    kimi_image_input?: boolean;
+    kimi_thinking_type?: string;
+    kimi_reasoning_levels?: string[];
+    kimi_default_reasoning?: string;
     name?: string;
     context_window?: number;
     catalog?: {
@@ -123,9 +152,19 @@ function normalize(
     }
     seen.add(m.id);
     const item: FetchedModel = { id: m.id };
-    if (source && m.kimi_protocol) {
-      item.kimi_protocol = m.kimi_protocol;
+    if (source) {
       item.kimi_source = source;
+      if (m.kimi_protocol) item.kimi_protocol = m.kimi_protocol;
+      if (typeof m.kimi_image_input === "boolean")
+        item.kimi_image_input = m.kimi_image_input;
+      if (m.kimi_thinking_type) item.kimi_thinking_type = m.kimi_thinking_type;
+      if (
+        Array.isArray(m.kimi_reasoning_levels) &&
+        m.kimi_reasoning_levels.every((v) => typeof v === "string")
+      )
+        item.kimi_reasoning_levels = m.kimi_reasoning_levels;
+      if (m.kimi_default_reasoning)
+        item.kimi_default_reasoning = m.kimi_default_reasoning;
     }
     if (m.name) {
       item.name = m.name;
@@ -211,8 +250,9 @@ export function useProviderModels() {
           str(row.type).trim() === "kimi"
             ? {
                 name: str(row.name).trim(),
-                mode: request.mode || "subscription",
-                region: request.region || "global",
+                mode: request.mode?.trim() || "subscription",
+                region: request.region?.trim() || "global",
+                identity: str(request.kimi_identity).trim(),
               }
             : undefined;
         const res = await fetch("/coddy/providers/models", {

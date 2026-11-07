@@ -12,7 +12,7 @@ import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
-import type { ProviderRow } from "./useProviderModels";
+import type { FetchedModel, ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
@@ -127,6 +127,7 @@ function seedLogicalModel(
     mode: string;
     region: string;
   },
+  listing?: FetchedModel,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -145,9 +146,21 @@ function seedLogicalModel(
   if (maxTokens && itemSchema?.properties?.max_tokens) {
     row.max_tokens = maxTokens;
   }
-  if (multimodal && itemSchema?.properties?.multimodal) {
-    row.multimodal = true;
+  if (multimodal !== undefined && itemSchema?.properties?.multimodal) {
+    row.multimodal = multimodal;
+  } else if (listing?.kimi_source) {
+    delete row.multimodal;
   }
+  if (
+    listing?.kimi_reasoning_levels !== undefined &&
+    itemSchema?.properties?.reasoning_levels
+  )
+    row.reasoning_levels = listing.kimi_reasoning_levels;
+  if (
+    listing?.kimi_default_reasoning &&
+    itemSchema?.properties?.reasoning_default
+  )
+    row.reasoning_default = listing.kimi_default_reasoning;
   return row;
 }
 
@@ -1030,6 +1043,7 @@ export function SettingsSection(props: {
                     maxTokens,
                     multimodal,
                     kimiMetadata,
+                    listing,
                   ) => {
                     if (modelIds.includes(id)) {
                       return;
@@ -1044,6 +1058,7 @@ export function SettingsSection(props: {
                           maxTokens,
                           multimodal,
                           kimiMetadata,
+                          listing,
                         ),
                       ]),
                     );

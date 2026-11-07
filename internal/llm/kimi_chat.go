@@ -133,7 +133,11 @@ func (p *kimiChatProvider) Complete(ctx context.Context, messages []Message, too
 	choice := completion.Choices[0]
 	result := &Response{Content: choice.Message.Content, Reasoning: openAIReasoningText(choice.Message.RawJSON()), StopReason: mapOpenAIStopReason(string(choice.FinishReason)), UsageIncomplete: true}
 	for _, tc := range choice.Message.ToolCalls {
-		result.ToolCalls = append(result.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, InputJSON: tc.Function.Arguments})
+		call := ToolCall{ID: tc.ID, Name: tc.Function.Name, InputJSON: tc.Function.Arguments}
+		if !kimiChatValidToolCall(call) {
+			return nil, errors.New("kimi chat: invalid tool call")
+		}
+		result.ToolCalls = append(result.ToolCalls, call)
 	}
 	kimiChatUsage(data, result)
 	return result, nil
@@ -233,15 +237,20 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 		}
 	}
 	if err == nil && scanner.Err() != nil {
-		err = &streamTransportError{cause: scanner.Err(), emitted: emitted}
+		cause := scanner.Err()
+		if ctx.Err() != nil {
+			cause = ctx.Err()
+		}
+		err = &streamTransportError{cause: cause, emitted: emitted}
 	}
 	if err == nil && !done {
-		err = &streamTruncatedError{emitted: emitted}
-	}
-	if err != nil {
 		if ctx.Err() != nil {
 			err = &streamTransportError{cause: ctx.Err(), emitted: emitted}
+		} else {
+			err = &streamTruncatedError{emitted: emitted}
 		}
+	}
+	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			for _, i := range kimiChatToolIndices(builders) {
 				result.ToolCalls = append(result.ToolCalls, *builders[i])
@@ -254,8 +263,7 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 	}
 	for _, i := range kimiChatToolIndices(builders) {
 		b := builders[i]
-		var args map[string]json.RawMessage
-		if strings.TrimSpace(b.ID) == "" || strings.TrimSpace(b.Name) == "" || json.Unmarshal([]byte(b.InputJSON), &args) != nil || args == nil {
+		if !kimiChatValidToolCall(*b) {
 			err := &streamUndecodableError{snippet: "invalid tool call", cause: errors.New("invalid tool call")}
 			if result.Content != "" || result.Reasoning != "" {
 				return result, fmt.Errorf("kimi chat stream: %w", err)
@@ -286,4 +294,9 @@ func kimiChatToolIndices(builders map[int]*ToolCall) []int {
 	}
 	sort.Ints(indices)
 	return indices
+}
+
+func kimiChatValidToolCall(call ToolCall) bool {
+	var args map[string]json.RawMessage
+	return strings.TrimSpace(call.ID) != "" && strings.TrimSpace(call.Name) != "" && json.Unmarshal([]byte(call.InputJSON), &args) == nil && args != nil
 }

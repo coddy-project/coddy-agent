@@ -6,6 +6,7 @@ import { IconCheck, IconPlus, IconSync } from "./icons";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
 import {
   modelDisplayName,
+  kimiSourceMatches,
   providerRowFetchable,
   useAutoProviderModels,
   type FetchedModel,
@@ -70,6 +71,7 @@ export function ProviderModelList(props: {
       mode: string;
       region: string;
     },
+    listing?: FetchedModel,
   ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
@@ -153,27 +155,39 @@ export function ProviderModelList(props: {
             onRemoveModel(full);
             return;
           }
+          const validModel =
+            model &&
+            (str(provider.type).trim() === "kimi" || model.kimi_source) &&
+            !kimiSourceMatches(model, provider)
+              ? undefined
+              : model;
           const args = [
             full,
-            model?.context_window || model?.catalog?.context_window,
-            catalogFor(model)?.max_tokens,
-            catalogFor(model)?.multimodal,
+            validModel?.context_window || validModel?.catalog?.context_window,
+            catalogFor(validModel)?.max_tokens,
+            validModel?.kimi_source
+              ? validModel.kimi_image_input
+              : catalogFor(validModel)?.multimodal,
           ] as const;
-          const source = model?.kimi_source;
+          const source = validModel?.kimi_source;
           if (
             source &&
-            model?.kimi_protocol &&
-            source.name === str(provider.name).trim() &&
-            source.mode === (str(provider.mode).trim() || "subscription") &&
-            source.region === (str(provider.region).trim() || "global") &&
-            str(provider.type).trim() === "kimi"
+            validModel?.kimi_protocol &&
+            kimiSourceMatches(validModel, provider)
           ) {
-            onAddModel(...args, {
+            const metadata = {
               model: full,
-              protocol: model.kimi_protocol,
+              protocol: validModel.kimi_protocol,
               mode: source.mode,
               region: source.region,
-            });
+            };
+            onAddModel(...args, metadata, validModel);
+          } else if (
+            source &&
+            validModel &&
+            kimiSourceMatches(validModel, provider)
+          ) {
+            onAddModel(...args, undefined, validModel);
           } else {
             onAddModel(...args);
           }

@@ -519,6 +519,10 @@ test("a Kimi catalog row carries its protocol and identity when added", async ()
     undefined,
     undefined,
     { model: "kimi/m1", protocol: "kimi", mode: "platform", region: "china" },
+    expect.objectContaining({
+      id: "m1",
+      kimi_source: expect.objectContaining({ identity: "" }),
+    }),
   );
 });
 

@@ -1,4 +1,7 @@
-import type { FetchedModel } from "../settings/useProviderModels";
+import {
+  kimiSourceMatches,
+  type FetchedModel,
+} from "../settings/useProviderModels";
 
 export type ProviderPresetId =
   | "openai"
@@ -330,33 +333,53 @@ export function buildOnboardingConfig(input: {
   else providers[providerIndex] = provider;
 
   const model = providerModelRef(preset, input.modelId);
-  const listed = catalogEntry(preset, input.modelId, input.catalog);
+  const candidate = catalogEntry(preset, input.modelId, input.catalog);
+  const listed =
+    preset.providerType === "kimi" &&
+    candidate &&
+    !kimiSourceMatches(candidate, provider)
+      ? undefined
+      : candidate;
   const models = rows(baseDoc.models);
   const existingModel = models.find((row) => String(row.model || "") === model);
-  const modelRow: Record<string, unknown> = { ...existingModel, model };
-  modelRow.max_tokens =
-    listed?.catalog?.max_tokens ?? existingModel?.max_tokens ?? 8192;
-  // A listed model's own window wins; preset.maxContextTokens is the window of
-  // the preset's default model and only a fallback for a model nothing listed.
-  const contextWindow =
-    listed?.context_window ||
-    listed?.catalog?.context_window ||
-    preset.maxContextTokens;
-  if (contextWindow) modelRow.max_context_tokens = contextWindow;
-  modelRow.multimodal = listed?.catalog
-    ? listed.catalog.multimodal === true
-    : preset.multimodal;
-  if (["openai", "codex", "devin"].includes(preset.id)) {
-    modelRow.reasoning_default = existingModel?.reasoning_default ?? "medium";
-    delete modelRow.temperature;
-  } else if (!existingModel || existingModel.temperature === undefined) {
-    modelRow.temperature = 0.2;
+  if (!existingModel) {
+    const modelRow: Record<string, unknown> = { model };
+    const catalog =
+      listed?.catalog &&
+      (!listed.context_window ||
+        listed.context_window === listed.catalog.context_window)
+        ? listed.catalog
+        : undefined;
+    modelRow.max_tokens = catalog?.max_tokens ?? 8192;
+    const contextWindow =
+      listed?.context_window ||
+      listed?.catalog?.context_window ||
+      preset.maxContextTokens;
+    if (contextWindow) modelRow.max_context_tokens = contextWindow;
+    if (
+      preset.providerType !== "kimi" ||
+      listed?.kimi_image_input !== undefined
+    ) {
+      modelRow.multimodal =
+        listed?.kimi_image_input ??
+        (catalog ? catalog.multimodal === true : preset.multimodal);
+    }
+    if (listed?.kimi_protocol && listed.kimi_source)
+      modelRow.kimi_metadata = {
+        model,
+        protocol: listed.kimi_protocol,
+        mode: listed.kimi_source.mode,
+        region: listed.kimi_source.region,
+      };
+    if (listed?.kimi_reasoning_levels)
+      modelRow.reasoning_levels = listed.kimi_reasoning_levels;
+    if (listed?.kimi_default_reasoning)
+      modelRow.reasoning_default = listed.kimi_default_reasoning;
+    if (["openai", "codex", "devin"].includes(preset.id))
+      modelRow.reasoning_default ??= "medium";
+    else modelRow.temperature = 0.2;
+    models.push(modelRow);
   }
-  const modelIndex = models.findIndex(
-    (row) => String(row.model || "") === model,
-  );
-  if (modelIndex < 0) models.push(modelRow);
-  else models[modelIndex] = modelRow;
 
   return {
     ...baseDoc,

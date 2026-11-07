@@ -108,6 +108,15 @@ func kimiResponsesUsage(raw gjson.Result, r *Response) {
 	r.CachedInputTokens = int(raw.Get("input_tokens_details.cached_tokens").Int())
 	r.ReasoningTokens = int(raw.Get("output_tokens_details.reasoning_tokens").Int())
 }
+
+func kimiResponsesValidCall(tc ToolCall) bool {
+	if strings.TrimSpace(tc.ID) == "" || strings.TrimSpace(tc.Name) == "" {
+		return false
+	}
+	var args map[string]json.RawMessage
+	return json.Unmarshal([]byte(tc.InputJSON), &args) == nil && args != nil
+}
+
 func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []ToolDefinition) (*Response, error) {
 	resp, err := p.request(ctx, m, t, false)
 	if err != nil {
@@ -124,6 +133,7 @@ func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []T
 	root := gjson.ParseBytes(data)
 	r := &Response{UsageIncomplete: true}
 	var reasoning []json.RawMessage
+	var calls []ToolCall
 	for _, item := range root.Get("output").Array() {
 		switch item.Get("type").String() {
 		case "message":
@@ -138,14 +148,13 @@ func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []T
 				r.Reasoning += s.Get("text").String()
 			}
 		case "function_call":
-			r.ToolCalls = append(r.ToolCalls, ToolCall{ID: item.Get("call_id").String(), Name: item.Get("name").String(), InputJSON: item.Get("arguments").String()})
+			calls = append(calls, ToolCall{ID: item.Get("call_id").String(), Name: item.Get("name").String(), InputJSON: item.Get("arguments").String()})
 		}
 	}
 	r.ReasoningSignature = p.encode(reasoning)
 	kimiResponsesUsage(root.Get("usage"), r)
 	switch root.Get("status").String() {
 	case "completed":
-		r.StopReason = codexStopReason(r.ToolCalls)
 	case "incomplete":
 		if root.Get("incomplete_details.reason").String() == "max_output_tokens" {
 			r.StopReason = "max_tokens"
@@ -154,6 +163,15 @@ func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []T
 		}
 	default:
 		return r, errors.New("kimi responses: response not completed")
+	}
+	for _, call := range calls {
+		if !kimiResponsesValidCall(call) {
+			return r, errors.New("kimi responses: invalid tool call")
+		}
+	}
+	r.ToolCalls = calls
+	if r.StopReason == "" {
+		r.StopReason = codexStopReason(r.ToolCalls)
 	}
 	return r, nil
 }
@@ -293,11 +311,11 @@ func (p *kimiResponsesProvider) Stream(ctx context.Context, m []Message, t []Too
 		}
 	}
 	r.ReasoningSignature = p.encode(reasoning)
+	if err == nil && !terminal && ctx.Err() != nil {
+		err = &streamTransportError{cause: ctx.Err(), emitted: emitted}
+	}
 	if err == nil && scan.Err() != nil {
 		err = &streamTransportError{cause: scan.Err(), emitted: emitted}
-	}
-	if !terminal && ctx.Err() != nil {
-		err = &streamTransportError{cause: ctx.Err(), emitted: emitted}
 	}
 	if err == nil && !terminal {
 		err = &streamTruncatedError{emitted: emitted}
@@ -306,6 +324,10 @@ func (p *kimiResponsesProvider) Stream(ctx context.Context, m []Message, t []Too
 		for _, id := range order {
 			if !finished[id] {
 				err = &streamTruncatedError{emitted: emitted}
+				break
+			}
+			if tc := calls[id]; tc == nil || !kimiResponsesValidCall(*tc) {
+				err = &streamUndecodableError{snippet: "invalid tool call"}
 				break
 			}
 		}

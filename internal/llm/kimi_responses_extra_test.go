@@ -12,7 +12,7 @@ data: {"type":"response.output_item.added","output_index":1,"item":{"type":"func
 
 data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","arguments":"{}"}}
 
-data: {"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","arguments":"[]"}}
+data: {"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","arguments":"{}"}}
 
 data: {"type":"response.completed"}
 

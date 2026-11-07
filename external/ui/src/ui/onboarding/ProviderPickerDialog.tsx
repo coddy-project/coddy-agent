@@ -6,7 +6,10 @@ import { CodexAuthField } from "../settings/CodexAuthField";
 import { NeuralDeepAuthField } from "../settings/NeuralDeepAuthField";
 import { KimiAuthField } from "../settings/KimiAuthField";
 import { OpenCodeAuthField } from "../settings/OpenCodeAuthField";
-import { useProviderModels } from "../settings/useProviderModels";
+import {
+  kimiSourceMatches,
+  useProviderModels,
+} from "../settings/useProviderModels";
 import { DevinAuthField } from "../settings/DevinAuthField";
 import {
   buildOnboardingConfig,
@@ -338,29 +341,55 @@ export function ProviderPickerDialog(props: {
       // operator brought would start on the preset's default, which it may
       // not serve at all. A provider that cannot answer is not an error here
       // - the row is still written, on that default.
-      let catalog = fetchedModels;
+      let catalog =
+        preset.providerType === "kimi"
+          ? fetchedModels.filter((model) =>
+              kimiSourceMatches(model, providerRow),
+            )
+          : fetchedModels;
       if (catalog.length === 0) {
         const listing = await fetchModels(providerRow);
         if (listing && !listing.error) {
           catalog = listing.models;
         }
       }
-      const body = JSON.stringify(
-        buildOnboardingConfig({
-          preset,
-          apiKey,
-          apiBase: effectiveApiBase,
-          command,
-          proxy,
-          modelId: startingModelId(preset, catalog),
-          baseDoc: base,
-          catalog,
-          managedLogin,
-          kimiMode,
-          kimiRegion,
-          kimiIdentity,
-        }),
-      );
+      if (currentForm.current !== formFingerprint) {
+        setError(t("onboarding.savedChangesRemain"));
+        return;
+      }
+      const deferKimiModel =
+        preset.providerType === "kimi" &&
+        catalog.length === 0 &&
+        kimiMode === "subscription" &&
+        managedLogin &&
+        !!kimiIdentity;
+      if (
+        preset.providerType === "kimi" &&
+        catalog.length === 0 &&
+        !deferKimiModel
+      ) {
+        setError(modelsError || t("onboarding.validationFailed"));
+        return;
+      }
+      const nextDoc = buildOnboardingConfig({
+        preset,
+        apiKey,
+        apiBase: effectiveApiBase,
+        command,
+        proxy,
+        modelId: startingModelId(preset, catalog),
+        baseDoc: base,
+        catalog,
+        managedLogin,
+        kimiMode,
+        kimiRegion,
+        kimiIdentity,
+      });
+      if (deferKimiModel) {
+        nextDoc.models = base.models;
+        nextDoc.agent = base.agent;
+      }
+      const body = JSON.stringify(nextDoc);
       const validation = await fetch("/coddy/config/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -378,6 +407,10 @@ export function ProviderPickerDialog(props: {
       };
       if (!verdict.ok) {
         setError(verdict.error || t("onboarding.validationFailed"));
+        return;
+      }
+      if (currentForm.current !== formFingerprint) {
+        setError(t("onboarding.savedChangesRemain"));
         return;
       }
       const response = await fetch("/coddy/config", {
