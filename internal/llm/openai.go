@@ -58,7 +58,7 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("openai complete: %w", err)
+		return nil, withToolSchemaRequest(fmt.Errorf("openai complete: %w", err), params, false)
 	}
 	return p.parseCompletion(resp)
 }

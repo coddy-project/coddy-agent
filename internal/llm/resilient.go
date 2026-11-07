@@ -450,7 +450,7 @@ func isRetryableLLMError(err error) bool {
 	// way. Typed statuses already keep it out of the switch below, but an
 	// error that reached this far as text is read for a status by its digits,
 	// and "your messages resulted in 4500 tokens" holds a "500 ".
-	if IsContextOverflow(err) {
+	if IsContextOverflow(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	// Ahead of the deadline gate: a dial that ran out of time matches

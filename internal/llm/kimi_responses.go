@@ -92,7 +92,7 @@ func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []To
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, kimiStatusError("kimi responses", resp)
+		return nil, withToolSchemaRequest(kimiStatusError("kimi responses", resp), body, false)
 	}
 	return resp, nil
 }

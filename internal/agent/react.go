@@ -1443,6 +1443,11 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			// A schema validation refusal cannot be repaired by replaying the
+			// same request or compacting the conversation.
+			if llm.IsToolSchemaLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.toolSchemaLimitError(streamErr, toolDefs)
+			}
 			// The provider named the moment its limit lifts and the operator
 			// asked the turn to wait for it: the countdown reaches the client,
 			// then the same call runs again (nothing was persisted for the

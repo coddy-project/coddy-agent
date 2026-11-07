@@ -168,7 +168,7 @@ func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message,
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, kimiStatusError("kimi anthropic", resp)
+		return nil, withToolSchemaRequest(kimiStatusError("kimi anthropic", resp), body, true)
 	}
 	return resp, nil
 }

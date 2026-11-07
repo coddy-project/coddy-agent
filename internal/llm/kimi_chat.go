@@ -101,7 +101,7 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, kimiStatusError("kimi chat", resp)
+		return nil, withToolSchemaRequest(kimiStatusError("kimi chat", resp), body, false)
 	}
 	return resp, nil
 }

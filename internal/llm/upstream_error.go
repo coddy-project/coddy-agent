@@ -107,7 +107,7 @@ func IsTransientProviderError(err error) bool {
 	}
 	// The same request asks the same thing again, whatever status carried the
 	// refusal.
-	if IsContextOverflow(err) {
+	if IsContextOverflow(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	var reset *QuotaResetError
