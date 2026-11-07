@@ -73,16 +73,19 @@ func clientToolParametersTooLarge(name string, size, limit int) error {
 }
 
 // writeClientToolError answers a refused tool list with the field it concerns
-// and, for a broken bound, its code.
+// and, for a broken bound, its code. A broken bound always concerns "tools",
+// so it never meets the reading below, which is all the other refusals have:
+// a tool a client happens to name "tool_choice" would otherwise be reported
+// against the field of that name.
 func writeClientToolError(w http.ResponseWriter, err error) {
+	var limitErr *clientToolError
+	if errors.As(err, &limitErr) {
+		writeOpenAIValidationErrorCode(w, err.Error(), "tools", limitErr.code)
+		return
+	}
 	param := "tools"
 	if strings.Contains(err.Error(), "tool_choice") {
 		param = "tool_choice"
 	}
-	code := ""
-	var limitErr *clientToolError
-	if errors.As(err, &limitErr) {
-		code = limitErr.code
-	}
-	writeOpenAIValidationErrorCode(w, err.Error(), param, code)
+	writeOpenAIValidationError(w, err.Error(), param)
 }

@@ -153,3 +153,52 @@ func TestClientToolSchemaLimit(t *testing.T) {
 		})
 	}
 }
+
+// TestClientToolErrorNamesTheFieldItConcerns keeps error.param on the field the
+// refusal is about. The field of a refusal other than a broken bound is read
+// out of its message, so a tool a client happens to name "tool_choice" has to
+// stay a tools error, while an unsupported tool_choice stays its own.
+func TestClientToolErrorNamesTheFieldItConcerns(t *testing.T) {
+	big := `{"type":"object","description":"` + strings.Repeat("x", 2000) + `"}`
+	cases := []struct {
+		name      string
+		body      string
+		wantParam string
+		wantCode  string
+	}{
+		{
+			name:      "a tool named tool_choice over the schema bound",
+			body:      `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"tool_choice","parameters":` + big + `}]}`,
+			wantParam: "tools",
+			wantCode:  "tool_parameters_too_large",
+		},
+		{
+			name:      "an unsupported tool_choice",
+			body:      `{"model":"local/qwen3-1.7b","input":"hi","tools":[{"type":"function","name":"t","parameters":{"type":"object"}}],"tool_choice":"required"}`,
+			wantParam: "tool_choice",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &openAIPassthroughState{}
+			if err := state.reset(); err != nil {
+				t.Fatal(err)
+			}
+			defer state.close()
+			if err := state.startServer(); err != nil {
+				t.Fatal(err)
+			}
+			state.srv.activeCfg().HTTPServer.MaxClientToolSchemaBytes = 1024
+			code, answer := state.postRaw(t, "/v1/responses", tc.body)
+			if code != http.StatusBadRequest {
+				t.Fatalf("%d %s", code, answer)
+			}
+			if got := gjson.Get(answer, "error.param").String(); got != tc.wantParam {
+				t.Errorf("error.param = %q, want %q: %s", got, tc.wantParam, answer)
+			}
+			if got := gjson.Get(answer, "error.code").String(); got != tc.wantCode {
+				t.Errorf("error.code = %q, want %q: %s", got, tc.wantCode, answer)
+			}
+		})
+	}
+}
