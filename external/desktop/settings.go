@@ -60,6 +60,11 @@ func LoadSettings(home string, log *slog.Logger) *SettingsStore {
 		s.log.Warn("the desktop settings are not readable JSON, so this window opens on the defaults", "file", s.path, "error", err)
 		s.cur = Settings{}
 	}
+	// One switch is not this file's to remember: opening at login is a file in
+	// the session's own autostart folder, and a person may have taken it away
+	// by hand, or kept one written by a Coddy whose settings these are not.
+	// The menu draws what the machine is doing, so the machine is asked.
+	s.cur.Autostart = autostartEnabled()
 	return s
 }
 

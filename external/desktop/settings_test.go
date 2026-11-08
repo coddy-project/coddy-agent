@@ -14,6 +14,7 @@ import (
 // to a switch this machine cannot actually throw.
 
 func TestTheSwitchesComeBackFromTheFile(t *testing.T) {
+	isolateAutostart(t)
 	home := t.TempDir()
 	store := LoadSettings(home, nil)
 	if err := store.SetSettings(Settings{StartMinimised: true}); err != nil {
@@ -41,6 +42,7 @@ func TestTheSwitchesComeBackFromTheFile(t *testing.T) {
 // Neither menu watches the other: the store announces the change, and the
 // launcher's watcher is what redraws the tray and tells the page to read again.
 func TestAChangeIsAnnouncedToWhoeverDrawsIt(t *testing.T) {
+	isolateAutostart(t)
 	store := LoadSettings(t.TempDir(), nil)
 	told := 0
 	store.watch(func() { told++ })
@@ -62,13 +64,34 @@ func TestAChangeIsAnnouncedToWhoeverDrawsIt(t *testing.T) {
 	}
 }
 
+// Opening at login is the one switch the file does not decide: the entry in
+// the session's autostart folder does, and it outlives any one home. A file
+// that says the window opens at login, with no entry on the machine, draws the
+// switch off - which is what the machine is actually doing.
+func TestTheAutostartSwitchDrawsWhatTheMachineIsDoing(t *testing.T) {
+	isolateAutostart(t)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "desktop"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "desktop", settingsFile)
+	if err := os.WriteFile(path, []byte(`{"autostart": true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadSettings(home, nil).Settings().Autostart; got != autostartEnabled() {
+		t.Fatalf("the file says the window opens at login and the machine says %v", autostartEnabled())
+	}
+}
+
 func TestADefaultWindowOpensWhenThereIsNoFileYet(t *testing.T) {
+	isolateAutostart(t)
 	if got := LoadSettings(t.TempDir(), nil).Settings(); got != (Settings{}) {
 		t.Fatalf("a home with no settings file opened on %+v", got)
 	}
 }
 
 func TestASwitchThatCouldNotBeThrownIsNotWrittenDown(t *testing.T) {
+	isolateAutostart(t)
 	home := t.TempDir()
 	// No tray was bound to this store, which is a machine with no tray to put
 	// an icon in.
@@ -89,6 +112,7 @@ func TestASwitchThatCouldNotBeThrownIsNotWrittenDown(t *testing.T) {
 }
 
 func TestASettingsFileNobodyCanReadStillOpensAWindow(t *testing.T) {
+	isolateAutostart(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "desktop"), 0o700); err != nil {
 		t.Fatal(err)
