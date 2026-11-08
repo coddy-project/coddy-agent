@@ -377,6 +377,8 @@
   flex: 0 1 auto;
   min-height: 0;
   max-height: 60%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -387,7 +389,9 @@
 
 .canvas-picks {
   flex: 0 1 auto;
-  min-height: 0;
+  /* Keep one chip row visible; the bar itself scrolls when the pane is too
+     short for that row and the prompt field together. */
+  min-height: 26px;
   max-height: 90px;
   overflow-y: auto;
   overscroll-behavior: contain;

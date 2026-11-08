@@ -83,15 +83,6 @@ test("the bar has no Stop of its own beside Send", () => {
   expect(css).not.toMatch(/\.canvas-bar-stop\b/);
 });
 
-// The camera is the only thing that moves the board (issue #679). A board
-// that clips with overflow: hidden is still a scroll container, which a
-// page's focus() scrolls to its frame behind the camera's back; clip keeps the
-// same clipping and leaves nothing to scroll.
-test("the board clips without being a scroll container", () => {
-  const body = ruleBody(".canvas-board {");
-  expect(body).toMatch(/overflow: hidden;\s*overflow: clip;/);
-});
-
 // Many picks and a long prompt on a short screen: the picks scroll inside
 // the bar, the field and Send keep their row, and the bar never takes more
 // than its share of the pane (issue #569).
@@ -100,9 +91,19 @@ test("the bar's picks scroll and its row stays", () => {
   expect(bar).toContain("min-height: 0");
   expect(bar).toMatch(/max-height: \d+%/);
   expect(bar).not.toContain("flex: none");
+  expect(bar).toContain("overflow-y: auto");
   const picks = ruleBody(".canvas-picks {");
   expect(picks).toContain("overflow-y: auto");
-  expect(picks).toContain("min-height: 0");
+  expect(picks).toContain("min-height: 26px");
   expect(picks).toMatch(/max-height: \d+px/);
   expect(ruleBody(".canvas-bar-row {")).toContain("flex: none");
+});
+
+// The camera is the only thing that moves the board (issue #679). A board
+// that clips with overflow: hidden is still a scroll container, which a
+// page's focus() scrolls to its frame behind the camera's back; clip keeps the
+// same clipping and leaves nothing to scroll.
+test("the board clips without being a scroll container", () => {
+  const body = ruleBody(".canvas-board {");
+  expect(body).toMatch(/overflow: hidden;\s*overflow: clip;/);
 });

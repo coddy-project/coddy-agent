@@ -1369,6 +1369,164 @@ try {
     check("a frame on the open node", false, JSON.stringify(openBoard));
   }
 
+  // ------------------------------------------- a long prompt bar on a phone
+  // Many picks and a long prompt on a phone: the bar stays within the window,
+  // Send stays on screen and every pick can be scrolled to (issue #569).
+  {
+    const ph = await openPage({ width: 390, height: 540 });
+    await ph.page.goto(
+      `${RELAY}/?lang=en#/s/${sid}/files?path=canvas%2Fsite.canvas`,
+    );
+    await ph.page.getByTestId("canvas-view").waitFor();
+    await boardInView(ph.page);
+    await ph.page.getByTestId("canvas-fit").click();
+    const shopPh = await frameFor(ph.page, "Shop");
+    await ph.page.getByTestId("canvas-mode-comment").click();
+    const targets = [
+      ".logo",
+      "nav a:nth-child(1)",
+      "nav a:nth-child(2)",
+      "nav a:nth-child(3)",
+      "h1.hero",
+      "p.lead",
+      "#add",
+      "#count",
+      ".card:nth-child(1)",
+      ".card:nth-child(2)",
+      ".card:nth-child(3)",
+    ];
+    for (const sel of targets) {
+      const had = await ph.page.getByTestId("canvas-pick").count();
+      await clickInFrame(ph.page, shopPh, sel);
+      await ph.page.getByTestId("canvas-popover").waitFor({ timeout: 3000 });
+      await ph.page
+        .getByTestId("canvas-popover-note")
+        .fill(`Make ${sel} clearer and closer to the brand`);
+      await ph.page.getByTestId("canvas-popover-add").click();
+      await until("the pick", async () =>
+        (await ph.page.getByTestId("canvas-pick").count()) > had ? 1 : 0,
+      );
+    }
+    await ph.page
+      .getByTestId("canvas-bar-field")
+      .fill(
+        Array.from(
+          { length: 14 },
+          (_, i) => `Line ${i + 1} of the prompt.`,
+        ).join("\n"),
+      );
+    for (const height of [540, 360]) {
+      await ph.page.setViewportSize({ width: 390, height });
+      const bar = await ph.page.evaluate(() => {
+        // Filling the field may make the browser scroll the outer Files body
+        // to its caret. Reset that outer position once; the assertions below
+        // may move only the two local prompt-bar scrollers.
+        for (const el of document.querySelectorAll(".files-file-body")) {
+          el.scrollTop = 0;
+        }
+        const rect = (el) => {
+          const b = el.getBoundingClientRect();
+          return { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+        };
+        const rounded = (el) => {
+          const b = rect(el);
+          return { top: Math.round(b.top), bottom: Math.round(b.bottom) };
+        };
+        const pane = rect(document.querySelector("[data-testid=canvas-view]"));
+        const win = rect(document.querySelector("[data-testid=files-view]"));
+        // Intersect the target with the pane and every clipping ancestor. A
+        // rectangle alone does not prove that a zero-height clip shows anything.
+        const visibleRect = (target) => {
+          const t = rect(target);
+          const visible = {
+            top: Math.max(0, pane.top, win.top, t.top),
+            bottom: Math.min(innerHeight, pane.bottom, win.bottom, t.bottom),
+            left: Math.max(0, pane.left, win.left, t.left),
+            right: Math.min(innerWidth, pane.right, win.right, t.right),
+          };
+          for (let el = target.parentElement; el; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            const clips = ["auto", "scroll", "hidden", "clip"];
+            if (
+              clips.includes(style.overflowY) ||
+              clips.includes(style.overflowX)
+            ) {
+              const b = rect(el);
+              visible.top = Math.max(visible.top, b.top);
+              visible.bottom = Math.min(visible.bottom, b.bottom);
+              visible.left = Math.max(visible.left, b.left);
+              visible.right = Math.min(visible.right, b.right);
+            }
+          }
+          return visible;
+        };
+        // A finger scrolls the picks or, on a very short pane, the bar itself.
+        // The rest of the Files window must not move to make the check pass.
+        const reach = (target, whole = true) => {
+          for (const el of [
+            target.closest(".canvas-picks"),
+            target.closest(".canvas-bar"),
+          ]) {
+            if (!el || el.scrollHeight <= el.clientHeight + 1) continue;
+            const t = rect(target);
+            const b = rect(el);
+            if (t.top < b.top) el.scrollTop -= b.top - t.top;
+            else if (t.bottom > b.bottom) el.scrollTop += t.bottom - b.bottom;
+          }
+          const t = rect(target);
+          const v = visibleRect(target);
+          const width = Math.max(
+            0,
+            Math.min(t.right, v.right) - Math.max(t.left, v.left),
+          );
+          const height = Math.max(
+            0,
+            Math.min(t.bottom, v.bottom) - Math.max(t.top, v.top),
+          );
+          return whole
+            ? height >= t.bottom - t.top - 1 && width >= t.right - t.left - 1
+            : height >= Math.min(24, t.bottom - t.top) &&
+                width >= t.right - t.left - 1;
+        };
+        const all = [...document.querySelectorAll("[data-testid=canvas-pick]")];
+        const unreachable = all
+          .map((el, i) => (reach(el) ? -1 : i))
+          .filter((i) => i >= 0);
+        const send = document.querySelector("[data-testid=canvas-send]");
+        const field = document.querySelector("[data-testid=canvas-bar-field]");
+        return {
+          picks: all.length,
+          unreachable,
+          sendReached: reach(send),
+          fieldReached: reach(field, false),
+          shown: {
+            top: Math.round(Math.max(0, pane.top, win.top)),
+            bottom: Math.round(Math.min(innerHeight, pane.bottom, win.bottom)),
+          },
+          send: rounded(send),
+          field: rounded(field),
+          firstPick: all[0] ? rounded(all[0]) : null,
+        };
+      });
+      check(
+        `the phone at ${height}px has every pick`,
+        bar.picks === targets.length,
+        JSON.stringify(bar),
+      );
+      check(
+        `with many picks and a long prompt at ${height}px the field and Send can be reached`,
+        bar.sendReached && bar.fieldReached,
+        JSON.stringify(bar),
+      );
+      check(
+        `every pick can be scrolled to at ${height}px`,
+        bar.unreachable.length === 0,
+        JSON.stringify(bar),
+      );
+    }
+    await ph.context.close();
+  }
+
   // ----------------------------------------- a page that takes the focus
   // A page whose focus() reaches its frame off screen leaves the board where
   // the person put it: the camera is the only thing that moves the board, and
@@ -1453,122 +1611,6 @@ try {
       JSON.stringify({ before, after }),
     );
     await fo.context.close();
-  }
-
-  // ------------------------------------------- a long prompt bar on a phone
-  // Many picks and a long prompt on a phone: the bar stays within the window,
-  // Send stays on screen and every pick can be scrolled to (issue #569).
-  {
-    const ph = await openPage({ width: 390, height: 540 });
-    await ph.page.goto(
-      `${RELAY}/?lang=en#/s/${sid}/files?path=canvas%2Fsite.canvas`,
-    );
-    await ph.page.getByTestId("canvas-view").waitFor();
-    await boardInView(ph.page);
-    await ph.page.getByTestId("canvas-fit").click();
-    const shopPh = await frameFor(ph.page, "Shop");
-    await ph.page.getByTestId("canvas-mode-comment").click();
-    const targets = [
-      ".logo",
-      "nav a:nth-child(1)",
-      "nav a:nth-child(2)",
-      "nav a:nth-child(3)",
-      "h1.hero",
-      "p.lead",
-      "#add",
-      "#count",
-      ".card:nth-child(1)",
-      ".card:nth-child(2)",
-      ".card:nth-child(3)",
-    ];
-    for (const sel of targets) {
-      const had = await ph.page.getByTestId("canvas-pick").count();
-      await clickInFrame(ph.page, shopPh, sel);
-      if (
-        !(await ph.page
-          .getByTestId("canvas-popover")
-          .waitFor({ timeout: 3000 })
-          .then(() => true)
-          .catch(() => false))
-      )
-        continue;
-      await ph.page
-        .getByTestId("canvas-popover-note")
-        .fill(`Make ${sel} clearer and closer to the brand`);
-      await ph.page.getByTestId("canvas-popover-add").click();
-      await until("the pick", async () =>
-        (await ph.page.getByTestId("canvas-pick").count()) > had ? 1 : 0,
-      ).catch(() => null);
-    }
-    await ph.page
-      .getByTestId("canvas-bar-field")
-      .fill(
-        Array.from(
-          { length: 14 },
-          (_, i) => `Line ${i + 1} of the prompt.`,
-        ).join("\n"),
-      );
-    const bar = await ph.page.evaluate(() => {
-      const r = (el) => {
-        const b = el.getBoundingClientRect();
-        return { top: Math.round(b.top), bottom: Math.round(b.bottom) };
-      };
-      // What is shown of the board's pane: under the window's head and tabs,
-      // within the window and the viewport.
-      const pane = document
-        .querySelector("[data-testid=canvas-view]")
-        .getBoundingClientRect();
-      const win = document
-        .querySelector("[data-testid=files-view]")
-        .getBoundingClientRect();
-      const top = Math.max(0, pane.top, win.top);
-      const bottom = Math.min(innerHeight, pane.bottom, win.bottom);
-      // A finger scrolls only what scrolls: overflow auto or scroll.
-      const reach = (target) => {
-        for (let el = target.parentElement; el; el = el.parentElement) {
-          const o = getComputedStyle(el).overflowY;
-          if (
-            (o === "auto" || o === "scroll") &&
-            el.scrollHeight > el.clientHeight + 1
-          ) {
-            const t = target.getBoundingClientRect();
-            const b = el.getBoundingClientRect();
-            if (t.top < b.top) el.scrollTop -= b.top - t.top;
-            else if (t.bottom > b.bottom) el.scrollTop += t.bottom - b.bottom;
-          }
-        }
-        const t = target.getBoundingClientRect();
-        return t.top >= top - 1 && t.bottom <= bottom + 1;
-      };
-      const all = [...document.querySelectorAll("[data-testid=canvas-pick]")];
-      const unreachable = all
-        .map((el, i) => (reach(el) ? -1 : i))
-        .filter((i) => i >= 0);
-      const send = document.querySelector("[data-testid=canvas-send]");
-      const field = document.querySelector("[data-testid=canvas-bar-field]");
-      return {
-        picks: all.length,
-        unreachable,
-        sendReached: reach(send),
-        fieldReached: reach(field),
-        shown: { top: Math.round(top), bottom: Math.round(bottom) },
-        send: r(send),
-        field: r(field),
-        firstPick: all[0] ? r(all[0]) : null,
-      };
-    });
-    check("the phone has many picks", bar.picks >= 8, JSON.stringify(bar));
-    check(
-      "with many picks and a long prompt the field and Send can be reached",
-      bar.sendReached && bar.fieldReached,
-      JSON.stringify(bar),
-    );
-    check(
-      "every pick can be scrolled to",
-      bar.unreachable.length === 0,
-      JSON.stringify(bar),
-    );
-    await ph.context.close();
   }
 
   // ------------------------------------------------------- documentation shots
