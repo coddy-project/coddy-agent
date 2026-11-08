@@ -79,6 +79,16 @@ func (c *x11Control) grabChords(deliver func(string)) {
 			}
 		}
 	}
+	// While there is an event loop on this connection, it is also what notices
+	// the browser replacing the window's icon: a page reloaded or a frame
+	// navigating makes Chromium write its own, the page's favicon at sixteen
+	// pixels, and a task bar blurs that up to its own size. The watcher's beat
+	// would put the mark back a tenth of a second later, which is long enough
+	// to see as a blink; a property event puts it back in the same breath.
+	if err := xproto.ChangeWindowAttributesChecked(c.conn, win,
+		xproto.CwEventMask, []uint32{uint32(xproto.EventMaskPropertyChange)}).Check(); err != nil {
+		logger(c.log).Debug("the window's properties could not be watched", "error", err)
+	}
 	go c.readChords(codes)
 }
 
@@ -220,6 +230,10 @@ func (c *x11Control) readChords(codes map[chordCode]string) {
 		ev, err := c.conn.WaitForEvent()
 		if ev == nil && err == nil {
 			return
+		}
+		if changed, ok := ev.(xproto.PropertyNotifyEvent); ok {
+			c.iconPropertyChanged(changed.Atom)
+			continue
 		}
 		press, ok := ev.(xproto.KeyPressEvent)
 		if !ok {

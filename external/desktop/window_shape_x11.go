@@ -25,30 +25,46 @@ import (
 // the radius the page rounds its own top corners by.
 const cornerRadius = 10
 
-// roundCorners cuts the corners out of the window, or puts them back when the
-// window is maximised and the shape would show the desktop through them.
+// roundCorners cuts the corners out of the window, or takes the shape off
+// again when the window should have none.
+//
+// A window with the system frame back on is the manager's to round, and it
+// draws its own corners over ours; a maximised one fills the screen, where a
+// cut corner is a hole onto the wallpaper. Neither takes a whole-rectangle
+// shape, which is what this used to set: a shape set is a shape the browser
+// clears again on the next change of the window's bounds, so the watcher laid
+// it again, and the manager redrew the frame around it every time - a window
+// that blinked for as long as the frame was on. A window with no corners to
+// cut is left with no shape at all.
 func (c *x11Control) roundCorners() {
 	win, err := c.window()
 	if err != nil {
+		return
+	}
+	if c.maximised() || c.framed() {
+		c.clearShape(win)
 		return
 	}
 	geom, err := xproto.GetGeometry(c.conn, xproto.Drawable(win)).Reply()
 	if err != nil {
 		return
 	}
-	// A window with the system frame back on is the manager's to round, and it
-	// draws its own corners over ours; a maximised one fills the screen, where
-	// a cut corner is a hole onto the wallpaper. Both take the whole rectangle,
-	// which is the same as no shape at all and needs no second code path.
-	if c.maximised() || c.framed() {
-		c.applyShape(win, []xproto.Rectangle{{X: 0, Y: 0, Width: geom.Width, Height: geom.Height}})
-		c.mu.Lock()
-		// A window with no corners to keep has nothing for a drag to lay again.
-		c.shapeRects = nil
-		c.mu.Unlock()
+	c.applyShape(win, roundedRectangles(geom.Width, geom.Height, cornerRadius))
+}
+
+// clearShape takes any shape off the window, which is what a framed or
+// maximised one wants.
+func (c *x11Control) clearShape(win xproto.Window) {
+	if !c.shapeReady() {
 		return
 	}
-	c.applyShape(win, roundedRectangles(geom.Width, geom.Height, cornerRadius))
+	if err := shape.MaskChecked(c.conn, shape.SoSet, shape.SkBounding, win, 0, 0, xproto.PixmapNone).Check(); err != nil {
+		logger(c.log).Debug("the window's shape could not be taken off", "error", err)
+	}
+	c.mu.Lock()
+	// A window with no corners to keep has nothing for a drag to lay again.
+	c.shapeRects = nil
+	c.mu.Unlock()
 }
 
 func (c *x11Control) applyShape(win xproto.Window, rects []xproto.Rectangle) {
@@ -214,8 +230,15 @@ func (c *x11Control) watchShape(stop <-chan struct{}) {
 		max, framed := c.maximised(), c.framed()
 		settled := geom.Width == last.w && geom.Height == last.h &&
 			max == last.max && framed == last.framed
-		if settled && c.boundingShaped() {
-			continue
+		if settled {
+			// A window that wants corners is checked for having them, because
+			// the browser clears the shape whenever the window's bounds move.
+			// One that wants none is left alone entirely: it has a frame, and
+			// the frame is the manager's, which redraws it for every shape
+			// this process writes.
+			if max || framed || c.boundingShaped() {
+				continue
+			}
 		}
 		last.w, last.h, last.max, last.framed = geom.Width, geom.Height, max, framed
 		c.roundCorners()

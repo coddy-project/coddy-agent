@@ -98,6 +98,16 @@ func (c *x11Control) keepIcon() {
 		xproto.AtomCardinal, 32, uint32(len(data)/4), data).Check() //nolint:gosec // G115: see above.
 }
 
+// iconPropertyChanged is the event loop noticing a write to the window's
+// icon. Anything else that changed is not this file's business.
+func (c *x11Control) iconPropertyChanged(atom xproto.Atom) {
+	want, err := c.atom("_NET_WM_ICON")
+	if err != nil || atom != want {
+		return
+	}
+	c.keepIcon()
+}
+
 // iconData is the property's bytes, built once for the life of the window.
 func (c *x11Control) iconData() ([]byte, error) {
 	c.mu.Lock()
