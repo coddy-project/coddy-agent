@@ -445,6 +445,23 @@ async function main() {
     { timeout: 10000 },
   );
   ok("a theme chosen in one tab is on the other at once");
+  // The ground follows the theme through the stylesheet, so it is waited for
+  // rather than read once: the second chat was opened a moment ago and may
+  // still be applying its own.
+  await page.waitForFunction(
+    () => {
+      const [a, b] = document.querySelectorAll(".frames iframe");
+      const read = (f) =>
+        f.contentWindow
+          .getComputedStyle(f.contentDocument.documentElement)
+          .getPropertyValue("--coddy-canvas-gradient-top")
+          .trim();
+      const top = read(a);
+      return Boolean(top) && top === read(b);
+    },
+    null,
+    { timeout: 15000 },
+  );
   const spread = await page.evaluate(() => {
     const [a, b] = document.querySelectorAll(".frames iframe");
     const read = (f) =>

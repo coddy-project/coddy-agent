@@ -176,6 +176,13 @@ type chordGrabber interface {
 	grabChords(deliver func(string))
 }
 
+// windowIconSetter is the part of a window control that can put Coddy's mark
+// on the window itself, for a task bar that has no installed application
+// entry to take an icon from. Only the X11 one can.
+type windowIconSetter interface {
+	setIcon()
+}
+
 // windowActivator is the part of a window control that can bring the window
 // back from the tray or from behind another window.
 type windowActivator interface {

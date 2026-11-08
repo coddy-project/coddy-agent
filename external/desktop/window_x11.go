@@ -50,6 +50,14 @@ type x11Control struct {
 	// deliver is where a grabbed key goes: the handle's queue, which the page
 	// long-polls. It is set when the chords are grabbed.
 	deliver func(string)
+	// icon is the _NET_WM_ICON property's bytes, built once (window_icon_x11.go).
+	icon []byte
+
+	// shapeRects is the shape the window has now, kept so a drag can lay it
+	// again per frame without asking the server about the window first
+	// (window_shape_x11.go). Nil while the window has no corners to keep.
+	shapeRects []xproto.Rectangle
+
 	// mu guards where a drag started from, which the page sets once and then
 	// measures every move against.
 	mu               sync.Mutex
@@ -434,7 +442,14 @@ func (c *x11Control) MoveBy(dx, dy int) error {
 	x, y := c.originX+dx, c.originY+dy
 	c.mu.Unlock()
 	x, y = clampMove(x, y)
-	return c.place(x, y)
+	if err := c.place(x, y); err != nil {
+		return err
+	}
+	// The browser clears the window's shape whenever its bounds change, so the
+	// corners are laid again in the same frame the window moved, rather than
+	// by the watcher a tenth of a second later.
+	c.reapplyShape()
+	return nil
 }
 
 // place puts the window's top left corner at x, y.

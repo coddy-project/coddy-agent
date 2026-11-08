@@ -121,8 +121,16 @@ func resolveBrowserPath(candidate string) (string, error) {
 // window closed; and the agent's session cookie would land in the profile they
 // read mail in. With it, the window is a process of its own, and the cookie
 // stays here. It costs disk, which the surface's page says out loud.
-func browserArgs(url, profileDir string) []string {
-	return []string{
+// firstWindowSize is the shape the first window of a profile opens at: a
+// landscape rectangle, like every editor and browser on the desktop, rather
+// than the tall default a Chromium application window takes. It is passed
+// only when the profile is new, because from the second launch on the browser
+// remembers where the operator left the window and this flag would override
+// it on every start.
+const firstWindowSize = "1280,820"
+
+func browserArgs(url, profileDir string, fresh bool) []string {
+	args := []string{
 		"--app=" + url,
 		"--user-data-dir=" + profileDir,
 		// A profile of our own is a fresh profile, and a fresh profile asks
@@ -130,8 +138,29 @@ func browserArgs(url, profileDir string) []string {
 		// the window is supposed to open on a chat.
 		"--no-first-run",
 		"--no-default-browser-check",
+		// Whose window this is, for the task bar and the window manager. On a
+		// platform with no WM_CLASS the browser ignores it.
+		"--class=" + WindowClass,
 	}
+	if fresh {
+		args = append(args, "--window-size="+firstWindowSize)
+	}
+	return args
 }
+
+// WindowClass is what the window calls itself to the desktop: the WM_CLASS of
+// an X11 window, and the name a task bar matches against the application
+// entries it knows.
+//
+// Without it the window is the browser's. A Chromium window opened with --app
+// takes its class from the address it opens - measured on a display of its
+// own, ("127.0.0.1__desktop", "Google-chrome") - so a task bar finds the
+// browser's entry, draws the browser's icon under the window and opens the
+// browser's menu over it: its recent downloads, a new incognito window, none
+// of it Coddy's. The entry the Linux packages install names this same string
+// in StartupWMClass (packaging/desktop/coddy-desktop.desktop), which is what
+// the match is made on.
+const WindowClass = "coddy-desktop"
 
 // contentSettingAllow is Chromium's CONTENT_SETTING_ALLOW, the value a
 // permission exception carries in the profile's Preferences.
@@ -170,16 +199,16 @@ func windowOrigin(addr string) string {
 // launches because the port does (port.go); should the remembered port be taken
 // and the launcher pick another, the grant no longer matches and the operator
 // answers the bubble once, in a window that still works.
-func seedProfile(profileDir, origin string) error {
+func seedProfile(profileDir, origin string) (fresh bool, err error) {
 	dir := filepath.Join(profileDir, "Default")
 	prefs := filepath.Join(dir, "Preferences")
 	if _, err := os.Stat(prefs); err == nil {
-		return nil
+		return false, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return false, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return false, err
 	}
 	// Chromium keys a content setting by a pair of patterns, "<primary>,<secondary>",
 	// the embedder's being "*" for a page that is not framed by another origin.
@@ -197,9 +226,12 @@ func seedProfile(profileDir, origin string) error {
 	}
 	body, err := json.Marshal(seeded)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return os.WriteFile(prefs, body, 0o600)
+	if err := os.WriteFile(prefs, body, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // openBrowserWindow starts the browser and returns when its window closes, or
@@ -213,13 +245,14 @@ func openBrowserWindow(ctx context.Context, opts Options, url string) error {
 	if err := os.MkdirAll(profileDir, 0o700); err != nil {
 		return fmt.Errorf("desktop: the window's profile directory: %w", err)
 	}
-	if err := seedProfile(profileDir, windowOrigin(url)); err != nil {
+	fresh, err := seedProfile(profileDir, windowOrigin(url))
+	if err != nil {
 		// A profile that could not be seeded still opens a window; the
 		// operator gets the translate bubble and one permission question,
 		// and nothing worse.
 		logger(opts.Log).Warn("the window's profile could not be prepared", "profile", profileDir, "error", err)
 	}
-	argv := append(append([]string{}, browser.Args...), browserArgs(url, profileDir)...)
+	argv := append(append([]string{}, browser.Args...), browserArgs(url, profileDir, fresh)...)
 	// The operator names the browser; the rest of the argv is this file's own flags.
 	cmd := exec.Command(browser.Path, argv...)
 	platform.AdaptCommand(cmd)
@@ -243,6 +276,13 @@ func openBrowserWindow(ctx context.Context, opts Options, url string) error {
 				return
 			}
 			opts.Handle.Attach(ctl)
+			// The mark the window carries, for a task bar with no installed
+			// entry of Coddy's to take one from: the browser gives an
+			// application window the page's favicon at 16 pixels and nothing
+			// larger (window_icon_x11.go).
+			if i, ok := ctl.(windowIconSetter); ok {
+				i.setIcon()
+			}
 			if !opts.Framed {
 				// The browser is still settling the window it has just mapped,
 				// and it writes the same property the frame is decided by, so

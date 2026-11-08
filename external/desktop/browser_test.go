@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,7 @@ func TestProfileNameIsOneFolderPerBrowser(t *testing.T) {
 // run can wait on it and the agent's cookie stays out of the browser the
 // operator reads mail in. A window started without it is a bug, not a detail.
 func TestWindowArgsCarryTheAppURLAndItsOwnProfile(t *testing.T) {
-	args := browserArgs("http://127.0.0.1:41234/desktop/", filepath.Join("home", "desktop", "profiles", "chromium"))
+	args := browserArgs("http://127.0.0.1:41234/desktop/", filepath.Join("home", "desktop", "profiles", "chromium"), true)
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"--app=http://127.0.0.1:41234/desktop/",
@@ -58,7 +59,7 @@ func TestWindowArgsCarryTheAppURLAndItsOwnProfile(t *testing.T) {
 // already used is theirs, and nothing of it is rewritten.
 func TestOnlyAFreshProfileIsSeeded(t *testing.T) {
 	profile := t.TempDir()
-	if err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
+	if _, err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
 		t.Fatalf("seedProfile: %v", err)
 	}
 	prefs := filepath.Join(profile, "Default", "Preferences")
@@ -74,7 +75,7 @@ func TestOnlyAFreshProfileIsSeeded(t *testing.T) {
 	if err := os.WriteFile(prefs, theirs, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
+	if _, err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
 		t.Fatalf("seedProfile over an existing profile: %v", err)
 	}
 	after, err := os.ReadFile(prefs)
@@ -95,7 +96,7 @@ func TestOnlyAFreshProfileIsSeeded(t *testing.T) {
 // is still a browser.
 func TestAFreshProfileGrantsNotificationsToTheWindowsOrigin(t *testing.T) {
 	profile := t.TempDir()
-	if err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
+	if _, err := seedProfile(profile, "http://127.0.0.1:41234"); err != nil {
 		t.Fatalf("seedProfile: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(profile, "Default", "Preferences"))
@@ -200,4 +201,67 @@ func TestAnUnportedPlatformFallsThroughAsNoBrowser(t *testing.T) {
 	if !strings.Contains(err.Error(), runtime.GOOS) {
 		t.Fatalf("the message %q does not say which platform it is", err)
 	}
+}
+
+// The window belongs to Coddy, and the desktop has to be able to tell.
+//
+// A Chromium window opened with --app takes its WM_CLASS from the address:
+// measured on an X display of its own, the class of this window was
+// ("127.0.0.1__desktop", "Google-chrome"). A task bar matches that against the
+// installed application entries, finds the browser's, and draws the browser's
+// icon with the browser's menu over it - recent downloads, a new incognito
+// window - none of which belongs to Coddy. --class puts WindowClass there
+// instead, and the entry this repository ships names the same string in
+// StartupWMClass, which is what the match is made on.
+func TestTheWindowCarriesCoddysOwnWindowClass(t *testing.T) {
+	args := browserArgs("http://127.0.0.1:41234/desktop/", "profile", true)
+	if !containsArg(args, "--class="+WindowClass) {
+		t.Fatalf("the window was opened with %v, so the task bar draws the browser's icon", args)
+	}
+}
+
+// The entry the Linux packages install has to name the same class, or the task
+// bar has nothing to match the window against.
+func TestTheDesktopEntryNamesTheSameWindowClass(t *testing.T) {
+	b, err := os.ReadFile("../../packaging/desktop/coddy-desktop.desktop")
+	if err != nil {
+		t.Fatalf("reading the desktop entry: %v", err)
+	}
+	want := "StartupWMClass=" + WindowClass
+	if !strings.Contains(string(b), want) {
+		t.Fatalf("the desktop entry has no %q line, so a window of this class matches no application:\n%s", want, b)
+	}
+}
+
+// The first window of a profile opens as a landscape rectangle, which is what
+// every other application on the desktop does; a Chromium application window
+// left to itself comes up tall. From the second launch on the browser
+// remembers where the operator left the window, and the flag would override
+// that, so it is passed only to a profile that has never had a window.
+func TestOnlyTheFirstWindowOfAProfileIsGivenASize(t *testing.T) {
+	fresh := browserArgs("http://127.0.0.1:41234/desktop/", "profile", true)
+	if !containsArg(fresh, "--window-size="+firstWindowSize) {
+		t.Fatalf("the first window of a profile was opened with %v", fresh)
+	}
+	wide, tall, ok := strings.Cut(firstWindowSize, ",")
+	w, errW := strconv.Atoi(wide)
+	h, errH := strconv.Atoi(tall)
+	if !ok || errW != nil || errH != nil || w <= h {
+		t.Fatalf("the first window is %q, which is not a landscape rectangle", firstWindowSize)
+	}
+	used := browserArgs("http://127.0.0.1:41234/desktop/", "profile", false)
+	for _, arg := range used {
+		if strings.HasPrefix(arg, "--window-size=") {
+			t.Fatalf("a profile that already has a window was given %q, overriding where the operator left it", arg)
+		}
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }

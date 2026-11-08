@@ -28,8 +28,19 @@ import (
 // one exported object and one call to the watcher; taking the icon away is
 // closing the connection, which is what the host watches for.
 
-//go:embed assets/coddy-tray.png
-var trayPNG []byte
+// The mark, once: the tray icon, and the icon the window carries for a task
+// bar that has no installed entry to take one from (window_icon_x11.go). It
+// is the same file the Linux packages install for the menu entry.
+//
+//go:embed assets/coddy-icon.png
+var iconPNG []byte
+
+// The same mark at the size a task bar actually draws. _NET_WM_ICON carries
+// several sizes and the task bar picks; a window given only the large one
+// makes every panel scale it down itself.
+//
+//go:embed assets/coddy-icon-48.png
+var iconSmallPNG []byte
 
 const (
 	sniInterface  = "org.kde.StatusNotifierItem"
@@ -117,7 +128,7 @@ func (t *trayIcon) publish(conn *dbus.Conn) error {
 		return errors.New("desktop: another program already holds this tray icon's name on the bus")
 	}
 
-	pixmap, err := trayPixmapOf(trayPNG)
+	pixmap, err := trayPixmapOf(iconPNG)
 	if err != nil {
 		return err
 	}

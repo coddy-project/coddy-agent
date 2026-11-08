@@ -109,7 +109,7 @@ const Prefix = "/desktop/"
 // one - is worse than picking another port.
 const MarkerHeader = "X-Coddy-Desktop"
 
-//go:embed index.html shell.css shell.js
+//go:embed index.html shell.css shell.js icon.png
 var assets embed.FS
 
 // Handler serves the shell, and the window actions of the strip when a caller
@@ -153,6 +153,8 @@ func Handler(ctl WindowControl) http.Handler {
 			serveAsset(w, name, "text/css; charset=utf-8", false)
 		case "shell.js":
 			serveAsset(w, name, "text/javascript; charset=utf-8", false)
+		case "icon.png":
+			serveAsset(w, name, "image/png", false)
 		default:
 			http.NotFound(w, r)
 		}

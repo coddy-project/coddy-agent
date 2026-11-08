@@ -161,6 +161,27 @@ is let loose when you start dragging the strip, and put back under the pointer, 
 title bar works everywhere. The keyboard instructions of your desktop apply to this window as they
 do to any other.
 
+The first window of a browser profile opens as a landscape rectangle, 1280 by 820, rather than the
+tall one a Chromium application window takes by default. After that the browser remembers where you
+left it, and Coddy does not override that: a window moved or resized comes back where it was.
+
+### In the task bar
+
+The window is Coddy's, and the desktop is told so twice over. It carries the
+window class `coddy-desktop`, which is what a task bar matches against the
+application entries it knows, so an installed Coddy shows its own icon and its
+own menu there rather than the browser's - without it the class is derived
+from the address the window opens, the task bar finds the browser's entry, and
+a right click offers the browser's recent downloads and a new incognito
+window. And it carries Coddy's mark as its own icon, at 48 and 128 pixels, for
+a machine with no entry installed: a browser gives an application window the
+page's favicon at 16 pixels and nothing larger, which a task bar then blurs up
+to its own size.
+
+Both are X11. On Wayland, on macOS and on Windows the window is the browser's
+as far as the system is concerned, and the task bar draws what the browser
+tells it.
+
 The strip wears the theme the chats are in. It reads the colours off the chat in front, so all nine
 themes of the web interface reach the bar, the tabs and the state dots, and a theme changed in
 **Settings** reaches the strip without a reload.

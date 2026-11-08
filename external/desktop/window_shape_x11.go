@@ -42,6 +42,10 @@ func (c *x11Control) roundCorners() {
 	// which is the same as no shape at all and needs no second code path.
 	if c.maximised() || c.framed() {
 		c.applyShape(win, []xproto.Rectangle{{X: 0, Y: 0, Width: geom.Width, Height: geom.Height}})
+		c.mu.Lock()
+		// A window with no corners to keep has nothing for a drag to lay again.
+		c.shapeRects = nil
+		c.mu.Unlock()
 		return
 	}
 	c.applyShape(win, roundedRectangles(geom.Width, geom.Height, cornerRadius))
@@ -55,7 +59,37 @@ func (c *x11Control) applyShape(win xproto.Window, rects []xproto.Rectangle) {
 		win, 0, 0, rects).Check()
 	if err != nil {
 		logger(c.log).Debug("the window's corners could not be cut", "error", err)
+		return
 	}
+	// Kept for the drag below, which lays the same shape again without asking
+	// the server anything about the window first.
+	c.mu.Lock()
+	c.shapeRects = rects
+	c.mu.Unlock()
+}
+
+// reapplyShape lays the shape the window already had, again.
+//
+// It is for a drag: the browser sets the region of its own window whenever the
+// window's bounds change, which clears ours, and a window dragged across the
+// screen changes its bounds sixty times a second. The watcher below would put
+// the corners back a tenth of a second later each time, which is exactly long
+// enough to see - the corners went square for the whole drag and round again
+// when it stopped. The size does not change while a window is moved, so the
+// rectangles are the ones already computed, and the request is sent without
+// waiting for an answer: a round trip per frame is what a drag cannot afford.
+func (c *x11Control) reapplyShape() {
+	c.mu.Lock()
+	rects := c.shapeRects
+	c.mu.Unlock()
+	if len(rects) == 0 || !c.shapeReady() {
+		return
+	}
+	win, err := c.window()
+	if err != nil {
+		return
+	}
+	shape.Rectangles(c.conn, shape.SoSet, shape.SkBounding, xproto.ClipOrderingUnsorted, win, 0, 0, rects)
 }
 
 // shapeReady loads the extension once per connection. A server without it
@@ -147,11 +181,7 @@ func (c *x11Control) boundingShaped() bool {
 // selecting for its events would fight whatever the browser has selected, and
 // a shape laid a tenth of a second late is a shape nobody sees arrive.
 func (c *x11Control) watchShape(stop <-chan struct{}) {
-	if !c.shapeReady() {
-		// Nothing can be cut on this server, so there is nothing to watch and
-		// no reason to ask about it four hundred times a minute.
-		return
-	}
+	shaped := c.shapeReady()
 	last := struct {
 		w, h   uint16
 		max    bool
@@ -164,6 +194,14 @@ func (c *x11Control) watchShape(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-tick.C:
+		}
+		// The browser writes its own icon into the window whenever the page
+		// reloads or a frame of it navigates, and its own icon is the page's
+		// favicon at sixteen pixels - which a task bar then blurs up to its
+		// own size. One small property read a tick puts Coddy's mark back.
+		c.keepIcon()
+		if !shaped {
+			continue
 		}
 		win, err := c.window()
 		if err != nil {
