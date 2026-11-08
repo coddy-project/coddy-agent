@@ -66,7 +66,9 @@ func serveModel(ctx context.Context, listener net.Listener, stub *llmstub.Server
 	defer cancel()
 	if err := server.Shutdown(shutdown); err != nil {
 		_ = server.Close()
-		<-done
+		if serveErr := <-done; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			return errors.Join(err, serveErr)
+		}
 		return err
 	}
 	err := <-done
