@@ -45,6 +45,8 @@ describe("anchor registry", () => {
       registry.on("nowhere", new AbortController().signal, vi.fn()),
     ).toThrow(/Unknown anchor/);
     expect(isExtensionAnchorName("composer.actions")).toBe(true);
-    expect(isExtensionAnchorName("composer")).toBe(false);
+    expect(isExtensionAnchorName("composer")).toBe(true);
+    expect(isExtensionAnchorName("composer.model")).toBe(true);
+    expect(isExtensionAnchorName("composer.send")).toBe(true);
   });
 });

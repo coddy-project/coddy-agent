@@ -3808,6 +3808,7 @@ export function Composer(props: {
                   >
                     {llmLabel}
                   </button>
+                  <ExtensionAnchor name="composer.model" />
                 </div>
               ) : null}
 
@@ -3998,8 +3999,10 @@ export function Composer(props: {
                   </span>
                 )}
               </button>
+              <ExtensionAnchor name="composer.send" />
             </div>
           </div>
+          <ExtensionAnchor name="composer" />
         </div>
       </footer>
       {contextPopoverOpen ? (

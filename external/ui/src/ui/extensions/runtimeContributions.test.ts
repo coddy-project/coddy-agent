@@ -424,4 +424,11 @@ describe("the widened extension API", () => {
     failing = true;
     await expect(api.models.list()).rejects.toThrow(/Models API/);
   });
+
+  test("the provider catalog joins the extension API", async () => {
+    setup();
+    const { api } = await activateOne(() => {});
+    expect(api.providers.list).toBeTypeOf("function");
+    expect(api.providers.models).toBeTypeOf("function");
+  });
 });

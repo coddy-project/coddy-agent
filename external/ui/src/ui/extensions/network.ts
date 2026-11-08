@@ -1,3 +1,9 @@
+import {
+  extensionBrowserNetwork,
+  type ExtensionBrowserNetwork,
+  type ExtensionBrowserNetworkOptions,
+} from "./browserNetwork";
+
 export type ExtensionFetchOptions = {
   method?: string;
   headers?: HeadersInit;
@@ -10,7 +16,7 @@ export type ExtensionFetchOptions = {
   signal?: AbortSignal;
 };
 
-export type ExtensionNetwork = {
+export type ExtensionNetwork = ExtensionBrowserNetwork & {
   fetch: (url: string, options?: ExtensionFetchOptions) => Promise<Response>;
 };
 
@@ -28,8 +34,10 @@ export function extensionNetwork(
   id: string,
   sha256: string,
   lifetime: AbortSignal,
+  browserOptions: ExtensionBrowserNetworkOptions = {},
 ): ExtensionNetwork {
   return {
+    ...extensionBrowserNetwork(lifetime, browserOptions),
     async fetch(url, options = {}) {
       const controller = new AbortController();
       const abort = () => controller.abort();

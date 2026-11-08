@@ -8,6 +8,7 @@ import {
 } from "./theme";
 import { UI_THEME_IDS } from "../theme/themeCookie";
 import { stylesSource } from "../../stylesSource";
+import { THEME_TOKEN_CONTRACT_VERSION } from "./themeTokens";
 
 function fakeTheme(id: ExtensionTheme["id"], accent: string): ExtensionTheme {
   const colors = {} as Record<ExtensionThemeColor, string>;
@@ -52,6 +53,7 @@ test("an extension reads the theme colours and follows a theme switch", () => {
   const host = fakeHost(fakeTheme("dark", "#9333ea"));
   const controller = new AbortController();
   const api = host.themes.api("demo", controller.signal);
+  expect(api.tokenContractVersion).toBe(THEME_TOKEN_CONTRACT_VERSION);
   expect(api.get().id).toBe("dark");
   expect(api.get().mode).toBe("dark");
   expect(api.get().colors.accent).toBe("#9333ea");

@@ -65,6 +65,8 @@ describe("the chat bridge", () => {
     const status = {
       sessionId: "s1",
       turnActive: true,
+      activity: "writing" as const,
+      progress: null,
       tokenUsage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
       permissionPending: false,
       questionPending: false,

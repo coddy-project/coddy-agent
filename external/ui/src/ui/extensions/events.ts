@@ -18,6 +18,10 @@ export type ExtensionEventMap = {
   };
   /** The set of open overlays changed. */
   overlaysChanged: { ids: readonly string[] };
+  /** The browser window gained or lost focus. */
+  focusChanged: { focused: boolean };
+  /** The page started unloading. Observational: it cannot cancel the unload. */
+  beforeUnload: Record<string, never>;
   /** The live configuration changed somewhere: re-read what you drew. */
   configReloaded: Record<string, never>;
 };
@@ -81,6 +85,8 @@ export class ExtensionEvents {
         "turnEnded",
         "surfaceChanged",
         "overlaysChanged",
+        "focusChanged",
+        "beforeUnload",
         "configReloaded",
       ].includes(type) &&
       !isCustomEventType(type)

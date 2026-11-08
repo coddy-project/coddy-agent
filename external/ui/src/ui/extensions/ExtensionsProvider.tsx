@@ -137,14 +137,21 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
     const focus = () => {
+      runtime.events.emit("focusChanged", { focused: true });
       void refresh();
     };
-    const timer = window.setInterval(focus, 15000);
+    const blur = () => runtime.events.emit("focusChanged", { focused: false });
+    const beforeUnload = () => runtime.events.emit("beforeUnload", {});
+    const timer = window.setInterval(() => void refresh(), 15000);
     window.addEventListener("focus", focus);
+    window.addEventListener("blur", blur);
+    window.addEventListener("beforeunload", beforeUnload);
     return () => {
       generation.current++;
       window.clearInterval(timer);
       window.removeEventListener("focus", focus);
+      window.removeEventListener("blur", blur);
+      window.removeEventListener("beforeunload", beforeUnload);
       runtime.stop();
     };
   }, [refresh, runtime]);

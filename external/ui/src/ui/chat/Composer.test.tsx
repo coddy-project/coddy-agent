@@ -50,6 +50,31 @@ function renderComposerWithLlm(opts: { isEmpty: boolean }) {
   );
 }
 
+test("the composer exposes its card, model and send extension anchors", () => {
+  const { rerender } = renderComposerWithLlm({ isEmpty: false });
+  for (const name of ["composer", "composer.model", "composer.send"])
+    expect(
+      document.querySelector(`[data-extension-anchor="${name}"]`),
+    ).not.toBeNull();
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(
+    document.querySelector('[data-extension-anchor="composer.model"]'),
+  ).toBeNull();
+  expect(
+    document.querySelector('[data-extension-anchor="composer.send"]'),
+  ).not.toBeNull();
+});
+
 test("ask mode renders its own pill class and menu entry", () => {
   render(
     <Composer

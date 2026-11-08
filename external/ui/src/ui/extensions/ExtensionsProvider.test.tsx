@@ -175,3 +175,40 @@ test("surfaces coming and going arrive as events", async () => {
   });
   expect(surfaces[3]).toEqual({ surface: "panel", id: null, open: false });
 });
+
+test("focus, blur and unload reach lifecycle listeners", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  let runtime!: ExtensionRuntime;
+  function Consumer() {
+    runtime = useExtensions()!.runtime;
+    return null;
+  }
+  render(
+    <ExtensionsProvider>
+      <Consumer />
+    </ExtensionsProvider>,
+  );
+  await waitFor(() => expect(runtime).toBeDefined());
+  const focused: unknown[] = [];
+  const unloading: unknown[] = [];
+  const signal = new AbortController().signal;
+  runtime.events.on("watcher", signal, "focusChanged", (event) =>
+    focused.push(event),
+  );
+  runtime.events.on("watcher", signal, "beforeUnload", (event) =>
+    unloading.push(event),
+  );
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("beforeunload"));
+  });
+  expect(focused).toEqual([{ focused: true }, { focused: false }]);
+  expect(unloading).toEqual([{}]);
+});

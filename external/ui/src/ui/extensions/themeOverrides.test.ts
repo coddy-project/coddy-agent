@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
-  discoverThemeTokens,
   ExtensionThemes,
   readExtensionEffects,
   validOverrideKey,
   validOverrideValue,
 } from "./theme";
-import type { ExtensionTheme } from "./theme";
+import type { ExtensionTheme, ExtensionThemeOverride } from "./theme";
 
 const theme = (id: "dark" | "light"): ExtensionTheme =>
   Object.freeze({
@@ -50,7 +49,7 @@ describe("theme overrides and effects", () => {
     ).toBeNull();
   });
 
-  test("an override reaches any theme token, not only the eight colours", () => {
+  test("an override reaches any contract token, not only the eight colours", () => {
     const themes = quiet();
     const api = themes.api("demo", new AbortController().signal);
     api.override({
@@ -80,6 +79,7 @@ describe("theme overrides and effects", () => {
   test("a key that is no token, and a colour that is no colour, are refused", () => {
     expect(validOverrideKey("bg")).toBe(true);
     expect(validOverrideKey("--coddy-surface-subtle")).toBe(true);
+    expect(validOverrideKey("--extension-private-token")).toBe(false);
     expect(validOverrideKey("--Bad Name")).toBe(false);
     expect(validOverrideKey("display")).toBe(false);
     expect(validOverrideValue("bg", "#fff")).toBe(true);
@@ -88,7 +88,7 @@ describe("theme overrides and effects", () => {
     expect(validOverrideValue("bg", "url(javascript:alert(1))")).toBe(false);
     expect(validOverrideValue("bg", "definitely-not-a-colour")).toBe(false);
     expect(validOverrideValue("bg", "")).toBe(false);
-    // An arbitrary token takes any CSS value; only rules are refused.
+    // A contract token takes any CSS value; only rules are refused.
     expect(validOverrideValue("--radius", "12px")).toBe(true);
     expect(validOverrideValue("--radius", "12px; color: red")).toBe(false);
     const themes = quiet();
@@ -100,23 +100,27 @@ describe("theme overrides and effects", () => {
     expect(() =>
       themes
         .api("demo", new AbortController().signal)
-        .override({ display: "block" }),
+        .override({ display: "block" } as unknown as ExtensionThemeOverride),
     ).toThrow(/Invalid theme override/);
+    expect(() =>
+      themes.api("demo", new AbortController().signal).override({
+        "--extension-private-token": "red",
+      } as unknown as ExtensionThemeOverride),
+    ).toThrow(/Invalid theme override/);
+    expect(
+      document.querySelector("[data-ext-theme-override='demo']"),
+    ).toBeNull();
   });
 
-  test("tokens are discovered from the app's own root rules", () => {
-    const style = document.createElement("style");
-    style.textContent =
-      '[data-theme="dark"] { --found-a: #111; --found-b: 2px } .cls { --not-a-token: 1 }';
-    document.head.append(style);
-    try {
-      const names = discoverThemeTokens();
-      expect(names).toContain("--found-a");
-      expect(names).toContain("--found-b");
-      expect(names).not.toContain("--not-a-token");
-    } finally {
-      style.remove();
-    }
+  test("an override update also rejects an unknown token", () => {
+    const handle = quiet()
+      .api("demo", new AbortController().signal)
+      .override({ "--radius": "12px" });
+    expect(() =>
+      handle.update({
+        "--extension-private-token": "red",
+      } as unknown as ExtensionThemeOverride),
+    ).toThrow(/Invalid theme override/);
   });
 
   test("effects listeners fire only when the snapshot changes", () => {

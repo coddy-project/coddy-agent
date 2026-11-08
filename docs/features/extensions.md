@@ -89,12 +89,13 @@ export function activate(coddy) {
 | `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream so hook handlers and an IDE bridge can answer, and `ext.<id>.<type>` to this page's listeners - and `await host.request({type, data, timeoutMs})` sends one `extension_request` and resolves with the data whoever handles it answers, or `null` at the timeout. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
-| `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded`, `turnEnded`, `surfaceChanged`, `overlaysChanged` or `configReloaded`, and `ext.<id>.<type>` events of other extensions. Returns a `remove()` handle. |
+| `coddy.net.browserFetch(input, init?)`, `coddy.net.webSocket(url, protocols?, options?)` | Talk directly from the browser: a native streaming `Response`, or a WebSocket that closes with the extension. Browser CORS, cookie and WebSocket-header rules apply. |
+| `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded`, `turnEnded`, `surfaceChanged`, `overlaysChanged`, `focusChanged`, `beforeUnload` or `configReloaded`, and `ext.<id>.<type>` events of other extensions. Returns a `remove()` handle. |
 | `coddy.theme.get()` | The active theme: its id, `light`/`dark` mode and the resolved colours an extension paints with. A frozen snapshot. |
 | `coddy.theme.onChange(listener)` | Observe every theme switch; the listener gets the new frozen snapshot. Returns a `remove()` handle. |
 | `coddy.theme.getEffects()`, `coddy.theme.onEffectsChange(listener)` | Reduced motion and the engine tier. The listener hears changes only; its first read is the baseline. |
-| `coddy.theme.tokens()` | Every theme token of the active theme - name to computed value. The app paints from this whole layer, not only from the eight colours of the snapshot. |
-| `coddy.theme.override(colors)` | Override theme tokens with CSS values until the handle removes them - the eight colour names, or any `--token` of `tokens()`. Returns an `update`/`remove` handle. |
+| `coddy.theme.tokens()`, `coddy.theme.tokenContractVersion` | Every token of the versioned host contract - name to computed value, empty values included. Contract version `1` pins the shape; styles an extension injects cannot add keys. |
+| `coddy.theme.override(colors)` | Override theme tokens with CSS values until the handle removes them - the eight colour names, or any contract `--token` of `tokens()`. Unknown tokens are refused. Returns an `update`/`remove` handle. |
 | `coddy.ui.registerToolRenderer({id, server?, tool?, mount})` | Replace the presentation of matching MCP and built-in tool calls; original details remain available. |
 | `coddy.ui.registerMessageRenderer({id, match, mount})` | Draw transcript rows: matched host item types and `ext_frame` rows of frames the host has no row for. |
 | `coddy.ui.registerPermissionPreview({id, tool?, mount})` | Add a view under the host's own preview on a permission card. The prompt stays the host's. |
@@ -129,8 +130,9 @@ export function activate(coddy) {
 | `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Mounts a control into the composer - `actions` (its action row) or `tabs` (the strip of picks). Returns an `update`/`remove` handle. |
 | `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled control list - retitle, reorder, hide or drop any entry - before it renders. Needs the `ui.alter` scope; host controls join the list later. |
 | `coddy.nav.currentRoute()`, `openSession(id)`, `openScreen(screen)` | Where the app is, and where an extension may take it: a conversation, or the `home`, `history`, `settings` and `scheduler` screens the rail opens. |
-| `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, the token usage, a pending permission or question - what a status line and badges draw from. |
+| `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, parsed `activity` and generation `progress` (start, output tokens, estimate flag, tokens per second), token usage, a pending permission or question - what a status line and badges draw from. |
 | `coddy.models.list()` | The server's model catalog - the same rows Settings and the composer pickers fill themselves from - as frozen entries with `id` and what `/v1/models` reports beside it. |
+| `coddy.providers.list()`, `coddy.providers.models(name)` | The configured provider catalog without credentials, and the models a saved provider advertises through its server-side credentials. Frozen rows; an upstream listing failure rejects. |
 | `coddy.ui.openModal({id, title, mount})` | One modal at a time over the chat; Escape and the handle close it. |
 | `coddy.ui.openOverlay({id, mount, position?})` | A free-floating box the app never dims - a pet, a toast; several may be open. |
 | `coddy.ui.takeOverShell({id, mount})` | Takes the window: the host draws nothing of its own until `release()` or the extension goes away. |
@@ -177,6 +179,8 @@ coddy.events.on("turnEnded", async ({ sessionId, at }) => {
 | `turnEnded` | `{sessionId, at}` from the app's existing shared `/coddy/events` connection when the whole turn ends, including cancellation or failure. It also covers turns started by another surface or in another chat. `at` is the server's timestamp. |
 | `surfaceChanged` | `{surface, id, open}` when a single-slot surface opens or closes: `surface` is `page`, `panel`, `modal` or `shell`, `id` is its `<extension id>/<surface id>` key or `null` on the close. |
 | `overlaysChanged` | `{ids}` whenever the set of open overlays changes, listing every open `<extension id>/<overlay id>` key. |
+| `focusChanged` | `{focused}` when the browser window gains or loses focus. No initial snapshot is emitted. |
+| `beforeUnload` | `{}` when the page starts unloading. It is observational and cannot cancel or delay the unload. |
 | `configReloaded` | `{}` when the live configuration was replaced anywhere - a Settings save, the agent's `config_commit`, a skill install. Re-read what you drew from the configuration. |
 
 These callbacks observe events; their return values do not cancel navigation or change the agent's control flow. They may start asynchronous work. The host consumes rejected promises, removes a failing listener and reports its error in Settings. Other listeners continue. Delivery runs by extension id in ascending ASCII order, then registration order. Each payload is a frozen copy.
@@ -511,7 +515,7 @@ These seven ship as `coddy.sessions` in this build; the entries below name what 
 
 ### Composer
 
-These ship as `coddy.composer`, `registerComposerControl` and `alterControls`; the fine `composer.model` / `composer.send` anchors and host entries in the alter list remain.
+These ship as `coddy.composer`, `registerComposerControl`, `alterControls` and the fine `composer` / `composer.model` / `composer.send` anchors; host entries in the alter list remain.
 
 - **`registerComposerControl` and chips** - buttons and selects in the composer's action rows (section 11 of the specification) - frontend;
 - **Fine anchors** - `composer`, `composer.model`, `composer.send` beside the one `composer.actions` - frontend;
@@ -521,13 +525,13 @@ These ship as `coddy.composer`, `registerComposerControl` and `alterControls`; t
 
 ### Navigation and surfaces
 
-These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShell` and the session writes. Surfaces at once mean one panel plus modals and overlays; the fine anchors and host entries of the alter list remain.
+These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShell` and the session writes. Surfaces at once mean one panel plus modals and overlays; host entries of the alter list remain. Parsed activity, generation rate and usage feed the header and statusline anchors.
 
 - **`coddy.nav`** - `openSession`, `openScreen`, `currentRoute`; the hash router is there - frontend;
 - **`coddy.ui.openModal` and `openOverlay`** - modals, toasts, an always-on-top pet - frontend;
 - **Several surfaces at once** - one panel and one page dialog are open at a time - frontend;
 - **Shell takeover** - a true alternative interface replaces the app instead of drawing over it; the host must hand out its root and lifecycle - host;
-- **Chat header and statusline data** - the anchors exist; what they show (phase, tokens per second, usage) must arrive as parsed data - frontend;
+- **Chat header and statusline data** - parsed activity, tokens per second and usage ship as `coddy.chat.status()` - frontend;
 - **The session list beyond filtering** - pins, tags, rename, grouping, archive actions - frontend.
 
 ### Tools, agents and background work
@@ -541,33 +545,37 @@ Reading, stopping and clearing tasks and answering permission prompts ship as `c
 
 ### Events and lifecycle
 
-Surface openings and closings and the configuration swap ship as the `surfaceChanged`, `overlaysChanged` and `configReloaded` events; the specification's full host set and synchronous decisions remain.
+Surface openings and closings, window focus, unloading and the configuration swap ship as the `surfaceChanged`, `overlaysChanged`, `focusChanged`, `beforeUnload` and `configReloaded` events; the specification's full host set and synchronous decisions remain.
 
 - **The full host event set** of the specification (`session.created`, `turn.started`, `tool.finished`, `config.reloaded`, ...) - host;
 - **Synchronous hooks with a decision**, the `handled` shape of the PreToolUse handlers - host;
-- **Surface events** - opened and closed ship as `surfaceChanged` and `overlaysChanged`; focus and beforeunload remain - frontend.
+- **Surface events** - opened, closed, focus and beforeunload ship; `beforeUnload` is observational and cannot cancel the unload - frontend.
 
 ### Settings and configuration
 
-The tab-list alter, the model catalog and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.models.list()` and the `configReloaded` event; rows inside a tab and the provider half of the catalog remain.
+The tab-list alter, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; rows inside a tab remain.
 
 - **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs ship, rows remain - frontend;
-- **Complex field types** - lists and objects in the settings form - frontend;
+- **Complex field types** - lists and objects in the settings form - frontend, plus host persistence for non-scalar values;
 - **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
-- **The model and provider catalog** - models ship as `coddy.models.list()`; providers remain - frontend;
+- **The model and provider catalog** - both ship as `coddy.models.list()` and `coddy.providers` - frontend;
 - **A `config.reloaded` subscription** - ships as the `configReloaded` event, which the shared stream's `config_reloaded` server event feeds.
 
 ### Network
 
-- **Streaming `net.fetch`** - SSE and chunked reads through the server proxy, which buffers 8 MiB for 30 seconds today - host; until then an extension may stream from the browser where CORS allows - frontend;
-- **WebSocket** - browser-native; the SDK needs the wrapper - frontend;
+Direct browser streaming and WebSocket ship as `coddy.net.browserFetch` and `coddy.net.webSocket`; only server-proxied streaming and per-call proxy routing remain on the host.
+
+- **Streaming `net.fetch`** - SSE and chunked reads through the server proxy, which buffers 8 MiB for 30 seconds today - host; `browserFetch` streams directly where browser CORS allows - frontend;
+- **WebSocket** - ships as the browser-native, lifetime-bound `coddy.net.webSocket` - frontend;
 - **Per-call proxy routing** - through a provider's proxy or the corporate one - host.
 
 ### Theme and drawing
 
+Token contract version `1` pins both the keys `theme.tokens()` returns and the names `theme.override()` accepts.
+
 - **Pre-paint** - extension styles land after activation and flash once; the build must place them earlier - frontend;
 - **Manifest themes** (`themes[]` of the specification) - an extension adds a theme to the switcher - frontend, plus the manifest field;
-- **A frozen token contract** - pinning the shape `theme.tokens()` returns - frontend.
+- **A frozen token contract** - the versioned shape and override allow-list ship - frontend.
 
 ### Trust
 

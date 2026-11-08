@@ -44,6 +44,7 @@ import { extensionSessions, type ExtensionSessionsAPI } from "./sessions";
 import { composerBridge } from "./composerBridge";
 import { extensionTasks, type ExtensionTasksAPI } from "./tasks";
 import { extensionModels, type ExtensionModelsAPI } from "./models";
+import { extensionProviders, type ExtensionProvidersAPI } from "./providers";
 import type { SettingsSectionAlter } from "./settings";
 import { submitPermissionChoice } from "../chat/permissionSubmit";
 import { extensionNav, type ExtensionNavAPI, type NavScreen } from "./nav";
@@ -142,6 +143,8 @@ export type ExtensionAPI = {
   tasks: ExtensionTasksAPI;
   /** The model catalog of the server the page talks to. */
   models: ExtensionModelsAPI;
+  /** The configured providers and the models they advertise. */
+  providers: ExtensionProvidersAPI;
   /** The composer's draft and picks: what an alternative input line drives. */
   composer: {
     getText: () => string;
@@ -655,6 +658,7 @@ export class ExtensionRuntime {
       },
       tasks: extensionTasks(controller.signal),
       models: extensionModels(controller.signal),
+      providers: extensionProviders(controller.signal),
       composer: {
         getText: () => composerBridge.text(),
         setText: (text) => {

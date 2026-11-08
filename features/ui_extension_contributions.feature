@@ -43,3 +43,33 @@ Feature: UI extension contributions
     Given sessions of two projects
     When the History listing opens in one of them
     Then it lists the sessions of that project
+
+  Scenario: Watch the browser window lifecycle
+    Given an extension watching focus and unloading
+    When the window focus changes and unloading starts
+    Then the extension receives focus and beforeunload events
+
+  Scenario: Read parsed chat activity and generation progress
+    Given a running chat with an answer and a generation rate
+    When the extension reads the chat status
+    Then it receives the activity and parsed progress fields
+
+  Scenario: Mount beside the composer model and send controls
+    Given a composer with model and send controls
+    When the extension asks for the fine composer anchors
+    Then the card, model and send anchor boxes are available
+
+  Scenario: Read the saved provider catalog without credentials
+    Given a configured provider with credentials and advertised models
+    When the extension lists providers and their models
+    Then provider rows omit credentials and model rows are normalized
+
+  Scenario: Keep the extension theme-token contract stable
+    Given an extension that injects a private token
+    When it reads the versioned token contract
+    Then the host token shape stays fixed and unknown overrides are refused
+
+  Scenario: Stream a browser response and use a lifetime-bound WebSocket
+    Given a streaming browser response and a WebSocket endpoint
+    When the extension reads chunks and its lifetime ends
+    Then chunks arrive incrementally and the socket closes

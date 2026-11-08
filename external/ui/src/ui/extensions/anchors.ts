@@ -5,8 +5,11 @@
  * yet (a rail screen, the sessions toolbar).
  */
 export const EXTENSION_ANCHORS = [
+  "composer",
   "composer.actions",
   "composer.tabs",
+  "composer.model",
+  "composer.send",
   "chat.header",
   "nav.rail",
   "statusline",

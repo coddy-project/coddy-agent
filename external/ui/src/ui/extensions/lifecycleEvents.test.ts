@@ -19,6 +19,8 @@ describe("the lifecycle event set", () => {
       "turnEnded",
       "surfaceChanged",
       "overlaysChanged",
+      "focusChanged",
+      "beforeUnload",
       "configReloaded",
     ] as const)
       expect(events.on("demo", signal, type, () => {}).remove).toBeTypeOf(

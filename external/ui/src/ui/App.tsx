@@ -64,7 +64,7 @@ import {
   useExtensionShell,
 } from "./extensions/ExtensionsProvider";
 import { ExtensionShellHost } from "./extensions/ExtensionSurfaces";
-import { chatBridge } from "./extensions/chatBridge";
+import { chatBridge, snapshotChatStatus } from "./extensions/chatBridge";
 import { selectMessageRenderer } from "./extensions/messageRenderers";
 import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
@@ -8047,19 +8047,23 @@ export function App() {
   // reported every render and delivered only on a real change.
   useEffect(() => {
     const open = sessionId.trim();
-    chatBridge.report({
-      sessionId: open,
-      turnActive: sessions.some((row) => row.id === open && row.turnActive),
-      tokenUsage: tokenUsage
-        ? {
-            inputTokens: tokenUsage.inputTokens,
-            outputTokens: tokenUsage.outputTokens,
-            totalTokens: tokenUsage.totalTokens,
-          }
-        : null,
-      permissionPending: permissionPendingSids.has(open),
-      questionPending: questionPendingSids.has(open),
-    });
+    chatBridge.report(
+      snapshotChatStatus({
+        sessionId: open,
+        turnActive: sessions.some((row) => row.id === open && row.turnActive),
+        items: transcriptItems,
+        progress: turnProgressBySid[open] ?? null,
+        tokenUsage: tokenUsage
+          ? {
+              inputTokens: tokenUsage.inputTokens,
+              outputTokens: tokenUsage.outputTokens,
+              totalTokens: tokenUsage.totalTokens,
+            }
+          : null,
+        permissionPending: permissionPendingSids.has(open),
+        questionPending: questionPendingSids.has(open),
+      }),
+    );
   });
   // The shell takeover: an extension that takes the window draws it alone,
   // while the app keeps its machinery running underneath.

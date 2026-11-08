@@ -1,11 +1,29 @@
+import {
+  deriveLiveStatus,
+  withPreparingPhase,
+  type LiveStatusKind,
+} from "../chat/liveStatus";
+import type { TranscriptItem } from "../chat/types";
+import type { TurnProgress } from "../chat/turnProgress";
+
 /**
  * The chat bridge: what the chat is doing right now, reported by the app
  * while it renders and handed to extensions as `coddy.chat`. An alternative
  * status line or a badge draws from this instead of parsing the stream.
  */
+export type ChatProgress = Readonly<{
+  startedAtMs: number;
+  outputTokens: number;
+  estimated: boolean;
+  tokensPerSecond: number | null;
+}>;
+export type ChatActivity = "idle" | LiveStatusKind;
+
 export type ChatStatus = Readonly<{
   sessionId: string;
   turnActive: boolean;
+  activity: ChatActivity;
+  progress: ChatProgress | null;
   tokenUsage: Readonly<{
     inputTokens: number;
     outputTokens: number;
@@ -14,6 +32,38 @@ export type ChatStatus = Readonly<{
   permissionPending: boolean;
   questionPending: boolean;
 }>;
+
+/** The parsed status line of the chat, derived from the same transcript and
+ * progress the host's own line reads. No extension has to scan stream rows. */
+export function snapshotChatStatus(input: {
+  sessionId: string;
+  turnActive: boolean;
+  items: readonly TranscriptItem[];
+  progress: TurnProgress | null;
+  tokenUsage: ChatStatus["tokenUsage"];
+  permissionPending: boolean;
+  questionPending: boolean;
+}): ChatStatus {
+  const progress = input.turnActive ? input.progress : null;
+  return {
+    sessionId: input.sessionId,
+    turnActive: input.turnActive,
+    activity: input.turnActive
+      ? withPreparingPhase(deriveLiveStatus(input.items), progress).kind
+      : "idle",
+    progress: progress
+      ? {
+          startedAtMs: progress.startedAtMs,
+          outputTokens: progress.outputTokens,
+          estimated: progress.estimated,
+          tokensPerSecond: progress.tokensPerSecond ?? null,
+        }
+      : null,
+    tokenUsage: input.tokenUsage,
+    permissionPending: input.permissionPending,
+    questionPending: input.questionPending,
+  };
+}
 
 type StatusListener = (status: ChatStatus) => void;
 
