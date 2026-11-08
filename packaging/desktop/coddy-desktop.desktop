@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Coddy
+GenericName=Coding agent
+Comment=Coddy agent in a window
+Exec=coddy-desktop
+Icon=coddy-desktop
+Terminal=false
+Categories=Development;IDE;
+Keywords=coddy;agent;llm;ai;coding;assistant;
+StartupNotify=true
+# No StartupWMClass on purpose. The window belongs to a browser started in
+# application mode, and its WM_CLASS is derived from the address it opens -
+# which carries the port this machine remembered, so it differs from one
+# installation to the next and a fixed value here would match nothing.

@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -44,6 +44,11 @@ TAGS ?=
 BUILD_DIR := build
 GOEXE := $(shell go env GOEXE)
 BINARY := $(BUILD_DIR)/coddy$(GOEXE)
+
+# Joining a space-separated tag list with commas, for `go test -tags=`.
+empty :=
+space := $(empty) $(empty)
+comma := ,
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser
@@ -116,6 +121,30 @@ android:
 		GOOS=android GOARCH=$$arch CGO_ENABLED=1 CC=$$cc go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/coddy-android-$$arch ./cmd/coddy/; \
 	done
 
+# ---- Desktop window ----
+#
+# coddy-desktop is a binary of its own, not a verb of coddy: the web interface
+# in a window on this machine, over an HTTP surface it starts on a loopback
+# port the agent home remembers. It carries the SPA, so this builds it first.
+#
+# The window is ported to Linux, where it opens a Chromium-family browser in
+# app mode. macOS and Windows each need their own browser locations, and a
+# signed application before Gatekeeper or SmartScreen will open a window
+# without a warning, so neither is claimed yet: the binary builds there and
+# says what it cannot do, and CODDY_DESKTOP_BROWSER names a browser by path
+# for anyone who wants it anyway.
+DESKTOP_TAGS := http ui desktop
+DESKTOP_TAGS_CSV := $(subst $(space),$(comma),$(strip $(DESKTOP_TAGS)))
+DESKTOP_BINARY := $(BUILD_DIR)/coddy-desktop$(GOEXE)
+
+desktop: ui-build
+desktop:
+	@mkdir -p $(BUILD_DIR)
+	@if [ "$$(go env GOOS)" != "linux" ]; then \
+		echo "warning: the desktop window is ported to Linux only; on $$(go env GOOS) point CODDY_DESKTOP_BROWSER at a Chromium-family executable to open one" >&2; \
+	fi
+	go build -tags "$(DESKTOP_TAGS)" -ldflags "$(LDFLAGS)" -o $(DESKTOP_BINARY) ./cmd/coddy-desktop/
+
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
 	@echo $(VERSION)
@@ -181,6 +210,18 @@ deb:
 
 rpm:
 	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
+
+# The desktop window is a package of its own, `coddy-desktop`: it carries the
+# embedded web UI, so it is built with its own tags and has no business on a
+# server that only runs `coddy serve`. Beyond the binary it installs the menu
+# entry and the icon, which is what puts Coddy in the application launcher.
+deb-desktop rpm-desktop: ui-build
+
+deb-desktop:
+	scripts/build-desktop-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats deb
+
+rpm-desktop:
+	scripts/build-desktop-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
 
 brew:
 	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
@@ -318,9 +359,6 @@ test-opencode-rules:
 # (.github/workflows/tests-on-pr.yaml reads the list through
 # print-test-tag-sets, so this variable is the only place it is written down).
 # Locally, reach for a single combination instead: go test -tags=<set> ./...
-empty :=
-space := $(empty) $(empty)
-comma := ,
 FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
 
 # Every tagged combination the tree is tested under, comma-joined. The untagged
@@ -354,12 +392,21 @@ TEST_TAG_SETS := \
 	gateway,metrics \
 	browser \
 	http,browser \
+	desktop \
+	http,desktop \
+	$(DESKTOP_TAGS_CSV) \
 	$(FULL_TAGS_CSV)
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
 # module compiled in.
 test: test-agent-rules ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
+	# The desktop window is a binary of its own and its tag is not in
+	# FULL_TAGS, so the run above never compiles it. Its own packages, and the
+	# shell page the HTTP server mounts for it, run here instead of growing
+	# the shipped tag set with a surface the shipped binary does not carry.
+	go test -tags=$(DESKTOP_TAGS_CSV) ./external/desktop/... ./cmd/coddy-desktop/...
+	go test -tags=$(DESKTOP_TAGS_CSV) ./external/httpserver/ -run Desktop
 
 # Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
 # it locally only when a build-tag boundary moved and one combination is not
@@ -515,6 +562,9 @@ LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
 print-full-tags:
 	@printf '%s\n' "$(FULL_TAGS_CSV)"
 
+print-desktop-tags:
+	@printf '%s\n' "$(DESKTOP_TAGS_CSV)"
+
 print-lint-tags-no-ui:
 	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
 
@@ -541,6 +591,7 @@ lint: fmt-check ui-build
 	golangci-lint run ./...
 	golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
 	golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
+	golangci-lint run --build-tags $(DESKTOP_TAGS_CSV) ./...
 	$(MAKE) ui-typecheck
 
 # The same three passes against the Windows build, which lint above never

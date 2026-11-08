@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="same-origin" />
+    <title>Coddy</title>
+    <link rel="icon" href="/coddy-favicon.svg" />
+    <link rel="stylesheet" href="/desktop/shell.css" />
+  </head>
+  <body>
+    <header id="coddy-desktop-tabs" class="tabs">
+      <!-- The menu stands where a browser puts its own: first on the bar,
+           before the tabs. -->
+      <button
+        id="menu-btn"
+        class="bar-btn menu-btn"
+        type="button"
+        title="Desktop settings"
+        aria-label="Desktop settings"
+        aria-haspopup="menu"
+        aria-expanded="false"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+        </svg>
+      </button>
+      <div class="strip" id="strip" role="tablist" aria-label="Chats"></div>
+      <button
+        id="new-tab"
+        class="bar-btn new"
+        type="button"
+        title="New chat (Ctrl+T)"
+        aria-label="New chat"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 3.5v9M3.5 8h9" />
+        </svg>
+      </button>
+      <!-- The window has no title bar of its own: this is it. Dragging here
+           moves the window, and a double click maximises or restores it. -->
+      <div class="drag" id="drag"></div>
+      <!-- Only while the tabs are wider than the strip: with a window of many
+           chats the row scrolls, and these walk it. -->
+      <div class="scroll-btns" id="scroll-btns" hidden>
+        <button
+          id="scroll-left"
+          class="bar-btn win"
+          type="button"
+          title="Earlier tabs"
+          aria-label="Scroll the tabs left"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10 3.5L5.5 8l4.5 4.5" />
+          </svg>
+        </button>
+        <button
+          id="scroll-right"
+          class="bar-btn win"
+          type="button"
+          title="Later tabs"
+          aria-label="Scroll the tabs right"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 3.5L10.5 8 6 12.5" />
+          </svg>
+        </button>
+      </div>
+      <div class="window-btns" id="window-btns" hidden>
+        <button
+          id="win-min"
+          class="bar-btn win"
+          type="button"
+          title="Minimise"
+          aria-label="Minimise"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3 8.5h10" />
+          </svg>
+        </button>
+        <button
+          id="win-max"
+          class="bar-btn win"
+          type="button"
+          title="Maximise"
+          aria-label="Maximise"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+          </svg>
+        </button>
+        <button
+          id="win-close"
+          class="bar-btn win close"
+          type="button"
+          title="Close"
+          aria-label="Close"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
+    </header>
+    <div
+      id="menu"
+      class="menu"
+      hidden
+      role="menu"
+      aria-labelledby="menu-btn"
+    ></div>
+    <main id="coddy-desktop-frames" class="frames"></main>
+    <script src="/desktop/shell.js"></script>
+  </body>
+</html>

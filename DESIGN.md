@@ -106,7 +106,7 @@ Left-to-right zones:
 
 1. **Nav rail**: **History** opens the session list overlay; **Scheduler** opens the cron jobs drawer (requires **`coddy serve`** built with **`http,scheduler`** and scheduler enabled); **Docs**, below the spacer and above **Settings**, opens the documentation reader (see **Documentation screen**). Background tasks are **not** in the rail: they belong to one chat, so their opener sits in that chat's header (see **Background tasks panel**). **Escape** closes whatever screen a rail item opened (see **Escape and the screens of the rail**). Brand goes to the empty start screen. **Brand is text only** (**Coddy** plus **agent**; a phone shows **Coddy** over **agent**, see **Phone layout**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default). **Brand**, **History**, **Scheduler**, and **Settings** use real **`href`** fragment targets so **middle-click** or **Ctrl/Cmd-click** opens a **new tab** on the same origin for parallel chats. GitHub and API docs links are **not** in the rail — they appear only in the **start-screen footer** (see Repo links below).
 2. **Session list**: **always a drawer overlay** with a dimming backdrop. It must **not** consume a second grid column or shrink the chat canvas (no inline sessions column beside the rail at any breakpoint). **Panel chrome title copy is History** (not "Chats"). There is **no** global hamburger that opens a separate app menu; the **stacked-lines control** in the wide rail header **only** collapses the rail to the narrow (icons-only) layout, matching the references. Each row is a real **`href`** to **`#/s/<sessionId>`** so **middle-click** opens that chat in a **new tab**.
-3. **Chat canvas**: on **`min-width: 1200px`**, editable title and transcript share **`#messages`** with **`overflow-y: auto`**, and **`.chat-bottom`** is **`position: absolute`** with **`--coddy-chat-scrollbar-gutter`** padding so the composer does not cover the scrollbar track. The vignette above the docked composer remains a local transcript shield; in the light theme it blends toward **`--coddy-canvas-gradient-bottom`** instead of using the dark-theme black tint. The sticky title uses **`.chat-title-column`** (**`max-width: 920px`**, centered) so the title bar matches the composer stripe. The pinned title region (**`.chat-scroll-sticky-head`**) carries an **opaque** canvas backing (**`background-color: var(--coddy-canvas-gradient-top)`**) so the title stays fixed at the top of the scrollport while transcript text scrolls **behind** it — no see-through bleed. The shield matches the canvas top color in every theme, so it reads as the title card floating over the page rather than a separate bar. On **`max-width: 1199px`** (phones, tablets, and smaller desktops), **`body`** scrolls (native scrollbar); **`.rail-column`** (top bar with brand and links) is **`position: fixed`** to the **viewport top** (**`.shell-main`** gets **`padding-top: var(--coddy-mobile-top-inset)`** so content clears it). The chat title row (**`.chat-scroll-sticky-head`**) is **`position: sticky`** with **`top: var(--coddy-mobile-title-sticky-top)`** (**`--coddy-mobile-top-inset` plus `--coddy-mobile-chat-stack-gap`**, same **12px** token as title **`padding-bottom`**) so spacing under the rail matches title-to-first-message rhythm. Only **`.rail-pill`** is frosted. In active chat, **`.chat-bottom`** is **`position: fixed`** to the viewport bottom so the composer stays on screen while **`chat-scroll-tail`** reserves space, **`ChatScreen`** uses **`window`** for stick-to-bottom, and the skills slash menu uses the same **`slash-menu--portal`** path as desktop (**`createPortal`**).
+3. **Chat canvas**: on **`min-width: 1200px`**, editable title and transcript share **`#messages`** with **`overflow-y: auto`**, and **`.chat-bottom`** is **`position: absolute`** with **`--coddy-chat-scrollbar-gutter`** padding so the composer does not cover the scrollbar track. **The column is the height of the window**: **`.main`** keeps no padding of its own there (**`styles/shell/_stacked.scss`**), so the scrollport and its scrollbar run from the window's top kerb to its bottom one and the transcript's text reaches both. The **14px** the column used to keep clear are kept by what stands inside it instead — **`.chat-scroll-sticky-head`** pads itself by them over the chat header, **`.chat-bottom`** by them under the composer's card — so the header, the card and the nav rail stand on exactly the lines they always did, and only text passing behind them reaches the edge. That bottom padding is also what **`ChatScreen`** measures for **`contentEndAboveBlockEnd`**, so a transcript parked at its end still keeps its two row gaps over the card (**`chat/chatColumnCss.test.ts`**). The vignette above the docked composer remains a local transcript shield; in the light theme it blends toward **`--coddy-canvas-gradient-bottom`** instead of using the dark-theme black tint. The sticky title uses **`.chat-title-column`** (**`max-width: 920px`**, centered) so the title bar matches the composer stripe. The pinned title region (**`.chat-scroll-sticky-head`**) carries no ground of its own: the title card inside it is glass (**`.chat-header`**, **`backdrop-filter`**), so transcript text scrolling **behind** the title is blurred rather than hidden, and the card reads as floating over the page rather than as a separate bar. On **`max-width: 1199px`** (phones, tablets, and smaller desktops), **`body`** scrolls (native scrollbar); **`.rail-column`** (top bar with brand and links) is **`position: fixed`** to the **viewport top** (**`.shell-main`** gets **`padding-top: var(--coddy-mobile-top-inset)`** so content clears it). The chat title row (**`.chat-scroll-sticky-head`**) is **`position: sticky`** with **`top: var(--coddy-mobile-title-sticky-top)`** (**`--coddy-mobile-top-inset` plus `--coddy-mobile-chat-stack-gap`**, same **12px** token as title **`padding-bottom`**) so spacing under the rail matches title-to-first-message rhythm. Only **`.rail-pill`** is frosted. In active chat, **`.chat-bottom`** is **`position: fixed`** to the viewport bottom so the composer stays on screen while **`chat-scroll-tail`** reserves space, **`ChatScreen`** uses **`window`** for stick-to-bottom, and the skills slash menu uses the same **`slash-menu--portal`** path as desktop (**`createPortal`**).
 
 The right insights rail is removed for the current milestone.
 
@@ -1594,6 +1594,91 @@ token of the environment selector and is never gated here.
 - **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), below
   Settings, rendered only while a form is configured and this browser has passed it. Narrow rail:
   icon plus a tooltip naming the account (**`Sign out (pasha)`**); wide rail: icon plus label.
+
+### Desktop shell (`external/desktop/shell`)
+
+The page the desktop window opens on, served at **`/desktop/`**. It is not part of the SPA: one HTML
+file, one stylesheet, one script, no React and no vite entry, because it is a frame **around** the
+SPA and a window backend has to reach it whether or not the SPA build has run. It draws a tab strip
+over one **`<iframe>`** per chat, each frame the web UI of this same server.
+
+- **The strip** is a 36px header with no padding above or below, and with no system frame it is the
+  window's title bar as well. Left to right: the menu (**`#menu-btn`**), the tabs (**`#strip`**,
+  **`role="tablist"`**, scrolling sideways with no scrollbar when they do not fit), the **`+`** of a
+  new chat (**`#new-tab`**), the empty space that drags the window (**`#drag`**), the two arrows
+  that walk a row too long for the bar (**`#scroll-btns`**, drawn only while
+  **`scrollWidth > clientWidth`**, each going dim at its end of the row rather than disappearing,
+  so the buttons beside it do not move under the pointer), and minimise,
+  maximise and close at the right edge (**`#window-btns`**, drawn only while the window has no
+  system frame, so the two sets of buttons are never both there). A tab is a button carrying the
+  state dot of its chat, its label and a **`×`**; the one in front is marked by
+  **`aria-selected`**, a lighter ground and a 2px rule along its bottom edge in
+  **`--tab-active-line`**, and nothing else in the strip takes that colour. Dragging the empty
+  space moves the window and a double click maximises or restores it, which is what a title bar
+  does; a new chat is only the **`+`** or the chord.
+- **A tab's name** is the title of the chat behind it, read from **`GET /coddy/sessions`** and
+  written with **`textContent`**, never **`innerHTML`**: it is operator and model text drawn into a
+  credentialed same-origin document. A chat that has not started is **`New chat`**. The list is read
+  again every 10s, and once more 1.5s after a frame first reports a session, because a chat is named
+  after its first message and that message is still being saved as the page learns the session
+  exists.
+- **A hidden tab is hidden, not unmounted** (**`visibility: hidden`**, **`z-index: -1`**, the frame
+  kept in the DOM): the whole point of a tab is that the chat behind it keeps its transcript, its
+  scroll position and its stream. Memory therefore grows with the tabs; the event streams do not,
+  since every instance of one origin shares a single **`GET /coddy/events`**.
+- **The chords are `Ctrl`**, with `Alt` beside every one of them: `Ctrl+T` opens a chat, `Ctrl+W`
+  closes the one in front, `Ctrl+1`..`Ctrl+9` switch, and `Ctrl+Tab` / `Ctrl+Shift+Tab` walk the row
+  and wrap at both ends, bringing the tab they reach into sight. Three of the keys never arrive as
+  key events at all. A Chromium window opened with **`--app`** answers `Ctrl+T`, `Ctrl+W` and
+  `Ctrl+Tab` itself - a new browser window, closing the application, and walking its own tabs - and
+  a page cannot cancel any of them, so the launcher takes them
+  at the X server with a passive grab on the window and the page asks for them over
+  **`GET /desktop/keys`**, one long poll at a time (**`external/desktop/chords.go`**). `Ctrl+Tab`
+  and `Ctrl+Shift+Tab` are **two grabs on one keycode**, because a passive grab matches the modifier
+  state exactly and a grab on `Ctrl` alone would never see the second. The digits
+  need none of that: an application window has no tabs of its own to switch to and hands them over.
+  A key pressed inside a chat is delivered to that frame's document and never reaches the parent, so
+  the handler is attached to each frame's **`contentDocument`** on every load - allowed because the
+  frame is same-origin, and not cooperation from the SPA, which is unchanged.
+- **The menu** (**`#menu`**) hangs under the button at the left edge and holds the window's own
+  switches: **New chat**, **Open at login**, **Show the tray icon**, **Start minimised** and, while
+  the window can be driven, **Show the system frame**. **The page draws no list of its own**: the
+  rows come from **`GET /desktop/menu`**, decided by **`shell.MenuRows`** in Go, which is also what
+  the tray icon's `com.canonical.dbusmenu` menu is built from - one list, two menus, and a row added
+  to one appears on the other. The tray's carries two rows the bar's cannot, above a separator:
+  **Show the window** and **Hide the window**. They are the launcher's, not the page's
+  (**`GET`** / **`POST /desktop/settings`**, kept in **`<home>/desktop/settings.json`**), so a tick
+  moves only once the launcher says the machine moved with it, and a switch that failed keeps its
+  place and carries the reason on the row (**`.row.failed`**). An action closes the menu behind it;
+  a switch leaves it open. The menu closes on a pointer going down anywhere outside it - the bar, a
+  tab, its own button, the chat below (said again on each frame's **`contentDocument`**), another
+  application (**`blur`**) - and on `Escape`; the button that opened it is no exception to that, and
+  what keeps a click on it from reopening the menu on its way up is a 300ms guard, not an attempt
+  to recognise the button under a pointer that is really over the path of its icon.
+- **The state dot** in front of a tab's label is the mark the History list uses, read off the same
+  **`GET /coddy/sessions`** row and in the same order (work, then a prompt waiting for a person,
+  then a failure, then an answer nobody has seen): a pulsing filled dot while the chat works, a
+  ring in the accent while it waits for you, a red dot for a failed turn, a filled accent dot for a
+  chat that finished in another tab, a hollow ring otherwise. The tab in front carries neither an
+  unread mark nor an unseen failure, because it is the one being read.
+- **The window's corners** are cut out of the window itself while it floats and left square while
+  it fills the screen (**`external/desktop/window_shape_x11.go`**), because a bare rectangle with
+  square corners looks like a bug beside every other window. The page follows the same shape
+  through **`data-window="floating" | "maximised"`** on **`<html>`**, read off the window's own
+  size, so it never paints into a corner that was cut away.
+- **The window always keeps a tab**: closing the last one opens an empty chat, since closing the
+  window is what ends the application.
+- **The theme** is read off the chat in front, which is same-origin: **`--text`**, **`--bg`**,
+  **`--accent`**, **`--coddy-danger`** and the four tokens of the canvas the SPA actually paints its
+  page with - **`--coddy-canvas-gradient-top`** / **`-bottom`** and the two glows. **The bar is
+  painted with that same stack, at the same geometry** (**`html`** in **`shell.css`**), because it
+  stands exactly where the top of that page would be; a flat **`--bg`** only matched in the light
+  theme, where the top of the gradient happens to be the same white, and read as a foreign band in
+  the other eight. Everything else the strip draws is derived from those values the way the SPA's
+  **`mix-text()`** is, so a theme this page has never heard of reaches the bar, the tabs and the
+  state dots. Before the first chat has loaded there is no frame to read, and the
+  **`coddy_ui_theme`** cookie - scoped to the host rather than the port, which is why it reaches the
+  shell whatever port the desktop took - stands in with light or dark and nothing finer.
 
 ### Installable app and notifications
 
