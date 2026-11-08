@@ -27,6 +27,19 @@ function throwIfAborted(signals: AbortSignal[]) {
   if (signals.some((signal) => signal.aborted)) throw abortError();
 }
 
+/** Node 26 rejects a Request with one signal plus init.signal with another.
+ * Rebuilding it with the composed signal keeps the same body and metadata. */
+function withSignal(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  signal: AbortSignal,
+): readonly [RequestInfo | URL, RequestInit] {
+  const next = { ...init, signal };
+  return input instanceof Request
+    ? ([new Request(input, next), next] as const)
+    : ([input, next] as const);
+}
+
 /** Direct browser transports keep the browser's CORS, cookie and header rules.
  * The proxied extension fetch is deliberately not involved. */
 export function extensionBrowserNetwork(
@@ -43,11 +56,14 @@ export function extensionBrowserNetwork(
       const signals = signalsFor(lifetime, callerSignal);
       throwIfAborted(signals);
       const signal = signals[0]!;
-      if (signals.length === 1) return fetcher(input, { ...init, signal });
+      if (signals.length === 1)
+        return fetcher(...withSignal(input, init ?? {}, signal));
       // A native dependent signal outlives the fetch promise, so aborting after
       // the headers still cancels the streamed body without wrapping Response.
       if (typeof AbortSignal.any === "function")
-        return fetcher(input, { ...init, signal: AbortSignal.any(signals) });
+        return fetcher(
+          ...withSignal(input, init ?? {}, AbortSignal.any(signals)),
+        );
 
       // Chromium before 116 has no AbortSignal.any. Keep this relay's listeners
       // after the headers so it can still cancel the native streamed body. They
@@ -67,7 +83,9 @@ export function extensionBrowserNetwork(
       try {
         if (signals.some((signal) => signal.aborted)) abort();
         controller.signal.throwIfAborted();
-        return await fetcher(input, { ...init, signal: controller.signal });
+        return await fetcher(
+          ...withSignal(input, init ?? {}, controller.signal),
+        );
       } catch (error) {
         cleanup();
         throw error;

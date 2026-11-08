@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { CODDY_UI_THEME_COOKIE } from "./themeCookie";
 
 const html = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../../../index.html"),
+  join(dirname(fileURLToPath(import.meta.url)), "../../../src/index.html"),
   "utf8",
 );
 const bootstrap = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";

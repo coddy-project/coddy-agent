@@ -16,11 +16,11 @@ afterEach(() => {
   });
 });
 
-test("the frozen token contract exactly matches the seven palettes and shared tokens", () => {
+test("the frozen token contract exactly matches the built-in palettes and shared tokens", () => {
   const sources = stylesFiles().filter((file) =>
     paletteOrSharedTokens.test(file),
   );
-  expect(sources).toHaveLength(8);
+  expect(sources).toHaveLength(9);
   const declared = new Set<string>();
   for (const file of sources) {
     const source = readFileSync(file, "utf8");
@@ -28,7 +28,7 @@ test("the frozen token contract exactly matches the seven palettes and shared to
       declared.add(name);
   }
   expect([...EXTENSION_THEME_TOKENS]).toEqual([...declared].sort());
-  expect(EXTENSION_THEME_TOKENS).toHaveLength(83);
+  expect(EXTENSION_THEME_TOKENS).toHaveLength(86);
   expect(Object.isFrozen(EXTENSION_THEME_TOKENS)).toBe(true);
   expect(THEME_TOKEN_CONTRACT_VERSION).toBe(1);
 });

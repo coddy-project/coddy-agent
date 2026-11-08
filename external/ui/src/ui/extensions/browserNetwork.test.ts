@@ -113,10 +113,13 @@ test("browserFetch returns the native response and exposes chunks as they arrive
 
   expect(response).toBe(native);
   expect(response.body).toBe(native.body);
-  expect(fetcher).toHaveBeenCalledWith(
-    input,
-    expect.objectContaining({ cache: "no-store" }),
-  );
+  const [calledInput, calledInit] = fetcher.mock.calls[0] as unknown as [
+    Request,
+    RequestInit,
+  ];
+  expect(calledInput).toBeInstanceOf(Request);
+  expect(calledInput.cache).toBe("no-store");
+  expect(calledInit.cache).toBe("no-store");
   const reader = response.body!.getReader();
   const first = await reader.read();
   expect(first).toEqual({ done: false, value: new Uint8Array([1, 2]) });

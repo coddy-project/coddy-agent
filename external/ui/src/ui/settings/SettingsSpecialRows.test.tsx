@@ -110,6 +110,8 @@ describe("special Settings rows", () => {
       landmarkAnchor("appearance", "notifications"),
       landmarkAnchor("appearance", "ext:demo/extra"),
       landmarkAnchor("appearance", "language"),
+      landmarkAnchor("appearance", "simple"),
+      landmarkAnchor("appearance", "wallpaper"),
     ]);
     expect(
       body.querySelector('[data-settings-anchor="landmark:appearance:theme"]'),
@@ -133,6 +135,8 @@ describe("special Settings rows", () => {
       landmarkAnchor("appearance", "notifications"),
       landmarkAnchor("appearance", "ext:demo/extra"),
       landmarkAnchor("appearance", "language"),
+      landmarkAnchor("appearance", "simple"),
+      landmarkAnchor("appearance", "wallpaper"),
     ]);
     expect(
       searchSettings(index, "Language renamed").hits.map(
@@ -184,11 +188,15 @@ describe("special Settings rows", () => {
       alters: passes,
     });
     expect(plan.map((item) => item.descriptor.id)).toEqual([
+      "simple",
+      "wallpaper",
       "language",
       "notifications",
       "theme",
     ]);
     expect(plan.map((item) => item.descriptor.label)).toEqual([
+      "First simple",
+      "First wallpaper",
       "First language",
       "First notifications",
       "Theme",
