@@ -349,8 +349,10 @@ func TestAssistantMessageStartsWithASeparatorRow(t *testing.T) {
 type stagedConfigBackend struct {
 	script bool
 
-	mu    sync.Mutex
-	tools [][]string
+	mu          sync.Mutex
+	tools       [][]string
+	catalogs    [][]string
+	activations int
 }
 
 func (b *stagedConfigBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +364,10 @@ func (b *stagedConfigBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	raw, _ := io.ReadAll(r.Body)
 	var body struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
 		Tools []struct {
 			Function struct {
 				Name string `json:"name"`
@@ -373,17 +379,49 @@ func (b *stagedConfigBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	for _, tool := range body.Tools {
 		names = append(names, tool.Function.Name)
 	}
+	var catalog []string
+	for _, message := range body.Messages {
+		if message.Role != "system" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(message.Content, &text) != nil {
+			var parts []struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(message.Content, &parts)
+			for _, p := range parts {
+				text += p.Text
+			}
+		}
+		for _, line := range strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "- `") {
+				if pair := strings.SplitN(strings.TrimPrefix(line, "- `"), "`:", 2); len(pair) == 2 {
+					catalog = append(catalog, pair[0])
+				}
+			}
+		}
+	}
 	b.mu.Lock()
+	b.catalogs = append(b.catalogs, catalog)
 	b.tools = append(b.tools, names)
 	turn := len(b.tools)
+	activate := b.script && slices.Contains(names, "activate_tools") && !slices.Contains(names, "config_set") && slices.Contains(catalog, "config_set") && slices.Contains(catalog, "config_commit")
+	if activate {
+		b.activations++
+	}
+	actionTurn := turn - b.activations
 	b.mu.Unlock()
 
 	message := map[string]any{"role": "assistant", "content": "Done."}
 	finish := "stop"
-	if b.script && turn <= 2 {
+	if b.script && (activate || actionTurn <= 2) {
 		call := map[string]any{"name": "config_set", "arguments": `{"commands":["set agent.max_turns=19"]}`}
-		if turn == 2 {
+		if actionTurn == 2 {
 			call = map[string]any{"name": "config_commit", "arguments": "{}"}
+		}
+		if activate {
+			call = map[string]any{"name": "activate_tools", "arguments": `{"names":["config_set","config_commit"]}`}
 		}
 		message = map[string]any{
 			"role": "assistant", "content": "",
@@ -403,6 +441,12 @@ func (b *stagedConfigBackend) offered() [][]string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([][]string(nil), b.tools...)
+}
+
+func (b *stagedConfigBackend) discovered() [][]string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([][]string(nil), b.catalogs...)
 }
 
 // newConsoleOverStub writes a config.yaml in a temp home whose only model is
@@ -460,7 +504,7 @@ func runConsoleTurn(t *testing.T, app *App, text string) {
 	}
 }
 
-// The console offers the whole staged config family, so the model can change
+// The console catalogs the staged config family for activation, so the model can change
 // Coddy's own configuration from the terminal as it can over ACP and HTTP.
 // Without the runtime reloader the agent hides everything but config_get.
 func TestConsoleTurnOffersStagedConfigTools(t *testing.T) {
@@ -471,8 +515,11 @@ func TestConsoleTurnOffersStagedConfigTools(t *testing.T) {
 	if len(offered) == 0 {
 		t.Fatal("the stub backend saw no request")
 	}
+	if strings.Join(offered[0], ",") != "activate_tools" {
+		t.Fatalf("initial native offer = %v", offered[0])
+	}
 	for _, name := range []string{"config_get", "config_set", "config_changes", "config_commit", "config_revert", "config_rollback"} {
-		if !slices.Contains(offered[0], name) {
+		if !slices.Contains(backend.discovered()[0], name) {
 			t.Errorf("%s missing from the console turn's tools: %v", name, offered[0])
 		}
 	}
@@ -484,8 +531,8 @@ func TestConsoleAdoptsTheConfigAfterCommit(t *testing.T) {
 	backend := &stagedConfigBackend{script: true}
 	app, startup := newConsoleOverStub(t, backend)
 	runConsoleTurn(t, app, "set agent.max_turns to 19")
-	if got := len(backend.offered()); got != 3 {
-		t.Fatalf("stub calls = %d, want stage, commit, and the final answer", got)
+	if got := len(backend.offered()); got != 4 {
+		t.Fatalf("stub calls = %d, want activation, stage, commit, and the final answer", got)
 	}
 	if app.config() == startup {
 		t.Fatal("the console still holds the startup config after config_commit")
@@ -520,8 +567,8 @@ func TestConsoleKeepsItsFlagsAfterCommit(t *testing.T) {
 		return nil
 	})
 	runConsoleTurn(t, app, "set agent.max_turns to 19")
-	if got := len(backend.offered()); got != 3 {
-		t.Fatalf("stub calls = %d, want stage, commit, and the final answer", got)
+	if got := len(backend.offered()); got != 4 {
+		t.Fatalf("stub calls = %d, want activation, stage, commit, and the final answer", got)
 	}
 	if got := app.config().Agent.MaxTurns; got != 19 {
 		t.Fatalf("live agent.max_turns = %d, want 19", got)

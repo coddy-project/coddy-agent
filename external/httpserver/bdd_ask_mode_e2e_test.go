@@ -57,8 +57,9 @@ type askModeStubBackend struct {
 	readPath  string
 	writePath string
 
-	mu       sync.Mutex
-	requests []string
+	mu          sync.Mutex
+	requests    []string
+	activations int
 }
 
 func (b *askModeStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -69,9 +70,14 @@ func (b *askModeStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _ := io.ReadAll(r.Body)
+	name, args := b.scriptedCall()
+	activation := fixtureWireActivation(string(raw), []string{name})
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))
-	turn := len(b.requests)
+	if activation != nil {
+		b.activations++
+	}
+	turn := len(b.requests) - b.activations
 	b.mu.Unlock()
 
 	if !gjson.GetBytes(raw, "stream").Bool() {
@@ -96,12 +102,15 @@ func (b *askModeStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if turn == 1 {
-		name, args := b.scriptedCall()
+	if activation != nil || turn == 1 {
+		id := "call_ask_e2e_1"
+		if activation != nil {
+			name, args, id = activation.Name, activation.InputJSON, activation.ID
+		}
 		send(map[string]any{
 			"role": "assistant",
 			"tool_calls": []map[string]any{{
-				"index": 0, "id": "call_ask_e2e_1", "type": "function",
+				"index": 0, "id": id, "type": "function",
 				"function": map[string]string{"name": name, "arguments": args},
 			}},
 		}, nil)
@@ -244,24 +253,26 @@ func (s *askModeE2EState) sendStreamingPrompt(mode string) error {
 	return nil
 }
 
-// offeredTools returns the tool names the first request of the turn carried.
-func (s *askModeE2EState) offeredTools() ([]string, error) {
+// availableTools checks the initial native bootstrap and reads full mode bounds from discovery.
+func (s *askModeE2EState) availableTools() ([]string, error) {
 	requests := s.backend.snapshot()
 	if len(requests) == 0 {
 		return nil, fmt.Errorf("the stub model was never called")
 	}
-	var names []string
-	for _, n := range gjson.Get(requests[0], "tools.#.function.name").Array() {
-		names = append(names, n.String())
+	native := gjson.Get(requests[0], "tools.#.function.name").Array()
+	if len(native) != 1 || native[0].String() != "activate_tools" {
+		return nil, fmt.Errorf("initial native offer = %v", native)
 	}
+	names := fixtureWireCatalog(requests[0])
 	if len(names) == 0 {
-		return nil, fmt.Errorf("the first request offered no tools: %s", requests[0])
+		return nil, fmt.Errorf("initial discovery catalog is empty")
 	}
+
 	return names, nil
 }
 
 func (s *askModeE2EState) offeredOnlyReadOnlyTools() error {
-	names, err := s.offeredTools()
+	names, err := s.availableTools()
 	if err != nil {
 		return err
 	}
@@ -281,7 +292,7 @@ func (s *askModeE2EState) offeredOnlyReadOnlyTools() error {
 }
 
 func (s *askModeE2EState) offeredFullAgentToolSet() error {
-	names, err := s.offeredTools()
+	names, err := s.availableTools()
 	if err != nil {
 		return err
 	}
@@ -298,7 +309,7 @@ func (s *askModeE2EState) offeredFullAgentToolSet() error {
 }
 
 func (s *askModeE2EState) offeredPlanToolSet() error {
-	names, err := s.offeredTools()
+	names, err := s.availableTools()
 	if err != nil {
 		return err
 	}

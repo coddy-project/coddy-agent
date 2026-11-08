@@ -488,7 +488,7 @@ func TestAToolPictureIsKeptAsItsAssetAndSentFromIt(t *testing.T) {
 			len(stored.DataURL), stored.MIMEType, stored.Size, stored.FilePath)
 	}
 	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString(shot)
-	sent := provider.streamSeen[1]
+	sent := provider.streamSeen[len(provider.streamSeen)-1]
 	var got string
 	for _, m := range sent {
 		for _, p := range m.ImageParts {

@@ -27,7 +27,10 @@ type draftProvider struct {
 func (p *draftProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("stream required")
 }
-func (p *draftProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *draftProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+	if response := fixtureActivateTools(messages, definitions, emit, "write"); response != nil {
+		return response, nil
+	}
 	if p.done {
 		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
 	}
@@ -132,7 +135,8 @@ func TestToolInputProgressFeature(t *testing.T) {
 		sc.Step(`^the final token count uses provider usage without double counting$`, func() error {
 			updates, _ := sender.progress()
 			last := updates[len(updates)-1]
-			if last.OutputTokens != 77 {
+			// The activation call reports no usage: its 33 runes estimate to 9 tokens.
+			if last.OutputTokens != 77+9 || !last.Estimated {
 				return fmt.Errorf("wrong tokens: %+v", last)
 			}
 			return nil
@@ -174,7 +178,7 @@ func TestToolInputProgressWithoutReportedUsageCountsArgumentsOnce(t *testing.T) 
 	}
 	encodedPath, _ := json.Marshal(path)
 	args := `{"path":` + string(encodedPath) + `,"content":"hello\nworld"}`
-	want := estimateTokensFromRunes(len("write" + args))
+	want := 9 + estimateTokensFromRunes(len("write"+args)) // activation plus the streamed action, each once
 	updates, _ := sender.progress()
 	last := updates[len(updates)-1]
 	if last.OutputTokens != want || !last.Estimated {

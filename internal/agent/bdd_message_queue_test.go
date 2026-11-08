@@ -157,8 +157,11 @@ func (s *queueFeatureState) buildSession(steps []scriptStep) error {
 // while that model call is in flight.
 func (s *queueFeatureState) queueingStep(next scriptStep) scriptStep {
 	return func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
-		s.drainPending()
-		return next(messages, defs, onChunk)
+		response := next(messages, defs, onChunk)
+		if response == nil || len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "fixture_activation_tools" {
+			s.drainPending()
+		}
+		return response
 	}
 }
 
@@ -219,7 +222,11 @@ func (s *queueFeatureState) stepAfterToolDoesNotCarry(text string) error {
 	if len(s.provider.requests) < 2 {
 		return fmt.Errorf("the model was called %d times; the step after the tool never happened", len(s.provider.requests))
 	}
-	for _, m := range s.provider.requests[1] {
+	index := fixtureRequestAfterTool(s.provider.requests, "call_q1")
+	if index < 0 {
+		return fmt.Errorf("no request after the executed tool")
+	}
+	for _, m := range s.provider.requests[index] {
 		if m.Role == llm.RoleUser && strings.Contains(m.Content, text) {
 			return fmt.Errorf("the step after the tool result carries %q: it steered the turn instead of waiting for it", text)
 		}
@@ -234,13 +241,13 @@ func (s *queueFeatureState) answeredByOwnPrompt(text string) error {
 	s.provider.mu.Lock()
 	requests := append([][]llm.Message(nil), s.provider.requests...)
 	s.provider.mu.Unlock()
-	if len(requests) != 3 {
-		return fmt.Errorf("the model was called %d times, want 3 (tool, answer, the deferred prompt)", len(requests))
+	if len(requests) != 4 {
+		return fmt.Errorf("the model was called %d times, want 4 (activation, tool, answer, deferred prompt)", len(requests))
 	}
 	// The turn context block rides after the history of every request; it is
 	// Coddy's, not the conversation's, so it takes no part in the order.
 	var last []llm.Message
-	for _, m := range requests[2] {
+	for _, m := range requests[3] {
 		if m.Role == llm.RoleUser && strings.HasPrefix(strings.TrimSpace(m.Content), "<turn_context>") {
 			continue
 		}
@@ -311,7 +318,11 @@ func (s *queueFeatureState) nextRequestCarriesImage() error {
 	if len(s.provider.requests) < 2 {
 		return fmt.Errorf("no next model request")
 	}
-	for _, msg := range s.provider.requests[1] {
+	index := fixtureRequestAfterTool(s.provider.requests, "call_q1")
+	if index < 0 {
+		index = 1
+	}
+	for _, msg := range s.provider.requests[index] {
 		if msg.Role == llm.RoleUser && len(msg.ImageParts) == 1 && msg.ImageParts[0].Name == "pixel.png" {
 			return nil
 		}
@@ -411,7 +422,11 @@ func (s *queueFeatureState) requestAfterToolResultCarries(text string) error {
 	if len(s.provider.requests) < 2 {
 		return fmt.Errorf("the model was called %d times; the step after the tool never happened", len(s.provider.requests))
 	}
-	req := s.provider.requests[1]
+	index := fixtureRequestAfterTool(s.provider.requests, "call_q1")
+	if index < 0 {
+		return fmt.Errorf("no request after the executed tool")
+	}
+	req := s.provider.requests[index]
 	sawToolResult := false
 	for _, m := range req {
 		if m.Role == llm.RoleTool {

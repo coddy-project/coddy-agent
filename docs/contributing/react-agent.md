@@ -39,7 +39,7 @@ Working directory: {{.CWD}}
                                         (plan mode lists {{.DiscardedPlans}} here)
 {{.Subagents}}                          the subagent catalog, when the session may spawn
 ## Available tools
-{{.Tools}}                              MCP tools among them, as server__tool
+{{.Tools}}                              lossy discovery catalog, including permitted MCP names
 {{.Skills}}                             ## Slash commands: the skill catalog and the load_skill hint;
                                         a /name body rides in the user message, load_skill returns one
 {{.PlanContext}}                        agent mode: the plan an approved turn implements
@@ -60,6 +60,10 @@ Working directory: {{.CWD}}
 ```
 
 The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+
+When tools are permitted, the system prompt carries their compact discovery catalog and the native offer starts with `activate_tools`; activation adds original complete native definitions to later requests. If the permitted set is empty, both the native offer and catalog are empty. Custom templates receive the catalog in `{{.Tools}}`, and Coddy appends it if they omit that field. Memory and goal-verifier children use the same discovery mechanism within their own tool bounds. The catalog stays frozen while the permitted set is unchanged; growing the native offer can invalidate the provider's prefix cache. The context estimate counts the actual catalog and complete active native definitions, including names and descriptions. Earlier estimates counted input schemas without their native names and descriptions.
+
+`activate_tools` selects schemas without execution hooks, tool observers or a permission grant. Actual tool calls keep their existing checks. See [Tool discovery](../reference/tools.md#tool-discovery) for activation lifetime, permission resumes and remaining schema limits.
 
 ### The system prompt is frozen for the turn
 
@@ -472,7 +476,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools listed in the discovery catalog and offered natively after activation. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
 
 Representative builtins (excluding MCP-namespaced tools):
 

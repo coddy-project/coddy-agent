@@ -168,6 +168,26 @@ func (r tcReq) hasToolResult() bool {
 	return false
 }
 
+func (r tcReq) hasReadResult() bool {
+	names := map[string]string{}
+	for _, m := range r.Messages {
+		var calls []struct {
+			ID       string `json:"id"`
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		_ = json.Unmarshal(m.ToolCalls, &calls)
+		for _, call := range calls {
+			names[call.ID] = call.Function.Name
+		}
+		if m.Role == "tool" && names[m.ToolCallID] == "read" {
+			return true
+		}
+	}
+	return false
+}
+
 // tcUpstreamMode picks the stub's answer plan.
 type tcUpstreamMode int
 
@@ -272,10 +292,14 @@ func (u *tcUpstream) handleChat(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case u.mode == tcModePlain:
 		u.answerFinal(w, req, "DIRECT-ANSWER "+u.script.noteToken)
-	case req.hasToolResult():
+	case req.hasReadResult():
 		u.answerFinal(w, req, u.finalText(req))
 	default:
-		u.answerToolCall(w, req)
+		if activation := fixtureWireActivation(string(req.Raw), []string{"read"}); activation != nil {
+			u.answerToolMessage(w, req, map[string]any{"role": "assistant", "content": "", "tool_calls": []map[string]any{{"id": activation.ID, "type": "function", "function": map[string]any{"name": activation.Name, "arguments": activation.InputJSON}}}})
+		} else {
+			u.answerToolCall(w, req)
+		}
 	}
 }
 
@@ -319,7 +343,10 @@ func (u *tcUpstream) usage() map[string]any {
 }
 
 func (u *tcUpstream) answerToolCall(w http.ResponseWriter, req tcReq) {
-	msg := u.toolCallMessage()
+	u.answerToolMessage(w, req, u.toolCallMessage())
+}
+
+func (u *tcUpstream) answerToolMessage(w http.ResponseWriter, req tcReq, msg map[string]any) {
 	if req.Stream {
 		u.writeSSE(w, msg, "")
 		return
@@ -401,20 +428,15 @@ func (u *tcUpstream) writeSSE(w http.ResponseWriter, msg map[string]any, text st
 		chunk(map[string]any{"role": "assistant", "content": text}, nil, false)
 		chunk(map[string]any{}, "stop", true)
 	} else {
-		args, _ := json.Marshal(map[string]string{"path": u.script.toolPath})
-		chunk(map[string]any{
-			"role":              "assistant",
-			"reasoning_content": u.script.reasoningContent,
-			"tool_calls": []map[string]any{{
-				"index": 0,
-				"id":    u.script.toolCallID,
-				"type":  "function",
-				"function": map[string]any{
-					"name":      "read",
-					"arguments": string(args),
-				},
-			}},
-		}, nil, false)
+		calls := msg["tool_calls"].([]map[string]any)
+		for i, call := range calls {
+			call["index"] = i
+		}
+		delta := map[string]any{"role": "assistant", "tool_calls": calls}
+		if reasoning, ok := msg["reasoning_content"]; ok {
+			delta["reasoning_content"] = reasoning
+		}
+		chunk(delta, nil, false)
 		chunk(map[string]any{}, "tool_calls", true)
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
@@ -839,10 +861,10 @@ func tcAssertTurn(t *testing.T, ch *tcChain, clientStream bool) string {
 func tcAssertUpstreamTurn(t *testing.T, ch *tcChain, clientStream bool) {
 	t.Helper()
 	reqs := ch.upstream.all()
-	if len(reqs) < 2 {
-		t.Fatalf("upstream saw %d requests, want at least 2", len(reqs))
+	if len(reqs) < 3 {
+		t.Fatalf("upstream saw %d requests, want activation/read/answer", len(reqs))
 	}
-	first, second := reqs[0], reqs[1]
+	first, second := reqs[0], reqs[2]
 	if first.hasToolResult() {
 		t.Fatalf("first upstream request already carried a tool result")
 	}
@@ -859,7 +881,6 @@ func tcAssertReplayedAssistant(t *testing.T, ch *tcChain, req tcReq) {
 		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
 			continue
 		}
-		found++
 		var calls []struct {
 			ID       string `json:"id"`
 			Function struct {
@@ -873,6 +894,13 @@ func tcAssertReplayedAssistant(t *testing.T, ch *tcChain, req tcReq) {
 		if calls[0].ID == "" {
 			t.Fatal("replayed tool call has no ID")
 		}
+		if calls[0].Function.Name == "activate_tools" {
+			if calls[0].Function.Arguments != `{"names":["read"]}` {
+				t.Fatal("activation names changed")
+			}
+			continue
+		}
+		found++
 		var args map[string]any
 		if calls[0].Function.Name != "read" || json.Unmarshal([]byte(calls[0].Function.Arguments), &args) != nil || args["path"] != ch.script.toolPath {
 			t.Fatalf("unexpected call: %s", m.ToolCalls)
@@ -899,9 +927,24 @@ func tcAssertReplayedAssistant(t *testing.T, ch *tcChain, req tcReq) {
 func tcAssertToolResult(t *testing.T, ch *tcChain, req tcReq) {
 	t.Helper()
 	callID := tcFirstToolCallID(t, req)
-	found := 0
+	activationIDs := map[string]bool{}
+	for _, m := range req.Messages {
+		for _, call := range gjson.ParseBytes(m.ToolCalls).Array() {
+			if call.Get("function.name").String() == "activate_tools" {
+				activationIDs[call.Get("id").String()] = true
+			}
+		}
+	}
+	found, activationResults := 0, 0
 	for _, m := range req.Messages {
 		if m.Role != "tool" {
+			continue
+		}
+		if activationIDs[m.ToolCallID] {
+			activationResults++
+			if !strings.Contains(m.text(), "activated") {
+				t.Fatal("activation acknowledgment missing")
+			}
 			continue
 		}
 		found++
@@ -912,13 +955,12 @@ func tcAssertToolResult(t *testing.T, ch *tcChain, req tcReq) {
 			t.Fatalf("tool result missing note token %q: %s", ch.script.noteToken, m.text())
 		}
 	}
-	if found != 1 {
+	if found != 1 || activationResults != 1 || len(activationIDs) != 1 {
 		t.Fatalf("want exactly one tool result message, got %d in %s", found, rawReq(req))
 	}
 }
 
-// tcFirstToolCallID extracts the id of the first tool call of the assistant
-// message in the request.
+// tcFirstToolCallID extracts the read call ID after discovery, as replayed.
 func tcFirstToolCallID(t *testing.T, req tcReq) string {
 	t.Helper()
 	for _, m := range req.Messages {
@@ -926,12 +968,19 @@ func tcFirstToolCallID(t *testing.T, req tcReq) string {
 			continue
 		}
 		var calls []struct {
-			ID string `json:"id"`
+			ID       string `json:"id"`
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
 		}
 		if err := json.Unmarshal(m.ToolCalls, &calls); err != nil || len(calls) == 0 {
 			t.Fatalf("assistant tool_calls unparseable: %s", m.ToolCalls)
 		}
-		return calls[0].ID
+		for _, call := range calls {
+			if call.Function.Name == "read" {
+				return call.ID
+			}
+		}
 	}
 	t.Fatalf("no assistant tool-call message in %s", rawReq(req))
 	return ""
@@ -1503,7 +1552,7 @@ func testTCUsage(t *testing.T) {
 					usage = r.Usage
 				}
 				if known {
-					if usage == nil || usage["prompt_tokens"] != float64(22) || usage["completion_tokens"] != float64(14) || usage["total_tokens"] != float64(36) {
+					if usage == nil || usage["prompt_tokens"] != float64(33) || usage["completion_tokens"] != float64(21) || usage["total_tokens"] != float64(54) {
 						t.Fatalf("wrong known usage: %#v", usage)
 					}
 				} else if usage != nil {

@@ -40,7 +40,7 @@ func (p *evScriptProvider) Complete(_ context.Context, _ []llm.Message, _ []llm.
 	return &llm.Response{Content: "summary", StopReason: "end_turn"}, nil
 }
 
-func (p *evScriptProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *evScriptProvider) Stream(_ context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.streamSeen = append(p.streamSeen, append([]llm.Message(nil), messages...))
 	var step evStep
 	if p.i < len(p.steps) {
@@ -50,7 +50,11 @@ func (p *evScriptProvider) Stream(_ context.Context, messages []llm.Message, _ [
 	}
 	p.i++
 	if len(step.calls) > 0 {
-		return &llm.Response{ToolCalls: step.calls, StopReason: "tool_use"}, nil
+		response := toolStep(step.calls...)(messages, defs, onChunk)
+		if len(response.ToolCalls) == 1 && response.ToolCalls[0].ID == "fixture_activation_tools" {
+			p.i--
+		}
+		return response, nil
 	}
 	if step.text == "" {
 		step.text = "done"

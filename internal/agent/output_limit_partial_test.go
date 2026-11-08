@@ -464,8 +464,8 @@ func TestNoMarkerChunkIsStreamedForATruncatedMessage(t *testing.T) {
 		{text: "ok", stop: "end_turn"},
 	}}
 	ag, st, sender := cutCallAgent(t, p, nil)
-	if stop, err := runOutputLimitTurn(ag); err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3", stop, err, p.calls)
+	if stop, err := runOutputLimitTurn(ag); err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 4 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 4 (including activation)", stop, err, p.calls)
 	}
 
 	said := textMessages(st.GetMessages())

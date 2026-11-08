@@ -67,6 +67,6 @@ Feature: Session settings from the dialogue
   Scenario: A model switched during a turn answers the turn's next step
     Given the browser switches the session to "fake/b" while the model "a" answers
     When the user sends "go on"
-    Then the model "a" answered 1 request
+    Then the model "a" answered 2 requests
     And the model "b" answered 1 request
-    And the transcript signs the answers "fake/a, fake/b"
+    And the transcript signs the assistant rows "fake/a, fake/a, fake/b"

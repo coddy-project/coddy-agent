@@ -34,6 +34,7 @@ func TestPromptCacheToolImagesKeepThePrefix(t *testing.T) {
 	// Each tool step is the call's start and its arguments, which the
 	// Messages API streams as input_json_delta fragments.
 	steps := [][2]string{
+		{`{"type":"tool_use","id":"activate","name":"activate_tools","input":{}}`, `{"names":["read","glob"]}`},
 		{`{"type":"tool_use","id":"call_read","name":"read","input":{}}`, `{"path":"shot.png"}`},
 		{`{"type":"tool_use","id":"call_glob","name":"glob","input":{}}`, `{"pattern":"*.png"}`},
 		{"", ""},
@@ -88,11 +89,11 @@ func TestPromptCacheToolImagesKeepThePrefix(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(requests) != 3 {
-		t.Fatalf("requests = %d, want 3", len(requests))
+	if len(requests) != 4 {
+		t.Fatalf("requests = %d, want 4 including activation", len(requests))
 	}
-	_, afterRead := retryCacheRequest(t, requests[1])
-	_, afterGlob := retryCacheRequest(t, requests[2])
+	_, afterRead := retryCacheRequest(t, requests[2])
+	_, afterGlob := retryCacheRequest(t, requests[3])
 
 	// The step that read the picture: its tool result, then the picture.
 	want := base64.StdEncoding.EncodeToString(shot)

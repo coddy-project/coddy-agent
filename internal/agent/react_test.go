@@ -134,18 +134,23 @@ func (p *cancelToolBatchProvider) Stream(_ context.Context, _ []llm.Message, _ [
 }
 
 type configReloadProvider struct {
-	calls int
-	tools [][]llm.ToolDefinition
+	activations int
+	calls       int
+	tools       [][]llm.ToolDefinition
 }
 
 func (p *configReloadProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, nil
 }
 
-func (p *configReloadProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *configReloadProvider) Stream(_ context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
 	p.tools = append(p.tools, append([]llm.ToolDefinition(nil), defs...))
-	switch p.calls {
+	if response := fixtureActivateTools(messages, defs, onChunk, "load_skill", "config_set", "config_commit"); response != nil {
+		p.activations++
+		return response, nil
+	}
+	switch p.calls - p.activations {
 	case 1:
 		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"commands":["set skills.auto_discovery=false"]}`}
 		onChunk(llm.StreamChunk{ToolCall: &call})
@@ -377,8 +382,8 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 3 {
-		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
+	if provider.calls != 4 {
+		t.Fatalf("provider calls = %d, want activation, stage, commit, and final answer", provider.calls)
 	}
 	contains := func(defs []llm.ToolDefinition, name string) bool {
 		for _, def := range defs {
@@ -388,13 +393,13 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 		}
 		return false
 	}
-	if !contains(provider.tools[0], "load_skill") {
+	if !contains(provider.tools[1], "load_skill") {
 		t.Fatal("load_skill should be present before config_set")
 	}
-	if !contains(provider.tools[1], "load_skill") {
+	if !contains(provider.tools[2], "load_skill") {
 		t.Fatal("staging alone must not reload the runtime")
 	}
-	if contains(provider.tools[2], "load_skill") {
+	if contains(provider.tools[3], "load_skill") {
 		t.Fatal("load_skill should be removed after same-turn config_commit reload")
 	}
 }
@@ -435,8 +440,8 @@ func TestConfigCommitKeepsProcessOverrideWithinSameTurn(t *testing.T) {
 	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 3 {
-		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
+	if provider.calls != 4 {
+		t.Fatalf("provider calls = %d, want activation, stage, commit, and final answer", provider.calls)
 	}
 	saved, err := config.Load(configPath)
 	if err != nil {
@@ -445,7 +450,7 @@ func TestConfigCommitKeepsProcessOverrideWithinSameTurn(t *testing.T) {
 	if saved.Skills.AutoDiscoveryEnabled() {
 		t.Fatal("config_commit did not write skills.auto_discovery: false")
 	}
-	for _, def := range provider.tools[2] {
+	for _, def := range provider.tools[3] {
 		if def.Name == "load_skill" {
 			return
 		}
@@ -3945,8 +3950,8 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	}
 	h.provider("b").steps = []scriptStep{answerStep("done on b")}
 	h.prompt(t, "use fake/b for this turn only")
-	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
-		t.Fatalf("requests served: a=%d b=%d, want the first on a and the next on b", a, b)
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 2 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want activation and switch on a, then answer on b", a, b)
 	}
 	st := h.mgr.SessionByID(h.sessionID)
 	if st.GetSelectedModelID() != "" {
@@ -3955,7 +3960,7 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	// The next turn is back on the session's model.
 	h.provider("a").steps = append(h.provider("a").steps, answerStep("back on a"))
 	h.prompt(t, "and now")
-	if a := h.provider("a").calls; a != 2 {
+	if a := h.provider("a").calls; a != 3 {
 		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
 	}
 }
@@ -4134,18 +4139,18 @@ func TestSystemPromptDescribesSwitchModelOnlyWhereItIsOffered(t *testing.T) {
 	}
 	h.prompt(t, "delegate it")
 	reqs := h.provider("a").requests
-	if len(reqs) != 3 {
-		t.Fatalf("requests = %d, want the parent's, the child's and the parent's again", len(reqs))
+	if len(reqs) != 4 {
+		t.Fatalf("requests = %d, want parent activation, parent spawn, child answer, parent answer", len(reqs))
 	}
 	if !strings.Contains(reqs[0][0].Content, rule) {
 		t.Error("the parent's system prompt does not describe switch_model")
 	}
-	if strings.Contains(reqs[1][0].Content, rule) {
+	if strings.Contains(reqs[2][0].Content, rule) {
 		t.Error("the subagent's system prompt describes switch_model, which it is never offered")
 	}
 	// Nothing wakes a subagent either: its transcript is sealed when its
 	// turn returns, so its prompt tells it to collect results itself.
-	if !strings.Contains(reqs[1][0].Content, "Nothing wakes you here") {
+	if !strings.Contains(reqs[2][0].Content, "Nothing wakes you here") {
 		t.Error("the subagent's system prompt promises a background wake it can never get")
 	}
 

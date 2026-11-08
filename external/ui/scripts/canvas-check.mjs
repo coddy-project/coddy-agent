@@ -274,7 +274,26 @@ function startModel(port) {
         .filter((m) => m.role === "user")
         .map(textOf)
         .join("\n");
-      const results = turn.filter((m) => m.role === "tool").length;
+      const executableIDs = new Set(
+        turn.flatMap((m) =>
+          (m.tool_calls || [])
+            .filter((c) => c.function?.name !== "activate_tools")
+            .map((c) => c.id),
+        ),
+      );
+      const results = turn.filter(
+        (m) => m.role === "tool" && executableIDs.has(m.tool_call_id),
+      ).length;
+      const native = new Set((parsed.tools || []).map((t) => t.function?.name));
+      const catalog = messages
+        .filter((m) => m.role === "system")
+        .map(textOf)
+        .join("\n");
+      const needsActivation = (name) =>
+        native.has("activate_tools") &&
+        !native.has(name) &&
+        catalog.includes("- `" + name + "`:");
+
       let tool = null;
       let answer = "Noted.";
       if (/show the shop on the canvas/i.test(asked)) {
@@ -295,6 +314,9 @@ function startModel(port) {
         if (results === 0)
           tool = { name: "canvas_inspect", args: { wait_seconds: 3 } };
         else answer = "The cart service throws on load.";
+      }
+      if (tool && needsActivation(tool.name)) {
+        tool = { name: "activate_tools", args: { names: [tool.name] } };
       }
       if (!parsed.stream) {
         res.writeHead(200, {
@@ -870,6 +892,15 @@ try {
 
   // --------------------------------------------------------- inspect reports
   await page.getByTestId("canvas-chat").click();
+  // A stored prompt precedes its answer. Finish the comment turn before
+  // submitting the next one, so this stand does not test follow-up queuing.
+  await page
+    .getByText("Noted.", { exact: true })
+    .last()
+    .waitFor({ timeout: 30000 });
+  await page
+    .getByRole("button", { name: "Stop generation", exact: true })
+    .waitFor({ state: "hidden", timeout: 30000 });
   await ask(page, "Now check the canvas", "The cart service throws on load.");
   const msgs = await (await relayApi(`/coddy/sessions/${sid}/messages`)).text();
   check(

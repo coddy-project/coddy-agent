@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -803,8 +804,19 @@ func (m *namedToolCallModel) Complete(context.Context, []llm.Message, []llm.Tool
 	return nil, fmt.Errorf("stream required")
 }
 
-func (m *namedToolCallModel) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+func (m *namedToolCallModel) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
 	m.mu.Lock()
+	bootstrap, loaded := false, false
+	for _, def := range definitions {
+		bootstrap = bootstrap || def.Name == "activate_tools"
+		loaded = loaded || def.Name == "read"
+	}
+	if !m.done && bootstrap && !loaded && len(messages) > 0 && strings.Contains(messages[0].Content, "- `read`:") {
+		m.mu.Unlock()
+		call := llm.ToolCall{ID: "activate_read_fixture", Name: "activate_tools", InputJSON: `{"names":["read"]}`}
+		emit(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	}
 	done := m.done
 	m.done = true
 	m.mu.Unlock()

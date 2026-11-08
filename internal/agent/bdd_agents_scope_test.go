@@ -30,17 +30,22 @@ const (
 
 // bddReadThenAnswerProvider requests a single read on its first call, then answers.
 type bddReadThenAnswerProvider struct {
-	readPath string
-	seen     [][]llm.Message
+	readPath    string
+	activations int
+	seen        [][]llm.Message
 }
 
 func (p *bddReadThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("Complete must not be used by the AGENTS.md scoping suite")
 }
 
-func (p *bddReadThenAnswerProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddReadThenAnswerProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
-	if len(p.seen) == 1 {
+	if response := fixtureActivateTools(messages, definitions, onChunk, "read"); response != nil {
+		p.activations++
+		return response, nil
+	}
+	if len(p.seen)-p.activations == 1 {
 		tc := llm.ToolCall{
 			ID:        "call_read_1",
 			Name:      "read",
@@ -173,8 +178,8 @@ func (s *agentsScopeFeatureState) modelReadsFileThenAnswers(path string) error {
 	if stop != string(acp.StopReasonEndTurn) {
 		return fmt.Errorf("stop reason = %q, want end_turn", stop)
 	}
-	if len(s.provider.seen) < 2 {
-		return fmt.Errorf("expected at least 2 requests (read, then answer), got %d", len(s.provider.seen))
+	if len(s.provider.seen) < 3 {
+		return fmt.Errorf("expected at least 3 requests (activation, read, then answer), got %d", len(s.provider.seen))
 	}
 	return nil
 }
@@ -224,7 +229,11 @@ func (s *agentsScopeFeatureState) firstRequestHasRootOnly() error {
 }
 
 func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error {
-	for n := 1; n < len(s.provider.seen); n++ {
+	start := fixtureRequestAfterTool(s.provider.seen, "call_read_1")
+	if start < 0 {
+		return fmt.Errorf("no request carries the executed read result")
+	}
+	for n := start; n < len(s.provider.seen); n++ {
 		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err

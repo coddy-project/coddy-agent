@@ -11,14 +11,14 @@ Feature: Tool call records stay inside the session bundle
     Given a session bundle in its own store and a workspace file "note.txt"
     When the model reads "note.txt" under the tool call id "../../escaped"
     Then nothing is written outside the session bundle
-    And the bundle holds one tool call folder
+    And the bundle holds an activation folder and one execution folder
     And the tool call arguments and result are readable under the id the provider sent
     And the turn ended with the model's answer
 
   Scenario: An id longer than a file name keeps its record
     Given a session bundle in its own store and a workspace file "note.txt"
     When the model reads "note.txt" under a tool call id of 300 characters
-    Then the bundle holds one tool call folder
+    Then the bundle holds an activation folder and one execution folder
     And the tool call arguments and result are readable under the id the provider sent
     And the turn ended with the model's answer
 

@@ -93,9 +93,11 @@ func TestHelperMCPServerACP(t *testing.T) {
 type acpScriptedProvider struct {
 	tool string
 
-	mu           sync.Mutex
-	calls        int
-	offeredTools []string
+	mu              sync.Mutex
+	calls           int
+	offeredTools    []string
+	nativeOffers    [][]llm.ToolDefinition
+	activationCalls int
 }
 
 func (p *acpScriptedProvider) Complete(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition) (*llm.Response, error) {
@@ -106,11 +108,35 @@ func (p *acpScriptedProvider) Stream(_ context.Context, messages []llm.Message, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
-	if p.calls == 1 {
-		p.offeredTools = nil
-		for _, t := range tools {
-			p.offeredTools = append(p.offeredTools, t.Name)
+	p.nativeOffers = append(p.nativeOffers, append([]llm.ToolDefinition(nil), tools...))
+	p.offeredTools = nil
+	native := map[string]bool{}
+	for _, def := range tools {
+		p.offeredTools = append(p.offeredTools, def.Name)
+		native[def.Name] = true
+	}
+	if native["activate_tools"] && !native[p.tool] && len(messages) > 0 {
+		var names []string
+		for _, line := range strings.Split(messages[0].Content, "\n") {
+			if !strings.HasPrefix(line, "- `") {
+				continue
+			}
+			parts := strings.SplitN(strings.TrimPrefix(line, "- `"), "`:", 2)
+			if len(parts) == 2 && strings.Contains(parts[0], "__") {
+				names = append(names, parts[0])
+			}
 		}
+		for _, name := range names {
+			if name == p.tool {
+				raw, _ := json.Marshal(map[string]interface{}{"names": names})
+				call := llm.ToolCall{ID: "activate_mcp_fixture", Name: "activate_tools", InputJSON: string(raw)}
+				p.activationCalls++
+				onChunk(llm.StreamChunk{ToolCall: &call})
+				return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+			}
+		}
+	}
+	if p.calls-p.activationCalls == 1 {
 		tc := llm.ToolCall{ID: "call-1", Name: p.tool, InputJSON: `{}`}
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil

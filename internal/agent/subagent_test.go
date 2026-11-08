@@ -2694,8 +2694,8 @@ func TestSpawnSubagentTaskLabelIsCappedAndTurnsCountAssistantRounds(t *testing.T
 		t.Fatal(err)
 	}
 	env := parseSubagentEnvelope(t, res)
-	if env.Turns != 2 {
-		t.Fatalf("turns = %d, want 2 (one tool round, one answer): %s", env.Turns, res)
+	if env.Turns != 3 {
+		t.Fatalf("turns = %d, want 3 (activation, tool, answer): %s", env.Turns, res)
 	}
 	task := rig.lastAgentTask()
 	if n := len([]rune(task.Label)); n > 60 {
@@ -2961,7 +2961,7 @@ func TestSpawnSubagentResumeContinuesTheSameChild(t *testing.T) {
 	if env.Session != failed.Session || env.Task == failed.Task {
 		t.Fatalf("resumed run = task %s session %s, want a new task on session %s", env.Task, env.Session, failed.Session)
 	}
-	if env.Status != string(bgtask.StatusSucceeded) || strings.TrimSpace(env.Body) != "REPORT: resumed" || env.Turns != 2 {
+	if env.Status != string(bgtask.StatusSucceeded) || strings.TrimSpace(env.Body) != "REPORT: resumed" || env.Turns != 3 {
 		t.Fatalf("resumed run = %s", res)
 	}
 	if log := rig.taskOutput(env.Task); !strings.Contains(log, "subagent worker (task "+env.Task+", session "+env.Session+") resuming") {

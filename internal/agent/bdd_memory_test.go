@@ -533,7 +533,19 @@ func (s *memoryFeatureState) childOfferedExactly(list string) error {
 		want[strings.TrimSpace(n)] = true
 	}
 	p.mu.Lock()
-	offered := append([]string(nil), p.offered[0]...)
+	offered := promptToolNames(p.requests[0][0].Content)
+	if strings.Join(p.offered[0], ",") != activateToolsName {
+		p.mu.Unlock()
+		return fmt.Errorf("memory initial native offer = %v", p.offered[0])
+	}
+	for _, native := range p.offered {
+		for _, name := range native {
+			if name != activateToolsName && !want[name] {
+				p.mu.Unlock()
+				return fmt.Errorf("memory native offer exceeds role: %s", name)
+			}
+		}
+	}
 	p.mu.Unlock()
 	got := map[string]bool{}
 	for _, n := range offered {
@@ -611,7 +623,7 @@ func (s *memoryFeatureState) childSaveRefused() error {
 	for _, req := range p.requests {
 		for _, m := range req {
 			if m.Role == llm.RoleTool && m.ToolCallID == "call_save" {
-				if strings.Contains(m.Content, "refus") || strings.Contains(m.Content, "not available") || strings.Contains(m.Content, "error") {
+				if strings.Contains(m.Content, "refus") || strings.Contains(m.Content, "not available") || strings.Contains(m.Content, "error") || strings.HasPrefix(m.Content, session.ToolResultNotExecutedPrefix) {
 					return nil
 				}
 				return fmt.Errorf("the child's save was not refused: %q", m.Content)

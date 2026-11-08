@@ -816,10 +816,13 @@ func (s *schedulerRunsState) offeredAndNot(yes, no string) error {
 	if err != nil {
 		return err
 	}
-	if !p.everOffered(yes) {
+	p.mu.Lock()
+	catalog := p.system
+	p.mu.Unlock()
+	if !strings.Contains(catalog, "- `"+yes+"`:") {
 		return fmt.Errorf("tool %q was not offered", yes)
 	}
-	if p.everOffered(no) {
+	if p.everOffered(no) || strings.Contains(catalog, "- `"+no+"`:") {
 		return fmt.Errorf("tool %q was offered", no)
 	}
 	return nil

@@ -6,5 +6,5 @@ Feature: A user's model choice lasts for the session
     Given a session with models "fake/a" and "fake/b"
     When the user asks the agent to switch to "fake/b"
     And the user sends another message
-    Then the first model served one request and the chosen model served two
+    Then the first model served two requests and the chosen model served two
     And the session remembers "fake/b"

@@ -30,6 +30,8 @@ import (
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -181,7 +183,7 @@ func (s *acpWebState) server() error {
 		return nil
 	}
 	stub := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: s.rules}
-	s.stub = httptest.NewServer(stub.Handler())
+	s.stub = httptest.NewServer(llmtest.DiscoveryHandler(stub))
 	home := filepath.Join(s.root, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err

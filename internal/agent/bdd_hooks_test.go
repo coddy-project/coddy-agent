@@ -194,6 +194,8 @@ func (s *hooksFeatureState) runTurn(call llm.ToolCall) error {
 	s.provider.mu.Lock()
 	s.provider.steps = []scriptStep{toolStep(call), answerStep("done")}
 	s.provider.calls = 0
+	s.provider.activations = 0
+	s.provider.failed = 0
 	s.provider.mu.Unlock()
 	before := len(s.sess.GetMessages())
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -572,6 +574,8 @@ func (s *hooksFeatureState) runPrompt(prompt string, steps ...scriptStep) error 
 	s.provider.mu.Lock()
 	s.provider.steps = steps
 	s.provider.calls = 0
+	s.provider.activations = 0
+	s.provider.failed = 0
 	s.provider.requests = nil
 	s.provider.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

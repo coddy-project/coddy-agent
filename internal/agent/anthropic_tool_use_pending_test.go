@@ -69,6 +69,10 @@ func TestAnthropicToolCallAfterTextRunsAndClosesItsRow(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		if n == 1 {
+			_, _ = io.WriteString(w, anthropicToolAfterBlocksSSE(nil, "activate_glob", "activate_tools", `{"names":["glob"]}`))
+			return
+		}
+		if n == 2 {
 			_, _ = io.WriteString(w, anthropicToolAfterBlocksSSE([]string{"Let me look."}, "toolu_1", "glob", `{"pattern":"**/*.nothing"}`))
 			return
 		}
@@ -100,9 +104,9 @@ func TestAnthropicToolCallAfterTextRunsAndClosesItsRow(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(bodies) != 2 {
-		t.Errorf("provider requests = %d, want 2: the call runs and its result goes back", len(bodies))
-	} else if !strings.Contains(bodies[1], `"tool_use_id":"toolu_1"`) {
+	if len(bodies) != 3 {
+		t.Errorf("provider requests = %d, want 3: activation, the call, then its result", len(bodies))
+	} else if !strings.Contains(bodies[2], `"tool_use_id":"toolu_1"`) {
 		t.Errorf("second request carries no result for toolu_1: %s", bodies[1])
 	}
 

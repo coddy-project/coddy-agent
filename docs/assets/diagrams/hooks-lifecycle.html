@@ -141,7 +141,7 @@
           <div class="none">no event</div>
           <div></div>
 
-          <div class="box blue">tool call passed the mode and subagent checks</div>
+          <div class="box blue">tool execution passed the mode and subagent checks (not activate_tools)</div>
           <div class="box amber ev" id="t-pre">PreToolUse <small>tool name</small></div>
           <div class="what">
             <b class="no">deny</b>: <code>blocked by hook: …</code> is the result; <b class="ok">allow</b>: no prompt;
@@ -283,7 +283,7 @@
         <ul class="mini" style="margin-top: 10px">
           <li>they run one after another in catalog order, your file first; each sees the input the previous one
             rewrote;</li>
-          <li>all of them run even after a deny, so an audit hook sees every call;</li>
+          <li>all of them run even after a deny, so an audit hook sees every call reaching this gate;</li>
           <li>every <code>additionalContext</code> is kept in order, each text capped at
             <code>hooks.max_output_chars</code> (10,000);</li>
           <li><code>async: true</code> is started and not awaited: it never decides, at most 8 run at once.</li>

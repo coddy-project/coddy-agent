@@ -423,7 +423,7 @@ func TestSurfacesShowTheToolOutputWithoutItsRules(t *testing.T) {
 	if _, err := a.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "read main.go"}}); err != nil {
 		t.Fatal(err)
 	}
-	if res, ok := toolResultOf(provider.seen[1], "r1"); !ok || !strings.Contains(res, "SURFACE_RULE_TOKEN") {
+	if res, ok := toolResultOf(provider.seen[len(provider.seen)-1], "r1"); !ok || !strings.Contains(res, "SURFACE_RULE_TOKEN") {
 		t.Fatalf("the model was not sent the rule with the read: %q", res)
 	}
 	for _, u := range sender.updates {
@@ -704,9 +704,18 @@ func (p *scriptedReadsProvider) Complete(context.Context, []llm.Message, []llm.T
 	return nil, fmt.Errorf("Complete must not be used")
 }
 
-func (p *scriptedReadsProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *scriptedReadsProvider) Stream(_ context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
-	if last := messages[len(messages)-1]; last.Role == llm.RoleUser && p.turn < len(p.reads) {
+	users := 0
+	for _, message := range messages {
+		if message.Role == llm.RoleUser && !strings.Contains(message.Content, turnContextOpenTag) {
+			users++
+		}
+	}
+	if p.turn < len(p.reads) && p.turn < users {
+		if !offersTool(defs, "read") {
+			return rawToolStep(discoveryActivation("activate_read", "read"))(messages, defs, onChunk), nil
+		}
 		tc := llm.ToolCall{ID: fmt.Sprintf("call_read_%d", p.turn), Name: "read", InputJSON: fmt.Sprintf(`{"path":%q}`, p.reads[p.turn])}
 		p.turn++
 		onChunk(llm.StreamChunk{ToolCall: &tc})
@@ -742,8 +751,8 @@ func TestPromptCacheDocumentsOfATemplateWithoutBlocks(t *testing.T) {
 		}
 		a = NewAgent(a.cfg, a.state, resumePermissionSender{}, nil)
 	}
-	if len(provider.seen) < 4 {
-		t.Fatalf("requests = %d, want two turns of a read and an answer", len(provider.seen))
+	if len(provider.seen) != 6 {
+		t.Fatalf("requests = %d, want two turns of activation, read and answer", len(provider.seen))
 	}
 	system := provider.seen[0][0].Content
 	if !strings.Contains(system, "ROOT_DOC_TOKEN") || strings.Contains(system, "PKG_DOC_TOKEN") {
@@ -757,7 +766,7 @@ func TestPromptCacheDocumentsOfATemplateWithoutBlocks(t *testing.T) {
 		for _, m := range req {
 			whole.WriteString(m.Content)
 		}
-		if want := min(n, 1); strings.Count(whole.String(), "PKG_DOC_TOKEN") != want {
+		if want := min(n/2, 1); strings.Count(whole.String(), "PKG_DOC_TOKEN") != want {
 			t.Fatalf("request %d carries the nested document %d time(s), want %d", n, strings.Count(whole.String(), "PKG_DOC_TOKEN"), want)
 		}
 	}

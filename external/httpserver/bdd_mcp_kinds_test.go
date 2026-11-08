@@ -83,6 +83,14 @@ func (p *mcpKindsProvider) Stream(_ context.Context, messages []llm.Message, too
 		onChunk(llm.StreamChunk{TextDelta: "Ready."})
 		return &llm.Response{Content: "Ready.", StopReason: "end_turn"}, nil
 	}
+	var wanted []string
+	for _, name := range mcpKindsServers {
+		wanted = append(wanted, name+"__"+mcptest.Tool)
+	}
+	if call := mcpFixtureActivation(messages, tools, wanted); call != nil {
+		onChunk(llm.StreamChunk{ToolCall: call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{*call}, StopReason: "tool_use"}, nil
+	}
 	results := map[string]string{}
 	for _, m := range messages {
 		if m.Role == llm.RoleTool && strings.HasPrefix(m.ToolCallID, mcpKindsCallPrefix) {

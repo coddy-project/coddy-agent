@@ -24,7 +24,7 @@ Feature: Codex ChatGPT credentials drive Coddy's own agent
     When I run an agent prompt through the ACP session flow
     Then the Codex backend received the Codex CLI access token
     And the Codex request carried coddy's own tools and system prompt
-    And the second Codex request replayed the encrypted reasoning of the first
+    And the third Codex request replayed the encrypted reasoning of the second
     And the final assistant message contains the coddy tool result
 
   @cli

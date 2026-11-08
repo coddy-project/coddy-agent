@@ -24,6 +24,8 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
@@ -55,17 +57,22 @@ type bddHTTPFile struct {
 // bddHTTPProvider requests one http_request call on its first turn and answers
 // on the next.
 type bddHTTPProvider struct {
-	call  llm.ToolCall
-	calls int
+	call        llm.ToolCall
+	calls       int
+	activations int
 }
 
 func (p *bddHTTPProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("Complete must not be used by the http_request suite")
 }
 
-func (p *bddHTTPProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddHTTPProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
-	if p.calls == 1 {
+	if response := fixtureActivateTools(messages, definitions, onChunk, p.call.Name); response != nil {
+		p.activations++
+		return response, nil
+	}
+	if p.calls-p.activations == 1 {
 		tc := p.call
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
@@ -520,11 +527,12 @@ func TestHTTPRequestDefaultHeadersStayOffTheModelProvider(t *testing.T) {
 	}}}
 	var providerMu sync.Mutex
 	var providerHeaders []http.Header
+	modelHandler := llmtest.DiscoveryHandler(model)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		providerMu.Lock()
 		providerHeaders = append(providerHeaders, r.Header.Clone())
 		providerMu.Unlock()
-		model.Handler().ServeHTTP(w, r)
+		modelHandler.ServeHTTP(w, r)
 	}))
 	t.Cleanup(provider.Close)
 

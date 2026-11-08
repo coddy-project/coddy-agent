@@ -113,10 +113,10 @@ func computeContextBreakdown(
 	rulesTok := session.EstimateContextTokens(rulesMD)
 	skillsTok := session.EstimateContextTokens(skillsMD)
 	var mcpTok int
-	// toolsMD already includes names and descriptions. The provider receives
-	// schemas separately, so add those without counting the names twice.
+	// Count the actual native offer independently of the discovery catalog.
+	// Names and complete descriptions are part of every loaded definition.
 	for _, def := range toolDefs {
-		encoded, err := json.Marshal(def.InputSchema)
+		encoded, err := json.Marshal(def)
 		if err != nil {
 			continue
 		}

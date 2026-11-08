@@ -37,7 +37,8 @@ const (
 // bddDecisionsProvider requests one run_command call on its first turn and
 // answers on the next.
 type bddDecisionsProvider struct {
-	seen [][]llm.Message
+	seen        [][]llm.Message
+	activations int
 	// remote makes the one tool call an ssh_run_command instead of a
 	// local run_command.
 	remote bool
@@ -47,9 +48,17 @@ func (p *bddDecisionsProvider) Complete(context.Context, []llm.Message, []llm.To
 	return nil, fmt.Errorf("Complete must not be used by the decisions suite")
 }
 
-func (p *bddDecisionsProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddDecisionsProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
-	if len(p.seen) == 1 {
+	name := "run_command"
+	if p.remote {
+		name = "ssh_run_command"
+	}
+	if response := fixtureActivateTools(messages, definitions, onChunk, name); response != nil {
+		p.activations++
+		return response, nil
+	}
+	if len(p.seen)-p.activations == 1 {
 		args, _ := json.Marshal(map[string]string{"command": "echo " + bddDecisionsMarker})
 		tc := llm.ToolCall{ID: bddDecisionsCallID, Name: "run_command", InputJSON: string(args)}
 		if p.remote {
@@ -257,12 +266,12 @@ func (s *bddDecisionsState) modelReadTheOutput() error {
 	if len(s.provider.seen) < 2 {
 		return fmt.Errorf("the model was asked %d time(s), want a second request after the call", len(s.provider.seen))
 	}
-	for _, m := range s.provider.seen[1] {
+	for _, m := range s.provider.seen[len(s.provider.seen)-1] {
 		if m.Role == llm.RoleTool && m.ToolCallID == bddDecisionsCallID && strings.Contains(m.Content, bddDecisionsMarker) {
 			return nil
 		}
 	}
-	return fmt.Errorf("the second request does not carry the command output as the tool result")
+	return fmt.Errorf("the request after execution does not carry the command output as the tool result")
 }
 
 func (s *bddDecisionsState) nobodyWasAsked() error {
@@ -355,7 +364,7 @@ func (s *bddDecisionsState) toolCallAnsweredWithTheUnsafeRejection() error {
 	// The refusal must reach the model on the next round, or it cannot
 	// choose another path.
 	replayed := false
-	for _, m := range s.provider.seen[1] {
+	for _, m := range s.provider.seen[len(s.provider.seen)-1] {
 		if m.Role == llm.RoleTool && m.ToolCallID == bddDecisionsCallID && strings.HasPrefix(m.Content, commandRejectedAsUnsafePrefix) {
 			replayed = true
 		}

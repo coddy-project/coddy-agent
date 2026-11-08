@@ -124,11 +124,13 @@ func (s *tcpFeatureState) bundleHoldsOneToolCallFolder() error {
 	if err != nil {
 		return fmt.Errorf("list tool calls: %w", err)
 	}
-	if len(dirs) != 1 {
-		return fmt.Errorf("the bundle holds %d tool call folders, want 1: %v", len(dirs), dirs)
+	if len(dirs) != 2 || !contains(dirs, "fixture_activation_tools") {
+		return fmt.Errorf("the bundle holds %d tool call folders, want activation plus one execution folder: %v", len(dirs), dirs)
 	}
-	if err := session.ValidateToolCallID(dirs[0]); err != nil {
-		return fmt.Errorf("folder name %q is not a safe single path segment: %w", dirs[0], err)
+	for _, dir := range dirs {
+		if err := session.ValidateToolCallID(dir); err != nil {
+			return fmt.Errorf("folder name %q is not a safe single path segment: %w", dir, err)
+		}
 	}
 	return nil
 }
@@ -141,7 +143,7 @@ func (s *tcpFeatureState) bundleHoldsToolCallFolder(name string) error {
 	if err != nil {
 		return err
 	}
-	if dirs[0] != name {
+	if !contains(dirs, name) {
 		return fmt.Errorf("the tool call folder is %q, want %q", dirs[0], name)
 	}
 	return nil
@@ -222,7 +224,7 @@ func initializeToolCallPersistenceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the model reads "([^"]*)" under the tool call id "([^"]*)"$`, s.readUnderID)
 	sc.Step(`^the model reads "([^"]*)" under a tool call id of (\d+) characters$`, s.readUnderLongID)
 	sc.Step(`^nothing is written outside the session bundle$`, s.nothingOutsideTheBundle)
-	sc.Step(`^the bundle holds one tool call folder$`, s.bundleHoldsOneToolCallFolder)
+	sc.Step(`^the bundle holds an activation folder and one execution folder$`, s.bundleHoldsOneToolCallFolder)
 	sc.Step(`^the bundle holds the tool call folder "([^"]*)"$`, s.bundleHoldsToolCallFolder)
 	sc.Step(`^the tool call arguments and result are readable under the id the provider sent$`, s.recordReadableUnderProviderID)
 	sc.Step(`^the turn ended with the model's answer$`, s.turnEndedWithTheAnswer)

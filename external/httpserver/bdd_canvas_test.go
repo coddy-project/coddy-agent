@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -79,7 +81,7 @@ func (s *canvasFeature) chatWithShopPage(dir string) error {
 		{Match: "check the canvas", Tool: &llmstub.ToolCall{Name: "canvas_inspect", Arguments: json.RawMessage(`{}`)}, Answer: "The cart script throws."},
 		{Match: "open the design board", Tool: &llmstub.ToolCall{Name: "canvas_show", Arguments: json.RawMessage(`{"path":"design/shop.canvas"}`)}, Answer: "The design board is on the canvas."},
 	}}
-	s.model = httptest.NewServer(stub.Handler())
+	s.model = httptest.NewServer(llmtest.DiscoveryHandler(stub))
 	home := filepath.Join(s.root, "home")
 	s.cwd = filepath.Join(s.root, "work")
 	for _, d := range []string{home, filepath.Join(s.cwd, dir)} {

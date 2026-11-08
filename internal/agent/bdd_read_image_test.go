@@ -158,6 +158,9 @@ func (s *readImageFeatureState) requestTail() ([]llm.Message, error) {
 	}
 	for i, m := range req {
 		if m.Role == llm.RoleAssistant && len(m.ToolCalls) > 0 {
+			if len(m.ToolCalls) == 1 && m.ToolCalls[0].Name == activateToolsName {
+				continue
+			}
 			return req[i:], nil
 		}
 	}

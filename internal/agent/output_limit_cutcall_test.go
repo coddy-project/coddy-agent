@@ -51,10 +51,10 @@ func TestPromptCacheOutputLimitCutToolCallIsLeftOutAndAppendOnly(t *testing.T) {
 	ag, st, sender := cutCallAgent(t, p, nil)
 
 	stop, err := runOutputLimitTurn(ag)
-	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 	}
-	first, second := requestHistory(p.seen[0]), requestHistory(p.seen[1])
+	first, second := requestHistory(p.seen[1]), requestHistory(p.seen[2])
 	if len(second) != len(first)+2 {
 		t.Fatalf("history went from %d to %d messages, want two more (the text and the message):\n%s", len(first), len(second), strings.Join(second, "\n"))
 	}
@@ -73,16 +73,16 @@ func TestPromptCacheOutputLimitCutToolCallIsLeftOutAndAppendOnly(t *testing.T) {
 	if !strings.Contains(nudge, "(write)") || !strings.Contains(nudge, "was not run") || !strings.Contains(nudge, "smaller tool calls") {
 		t.Fatalf("the message does not name the tool, say it was not run and ask for smaller calls: %q", nudge)
 	}
-	if ids := callIDs(p.seen[1]); len(ids) != 0 {
+	if ids := callIDs(p.seen[2]); len(ids) != 1 || ids[0] != "fixture_activation_tools" {
 		t.Fatalf("the second request replays tool calls %v", ids)
 	}
 
 	stored := st.GetMessages()
-	if ids := callIDs(stored); len(ids) != 0 {
+	if ids := callIDs(stored); len(ids) != 1 || ids[0] != "fixture_activation_tools" {
 		t.Fatalf("the transcript keeps the cut-off call: %v", ids)
 	}
-	if res := toolResults(stored); len(res) != 0 {
-		t.Fatalf("the transcript holds tool results %v for a call that never ran", res)
+	if res := toolResults(stored); len(res) != 1 || res["fixture_activation_tools"] != `{"activated":["write"]}` {
+		t.Fatalf("the transcript must hold only the activation acknowledgment, not a cut-call result: %v", res)
 	}
 	requireWholePairing(t, stored)
 	for _, m := range stored {
@@ -124,14 +124,14 @@ func TestOutputLimitCutToolCallWithoutTextIsAnEmptyStep(t *testing.T) {
 	}}
 	ag, st, _ := cutCallAgent(t, p, nil)
 	stop, err := runOutputLimitTurn(ag)
-	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 	}
-	first, second := requestHistory(p.seen[0]), requestHistory(p.seen[1])
+	first, second := requestHistory(p.seen[1]), requestHistory(p.seen[2])
 	if len(second) != len(first)+1 || second[len(second)-1] != "user: "+cutOffToolCallNudge("write") {
 		t.Fatalf("the second request is not the first plus the message:\n%s", strings.Join(second, "\n"))
 	}
-	if hasEmptyAssistant(p.seen[1]) {
+	if hasEmptyAssistant(p.seen[2]) {
 		t.Fatal("the step that only thought was replayed")
 	}
 	var kept bool
@@ -157,11 +157,11 @@ func TestOutputLimitCallsBeforeTheCutOffOneRun(t *testing.T) {
 	}}
 	ag, st, sender := cutCallAgent(t, p, nil)
 	stop, err := runOutputLimitTurn(ag)
-	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 	}
-	second := p.seen[1]
-	if ids := callIDs(second); len(ids) != 1 || ids[0] != "call_r" {
+	second := p.seen[2]
+	if ids := callIDs(second); len(ids) != 2 || ids[0] != "fixture_activation_tools" || ids[1] != "call_r" {
 		t.Fatalf("the second request replays calls %v, want only call_r", ids)
 	}
 	res := toolResults(second)
@@ -175,7 +175,7 @@ func TestOutputLimitCallsBeforeTheCutOffOneRun(t *testing.T) {
 	}
 	stored := st.GetMessages()
 	requireWholePairing(t, stored)
-	if ids := callIDs(stored); len(ids) != 1 || ids[0] != "call_r" {
+	if ids := callIDs(stored); len(ids) != 2 || ids[0] != "fixture_activation_tools" || ids[1] != "call_r" {
 		t.Fatalf("the transcript keeps calls %v, want only call_r", ids)
 	}
 	if got := sender.toolStatuses("call_w"); len(got) != 1 || got[0] != "failed" {
@@ -213,17 +213,17 @@ func TestOutputLimitALastCallThatIsNotCutRuns(t *testing.T) {
 			}}
 			ag, st, sender := cutCallAgent(t, p, nil)
 			stop, err := runOutputLimitTurn(ag)
-			if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-				t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+			if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+				t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 			}
-			second := p.seen[1]
+			second := p.seen[2]
 			if got := countNudges(second, cutOffToolCallNudge(tc.call.Name)); got != 0 {
 				t.Fatalf("a call that is not cut was answered with the message for a cut call")
 			}
 			if got := countNudges(second, outputLimitNudge) + countNudges(second, outputLimitContinueNudge); got != 0 {
 				t.Fatalf("the step was answered in words although its call ran")
 			}
-			if ids := callIDs(second); len(ids) != 1 || ids[0] != tc.call.ID {
+			if ids := callIDs(second); len(ids) != 2 || ids[0] != "fixture_activation_tools" || ids[1] != tc.call.ID {
 				t.Fatalf("the second request replays calls %v, want only %s", ids, tc.call.ID)
 			}
 			res, ran := toolResults(second)[tc.call.ID]
@@ -231,7 +231,7 @@ func TestOutputLimitALastCallThatIsNotCutRuns(t *testing.T) {
 				t.Fatalf("the call did not run; its result in the next request is %q (present: %v)", res, ran)
 			}
 			stored := st.GetMessages()
-			if ids := callIDs(stored); len(ids) != 1 || ids[0] != tc.call.ID {
+			if ids := callIDs(stored); len(ids) != 2 || ids[0] != "fixture_activation_tools" || ids[1] != tc.call.ID {
 				t.Fatalf("the transcript keeps calls %v, want only %s", ids, tc.call.ID)
 			}
 			requireWholePairing(t, stored)
@@ -264,8 +264,8 @@ func TestOutputLimitOnlyTheLastCallCanBeCut(t *testing.T) {
 	}}
 	ag, st, _ := cutCallAgent(t, p, nil)
 	stop, err := runOutputLimitTurn(ag)
-	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+	if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 	}
 	res := toolResults(st.GetMessages())
 	if !strings.HasPrefix(res["call_bad"], "error:") {
@@ -274,7 +274,7 @@ func TestOutputLimitOnlyTheLastCallCanBeCut(t *testing.T) {
 	if !strings.Contains(res["call_r"], "line 4") {
 		t.Fatalf("the whole last call did not run: %q", res["call_r"])
 	}
-	if got := countNudges(p.seen[1], cutOffToolCallNudge("read")); got != 0 {
+	if got := countNudges(p.seen[2], cutOffToolCallNudge("read")); got != 0 {
 		t.Fatal("a mistake of the model was answered as a cut")
 	}
 }
@@ -295,12 +295,12 @@ func TestOutputLimitCutStepsWhoseCallsRan(t *testing.T) {
 	}
 	whole := outputLimitStep{calls: []llm.ToolCall{notesRead("call_ok", 9)}, stop: "tool_use"}
 	for _, tc := range []struct {
-		name   string
-		adjust func(*config.Config)
-		steps  []outputLimitStep
-		calls  int
-		stop   acp.StopReason
-		notice string
+		name         string
+		adjust       func(*config.Config)
+		steps        []outputLimitStep
+		payloadCalls int
+		stop         acp.StopReason
+		notice       string
 		// read are the lines whose reads ran.
 		read []int
 	}{
@@ -319,8 +319,8 @@ func TestOutputLimitCutStepsWhoseCallsRan(t *testing.T) {
 			p := &outputLimitProvider{steps: tc.steps}
 			ag, st, _ := cutCallAgent(t, p, tc.adjust)
 			stop, err := runOutputLimitTurn(ag)
-			if err != nil || stop != string(tc.stop) || p.calls != tc.calls {
-				t.Fatalf("stop = %q, err = %v after %d calls; want %s after %d", stop, err, p.calls, tc.stop, tc.calls)
+			if err != nil || stop != string(tc.stop) || p.calls != 1+tc.payloadCalls {
+				t.Fatalf("stop = %q, err = %v after %d calls; want %s after %d", stop, err, p.calls, tc.stop, 1+tc.payloadCalls)
 			}
 			if notice := st.TakeTurnStopNotice(); notice != tc.notice {
 				t.Fatalf("notice = %q, want %q", notice, tc.notice)
@@ -349,17 +349,17 @@ func TestPromptCacheCutToolCallRecoverySurvivesARebuild(t *testing.T) {
 		p := &outputLimitProvider{steps: []outputLimitStep{cut, {err: errConnectionReset}, answered}}
 		ag, st, _ := cutCallAgent(t, p, func(c *config.Config) { c.Agent.LLMRetryBaseMS = 1 })
 		stop, err := runOutputLimitTurn(ag)
-		if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
-			t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3", stop, err, p.calls)
+		if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 4 {
+			t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 4 (including activation)", stop, err, p.calls)
 		}
-		failed, rerun := p.seen[1], p.seen[2]
+		failed, rerun := p.seen[2], p.seen[3]
 		if got, want := strings.Join(requestHistory(rerun), "\n"), strings.Join(requestHistory(failed), "\n"); got != want {
 			t.Fatalf("the request run again is not the one that failed:\nfailed: %s\nagain:  %s", want, got)
 		}
 		if got := countNudges(rerun, cutOffToolCallNudge("write")); got != 1 {
 			t.Fatalf("the run-again request carries the message %d times, want 1", got)
 		}
-		if ids := callIDs(rerun); len(ids) != 1 || ids[0] != "call_r" {
+		if ids := callIDs(rerun); len(ids) != 2 || ids[0] != "fixture_activation_tools" || ids[1] != "call_r" {
 			t.Fatalf("the run-again request replays calls %v, want only call_r", ids)
 		}
 		requireWholePairing(t, st.GetMessages())
@@ -373,14 +373,14 @@ func TestPromptCacheCutToolCallRecoverySurvivesARebuild(t *testing.T) {
 		ag, st, _ := cutCallAgent(t, p, adjust)
 		addEarlierTurn(st)
 		stop, err := runOutputLimitTurn(ag)
-		if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 2 {
-			t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 2", stop, err, p.calls)
+		if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 3 {
+			t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after 3 (including activation)", stop, err, p.calls)
 		}
-		hist := requestHistory(p.seen[1])
+		hist := requestHistory(p.seen[2])
 		if n := len(hist); n < 2 || !strings.HasPrefix(hist[n-2], "tool: ") || hist[n-1] != "user: "+cutOffToolCallNudge("write") {
 			t.Fatalf("the rebuilt request does not end with the read's result and the message:\n%s", strings.Join(hist, "\n"))
 		}
-		if !compacted(p.seen[1]) {
+		if !compacted(p.seen[2]) {
 			t.Fatal("the history was not compacted between the two requests; the test proves nothing")
 		}
 	})

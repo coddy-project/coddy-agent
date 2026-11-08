@@ -233,6 +233,12 @@ class Model(BaseHTTPRequestHandler):
         users = [texts_of(m) for m in body.get("messages", []) if m.get("role") == "user"]
         if not any(PROMPT in text for text in users):
             return self.answer("Ready.", stream)
+        native = {t.get("function", {}).get("name", "") for t in body.get("tools", [])}
+        catalog = "\n".join(texts_of(m) for m in body.get("messages", []) if m.get("role") == "system")
+        missing = [f"{name}__{TOOL}" for name in SERVERS
+                   if f"{name}__{TOOL}" not in native and f"- `{name}__{TOOL}`:" in catalog]
+        if "activate_tools" in native and missing:
+            return self.call("activate_tools", "activate_mcp_fixture", stream, {"names": missing})
         results = tool_results(body)
         for name in SERVERS:
             tool = f"{name}__{TOOL}"
@@ -262,8 +268,8 @@ class Model(BaseHTTPRequestHandler):
         payload = self.chunk({"role": "assistant", "content": text}, None) + self.chunk({}, "stop") + "data: [DONE]\n\n"
         return self.reply(200, "text/event-stream", payload.encode())
 
-    def call(self, tool, call_id, stream):
-        function = {"id": call_id, "type": "function", "function": {"name": tool, "arguments": "{}"}}
+    def call(self, tool, call_id, stream, args=None):
+        function = {"id": call_id, "type": "function", "function": {"name": tool, "arguments": json.dumps(args or {})}}
         if not stream:
             return self.reply(200, "application/json", json.dumps({
                 "id": "stub", "object": "chat.completion", "created": 1, "model": "stub/demo",

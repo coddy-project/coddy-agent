@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -843,6 +844,16 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 ) (string, error) {
+	activeTools := toolActivation{}
+	activationCWD := a.state.GetCWD()
+	// Every rebuilt system message keeps the same discovery catalog while its
+	// accounting follows this loop's volatile native offer.
+	buildPrompt := func(mode string, skills []*skills.Skill, defs []llm.ToolDefinition) *systemPromptBuild {
+		b := a.buildSystemPromptParts(mode, skills, defs)
+		b.ToolDefs = activeTools.offer(defs)
+		a.refreshContextBreakdown(b, "")
+		return b
+	}
 	var totalInputTokens, totalOutputTokens int
 	allUsageKnown := true
 	statsWritable := true
@@ -1011,13 +1022,34 @@ func (a *Agent) runReActLoop(
 			if hadToolset || a.activeToolset() != nil {
 				if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
 					toolDefs = defs
-					sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+					sys = buildPrompt(mode, activeSkills, toolDefs)
 					if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 						messages[0].Content = sys.Content
 					}
 				}
 			}
 		}
+
+		// Reconcile with all current policy bounds, including connected MCP and
+		// config changes. Activation never broadens the permitted definitions.
+		if permitted := a.currentToolDefinitions(mode); !reflect.DeepEqual(permitted, toolDefs) {
+			toolDefs = permitted
+			sys = buildPrompt(mode, activeSkills, toolDefs)
+			if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+				messages[0].Content = sys.Content
+			}
+		}
+		if cwd := a.state.GetCWD(); cwd != activationCWD {
+			activeTools = toolActivation{}
+			activationCWD = cwd
+			toolEnv.CWD = cwd
+			sys = buildPrompt(mode, activeSkills, toolDefs)
+			if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+				messages[0].Content = sys.Content
+			}
+		}
+		requestToolDefs := activeTools.offer(toolDefs)
+		sys.ToolDefs = requestToolDefs
 
 		// The system message stays exactly as the turn rendered it, so the
 		// provider's cached copy of everything behind it survives this step.
@@ -1030,7 +1062,7 @@ func (a *Agent) runReActLoop(
 		// itself: its own conditionals have to keep matching the state, so it is
 		// re-rendered here as every template was before, and carries no block.
 		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+			sys = buildPrompt(mode, activeSkills, toolDefs)
 			messages[0].Content = sys.Content
 		}
 		turnCtx := a.buildTurnContext(sys)
@@ -1047,7 +1079,7 @@ func (a *Agent) runReActLoop(
 		a.refreshContextBreakdown(sys, turnCtx)
 		latency.addContext(contextStart)
 		if (turn > 0 || switched) && a.maybeAutoCompact(ctx) {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+			sys = buildPrompt(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
 			messages = restoreRecoveries(messages, standing)
 			turnCtx = a.buildTurnContext(sys)
@@ -1233,7 +1265,7 @@ func (a *Agent) runReActLoop(
 		}
 		callIDs := newToolCallIDs(messages, callSessionDir)
 		streamCtx = latency.begin(streamCtx, transport.agent)
-		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, requestToolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -1607,7 +1639,7 @@ func (a *Agent) runReActLoop(
 					a.evictionForced = true
 					if a.recoverFromContextOverflow(ctx, streamErr, estimateAtSend) {
 						overflowCompacted = true
-						sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+						sys = buildPrompt(mode, activeSkills, toolDefs)
 						messages = restoreRecoveries(a.buildMessages(sys.Content), standing)
 						nextCallReason = "context_overflow_recovery"
 						retryAllowance = nil
@@ -1633,7 +1665,7 @@ func (a *Agent) runReActLoop(
 			// decide, so the turn ends saying how many went out, how many the
 			// provider takes and the ways to send fewer (client_tool_limit.go).
 			if llm.IsClientToolLimit(streamErr) {
-				return string(acp.StopReasonRefused), a.clientToolLimitError(streamErr, len(toolDefs))
+				return string(acp.StopReasonRefused), a.clientToolLimitError(streamErr, len(requestToolDefs))
 			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
@@ -1913,6 +1945,26 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonCancelled), nil
 			}
 
+			if !offersTool(requestToolDefs, tc.Name) {
+				// Check the immutable request offer before repetition tracking,
+				// rules, hooks or permissions. A refused premature call must not
+				// prevent a later legitimate call after activation.
+				refusal := session.ToolResultNotExecutedPrefix + "tool was not offered in this request; activate its exact catalog name and wait for the next request"
+				var restriction *session.TurnRestriction
+				if st := sessionStatePtr(a.state); st != nil {
+					restriction = st.GetTurnRestriction()
+				}
+				if restriction != nil && !restriction.Allows(tc.Name) {
+					// Name denial returns before path parsing; deferred calls never
+					// enter confinement checks, rules or execution hooks here.
+					refusal = fmt.Sprintf("error: %v", checkRestrictedCall(restriction, tc, "", nil, a.cfg))
+				} else if policyReason, refused := a.toolCallRefused(mode, tc.Name); refused {
+					refusal = policyReason
+				}
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], refusal)
+				continue
+			}
+
 			key := canonicalToolCallKey(tc.Name, tc.InputJSON)
 			if !seenInResponse[key] {
 				seenInResponse[key] = true
@@ -1945,8 +1997,15 @@ func (a *Agent) runReActLoop(
 			// The rules the call brings into play are read before it runs, on
 			// the paths the model aimed it at: the call may write the very
 			// AGENTS.md it would otherwise bring back.
-			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
-			result, execErr := a.executeToolCall(latency.dispatchContext(ctx), tc, toolEnv, mode, a.state.GetID(), false)
+			var callRules, result string
+			var execErr error
+			switch tc.Name {
+			case activateToolsName:
+				result, execErr = a.activateToolDefinitions(tc, activeTools, toolDefs)
+			default:
+				callRules = a.toolCallRules(mode, tc, toolEnv.CWD)
+				result, execErr = a.executeToolCall(latency.dispatchContext(ctx), tc, toolEnv, mode, a.state.GetID(), false)
+			}
 			toolResultMsg := a.callResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
@@ -1974,9 +2033,10 @@ func (a *Agent) runReActLoop(
 			a.refreshContextBreakdown(sys, turnCtx)
 		}
 		if toolEnv.WorkspaceChanged {
+			activeTools = toolActivation{}
 			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 			toolDefs = a.currentToolDefinitions(mode)
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+			sys = buildPrompt(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
 			a.refreshContextBreakdown(sys, turnCtx)
@@ -1991,7 +2051,7 @@ func (a *Agent) runReActLoop(
 			a.setOfferModel(transport.model)
 			defs := a.currentToolDefinitions(mode)
 			if !sameToolNames(defs, toolDefs) {
-				sys = a.buildSystemPromptParts(mode, activeSkills, defs)
+				sys = buildPrompt(mode, activeSkills, defs)
 				if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 					messages[0].Content = sys.Content
 				}
@@ -2803,7 +2863,7 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
 }
 
-// currentToolDefinitions is the tool set a request carries: what the session
+// currentToolDefinitions is the full permitted tool set: what the session
 // could call in the mode (sessionToolDefinitions), narrowed by the toolset the
 // session runs with (toolsets.go). It is resolved on every call, so a switch of
 // the model or of the toolset changes the set from the next request.

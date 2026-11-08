@@ -140,17 +140,26 @@ func BenchmarkContextOfThisRepositoryRules(b *testing.B) {
 	b.ReportMetric(float64(duplicates), "duplicate-rules")
 }
 
-// BenchmarkToolOfferOfAModelAllowlist measures what a toolset spares a
-// small-context local model: the tools a request offers, what the context
-// meter counts for them (the list the system message prints plus the schemas)
-// the size of the tools array as an OpenAI-compatible request carries it and
-// of the tool list the system message prints, for a model with no lists and for the dozen tools a coding session on a local
-// model ever calls. The timing is the building of both sets and matters less
-// than the metrics.
+// BenchmarkToolOfferOfAModelAllowlist compares the actual initial native offer,
+// compact catalog and full permitted count, then a read+grep activated offer.
+// JSON uses the same OpenAI-compatible wrapper as the baseline benchmark.
+// Every token metric is an estimate, not measured provider usage.
 func BenchmarkToolOfferOfAModelAllowlist(b *testing.B) {
 	allow := []string{"read", "write", "edit", "apply_patch", "glob", "grep", "print_tree", "keep_result",
 		"run_command", "background_output", "background_wait", "background_stop", "compact_context"}
-	var tools, meterTokens, jsonTokens, promptTokens [2]int
+	var native, permitted, meterTokens, jsonTokens, promptTokens, loadedJSON, loadedCount [2]int
+	jsonEstimate := func(defs []llm.ToolDefinition) int {
+		wire := make([]map[string]interface{}, 0, len(defs))
+		for _, d := range defs {
+			wire = append(wire, map[string]interface{}{"type": "function", "function": map[string]interface{}{
+				"name": d.Name, "description": d.Description, "parameters": d.InputSchema}})
+		}
+		raw, err := json.Marshal(wire)
+		if err != nil {
+			b.Fatal(err)
+		}
+		return session.EstimateContextTokens(string(raw))
+	}
 	for i := 0; i < b.N; i++ {
 		ag, st, _ := modelToolsAgent(b, session.ModeAgent, "fake/full",
 			toolRow{Model: "fake/full"}, toolRow{Model: "fake/small", Tools: allow})
@@ -158,29 +167,25 @@ func BenchmarkToolOfferOfAModelAllowlist(b *testing.B) {
 			st.SetSelectedModelID(model)
 			defs := ag.currentToolDefinitions("agent")
 			sys := ag.buildSystemPromptParts("agent", nil, defs)
-			tools[k] = len(defs)
+			permitted[k], native[k] = len(defs), len(sys.ToolDefs)
 			promptTokens[k] = session.EstimateContextTokens(sys.ToolsMD)
-			meterTokens[k] = computeContextBreakdown(sys.Content, sys.SkillsMD, sys.ToolsMD, sys.RulesMD, nil, false, defs).ToolDefinitions
-			wire := make([]map[string]interface{}, 0, len(defs))
-			for _, d := range defs {
-				wire = append(wire, map[string]interface{}{"type": "function", "function": map[string]interface{}{
-					"name": d.Name, "description": d.Description, "parameters": d.InputSchema}})
-			}
-			raw, err := json.Marshal(wire)
-			if err != nil {
-				b.Fatal(err)
-			}
-			jsonTokens[k] = session.EstimateContextTokens(string(raw))
+			meterTokens[k] = computeContextBreakdown(sys.Content, sys.SkillsMD, sys.ToolsMD, sys.RulesMD, nil, false, sys.ToolDefs).ToolDefinitions
+			jsonTokens[k] = jsonEstimate(sys.ToolDefs)
+			active := toolActivation{"read": true, "grep": true}
+			loaded := active.offer(defs)
+			loadedJSON[k], loadedCount[k] = jsonEstimate(loaded), len(loaded)
 		}
 	}
-	b.ReportMetric(float64(tools[0]), "tools-full")
-	b.ReportMetric(float64(tools[1]), "tools-allowlist")
-	b.ReportMetric(float64(meterTokens[0]), "tool-context-tokens-full")
-	b.ReportMetric(float64(meterTokens[1]), "tool-context-tokens-allowlist")
-	b.ReportMetric(float64(jsonTokens[0]), "tools-json-tokens-full")
-	b.ReportMetric(float64(jsonTokens[1]), "tools-json-tokens-allowlist")
-	b.ReportMetric(float64(promptTokens[0]), "tools-prompt-tokens-full")
-	b.ReportMetric(float64(promptTokens[1]), "tools-prompt-tokens-allowlist")
+	for k, suffix := range []string{"full", "allowlist"} {
+		b.ReportMetric(float64(native[k]), "tools-"+suffix)
+		b.ReportMetric(float64(permitted[k]), "permitted-tools-"+suffix)
+		b.ReportMetric(float64(permitted[k]), "deferred-tools-initial-"+suffix)
+		b.ReportMetric(float64(meterTokens[k]), "tool-context-tokens-"+suffix)
+		b.ReportMetric(float64(jsonTokens[k]), "tools-json-tokens-"+suffix)
+		b.ReportMetric(float64(promptTokens[k]), "tools-prompt-tokens-"+suffix)
+		b.ReportMetric(float64(loadedCount[k]), "tools-read-grep-"+suffix)
+		b.ReportMetric(float64(loadedJSON[k]), "tools-json-tokens-read-grep-"+suffix)
+	}
 }
 
 // mirroredRuleRepeats counts the rules of the Claude Code mirror whose body

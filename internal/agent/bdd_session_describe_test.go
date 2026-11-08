@@ -31,17 +31,22 @@ const (
 // bddFilingProvider requests one session_describe call on its first turn and
 // answers on the next.
 type bddFilingProvider struct {
-	args  string
-	calls int
+	args        string
+	calls       int
+	activations int
 }
 
 func (p *bddFilingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("Complete must not be used by the session filing suite")
 }
 
-func (p *bddFilingProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddFilingProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
-	if p.calls == 1 {
+	if response := fixtureActivateTools(messages, definitions, onChunk, tools.ToolSessionDescribe); response != nil {
+		p.activations++
+		return response, nil
+	}
+	if p.calls-p.activations == 1 {
 		tc := llm.ToolCall{ID: bddFilingCallID, Name: tools.ToolSessionDescribe, InputJSON: p.args}
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil

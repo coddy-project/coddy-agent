@@ -56,12 +56,15 @@ func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Messa
 	return &llm.Response{Content: summary, StopReason: "end_turn"}, nil
 }
 
-func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.streamSeen = append(p.streamSeen, append([]llm.Message(nil), messages...))
 	if p.streamErr != nil {
 		return nil, p.streamErr
 	}
 	if p.toolCall != nil {
+		if response := fixtureActivateTools(messages, definitions, onChunk, p.toolCall.Name); response != nil {
+			return response, nil
+		}
 		tc := *p.toolCall
 		p.toolCall = nil
 		onChunk(llm.StreamChunk{ToolCall: &tc})

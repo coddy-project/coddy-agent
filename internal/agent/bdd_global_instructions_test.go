@@ -496,10 +496,11 @@ func (s *globalInstructionsFeatureState) firstRequestCarriesNone(tail string) er
 }
 
 func (s *globalInstructionsFeatureState) requestsAfterReadCarry(tail string) error {
-	if len(s.seen) < 2 {
+	start := fixtureRequestAfterTool(s.seen, "call_read_1")
+	if start < 0 {
 		return fmt.Errorf("expected a request after the read, got %d request(s)", len(s.seen))
 	}
-	for n := 1; n < len(s.seen); n++ {
+	for n := start; n < len(s.seen); n++ {
 		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err

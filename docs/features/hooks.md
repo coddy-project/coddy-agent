@@ -9,6 +9,8 @@ Definitions use the file shape of Claude Code, and the event names, payload fiel
 ![Hook events on the timeline of a session and a turn, which files run, one hook process with its exit codes, and how several hooks on one event merge](../assets/diagrams/hooks-lifecycle.png)
 *Where each event fires and what its hook can decide, which files Coddy reads hooks from, how one hook process answers, and how the answers of several hooks merge.*
 
+`activate_tools` is discovery control. It selects native schemas and runs none of `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or the tool observers. Its streamed row and result are still recorded. Calls to activated tools retain their mode, toolset, subagent, hook, argument and permission checks. Audit hooks observe execution calls that reach the hook gate; discovery and calls refused before that gate are excluded.
+
 ## Definition files
 
 Coddy reads the files listed in `hooks.files`, lowest priority first. The default list:
@@ -182,7 +184,7 @@ JSON fields:
 
 The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 
-Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it. Stdout and stderr are captured up to 256 KiB each; a JSON answer that runs past that limit is reported as cut, not as invalid.
+Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call reaching this gate. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it. Stdout and stderr are captured up to 256 KiB each; a JSON answer that runs past that limit is reported as cut, not as invalid.
 
 ## Configuration
 
@@ -351,7 +353,7 @@ esac
 exit 0
 ```
 
-Log every tool call to a file without touching the flow (an `async` hook cannot slow the turn down):
+Log every tool execution call reaching the hook gate to a file without touching the flow (an `async` hook cannot slow the turn down).
 
 ```json
 {

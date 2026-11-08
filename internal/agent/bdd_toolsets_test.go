@@ -42,10 +42,11 @@ var bddModelToolsPromptLine = regexp.MustCompile("(?m)^- `([a-z0-9_]+(?:__[a-zA-
 // bddModelToolsProvider answers directly, or requests one tool call on its
 // first step and answers on the next, recording what each request carried.
 type bddModelToolsProvider struct {
-	toolCall *llm.ToolCall
-	calls    int
-	offered  [][]llm.ToolDefinition
-	seen     [][]llm.Message
+	toolCall  *llm.ToolCall
+	calls     int
+	requested bool
+	offered   [][]llm.ToolDefinition
+	seen      [][]llm.Message
 }
 
 func (p *bddModelToolsProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
@@ -56,7 +57,11 @@ func (p *bddModelToolsProvider) Stream(_ context.Context, messages []llm.Message
 	p.calls++
 	p.offered = append(p.offered, append([]llm.ToolDefinition(nil), defs...))
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
-	if p.toolCall != nil && p.calls == 1 {
+	if p.toolCall != nil && !p.requested {
+		if !offersTool(defs, p.toolCall.Name) && contains(promptToolNames(messages[0].Content), p.toolCall.Name) {
+			return rawToolStep(discoveryActivation("catalog_activation", p.toolCall.Name))(messages, defs, onChunk), nil
+		}
+		p.requested = true
 		tc := *p.toolCall
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
@@ -235,19 +240,6 @@ func promptToolNames(system string) []string {
 	return names
 }
 
-func (s *modelToolsFeatureState) offeredExactly(list string) error {
-	defs, _, err := s.firstRequest()
-	if err != nil {
-		return err
-	}
-	want := splitToolList(list)
-	sort.Strings(want)
-	if got := sortedNames(defs); strings.Join(got, ",") != strings.Join(want, ",") {
-		return fmt.Errorf("request tools = %v, want exactly %v", got, want)
-	}
-	return nil
-}
-
 func (s *modelToolsFeatureState) promptListsExactly(list string) error {
 	_, system, err := s.firstRequest()
 	if err != nil {
@@ -265,7 +257,7 @@ func (s *modelToolsFeatureState) promptListsExactly(list string) error {
 // before the model's lists apply, minus the named tools, and that the full set
 // is the broad one (the tools the lists exist to spare a small model).
 func (s *modelToolsFeatureState) fullSetWithout(list string) error {
-	defs, _, err := s.firstRequest()
+	_, system, err := s.firstRequest()
 	if err != nil {
 		return err
 	}
@@ -280,9 +272,9 @@ func (s *modelToolsFeatureState) fullSetWithout(list string) error {
 		}
 	}
 	sort.Strings(want)
-	got := sortedNames(defs)
+	got := promptToolNames(system)
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		return fmt.Errorf("request tools = %v, want the full set minus %v = %v", got, list, want)
+		return fmt.Errorf("discovery tools = %v, want the full set minus %v = %v", got, list, want)
 	}
 	if len(got) < 30 {
 		return fmt.Errorf("the full set holds only %d tools: %v", len(got), got)
@@ -309,14 +301,13 @@ func contains(list []string, want string) bool {
 	return false
 }
 
-func (s *modelToolsFeatureState) promptListsSameTools() error {
-	defs, system, err := s.firstRequest()
+func (s *modelToolsFeatureState) nativeOnlyActivation() error {
+	defs, _, err := s.firstRequest()
 	if err != nil {
 		return err
 	}
-	want, got := sortedNames(defs), promptToolNames(system)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		return fmt.Errorf("system prompt lists %v, the request carries %v", got, want)
+	if len(defs) != 1 || defs[0].Name != activateToolsName {
+		return fmt.Errorf("initial native offer = %v", sortedNames(defs))
 	}
 	return nil
 }
@@ -414,10 +405,9 @@ func initializeModelToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a model that answers directly$`, s.modelAnswersDirectly)
 	sc.Step(`^a model that requests the "([^"]+)" tool once, then answers$`, s.modelRequestsToolOnce)
 	sc.Step(`^the user sends a message$`, s.userSendsMessage)
-	sc.Step(`^the model is offered exactly the tools "([^"]*)"$`, s.offeredExactly)
-	sc.Step(`^the system prompt lists exactly the tools "([^"]*)"$`, s.promptListsExactly)
-	sc.Step(`^the model is offered the full set of tools without "([^"]*)"$`, s.fullSetWithout)
-	sc.Step(`^the system prompt lists the same tools$`, s.promptListsSameTools)
+	sc.Step(`^the discovery catalog lists exactly the tools "([^"]*)"$`, s.promptListsExactly)
+	sc.Step(`^the discovery catalog lists the full set without "([^"]*)"$`, s.fullSetWithout)
+	sc.Step(`^the initial native offer contains only activation$`, s.nativeOnlyActivation)
 	sc.Step(`^the file is not written$`, s.fileIsNotWritten)
 	sc.Step(`^the file is written$`, s.fileIsWritten)
 	sc.Step(`^the tool call is answered with the toolset's refusal$`, s.callAnsweredWithModelRefusal)

@@ -152,7 +152,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// tool.
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills,
 		a.cfg.Skills.AutoDiscoveryEnabled() && !a.toolsetHidesTool(loadSkillToolName))
-	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	toolsMD := toolDiscoveryCatalog(toolDefs)
 	standing := a.standingParts()
 	rulesMD := joinNonEmptyPromptBlocks(standing.Docs, standing.Rules)
 	full := a.renderWithDocuments(mode, tpl, standing, prompts.TemplateData{
@@ -190,7 +190,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// Applied last so it also covers a user's own prompts.dir template and the
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.
-	full = prompts.WithIdentity(full)
+	full = prompts.WithIdentity(withToolDiscovery(full, toolsMD))
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,
@@ -200,7 +200,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		// the rules: they are instructions the operator wrote, and a rules
 		// share that leaves them out reads as rules that were not loaded.
 		RulesMD:  joinNonEmptyPromptBlocks(rulesMD, standing.User),
-		ToolDefs: toolDefs,
+		ToolDefs: (toolActivation{}).offer(toolDefs),
 		Clock:    clock,
 		Volatile: prompts.RendersVolatile(mode, tpl),
 	}
@@ -292,7 +292,7 @@ func offersTool(defs []llm.ToolDefinition, name string) bool {
 // rendered: the child's task is not the workspace's, and a template that
 // does not print them must not be handed them through the back door.
 func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefinition, clock time.Time) *systemPromptBuild {
-	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	toolsMD := toolDiscoveryCatalog(toolDefs)
 	// The template frames the child itself, so the role slot carries the
 	// role text alone: for the memory child, the operator's additional_prompt.
 	full, err := prompts.RenderSource(a.subagent.Kind, a.subagent.PromptTemplate, prompts.TemplateData{
@@ -307,12 +307,12 @@ func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefini
 	}
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
-	full = prompts.WithIdentity(full)
+	full = prompts.WithIdentity(withToolDiscovery(full, toolsMD))
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,
 		ToolsMD:  toolsMD,
-		ToolDefs: toolDefs,
+		ToolDefs: (toolActivation{}).offer(toolDefs),
 		Clock:    clock,
 	}
 	a.refreshContextBreakdown(build, "")

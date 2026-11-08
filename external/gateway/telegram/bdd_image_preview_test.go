@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
@@ -148,7 +150,7 @@ func (w *pictureWorld) chatWithScreenshotServer(server string) error {
 func (w *pictureWorld) startChat(calls []llmstub.Rule, answer string, admin bool) error {
 	stub := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: append(calls,
 		llmstub.Rule{Match: "pictures the tool calls above returned", Answer: answer})}
-	w.model = httptest.NewServer(stub.Handler())
+	w.model = httptest.NewServer(llmtest.DiscoveryHandler(stub))
 
 	home := filepath.Join(w.root, "home")
 	cwd := filepath.Join(w.root, "work")

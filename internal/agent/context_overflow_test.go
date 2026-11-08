@@ -322,7 +322,7 @@ func (p *recoveryProvider) Complete(_ context.Context, _ []llm.Message, _ []llm.
 	return &llm.Response{Content: fmt.Sprintf("FOLD-%d: the work so far", p.summary), StopReason: "end_turn"}, nil
 }
 
-func (p *recoveryProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *recoveryProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	n := p.calls
 	p.calls++
 	if p.refuse != nil {
@@ -340,6 +340,15 @@ func (p *recoveryProvider) Stream(_ context.Context, messages []llm.Message, _ [
 		step = p.steps[p.next]
 	} else {
 		step = evStep{text: "done"}
+	}
+	var names []string
+	for _, response := range p.steps {
+		for _, call := range response.calls {
+			names = append(names, call.Name)
+		}
+	}
+	if response := fixtureActivateTools(messages, definitions, onChunk, names...); response != nil {
+		return response, nil
 	}
 	p.next++
 	if len(step.calls) > 0 {
@@ -441,7 +450,7 @@ func refuseCalls(calls ...int) func(int) error {
 const recoveryPrompt = "RECOVERY-PROMPT: read the notes again and again, then tell me what they say."
 
 func TestOverflowRecoveryCompactsTheTurnAndAsksTheStepAgain(t *testing.T) {
-	p := &recoveryProvider{steps: readSteps(5), refuse: refuseCalls(4)}
+	p := &recoveryProvider{steps: readSteps(5), refuse: refuseCalls(5)}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.run(t, recoveryPrompt)
@@ -457,7 +466,7 @@ func TestOverflowRecoveryCompactsTheTurnAndAsksTheStepAgain(t *testing.T) {
 	}
 	// The request asked again is the refused one made smaller, and it carries the
 	// prompt, once, at the start of the row.
-	again := p.seen[4]
+	again := p.seen[5]
 	if before, after := estimateMessagesTokens(p.refused[0]), estimateMessagesTokens(again); after >= before {
 		t.Fatalf("the request asked again is %d tokens, the refused one was %d", after, before)
 	}
@@ -477,8 +486,8 @@ func TestOverflowRecoveryCompactsTheTurnAndAsksTheStepAgain(t *testing.T) {
 			results++
 		}
 	}
-	if results != 5 {
-		t.Fatalf("the transcript holds %d tool results, want all 5", results)
+	if results != 6 {
+		t.Fatalf("the transcript holds %d tool results, want activation and all 5 reads", results)
 	}
 	// The log says what happened, with the limit the refusal revealed.
 	for _, want := range []string{"compacted the turn and asking again", "limitTokens=", "providerLimit=49152", "providerTokens=51402"} {
@@ -514,7 +523,7 @@ func carriesPrompt2(req []llm.Message, prompt string) error {
 func TestOverflowRecoveryIsOncePerStep(t *testing.T) {
 	// The smaller request is refused as well: the turn ends with the explanation,
 	// which now says the compaction was tried.
-	p := &recoveryProvider{steps: readSteps(5), refuse: refuseCalls(4, 5)}
+	p := &recoveryProvider{steps: readSteps(5), refuse: refuseCalls(5, 6)}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.run(t, recoveryPrompt)
@@ -529,8 +538,8 @@ func TestOverflowRecoveryIsOncePerStep(t *testing.T) {
 	if !llm.IsContextOverflow(err) || !errors.Is(err, errRecoveryRefusal) {
 		t.Error("the provider's refusal is no longer reachable from the error")
 	}
-	if p.calls != 6 {
-		t.Fatalf("provider asked %d times, want 6: four steps, the refusal, the retry and no third try", p.calls)
+	if p.calls != 7 {
+		t.Fatalf("provider asked %d times, want 7: activation, four steps, the refusal, the retry and no third try", p.calls)
 	}
 	if len(f.summaryRows()) != 1 {
 		t.Fatalf("%d summary rows, want one compaction", len(f.summaryRows()))
@@ -539,7 +548,7 @@ func TestOverflowRecoveryIsOncePerStep(t *testing.T) {
 
 func TestOverflowRecoveryResetsAfterASuccessfulCall(t *testing.T) {
 	// Two different steps are each refused once; both are recovered.
-	p := &recoveryProvider{steps: readSteps(9), refuse: refuseCalls(3, 8)}
+	p := &recoveryProvider{steps: readSteps(9), refuse: refuseCalls(4, 9)}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.run(t, recoveryPrompt)
@@ -564,7 +573,7 @@ func TestOverflowRecoveryResetsAfterASuccessfulCall(t *testing.T) {
 
 func TestOverflowAfterStreamedOutputIsNotRecovered(t *testing.T) {
 	// llm-streaming rule: nothing is retried once a delta reached the client.
-	p := &recoveryProvider{steps: readSteps(3), refuse: refuseCalls(2), textBeforeRefusal: true}
+	p := &recoveryProvider{steps: readSteps(3), refuse: refuseCalls(3), textBeforeRefusal: true}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.run(t, recoveryPrompt)
@@ -574,7 +583,7 @@ func TestOverflowAfterStreamedOutputIsNotRecovered(t *testing.T) {
 	if strings.Contains(err.Error(), "Coddy compacted") {
 		t.Errorf("a compaction was reported for a request that had streamed: %v", err)
 	}
-	if p.calls != 3 || p.summary != 0 || len(f.summaryRows()) != 0 {
+	if p.calls != 4 || p.summary != 0 || len(f.summaryRows()) != 0 {
 		t.Fatalf("calls=%d summaries=%d rows=%d: a request that streamed must not be compacted and asked again", p.calls, p.summary, len(f.summaryRows()))
 	}
 }
@@ -586,7 +595,7 @@ func TestOverflowRecoveryIsOffWithTheSection(t *testing.T) {
 		"compaction.enable off": {Enabled: &off},
 	} {
 		t.Run(name, func(t *testing.T) {
-			p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3)}
+			p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(4)}
 			f := newRecoveryFixture(t, p, comp)
 
 			stop, err := f.run(t, recoveryPrompt)
@@ -597,7 +606,7 @@ func TestOverflowRecoveryIsOffWithTheSection(t *testing.T) {
 			if !strings.HasPrefix(err.Error(), "context window exceeded") || strings.Contains(err.Error(), "Coddy compacted") {
 				t.Errorf("error = %v", err)
 			}
-			if p.calls != 4 || p.summary != 0 || len(f.summaryRows()) != 0 {
+			if p.calls != 5 || p.summary != 0 || len(f.summaryRows()) != 0 {
 				t.Fatalf("calls=%d summaries=%d rows=%d: nothing may be compacted", p.calls, p.summary, len(f.summaryRows()))
 			}
 			if f.ag.evictionForced {
@@ -629,7 +638,7 @@ func TestOverflowOfTheFirstRequestWithNothingToFoldEndsTheTurn(t *testing.T) {
 func TestOverflowRecoveryInterruptedByTheUsersStopEndsTheTurnCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3), foldFail: context.Canceled}
+	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(4), foldFail: context.Canceled}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 	p.onFold = func() {
 		f.st.SetUserCancelledTurn()
@@ -651,7 +660,7 @@ func TestOverflowRecoveryInterruptedByTheUsersStopEndsTheTurnCancelled(t *testin
 func TestOverflowRecoveryInterruptedByAShutdownEndsTheTurnRefused(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3), onFold: cancel, foldFail: context.Canceled}
+	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(4), onFold: cancel, foldFail: context.Canceled}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: recoveryPrompt}})
@@ -677,7 +686,7 @@ func TestOverflowRecoveryInterruptedByAShutdownEndsTheTurnRefused(t *testing.T) 
 }
 
 func TestOverflowRecoveryThatFailsEndsTheTurnWithTheExplanation(t *testing.T) {
-	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3), foldFail: errors.New("500 summarizer down")}
+	p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(4), foldFail: errors.New("500 summarizer down")}
 	f := newRecoveryFixture(t, p, config.Compaction{})
 
 	stop, err := f.run(t, recoveryPrompt)
@@ -702,7 +711,7 @@ func TestOverflowRecoveryPrefersFoldingEarlierTurns(t *testing.T) {
 	// request's fixed overhead (the system prompt and the tool definitions).
 	hundred := 100
 	p := &recoveryProvider{steps: readSteps(2), refuse: func(n int) error {
-		if n == 2 {
+		if n == 3 {
 			return recoveryRefusalOf(38000, 40500)
 		}
 		return nil
@@ -721,7 +730,7 @@ func TestOverflowRecoveryPrefersFoldingEarlierTurns(t *testing.T) {
 	if len(rows) != 1 || !strings.HasPrefix(rows[0].Content, "The earlier conversation was compacted.") {
 		t.Fatalf("summary rows = %d, want one regular row (first: %q)", len(rows), firstChars(rows[0].Content, 80))
 	}
-	again := p.seen[2]
+	again := p.seen[3]
 	text := transcriptText(again)
 	if strings.Count(text, recoveryPrompt) != 1 || strings.Contains(text, "earlier question 1") {
 		t.Fatalf("the request asked again must carry the prompt once and none of the folded turns:\n%s", firstChars(text, 600))
@@ -785,7 +794,7 @@ func TestForcedEvictionOpensTheGateOnlyAfterARefusal(t *testing.T) {
 	})
 
 	t.Run("the next turn starts unforced", func(t *testing.T) {
-		p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(3)}
+		p := &recoveryProvider{steps: readSteps(4), refuse: refuseCalls(4)}
 		f := newRecoveryFixture(t, p, comp)
 		if _, err := f.run(t, recoveryPrompt); err != nil {
 			t.Fatal(err)

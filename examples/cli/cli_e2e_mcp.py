@@ -3,8 +3,9 @@
 
 A global MCP server offers one tool. The console runs a turn, switches the
 server off from /mcp, and runs another turn: the model must be offered the
-tool on the first request and not on the second. Requests are matched by the
-prompt they carry, not by their order, so an extra request the console makes
+tool in the discovery catalog before the switch and not afterward. A greeting
+loads no MCP schema; the native offer contains only the activation control.
+Requests are matched by the prompt they carry, not by their order, so an extra request the console makes
 (a title, a retry) cannot shift the check. The temporary home and workspace
 are removed at the end.
 """
@@ -27,6 +28,7 @@ PROMPTS = ("before", "after")
 
 # prompt of the turn -> the tool names of each request that turn made
 offered = {}
+catalogs = {}
 offered_lock = threading.Lock()
 
 
@@ -68,6 +70,8 @@ class Model(BaseHTTPRequestHandler):
             if tools:
                 with offered_lock:
                     offered.setdefault(turn_prompt(body), []).append(tools)
+                    catalog = "\n".join(str(m.get("content", "")) for m in body.get("messages", []) if m.get("role") == "system")
+                    catalogs[turn_prompt(body)] = catalog
             payload = []
             for delta, finish in [({"content": "Ready."}, None), ({}, "stop")]:
                 payload.append("data: " + json.dumps({"id": "stub", "object": "chat.completion.chunk", "created": 1,
@@ -161,11 +165,13 @@ agent:
         child.send(b"after\r")
         wait_for(screen, child, lambda _s: tools_for("after") is not None, "the turn after the switch")
         before, after = tools_for("before"), tools_for("after")
-        if "toggle-mcp__ping" not in before:
+        if "- `toggle-mcp__ping`:" not in catalogs.get("before", ""):
             raise AssertionError(f"MCP tool missing before the switch: {before}")
-        if "toggle-mcp__ping" in after:
+        if "- `toggle-mcp__ping`:" in catalogs.get("after", ""):
             raise AssertionError(f"switched-off MCP tool offered on the next turn: {after}")
-        print("pty /mcp: server tool present before the switch and absent on the next turn")
+        if before != ["activate_tools"] or after != ["activate_tools"]:
+            raise AssertionError(f"greeting loaded executable schemas: {before}, {after}")
+        print("pty /mcp: discovery follows server toggle; greetings load no MCP schemas")
     finally:
         child.close(force=True)
         model.shutdown()

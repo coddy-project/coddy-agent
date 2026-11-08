@@ -51,11 +51,13 @@ func (s *pictureCacheState) takeScreenshots(n int) error {
 // send boundary appends to each: what the provider caches by.
 func (s *pictureCacheState) requests() ([][]llm.Message, error) {
 	seen := s.provider.streamSeen
-	if len(seen) != s.shots+1 {
-		return nil, fmt.Errorf("the provider was sent %d requests, want %d", len(seen), s.shots+1)
+	if len(seen) != s.shots+2 {
+		return nil, fmt.Errorf("the provider was sent %d requests, want %d", len(seen), s.shots+2)
 	}
 	out := make([][]llm.Message, 0, len(seen))
-	for _, req := range seen {
+	// Keep the real activation request recorded, but number the image
+	// invariants from the first screenshot request after activation.
+	for _, req := range seen[1:] {
 		if n := len(req); n > 0 && req[n-1].Role == llm.RoleUser && strings.Contains(req[n-1].Content, turnContextOpenTag) {
 			req = req[:n-1]
 		}

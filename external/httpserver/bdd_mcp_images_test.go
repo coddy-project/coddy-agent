@@ -76,6 +76,14 @@ func (p *mcpShotsProvider) Stream(_ context.Context, messages []llm.Message, too
 	p.mu.Lock()
 	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
 	p.mu.Unlock()
+	var wanted []string
+	for _, name := range mcpShotServers {
+		wanted = append(wanted, name+"__"+mcptest.ScreenshotTool)
+	}
+	if call := mcpFixtureActivation(messages, tools, wanted); call != nil {
+		onChunk(llm.StreamChunk{ToolCall: call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{*call}, StopReason: "tool_use"}, nil
+	}
 	done := map[string]bool{}
 	for _, m := range messages {
 		if m.Role == llm.RoleTool && strings.HasPrefix(m.ToolCallID, mcpShotCallPrefix) {

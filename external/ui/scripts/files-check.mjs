@@ -298,7 +298,19 @@ function startModel(port) {
         .filter((m) => m.role === "user")
         .map(textOf)
         .join("\n");
-      const wrote = messages.some((m) => m.role === "tool");
+      const wrote = messages.some(
+        (m) => m.role === "tool" && m.tool_call_id === "call_write_1",
+      );
+      const native = new Set((parsed.tools || []).map((t) => t.function?.name));
+      const catalog = messages
+        .filter((m) => m.role === "system")
+        .map(textOf)
+        .join("\n");
+      const needsActivation = (name) =>
+        native.has("activate_tools") &&
+        !native.has(name) &&
+        catalog.includes("- `" + name + "`:");
+
       if (!parsed.stream) {
         res.writeHead(200, {
           "Content-Type": "application/json",
@@ -335,19 +347,27 @@ function startModel(port) {
       });
       send(chunk({ role: "assistant", content: "" }));
       if (!wrote && /release notes/i.test(asked)) {
-        const args = JSON.stringify({
-          path: "notes/release.md",
-          content:
-            "# Release notes\n\n- Files open in a window of their own.\n- Edits and background tasks share the dock.\n",
-        });
+        const activate = needsActivation("write");
+        const args = JSON.stringify(
+          activate
+            ? { names: ["write"] }
+            : {
+                path: "notes/release.md",
+                content:
+                  "# Release notes\n\n- Files open in a window of their own.\n- Edits and background tasks share the dock.\n",
+              },
+        );
         send(
           chunk({
             tool_calls: [
               {
                 index: 0,
-                id: "call_write_1",
+                id: activate ? "activate_write_fixture" : "call_write_1",
                 type: "function",
-                function: { name: "write", arguments: args },
+                function: {
+                  name: activate ? "activate_tools" : "write",
+                  arguments: args,
+                },
               },
             ],
           }),

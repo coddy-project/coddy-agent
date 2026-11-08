@@ -1,6 +1,20 @@
 # Tools
 
-The built-in tools the model can call, their arguments, permissions and the modes that expose them. Names, argument names and permission flags are taken from the constructors under `internal/tools` and the optional packages; `internal/tools.NewRegistryFor` builds the registry from them, and `internal/agent.ToolSetForMode` in `internal/agent/toolsets.go` decides which definitions each mode sends to the model. Agent mode is unrestricted; plan and ask carry fixed allowlists, and both re-check their list at execution time so a call replayed from history cannot cross it. The reasoning behind the modes is in [Operating modes](../features/modes.md#the-three-modes); how to add a tool is in [Custom tools](../contributing/custom-tools.md).
+The built-in tools the model can call, their arguments, permissions and the modes that expose them. Names, argument names and permission flags are taken from the constructors under `internal/tools` and the optional packages; `internal/tools.NewRegistryFor` builds the registry from them, and `internal/agent.ToolSetForMode` in `internal/agent/toolsets.go` decides which tools each mode permits. The discovery control `activate_tools` is defined in `internal/agent/tool_discovery.go`. Agent mode is unrestricted; plan and ask carry fixed allowlists, and both re-check their list at execution time so a call replayed from history cannot cross it. The reasoning behind the modes is in [Operating modes](../features/modes.md#the-three-modes); how to add a tool is in [Custom tools](../contributing/custom-tools.md).
+
+## Tool discovery
+
+A run with permitted tools starts with only `activate_tools` in the native tool offer. If no execution tools are permitted, the native offer and discovery catalog are empty. The system prompt lists every permitted tool by name and a lossy purpose summary: the first sentence, at most 24 words. `activate_tools` accepts a nonempty `names` array of exact catalog names. A valid batch loads their original complete descriptions and schemas for the next request. An unknown or excluded name rejects the whole batch. Its result acknowledges names without repeating schemas into history. A tool newly activated in a response cannot execute in that same response.
+
+Activation belongs to the current loop. It survives in-process compaction, resets on a new run or workspace switch, and is intersected with the permitted tools after model, toolset or configuration changes. A detached permission resume may finish only its exact pending call under the existing checks; its continuation starts discovery afresh. Activation never grants permission or expands a child's tool bounds.
+
+`activate_tools` selects schemas without running execution hooks or tool observers. Calls to activated tools still pass all mode, toolset, subagent, hook, argument and permission checks. See [Hooks](../features/hooks.md).
+
+Activation needs an additional model request before a new tool can execute. Loaded definitions can accumulate during the run, and adding them can invalidate the provider's prefix cache. The outbound offer contains one `activate_tools` definition plus every activated tool, so provider tool-count limits can still be reached. A selected tool's individual schema stays the same size; provider schema limits still apply.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `activate_tools` | Load complete native definitions for permitted catalog names; execute nothing | `names` (nonempty string array) | no execution permission granted | `agent`, `plan`, `ask` |
 
 ## Permissions
 

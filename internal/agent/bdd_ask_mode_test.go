@@ -43,10 +43,11 @@ const (
 // turn and answers on the next. It records the tool definitions and messages
 // it was given on every turn.
 type bddAskProvider struct {
-	toolCall *llm.ToolCall
-	calls    int
-	offered  [][]llm.ToolDefinition
-	seen     [][]llm.Message
+	toolCall    *llm.ToolCall
+	calls       int
+	activations int
+	offered     [][]llm.ToolDefinition
+	seen        [][]llm.Message
 }
 
 func (p *bddAskProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
@@ -57,7 +58,13 @@ func (p *bddAskProvider) Stream(_ context.Context, messages []llm.Message, defs 
 	p.calls++
 	p.offered = append(p.offered, append([]llm.ToolDefinition(nil), defs...))
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
-	if p.toolCall != nil && p.calls == 1 {
+	if p.toolCall != nil {
+		if response := fixtureActivateTools(messages, defs, onChunk, p.toolCall.Name); response != nil {
+			p.activations++
+			return response, nil
+		}
+	}
+	if p.toolCall != nil && p.calls-p.activations == 1 {
 		tc := *p.toolCall
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
@@ -196,22 +203,29 @@ func (s *askModeFeatureState) everyOfferedToolIsReadOnly() error {
 	if len(s.provider.offered) == 0 {
 		return fmt.Errorf("the model was never called")
 	}
-	defs := s.provider.offered[0]
-	if len(defs) == 0 {
-		return fmt.Errorf("ask mode offered no tools at all; expected the read-only set")
+	if len(s.provider.offered[0]) != 1 || s.provider.offered[0][0].Name != activateToolsName {
+		return fmt.Errorf("initial ask offer must be activation only")
 	}
-	names := make(map[string]bool, len(defs))
-	for _, d := range defs {
-		names[d.Name] = true
-		if !bddAskReadOnlyTools[d.Name] {
-			return fmt.Errorf("tool %q offered in ask mode is not a read-only tool", d.Name)
+	names := map[string]bool{}
+	for _, name := range promptToolNames(s.provider.seen[0][0].Content) {
+		names[name] = true
+		if !bddAskReadOnlyTools[name] {
+			return fmt.Errorf("tool %q in ask discovery is not read-only", name)
+		}
+	}
+	for _, defs := range s.provider.offered {
+		for _, d := range defs {
+			if d.Name != activateToolsName && !bddAskReadOnlyTools[d.Name] {
+				return fmt.Errorf("executable native tool %q is not read-only", d.Name)
+			}
 		}
 	}
 	for _, want := range []string{"read", "glob", "grep", "print_tree"} {
 		if !names[want] {
-			return fmt.Errorf("read-only tool %q missing from the ask mode offer: %v", want, names)
+			return fmt.Errorf("read-only tool %q missing from discovery", want)
 		}
 	}
+
 	return nil
 }
 
