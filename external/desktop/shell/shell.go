@@ -22,8 +22,12 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -70,9 +74,18 @@ type WindowControl interface {
 // (`Alt`, and `Ctrl+1`..`Ctrl+9`, which the window does hand to the page) is
 // read off the keyboard in the page itself.
 type ChordSource interface {
-	// NextChord answers the next chord taken from the window, or an empty
-	// string when ctx ends before one is pressed.
-	NextChord(ctx context.Context) string
+	// NextChord answers the next thing the strip is told, or a chord with no
+	// name when ctx ends before anything is.
+	NextChord(ctx context.Context) Chord
+}
+
+// Chord is one of those things: what to do, and the folder to do it in where
+// one was named. The folder comes from outside the window - a row of the task
+// bar's menu naming a recent workspace - and the page opens its new chat
+// there.
+type Chord struct {
+	Name string `json:"chord"`
+	CWD  string `json:"cwd,omitempty"`
 }
 
 // Settings are the window's own switches, the ones the menu in the bar draws.
@@ -128,6 +141,9 @@ func Handler(ctl WindowControl) http.Handler {
 		case windowOpen:
 			serveOpen(w, r, ctl)
 			return
+		case windowTab:
+			serveTab(w, r, ctl)
+			return
 		case windowKeys:
 			serveChords(w, r, ctl)
 			return
@@ -170,6 +186,7 @@ const (
 	windowSettings = "settings"
 	windowMenu     = "menu"
 	windowOpen     = "open"
+	windowTab      = "tab"
 )
 
 // chordWait bounds one long poll for a chord. It is long because a key is
@@ -202,7 +219,7 @@ func serveChords(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
 	defer cancel()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]string{"chord": src.NextChord(ctx)})
+	_ = json.NewEncoder(w).Encode(src.NextChord(ctx))
 }
 
 // serveMenu hands the strip the rows of the menu behind its button.
@@ -305,6 +322,73 @@ func serveOpen(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// TabOpener is a window control that can ask its strip for a new chat in a
+// folder. It is how a second launch reaches the window already open: the row
+// of the task bar's menu that names a recent workspace runs `coddy desktop
+// --cwd <folder> --new-chat`, and that process hands the folder over here
+// rather than serving a second time.
+type TabOpener interface {
+	OpenTab(cwd string) error
+}
+
+// serveTab opens a chat in a folder on the window this page is drawn in.
+func serveTab(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !sameOrigin(r) {
+		http.Error(w, "the window is driven by its own page only", http.StatusForbidden)
+		return
+	}
+	opener, ok := ctl.(TabOpener)
+	if !ok {
+		http.Error(w, "this window opens no tabs", http.StatusNotImplemented)
+		return
+	}
+	var body struct {
+		CWD string `json:"cwd"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
+		http.Error(w, "a tab is a small JSON object", http.StatusBadRequest)
+		return
+	}
+	cwd, err := TabFolder(body.CWD)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := opener.OpenTab(cwd); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TabFolder answers the folder a new chat may be opened in: an absolute path
+// to a directory that is there, and nothing else. A chat's workspace is where
+// the agent reads and writes, so what may name one is held to what a person
+// could have picked in the window itself.
+func TabFolder(raw string) (string, error) {
+	cwd := strings.TrimSpace(raw)
+	if cwd == "" {
+		return "", nil // The window's own default workspace.
+	}
+	if !filepath.IsAbs(cwd) {
+		return "", errors.New("a chat opens in an absolute path")
+	}
+	cwd = filepath.Clean(cwd)
+	info, err := os.Stat(cwd)
+	if err != nil {
+		return "", fmt.Errorf("no folder to open a chat in: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("a chat opens in a folder, not in a file")
+	}
+	return cwd, nil
 }
 
 // dragGesture is whether a drag of the bar is under way.

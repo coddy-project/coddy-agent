@@ -23,8 +23,8 @@ func TestTheStripIsToldEvenWhereNoWindowCanBeDriven(t *testing.T) {
 	h.RequestChord(chordNewTab)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if got := h.NextChord(ctx); got != chordNewTab {
-		t.Fatalf("the strip was told %q", got)
+	if got := h.NextChord(ctx); got.Name != chordNewTab {
+		t.Fatalf("the strip was told %q", got.Name)
 	}
 }
 
@@ -38,8 +38,8 @@ func TestAGrabbedKeyAndAMenuRowShareTheQueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	first, second := h.NextChord(ctx), h.NextChord(ctx)
-	if first != chordNextTab || second != chordNewTab {
-		t.Fatalf("the strip was told %q then %q", first, second)
+	if first.Name != chordNextTab || second.Name != chordNewTab {
+		t.Fatalf("the strip was told %q then %q", first.Name, second.Name)
 	}
 }
 
@@ -50,8 +50,8 @@ func TestAPollWithNothingToSayWaitsForTheBound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if got := h.NextChord(ctx); got != "" {
-		t.Fatalf("the strip was told %q out of nowhere", got)
+	if got := h.NextChord(ctx); got.Name != "" {
+		t.Fatalf("the strip was told %q out of nowhere", got.Name)
 	}
 	if time.Since(start) < 100*time.Millisecond {
 		t.Fatal("the poll answered at once instead of waiting")

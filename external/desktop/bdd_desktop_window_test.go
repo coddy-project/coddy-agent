@@ -141,6 +141,11 @@ type windowState struct {
 	lastMoveStatus int
 	lastAsked      string
 	opensSeen      int
+	lastTabStatus  int
+	tabsSeen       int
+	// menuFolders are the workspaces the launcher is given for the rows of
+	// this user's application entry.
+	menuFolders []string
 
 	// What a drag of the bar is asked about: where the window stands, what
 	// size it has of its own, where the pointer took hold, and the answers.
@@ -213,6 +218,9 @@ func (s *windowState) stop() {
 	s.lastMoveStatus = 0
 	s.lastAsked = ""
 	s.opensSeen = 0
+	s.lastTabStatus = 0
+	s.tabsSeen = 0
+	s.menuFolders = nil
 }
 
 // --- the chords the browser answers itself --------------------------------
@@ -511,6 +519,105 @@ func (s *windowState) windowFollowsThePointer() error {
 	return nil
 }
 
+// --- the application entry of this user, and the chats its rows open -------
+
+func (s *windowState) asksForAChatInAFolder() error {
+	s.tabsSeen = len(s.shellWindow.Tabs())
+	s.lastAsked = s.t.TempDir()
+	code, err := s.askTheWindow("tab", map[string]string{"cwd": s.lastAsked})
+	if err != nil {
+		return err
+	}
+	s.lastTabStatus = code
+	return nil
+}
+
+func (s *windowState) asksForAChatInAFolderThatIsNotThere() error {
+	s.tabsSeen = len(s.shellWindow.Tabs())
+	code, err := s.askTheWindow("tab", map[string]string{"cwd": filepath.Join(s.t.TempDir(), "gone")})
+	if err != nil {
+		return err
+	}
+	s.lastTabStatus = code
+	return nil
+}
+
+func (s *windowState) stripOpensAChatThere() error {
+	if s.lastTabStatus != http.StatusNoContent {
+		return fmt.Errorf("the window answered %d", s.lastTabStatus)
+	}
+	tabs := s.shellWindow.Tabs()
+	if len(tabs) != s.tabsSeen+1 || tabs[len(tabs)-1] != s.lastAsked {
+		return fmt.Errorf("the strip was told to open %v", tabs)
+	}
+	return nil
+}
+
+func (s *windowState) windowRefusesAndOpensNothing() error {
+	if s.lastTabStatus == http.StatusNoContent {
+		return errors.New("the window took a folder that is not there")
+	}
+	if tabs := s.shellWindow.Tabs(); len(tabs) != s.tabsSeen {
+		return fmt.Errorf("the strip was told to open %v", tabs)
+	}
+	return nil
+}
+
+func (s *windowState) twoChatsInFoldersOfTheirOwn() error {
+	first, second := s.t.TempDir(), s.t.TempDir()
+	s.menuFolders = []string{first, second}
+	// The entry is written into this test's own data directory, not the
+	// operator's application menu.
+	s.t.Setenv("XDG_DATA_HOME", s.t.TempDir())
+	return nil
+}
+
+func (s *windowState) entryOpensCoddy() error {
+	text, err := s.menuEntryText()
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	for _, want := range []string{"[Desktop Entry]", "Name=Coddy", exe + " desktop", "StartupWMClass=" + desktop.WindowClass} {
+		if !strings.Contains(text, want) {
+			return fmt.Errorf("the entry has no %q in it:\n%s", want, text)
+		}
+	}
+	return nil
+}
+
+func (s *windowState) entryOffersBothFolders() error {
+	text, err := s.menuEntryText()
+	if err != nil {
+		return err
+	}
+	for i, folder := range s.menuFolders {
+		row := fmt.Sprintf("[Desktop Action folder%d]", i)
+		if !strings.Contains(text, row) {
+			return fmt.Errorf("the entry has no %s:\n%s", row, text)
+		}
+		if !strings.Contains(text, "--new-chat --cwd "+folder) {
+			return fmt.Errorf("the entry opens no chat in %q:\n%s", folder, text)
+		}
+	}
+	return nil
+}
+
+func (s *windowState) menuEntryText() (string, error) {
+	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "applications", "coddy-desktop.desktop")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("this user has no application entry: %w", err)
+	}
+	return string(b), nil
+}
+
 func (s *windowState) switchWrittenDown() error {
 	b, err := os.ReadFile(filepath.Join(s.home, "desktop", "settings.json"))
 	if err != nil {
@@ -578,10 +685,11 @@ func (s *windowState) serveStandIn(ctx context.Context, addr string) error {
 
 func (s *windowState) options() desktop.Options {
 	return desktop.Options{
-		Home:    s.home,
-		Window:  desktop.WindowBrowser,
-		Browser: helperBrowser(s.t),
-		Serve:   s.serveStandIn,
+		Home:          s.home,
+		Window:        desktop.WindowBrowser,
+		Browser:       helperBrowser(s.t),
+		Serve:         s.serveStandIn,
+		RecentFolders: s.menuFolders,
 	}
 }
 
@@ -986,6 +1094,13 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a chat asks the window to open "([^"]*)"$`, st.chatAsksToOpen)
 			sc.Step(`^this machine's own browser is opened on it$`, st.browserOpenedOnIt)
 			sc.Step(`^the window opens nothing$`, st.windowOpensNothing)
+			sc.Step(`^the application menu asks for a chat in a folder of this machine$`, st.asksForAChatInAFolder)
+			sc.Step(`^the application menu asks for a chat in a folder that is not there$`, st.asksForAChatInAFolderThatIsNotThere)
+			sc.Step(`^a chat is opened in that folder$`, st.stripOpensAChatThere)
+			sc.Step(`^the window refuses, and the strip is told nothing$`, st.windowRefusesAndOpensNothing)
+			sc.Step(`^two chats of this home were had in folders of their own$`, st.twoChatsInFoldersOfTheirOwn)
+			sc.Step(`^this user's application entry opens Coddy and names the window's class$`, st.entryOpensCoddy)
+			sc.Step(`^it offers both folders, each opening a chat of its own$`, st.entryOffersBothFolders)
 			sc.Step(`^the page asks to move the window before saying where the drag began$`, st.movesBeforeTheDragBegan)
 			sc.Step(`^the window does not move$`, st.windowDoesNotMove)
 			sc.Step(`^the drag begins and the page asks again$`, st.dragBeginsAndThePageAsksAgain)

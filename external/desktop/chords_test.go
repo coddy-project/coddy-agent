@@ -97,15 +97,15 @@ func TestTabWalksTheRowBothWays(t *testing.T) {
 
 func TestAKeyPressedBetweenTwoPollsIsStillDelivered(t *testing.T) {
 	q := newChordQueue()
-	q.push(chordNewTab)
-	q.push(chordCloseTab)
+	q.push(chordMessage{Name: chordNewTab})
+	q.push(chordMessage{Name: chordCloseTab})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if got := q.next(ctx); got != chordNewTab {
-		t.Fatalf("the first key was %q", got)
+	if got := q.next(ctx); got.Name != chordNewTab {
+		t.Fatalf("the first key was %q", got.Name)
 	}
-	if got := q.next(ctx); got != chordCloseTab {
-		t.Fatalf("the second key was %q", got)
+	if got := q.next(ctx); got.Name != chordCloseTab {
+		t.Fatalf("the second key was %q", got.Name)
 	}
 }
 
@@ -113,8 +113,8 @@ func TestAPollThatRunsOutAnswersNoChord(t *testing.T) {
 	q := newChordQueue()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if got := q.next(ctx); got != "" {
-		t.Fatalf("a poll with no key pressed answered %q", got)
+	if got := q.next(ctx); got.Name != "" {
+		t.Fatalf("a poll with no key pressed answered %q", got.Name)
 	}
 }
 

@@ -10,12 +10,16 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -62,6 +66,18 @@ type Options struct {
 	// by the session's autostart usually wants. It is set from the menu, not
 	// from the command line.
 	StartMinimised bool
+	// NewChat asks for a chat in CWD rather than for whatever the window was
+	// last left on. A launch that finds a desktop already serving hands it
+	// over instead of opening a second window, which is what a row of the
+	// task bar's menu naming a recent workspace does.
+	NewChat bool
+	// CWD is the folder that chat opens in, and the one the entry's rows are
+	// written from. Empty leaves the window on its own default.
+	CWD string
+	// RecentFolders are the workspaces of this home's recent chats, most
+	// recent first: the rows of the application entry's menu. The caller
+	// reads them off the session store, which this package does not know.
+	RecentFolders []string
 }
 
 // Run serves Coddy on this machine's desktop port and opens a window on it,
@@ -94,7 +110,17 @@ func Run(ctx context.Context, opts Options) error {
 	opts.Framed = opts.Framed || saved.Framed
 	opts.StartMinimised = opts.StartMinimised || saved.StartMinimised
 
+	// The entry of this user names the running binary and carries the folders
+	// of its recent chats, so the task bar draws Coddy's own icon and menu
+	// even where no package is installed (menu_entry_linux.go).
+	writeEntry(opts, log)
+
 	if addr, ok := runningDesktop(runCtx, opts.Home); ok {
+		if opts.NewChat {
+			if err := askForTab(runCtx, addr, opts.CWD); err != nil {
+				log.Warn("the desktop already running would not open a chat", "addr", addr, "error", err)
+			}
+		}
 		log.Info("a Coddy desktop is already serving here, opening a window on it", "addr", addr)
 		return finishWindow(opts, openWindow(runCtx, opts, shellURL(addr)), shellURL(addr), nil, runCtx)
 	}
@@ -192,6 +218,49 @@ func finishWindow(opts Options, windowErr error, url string, serveErr <-chan err
 	case <-ctx.Done():
 		return nil
 	}
+}
+
+// writeEntry writes this user's application entry. A menu that could not be
+// written is a menu that looks as it did before, which is not worth a word
+// above debug and never worth refusing to open a window over.
+func writeEntry(opts Options, log *slog.Logger) {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Debug("the application entry needs this program's own path", "error", err)
+		return
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if err := writeMenuEntry(exe, opts.RecentFolders); err != nil {
+		log.Debug("the application entry could not be written", "error", err)
+	}
+}
+
+// askForTab tells the desktop already running to open a chat in a folder.
+func askForTab(ctx context.Context, addr, cwd string) error {
+	body, err := json.Marshal(map[string]string{"cwd": cwd})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+shell.Prefix+"tab", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// The window's own page is what drives it; this is the same machine and
+	// the same person, asking for the thing a row of their menu names.
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	_, _ = io.Copy(io.Discard, res.Body)
+	if res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("the window answered %s", res.Status)
+	}
+	return nil
 }
 
 // runningDesktop answers the address of the desktop already serving for this

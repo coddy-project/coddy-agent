@@ -182,6 +182,22 @@ Both are X11. On Wayland, on macOS and on Windows the window is the browser's
 as far as the system is concerned, and the task bar draws what the browser
 tells it.
 
+### Recent folders in the application menu
+
+On Linux every launch writes this user's own application entry,
+`~/.local/share/applications/coddy-desktop.desktop`, naming the binary that
+wrote it. That is what puts Coddy in the launcher and in the task bar's menu
+without a package installed, and it carries the folders of this home's recent
+chats as its actions - up to six, newest first. A right click on the icon
+offers them, and picking one opens a new chat in that folder: the row runs
+`coddy desktop --new-chat --cwd <folder>`, which hands the folder to the
+window already open rather than starting a second one.
+
+A row names the folder and the one above it (`coddy-agent/docs`), because that
+is what tells two checkouts of one repository apart; the whole path is in the
+command. The folder a row opens also becomes the one the next new chat starts
+in, the same as picking it on the start screen.
+
 The strip wears the theme the chats are in. It reads the colours off the chat in front, so all nine
 themes of the web interface reach the bar, the tabs and the state dots, and a theme changed in
 **Settings** reaches the strip without a reload.

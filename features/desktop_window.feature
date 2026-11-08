@@ -71,6 +71,20 @@ Feature: Opening Coddy as a desktop window
     When a chat asks the window to open "file:///etc/shadow"
     Then the window opens nothing
 
+  Scenario: A row of the application menu opens a chat in its folder
+    Given a window on the tab shell
+    When the application menu asks for a chat in a folder of this machine
+    Then a chat is opened in that folder
+    When the application menu asks for a chat in a folder that is not there
+    Then the window refuses, and the strip is told nothing
+
+  Scenario: The application menu of this user names Coddy and its recent folders
+    Given a machine where Coddy has never opened a desktop window
+    And two chats of this home were had in folders of their own
+    When the operator opens the desktop
+    Then this user's application entry opens Coddy and names the window's class
+    And it offers both folders, each opening a chat of its own
+
   Scenario: A drag moves the window only once it knows where the drag began
     Given a window on the tab shell
     When the page asks to move the window before saying where the drag began

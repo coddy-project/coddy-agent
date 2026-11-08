@@ -569,6 +569,46 @@ async function main() {
     "the chats behind were left alone: a reload of the strip would have taken every tab with it",
   );
 
+  console.log("a row of the application menu opens a chat in its folder");
+  const tabsBefore = await page.locator("#strip .tab").count();
+  const tabRes = await fetch(`http://127.0.0.1:${port}/desktop/tab`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: JSON.stringify({ cwd: workspace }),
+  });
+  expect(tabRes.status === 204, "the window took the folder");
+  await page.waitForFunction(
+    (was) => document.querySelectorAll("#strip .tab").length === was + 1,
+    tabsBefore,
+    { timeout: 15000 },
+  );
+  ok("a chat opened for it");
+  // The folder reaches the new chat through the cookie the web interface
+  // itself keeps the last picked workspace in, so this is also what holds the
+  // shell to that shape.
+  const picked = await page.evaluate(() => {
+    const m = document.cookie.match(/(?:^|;\s*)coddy_workspace_dir=([^;]*)/);
+    if (!m) return null;
+    try {
+      return JSON.parse(decodeURIComponent(m[1])).local || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(
+    picked === workspace,
+    `the next chat starts in that folder (the page remembers ${picked})`,
+  );
+  await page.locator("#strip .tab").last().locator(".close").click();
+  await page.waitForFunction(
+    (was) => document.querySelectorAll("#strip .tab").length === was,
+    tabsBefore,
+    { timeout: 15000 },
+  );
+
   console.log("a switch thrown outside the page reaches the menu in the bar");
   // What the tray icon's menu does, which this stand has no tray for: the
   // launcher is told, and the page has to redraw from it rather than from the

@@ -2,7 +2,11 @@
 
 package desktop
 
-import "context"
+import (
+	"context"
+
+	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
+)
 
 // The chords a Chromium window opened with --app answers itself, and what the
 // strip does with them once the launcher has taken them away from it.
@@ -133,6 +137,12 @@ func containsMask(masks []uint16, want uint16) bool {
 	return false
 }
 
+// chordMessage is what travels down the queue: what the strip should do, and
+// the folder it should do it in where there is one. A row of the task bar's
+// menu asks for a new chat in a folder the operator picked there, and the
+// page has nowhere else to learn which folder that was.
+type chordMessage = shell.Chord
+
 // chordQueue carries a chord from the X event loop to the page's long poll.
 //
 // It is a queue and not a signal because the page is not always waiting: it
@@ -140,22 +150,22 @@ func containsMask(masks []uint16, want uint16) bool {
 // those two requests still has to arrive. It is bounded because a page that
 // has gone away must not make the event loop grow memory for keys nobody will
 // read.
-type chordQueue struct{ ch chan string }
+type chordQueue struct{ ch chan chordMessage }
 
-func newChordQueue() *chordQueue { return &chordQueue{ch: make(chan string, 16)} }
+func newChordQueue() *chordQueue { return &chordQueue{ch: make(chan chordMessage, 16)} }
 
-func (q *chordQueue) push(name string) {
+func (q *chordQueue) push(msg chordMessage) {
 	select {
-	case q.ch <- name:
+	case q.ch <- msg:
 	default:
 	}
 }
 
-func (q *chordQueue) next(ctx context.Context) string {
+func (q *chordQueue) next(ctx context.Context) chordMessage {
 	select {
-	case name := <-q.ch:
-		return name
+	case msg := <-q.ch:
+		return msg
 	case <-ctx.Done():
-		return ""
+		return chordMessage{}
 	}
 }

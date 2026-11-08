@@ -91,10 +91,10 @@ func (h *WindowHandle) SetSettings(next Settings) error {
 // mapped a window and therefore before anything can be grabbed, so this waits
 // rather than answering no: the long poll the page is already holding is the
 // one that delivers the first chord.
-func (h *WindowHandle) NextChord(ctx context.Context) string {
+func (h *WindowHandle) NextChord(ctx context.Context) shell.Chord {
 	if h == nil || h.chords == nil {
 		<-ctx.Done()
-		return ""
+		return shell.Chord{}
 	}
 	return h.chords.next(ctx)
 }
@@ -102,10 +102,14 @@ func (h *WindowHandle) NextChord(ctx context.Context) string {
 // pushGrabbed is how a key taken at the X server reaches the strip. The window
 // control calls it; nothing else does.
 func (h *WindowHandle) pushGrabbed(name string) {
+	h.push(shell.Chord{Name: name})
+}
+
+func (h *WindowHandle) push(msg shell.Chord) {
 	if h == nil || h.chords == nil {
 		return
 	}
-	h.chords.push(name)
+	h.chords.push(msg)
 }
 
 // OpenExternal hands a link out of Coddy to this machine's own browser.
@@ -134,6 +138,14 @@ func (h *WindowHandle) Activate() error {
 // cannot see it. It travels down the same queue a grabbed key does, so the
 // strip needs to know nothing about where it came from.
 func (h *WindowHandle) RequestChord(name string) { h.pushGrabbed(name) }
+
+// OpenTab asks the strip for a new chat in a folder, which is what a row of
+// the task bar's menu means by a recent workspace. It travels down the same
+// queue, with the folder on it.
+func (h *WindowHandle) OpenTab(cwd string) error {
+	h.push(shell.Chord{Name: chordNewTab, CWD: cwd})
+	return nil
+}
 
 func (h *WindowHandle) Supported() bool                    { return h.current().Supported() }
 func (h *WindowHandle) Undecorate() error                  { return h.current().Undecorate() }

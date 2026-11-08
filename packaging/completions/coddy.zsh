@@ -130,6 +130,7 @@ _coddy() {
                         '--browser[browser to open the window with]:browser:_files' \
                         '--frame[keep the system title bar and borders]' \
                         '--auth[ask for the credential the configuration carries]' \
+                        '--new-chat[open a new chat in --cwd, asking a desktop already running]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \

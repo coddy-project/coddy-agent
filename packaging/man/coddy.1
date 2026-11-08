@@ -202,7 +202,15 @@ the browser (else
 keeps the system title bar, and
 .B \-\-auth
 asks for the credential the configuration carries, which a window on loopback
-does not by default. Built with the
+does not by default, and
+.B \-\-new\-chat
+opens a chat in
+.BI \-\-cwd ,
+asking a desktop already running rather than starting a second one \(em which
+is what a row of the application menu naming a recent workspace does. That
+menu is the entry this command writes for the current user on every launch,
+.IR ~/.local/share/applications/coddy\-desktop.desktop ,
+with the folders of this home's recent chats as its actions. Built with the
 .BR http ", " ui " and " desktop
 tags.
 .TP

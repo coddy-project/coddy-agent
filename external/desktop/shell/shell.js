@@ -776,12 +776,63 @@
     activate(tabs[next].uid);
   }
 
-  function openTab() {
+  function openTab(cwd) {
+    if (cwd) rememberWorkspace(cwd);
     const tab = { uid: uid(), session: null };
     tabs.push(tab);
     activeUid = tab.uid;
     save();
     render();
+  }
+
+  // Where the next new chat starts, for a tab asked for with a folder: a row
+  // of the task bar's menu naming a recent workspace.
+  //
+  // It is written into the cookie the web interface itself keeps the last
+  // picked folder in (chat/workspaceCookies.ts), because that is what the
+  // start screen of a fresh chat reads, and the frames are this page's own
+  // origin. The shape is the interface's: a JSON object of folder by
+  // environment, and a window's chats are always the local one. The browser
+  // check drives the real interface, so a change to that shape fails there
+  // rather than quietly opening chats in the wrong folder.
+  const WORKSPACE_COOKIE = "coddy_workspace_dir";
+
+  function rememberWorkspace(cwd) {
+    let dirs = {};
+    const raw = readCookie(WORKSPACE_COOKIE);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          dirs = parsed;
+        }
+      } catch {
+        /* an unreadable cookie is replaced by this one */
+      }
+    }
+    dirs.local = cwd;
+    const year = 365 * 24 * 60 * 60;
+    document.cookie =
+      WORKSPACE_COOKIE +
+      "=" +
+      encodeURIComponent(JSON.stringify(dirs)) +
+      "; Path=/; Max-Age=" +
+      year +
+      "; SameSite=Lax";
+  }
+
+  function readCookie(name) {
+    for (const part of document.cookie.split(";")) {
+      const s = part.trim();
+      if (s.startsWith(name + "=")) {
+        try {
+          return decodeURIComponent(s.slice(name.length + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+    return null;
   }
 
   function closeTab(tabUid) {
@@ -890,6 +941,7 @@
   async function watchChords() {
     for (;;) {
       let chord = "";
+      let cwd = "";
       try {
         const res = await fetch("/desktop/keys", {
           credentials: "same-origin",
@@ -901,11 +953,12 @@
         }
         const body = await res.json();
         chord = body && typeof body.chord === "string" ? body.chord : "";
+        cwd = body && typeof body.cwd === "string" ? body.cwd : "";
       } catch {
         await sleep(CHORD_RETRY_MS);
         continue;
       }
-      if (chord === "new-tab") openTab();
+      if (chord === "new-tab") openTab(cwd);
       else if (chord === "close-tab") closeTab(activeUid);
       else if (chord === "next-tab") step(1);
       else if (chord === "prev-tab") step(-1);

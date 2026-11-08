@@ -5,6 +5,8 @@ package desktop
 import (
 	"context"
 	"sync"
+
+	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
 )
 
 // What the godog harness of features/desktop_window.feature drives directly.
@@ -56,9 +58,9 @@ func NewChordHandle() *ChordHandle {
 }
 
 // Press is what the grab does when the key is pressed.
-func (h *ChordHandle) Press(chord string) { h.queue.push(chord) }
+func (h *ChordHandle) Press(chord string) { h.queue.push(shell.Chord{Name: chord}) }
 
-func (h *ChordHandle) NextChord(ctx context.Context) string { return h.queue.next(ctx) }
+func (h *ChordHandle) NextChord(ctx context.Context) shell.Chord { return h.queue.next(ctx) }
 
 // GrabMasks is the modifier combinations one chord is grabbed under.
 func GrabMasks(base uint16, locks ...uint16) []uint16 { return grabMasks(base, locks...) }
@@ -99,7 +101,7 @@ func (w *MenuWindow) Minimise() error {
 	return nil
 }
 
-func (w *MenuWindow) NextChord(ctx context.Context) string { return w.queue.next(ctx) }
+func (w *MenuWindow) NextChord(ctx context.Context) shell.Chord { return w.queue.next(ctx) }
 
 // Shown and Hidden are how many times the menu asked for each.
 func (w *MenuWindow) Shown() int {
@@ -128,6 +130,9 @@ func (w *MenuWindow) Closed() int {
 	return w.closed
 }
 
+// MenuEntry is the application entry this user has, as the launcher wrote it.
+func MenuEntry(exe string, folders []string) string { return menuEntry(exe, folders) }
+
 // BindWindow is what the launcher does once the browser has a window: it gives
 // the settings store the window a switch and a menu row act on.
 func (s *SettingsStore) BindWindow(h *WindowHandle) { s.bind(h, nil) }
@@ -141,6 +146,7 @@ type ShellWindow struct {
 	mu     sync.Mutex
 	moves  [][2]int
 	opened []string
+	tabs   []string
 }
 
 func NewShellWindow() *ShellWindow { return &ShellWindow{} }
@@ -154,6 +160,20 @@ func (w *ShellWindow) MoveBy(dx, dy int) error {
 	defer w.mu.Unlock()
 	w.moves = append(w.moves, [2]int{dx, dy})
 	return nil
+}
+
+// OpenTab is the strip being asked for a chat in a folder.
+func (w *ShellWindow) OpenTab(cwd string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.tabs = append(w.tabs, cwd)
+	return nil
+}
+
+func (w *ShellWindow) Tabs() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.tabs...)
 }
 
 // OpenExternal is this machine's own browser being started on a link.
