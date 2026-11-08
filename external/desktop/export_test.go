@@ -130,9 +130,6 @@ func (w *MenuWindow) Closed() int {
 	return w.closed
 }
 
-// MenuEntry is the application entry this user has, as the launcher wrote it.
-func MenuEntry(exe string, folders []string) string { return menuEntry(exe, folders) }
-
 // BindWindow is what the launcher does once the browser has a window: it gives
 // the settings store the window a switch and a menu row act on.
 func (s *SettingsStore) BindWindow(h *WindowHandle) { s.bind(h, nil) }
