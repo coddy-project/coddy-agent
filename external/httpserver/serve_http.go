@@ -48,6 +48,8 @@ func Serve(ctx context.Context, opts Options) error {
 			log.Warn("wallpaper defaults initialization failed", "error", err)
 		}
 	}
+	s.SetNoAuth(opts.NoAuth)
+	s.SetDesktopWindow(opts.DesktopWindow)
 	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
 	s.SetUnbuiltSections(opts.UnbuiltSections)

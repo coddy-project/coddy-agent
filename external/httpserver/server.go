@@ -70,6 +70,14 @@ type Server struct {
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
 
+	// desktopWindow is what the tab shell of a desktop window drives
+	// (httpserver.Options.DesktopWindow). Nil everywhere else.
+	desktopWindow any
+
+	// noAuth serves without any credential, whatever the configuration says
+	// (httpserver.Options.NoAuth). Set once, before the server serves.
+	noAuth bool
+
 	// unbuiltSections are the settings sections the form leaves out
 	// (Options.UnbuiltSections).
 	unbuiltSections []string

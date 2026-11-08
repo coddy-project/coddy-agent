@@ -113,6 +113,12 @@ func (s *Server) SetExtraLogin(user, password string) error {
 // operator who moves a credential into the environment does not have to remember
 // a second rule.
 func (s *Server) loginPolicyNow() loginPolicy {
+	// With NoAuth there is no form, whatever the file configures: the gate is
+	// open, so a form would be a screen that proves nothing, and `broken`
+	// would refuse to start a window over a configuration meant for a server.
+	if s.noAuth {
+		return loginPolicy{}
+	}
 	var cfgLogin config.HTTPLoginConfig
 	if c := s.activeCfg(); c != nil {
 		cfgLogin = c.HTTPServer.Login

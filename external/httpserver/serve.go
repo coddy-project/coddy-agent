@@ -50,6 +50,21 @@ type Options struct {
 	// (config.UISchemaJSONHiding): the form leaves them out, and a save still
 	// writes them back.
 	UnbuiltSections []string
+	// DesktopWindow is the window the tab shell of coddy-desktop drives: the
+	// buttons a frameless window carries itself and the drag that replaces its
+	// title bar. Typed as any because this file is built without the desktop
+	// surface too; the handler that uses it asserts the interface.
+	DesktopWindow any
+
+	// NoAuth serves without asking for any credential, whatever the
+	// configuration carries: no bearer token, no sign-in form. It exists for a
+	// server that is not reachable from anywhere else and has nobody to ask -
+	// `coddy-desktop`, which binds loopback for one window on this machine and
+	// whose operator started the application rather than opened an address.
+	// The configuration on disk is left exactly as it is, so the same file
+	// still signs in a `coddy serve` that is reachable.
+	NoAuth bool
+
 	// ExtraLogin is a web sign-in account supplied out of band (CODDY_HTTP_USER,
 	// CODDY_HTTP_PASSWORD), for the same reason: it enables the form on its own
 	// and never reaches the file, so a save from the settings screen cannot

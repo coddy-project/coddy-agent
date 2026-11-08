@@ -85,7 +85,7 @@ coddy serve -P 12346          # or httpserver.port in the file
 **Решение.** Возьмите релизную сборку - архивы GitHub Release, пакеты `.deb` и `.rpm` и Homebrew cask собраны со всеми тегами, а Docker-образ включает API, веб-интерфейс, планировщик, субагент памяти, консоль и шлюз, - или соберите бинарник сами.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 Для `ui` нужны Node.js и npm (Makefile сначала запускает `ui-build`). `coddy serve --dry-run` сообщает об интерфейсе, без которого собран бинарник, ничего не запуская. Справочник тегов - на странице [Сборка из исходников](../contributing/build.md#справочник-тегов-сборки).
@@ -401,7 +401,7 @@ file ./coddy-from-image   # ARM aarch64 on an arm64 host
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
   ```
 
 - **Обновления из скриптов.** `coddy update -y` устанавливает обновление без вопросов и не запускает Coddy, поэтому подходит для шага CI, где нет консоли;
@@ -431,4 +431,4 @@ coddy acp --log-level debug
 
 Те же настройки можно сохранить в разделе `logger` файла `config.yaml` (`level`, `levels`, `outputs`, `file`, `format`). Справка - [Конфигурация](configuration.md), [`logger`](../reference/config.md#logger).
 
-<!-- docsgen:source sha256=d6fb76fcb1c439d0 -->
+<!-- docsgen:source sha256=b17c6441bf157c48 -->

@@ -124,6 +124,12 @@ pages:
     en:
       title: "Web UI"
       summary: "The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages."
+  surfaces/desktop.md:
+    title: "Окно на рабочем столе"
+    summary: "coddy desktop, веб-интерфейс как окно приложения с чатами по вкладкам, запоминаемый порт, клавиши и что даёт окну каждая платформа."
+    en:
+      title: "Desktop window"
+      summary: "coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window."
   surfaces/editors.md:
     title: "Редакторы (ACP)"
     summary: "Zed, VS Code, Obsidian и скрипты как ACP-клиенты coddy acp и что у них общего с другими интерфейсами."
