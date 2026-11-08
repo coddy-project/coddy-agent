@@ -121,6 +121,7 @@ export function activate(coddy) {
 | `coddy.ui.registerPermissionPreview({id, tool?, mount})` | Add a view under the host's own preview on a permission card. The prompt stays the host's. |
 | `coddy.settings.registerField(field)` | Add a scalar or component field to a Settings section - the host's or this extension's own. Returns an update/remove handle. |
 | `coddy.settings.registerSection({id, title, weight?, mount?})` | Add a Settings section of this extension's own. Fields of the same extension may name it in `section`. |
+| `coddy.settings.registerBlock({id, section, title, description?, match?, mount})` | Adds a declarative hand-drawn block to a host or extension section. `match(context)` may restrict it to one opened row; `mount(element, api, context)` receives the same frozen row metadata, with secret fields stripped. |
 | `coddy.settings.alterSections(fn)` | The declare-then-alter pipeline of Settings: `fn(sections)` rewrites the tab list - hide, retitle or reorder any tab, the host's included - before the nav draws it. Needs the `ui.alter` scope. |
 | `coddy.settings.alterRows(fn)` | Rewrites schema-driven Settings rows before the form and its search index draw them: `fn(rows, {section})` receives frozen `{section, id, path, label, kind, type, description?}` descriptors and may hide, retitle or reorder them. Hand-drawn special controls stay outside the pass. Needs the `ui.alter` scope. |
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
@@ -390,7 +391,9 @@ An extension can own a section of its own: `coddy.settings.registerSection({id, 
 
 The tab list itself can be rewritten before it draws: `coddy.settings.alterSections(fn)` registers a pass that receives the frozen descriptors of every tab - the host's and the extensions', `{id, label, kind}` - and returns the new list. Dropping a tab hides it, returning a different `label` retitles it, and the order of the list is the order of the nav. Passes run in registration order, and a pass that throws loses only its own say. A manifest that declares permissions must name `ui.alter` in `permissions` to register a pass; the same handle removes it.
 
-Rows inside a schema-driven section follow the same pipeline through `coddy.settings.alterRows(fn)`. Each pass receives the section id and frozen row descriptors. Omitting a row or returning `visible: false` hides its whole subtree, a new `label` retitles it, and array order reorders siblings without changing their configuration paths. The form and the search index consume one ordered plan, so hidden rows are not searchable and retitles agree in both places. Nested objects, list-item fields and group membership are preserved, as are values and unsaved edits. Hand-drawn special controls and extension-mounted sections are outside this pass.
+Rows inside a schema-driven section follow the same pipeline through `coddy.settings.alterRows(fn)`. Each pass receives the section id and frozen row descriptors. Omitting a row or returning `visible: false` hides its whole subtree, a new `label` retitles it, and array order reorders siblings without changing their configuration paths. The form and the search index consume one ordered plan, so hidden rows are not searchable and retitles agree in both places. Nested objects, list-item fields and group membership are preserved, as are values and unsaved edits. Hand-drawn landmark blocks join the same plan within their declared `before` or `after` slot; a pass never moves one across the generated form. Arbitrary DOM mounted by an extension-owned section stays outside, while declarative blocks registered through `registerBlock` participate.
+
+A special block is declared with `coddy.settings.registerBlock({id, section, title, description?, match?, mount})`. Its `match(context)` receives the section id, the open row's name (or `null` outside a row form) and sanitized row metadata; credential and environment fields are stripped. The same context reaches `mount(element, api, context)`, so one registration can appear only for a provider of a chosen type. Mount is synchronous: start asynchronous work inside it and return a cleanup function. The block joins the host's landmark plan and `alterRows`, including search, retitling, hiding and slot-local reorder.
 
 A field may draw itself: `type: "component"` takes `mount(element, api, state)` instead of a scalar type, where `state` is a frozen `{value, setValue}` of the ordinary scalar value. A component field edits the same configuration draft and persists like any other field - its values are ordinary scalars in `extension_values` - and `default` is optional.
 
@@ -402,6 +405,34 @@ The [Workflow tools example](../../examples/extensions/workflow-tools/main.js) c
 
 ```sh
 python -m zipfile -c workflow-tools.zip manifest.json main.js
+```
+
+## Provider-row blocks and uptime data
+
+The [NeuralDeep Stability example](../../examples/extensions/neuraldeep-stability/main.js) registers one special block that appears only when the open provider has `type: "neuraldeep"`. It shows the overall status, per-component uptime and the last 30 daily history bars from `status.neuraldeep.ru/api/v2/uptime.json`, with a retry action and a link to the public status page. The request goes through the Coddy server's existing proxy, not browser CORS:
+
+```js
+const block = coddy.settings.registerBlock({
+  id: "stability",
+  section: "providers",
+  title: "Stability",
+  match: ({ row }) => row?.type === "neuraldeep",
+  mount(element, api) {
+    void (async () => {
+      const response = await api.net.fetch(
+        "https://status.neuraldeep.ru/api/v2/uptime.json",
+      );
+      const uptime = await response.json();
+      // Draw uptime.components and uptime.history here.
+    })();
+  },
+});
+```
+
+Package the example from `examples/extensions/neuraldeep-stability` with the following command.
+
+```sh
+python -m zipfile -c neuraldeep-stability.zip manifest.json main.js style.css
 ```
 
 ## Narrowing the session list
@@ -576,9 +607,9 @@ Surface openings and closings, window focus, unloading and the configuration swa
 
 ### Settings and configuration
 
-The tab-list and schema-row alters, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.settings.alterRows`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; hand-drawn special controls remain outside row alteration.
+The tab-list and row alters, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.settings.alterRows`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; arbitrary extension-mounted section DOM remains outside row alteration, while declarative `registerBlock` contributions join it.
 
-- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs and schema-driven rows ship, hand-drawn special controls remain - frontend;
+- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs, schema-driven rows and declared landmark blocks ship; arbitrary extension-mounted section DOM remains - frontend;
 - **Complex field types** - lists and objects in the settings form - frontend, plus host persistence for non-scalar values;
 - **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
 - **The model and provider catalog** - both ship as `coddy.models.list()` and `coddy.providers` - frontend;

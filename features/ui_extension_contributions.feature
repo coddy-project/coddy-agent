@@ -93,3 +93,13 @@ Feature: UI extension contributions
     Given an enabled package with a manifest theme and its CSS
     When the operator selects the theme and the package disappears
     Then the dynamic theme applies and the app falls back to the built-in dark theme
+
+  Scenario: Show NeuralDeep uptime in its provider row
+    Given a special block matching neuraldeep and an uptime API answer
+    When the provider row mounts the block
+    Then it renders current status and daily history through the server proxy
+
+  Scenario: Alter hand-drawn Settings blocks and extension blocks together
+    Given Appearance landmarks and a provider-row extension block
+    When alter passes hide, retitle and reorder special rows
+    Then drawing and search agree and provider metadata stays sanitized

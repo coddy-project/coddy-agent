@@ -27,6 +27,7 @@ The files must sit at the ZIP root. Bundle dependencies into `main.js`; relative
 | [ok-coddy](ok-coddy/main.js) | The OK, coddy mini-chat drawer after the coddy-duck-prototype: a rubber duck with twelve tricks, canned replies, a ticket toggle - and the `tricks`/`footer` hooks other extensions fill. |
 | [ok-coddy-addon](ok-coddy-addon/main.js) | Fills the OK, coddy panel's hooks: one more trick button and a footer note, without the panel knowing it exists. |
 | [neuraldeep-onboarding](neuraldeep-onboarding/main.js) | An onboarding dialog that asks for a NeuralDeep key (with the link where to get one) and, optionally, corporate proxy credentials, then writes the provider, its `proxy` and its `neuraldeep/qwen3.6-35b-a3b` model through the configuration API. |
+| [neuraldeep-stability](neuraldeep-stability/main.js) | A declarative Settings block that appears only in the `neuraldeep` provider row and renders `status.neuraldeep.ru/api/v2/uptime.json` through the server-side `coddy.net.fetch` proxy: current status, per-component uptime and daily history. |
 
 For a local API, replace ordinary browser fetch with the SDK helper.
 

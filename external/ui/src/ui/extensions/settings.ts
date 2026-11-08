@@ -1,6 +1,7 @@
 import type {
   AnySettingsField,
   SettingsSection,
+  SettingsBlock,
   SettingValue,
   ContributionHandle,
 } from "./contributions";
@@ -34,6 +35,9 @@ export type ExtensionSettingsAPI = {
   registerSection: (
     section: SettingsSection,
   ) => ContributionHandle<SettingsSection>;
+  /** Adds a hand-drawn block to a host or extension Settings section. An
+   * optional match limits it to one opened row, such as neuraldeep. */
+  registerBlock: (block: SettingsBlock) => ContributionHandle<SettingsBlock>;
   /** Rewrites the Settings tab list before the nav draws it: hide, retitle
    * or reorder any tab, the host's included. Needs the `ui.alter` scope. */
   alterSections: (
@@ -69,6 +73,7 @@ export function extensionSettings(
   signal: AbortSignal,
   registerField: ExtensionSettingsAPI["registerField"],
   registerSection: ExtensionSettingsAPI["registerSection"],
+  registerBlock: ExtensionSettingsAPI["registerBlock"],
   alterSections: ExtensionSettingsAPI["alterSections"],
   alterRows: ExtensionSettingsAPI["alterRows"],
   fields: () => AnySettingsField[],
@@ -87,6 +92,7 @@ export function extensionSettings(
   return {
     registerField,
     registerSection,
+    registerBlock,
     alterSections,
     alterRows,
     async get(id) {

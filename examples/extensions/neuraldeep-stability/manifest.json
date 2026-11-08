@@ -1,0 +1,12 @@
+{
+  "api": 1,
+  "id": "neuraldeep-stability",
+  "name": "NeuralDeep Stability",
+  "version": "1.0.0",
+  "description": "Shows NeuralDeep uptime and daily history inside the provider row.",
+  "permissions": ["ui.page"],
+  "ui": {
+    "entry": "main.js",
+    "styles": ["style.css"]
+  }
+}

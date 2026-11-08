@@ -37,6 +37,27 @@ export type SettingsSection = {
   weight?: number;
   mount?: (element: HTMLElement, api: ExtensionAPI) => void | (() => void);
 };
+
+/** The row a special Settings block is mounted for. Secret-bearing provider
+ * fields are removed before this context reaches a match or mount. */
+export type SettingsBlockContext = Readonly<{
+  section: string;
+  rowName: string | null;
+  row?: Readonly<Record<string, unknown>>;
+}>;
+/** A hand-drawn block an extension contributes to a Settings section. */
+export type SettingsBlock = {
+  id: string;
+  section: string;
+  title: string;
+  description?: string;
+  match?: (context: SettingsBlockContext) => boolean;
+  mount: (
+    element: HTMLElement,
+    api: ExtensionAPI,
+    context: SettingsBlockContext,
+  ) => void | (() => void);
+};
 export type ExtensionToolCall = Readonly<{
   sessionId: string;
   toolCallId: string;
@@ -161,6 +182,18 @@ export function validateSection(section: SettingsSection) {
     (section.mount !== undefined && typeof section.mount !== "function")
   )
     throw new Error("A settings section needs an id and title");
+}
+
+export function validateBlock(block: SettingsBlock) {
+  if (
+    !block.title?.trim() ||
+    block.title.length > 120 ||
+    !block.section ||
+    typeof block.mount !== "function" ||
+    (block.match !== undefined && typeof block.match !== "function") ||
+    (block.description !== undefined && block.description.length > 500)
+  )
+    throw new Error("A settings block needs a section, title and mount");
 }
 export function validateRenderer(renderer: ToolRenderer) {
   if (

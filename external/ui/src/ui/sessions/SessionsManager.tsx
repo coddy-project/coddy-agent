@@ -3,6 +3,7 @@ import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
 import { LegendWithHint } from "../settings/FieldHint";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
+import { useSpecialRowLabel } from "../settings/SettingsSpecialRows";
 import { isClientDraftSessionId } from "./draftSessions";
 import {
   defaultSortOrder,
@@ -507,6 +508,10 @@ export function SessionsManager(props: {
   });
   const headerChecked = allRowsSelected(selectableRows, selected);
   const headerPartial = someRowsSelected(selectableRows, selected);
+  const heading = useSpecialRowLabel(
+    "manage",
+    t(SETTINGS_TEXTS.sessionsManage.label),
+  );
 
   /** One sortable column head: a button that carries the caret when active. */
   const sortableHead = (
@@ -547,7 +552,7 @@ export function SessionsManager(props: {
       {/* What the table is for goes behind the (i) of its legend, like every
           description of the settings drawer. */}
       <LegendWithHint
-        label={t(SETTINGS_TEXTS.sessionsManage.label)}
+        label={heading}
         description={t(SETTINGS_TEXTS.sessionsManage.desc)}
       />
 

@@ -432,6 +432,27 @@ describe("the widened extension API", () => {
     expect(runtime.settingsRowAlters.rows).toHaveLength(0);
   });
 
+  test("a special Settings block registers and leaves with its handle", async () => {
+    setup();
+    let handle!: { remove: () => void };
+    const { runtime } = await activateOne((api) => {
+      handle = api.settings.registerBlock({
+        id: "stability",
+        section: "providers",
+        title: "Stability",
+        match: ({ row }) => row?.type === "neuraldeep",
+        mount: () => {},
+      });
+    });
+    expect(runtime.settingsBlocks.rows).toHaveLength(1);
+    expect(runtime.settingsBlocks.rows[0]).toMatchObject({
+      key: "demo/stability",
+      section: "providers",
+    });
+    handle.remove();
+    expect(runtime.settingsBlocks.rows).toHaveLength(0);
+  });
+
   test("models.list reads the catalog and freezes every row", async () => {
     setup();
     // The stub goes in before the activation: extensionModels keeps the

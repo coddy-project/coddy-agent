@@ -86,7 +86,16 @@ export function activate(coddy) {
       )
       .sort((a, b) => rank(a) - rank(b));
   });
+  const rowAlter = coddy.settings.alterRows((rows, { section }) => {
+    if (section !== "appearance") return rows;
+    return rows
+      .map((row) =>
+        row.id === "language" ? { ...row, label: "Interface language" } : row,
+      )
+      .reverse();
+  });
   return () => {
+    rowAlter.remove();
     alter.remove();
     control.remove();
     tricks.remove();

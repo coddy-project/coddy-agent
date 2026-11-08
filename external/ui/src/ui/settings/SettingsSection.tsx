@@ -28,6 +28,7 @@ import { ExtensionFields } from "../extensions/ExtensionFields";
 import { ExtensionSectionBody } from "../extensions/ExtensionSections";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
+import { SpecialRows } from "./SettingsSpecialRows";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SKILLS_HAND_DRAWN_FIELD, SkillsSection } from "./SkillsSection";
 import { SubagentsSection } from "./SubagentsSection";
@@ -697,9 +698,29 @@ function SystemPending() {
 export function SettingsSection(
   props: Parameters<typeof BuiltinSettingsSection>[0],
 ) {
+  const specialBody = new Set([
+    "appearance",
+    "sessions",
+    "status",
+    "skills",
+    "mcp",
+    "subagents",
+    "providers",
+  ]).has(props.section.kind);
   return (
     <>
       <BuiltinSettingsSection {...props} />
+      {specialBody ? null : (
+        <SpecialRows
+          section={props.section.id}
+          doc={props.doc}
+          rowName={props.routeItem ?? null}
+          includeExtensions={
+            props.section.kind !== "array" || props.routeItem == null
+          }
+          nodes={{}}
+        />
+      )}
       <ExtensionFields
         section={props.section.id}
         doc={props.doc}
@@ -775,7 +796,10 @@ function BuiltinSettingsSection(props: {
     );
   if (section.kind === "appearance") {
     return (
-      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+      <AppearanceThemePicker
+        onRestartOnboarding={props.onRestartOnboarding}
+        doc={doc}
+      />
     );
   }
   if (section.kind === "extensions") return <ExtensionsSection />;
@@ -797,10 +821,18 @@ function BuiltinSettingsSection(props: {
             groups={sessionsFormGroups()}
           />
         ) : null}
-        <SessionsManager
-          {...(activeSessionId ? { activeSessionId } : {})}
-          {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
-          {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
+        <SpecialRows
+          section={section.id}
+          doc={doc}
+          nodes={{
+            manage: (
+              <SessionsManager
+                {...(activeSessionId ? { activeSessionId } : {})}
+                {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
+                {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
+              />
+            ),
+          }}
         />
       </div>
     );
@@ -1059,6 +1091,8 @@ function BuiltinSettingsSection(props: {
             ? (item) => (
                 <ProviderModelList
                   provider={item}
+                  doc={doc}
+                  rowName={String(item.name ?? "").trim()}
                   existingModels={modelIds}
                   onAddModel={(
                     id,
@@ -1098,7 +1132,16 @@ function BuiltinSettingsSection(props: {
                   }}
                 />
               )
-            : undefined
+            : (item) => (
+                <SpecialRows
+                  section={section.id}
+                  doc={doc}
+                  rowName={String(
+                    item[section.labelField ?? "name"] ?? "",
+                  ).trim()}
+                  nodes={{}}
+                />
+              )
         }
       />
     );

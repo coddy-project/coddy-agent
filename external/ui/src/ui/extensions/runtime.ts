@@ -6,8 +6,10 @@ import {
   validateField,
   validateRenderer,
   validateSection,
+  validateBlock,
   type AnySettingsField,
   type SettingsSection,
+  type SettingsBlock,
   type ToolRenderer,
   type Owned,
   type ContributionHandle,
@@ -334,6 +336,9 @@ export class ExtensionRuntime {
   readonly settingsRowAlters = new Contributions<SettingsRowAlter>(() =>
     this.publish({}),
   );
+  readonly settingsBlocks = new Contributions<SettingsBlock>(() =>
+    this.publish({}),
+  );
   readonly hookRows = new Contributions<HookContribution>(() => {
     this.publish({ hooks: this.hookRows.rows });
     this.hookSlots.refresh();
@@ -628,6 +633,8 @@ export class ExtensionRuntime {
         },
         (section) =>
           this.sections.register(entry.id, api, section, validateSection),
+        (block) =>
+          this.settingsBlocks.register(entry.id, api, block, validateBlock),
         (alter) => {
           if (!active()) throw new Error("Extension disposed");
           // The courtesy of the configuration API: a manifest that declares

@@ -34,17 +34,21 @@ import {
 import {
   ARRAY_LABEL_FIELDS,
   landmarkAnchor,
-  MCP_SECTION_ID,
   SESSIONS_CONFIG_KEY,
-  SETTINGS_TEXTS,
-  type DrawnText,
   type SectionDescriptor,
-  type SettingsTextId,
 } from "./settingsSections";
+import { SETTINGS_LANDMARKS, type SettingsLandmark } from "./settingsLandmarks";
+import {
+  buildSpecialRowPlan,
+  sanitizedSettingsRow,
+  type SpecialRowPlanItem,
+} from "./SettingsSpecialRows";
+import type { Owned, SettingsBlock } from "../extensions/contributions";
 import { skillsFormGroups } from "./SkillsSection";
 import { subagentsFormGroups } from "./SubagentsSection";
-import { translate } from "../i18n/i18n";
-import { notificationsShown } from "../pwa/NotificationsSetting";
+
+export { SETTINGS_LANDMARKS } from "./settingsLandmarks";
+export type { SettingsLandmark } from "./settingsLandmarks";
 
 export const SETTINGS_SEARCH_LIMIT = 50;
 /** How much of a description shows before the word that matched. */
@@ -293,61 +297,6 @@ export function descriptionLine(
   return `…${text.slice(start)}`;
 }
 
-export type SettingsLandmark = {
-  section: string;
-  id: string;
-  /** The heading and its (i): a key of SETTINGS_TEXTS. */
-  heading: SettingsTextId;
-  keyPath?: string;
-  place: "before" | "after";
-  /** The block's own predicate: false where the tab does not draw it. */
-  shown?: () => boolean;
-  /** Present for a block of a list's row form; says whether this row draws it. */
-  row?: (row: Record<string, unknown>) => boolean;
-};
-
-/** A block a tab draws by hand: its heading and the (i), not what is below it. */
-function landmark(
-  section: string,
-  id: string,
-  heading: SettingsTextId,
-  place: "before" | "after",
-  more: Partial<Pick<SettingsLandmark, "keyPath" | "shown" | "row">> = {},
-): SettingsLandmark {
-  return { section, id, heading, place, ...more };
-}
-
-export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
-  landmark("appearance", "theme", "appearanceTheme", "before"),
-  landmark("appearance", "simple", "appearanceSimple", "before"),
-  landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
-  landmark("appearance", "language", "appearanceLanguage", "before"),
-  landmark("appearance", "notifications", "appearanceNotifications", "before", {
-    shown: notificationsShown,
-  }),
-  landmark("sessions_manager", "manage", "sessionsManage", "after"),
-  // The four blocks the System tab always draws; the charts and the provider
-  // rows depend on the build and have no anchor, and no value of the status
-  // document is indexed.
-  landmark("status", "installation", "systemInstallation", "before"),
-  landmark("status", "subsystems", "systemSubsystems", "before"),
-  landmark("status", "disk", "systemDisk", "before"),
-  landmark("status", "activity", "systemActivity", "before"),
-  landmark(MCP_SECTION_ID, "discovery", "mcpDiscovery", "before", {
-    keyPath: "mcp.project_trust",
-  }),
-  landmark(MCP_SECTION_ID, "servers", "mcpServers", "before"),
-  landmark("skills", "auto_discovery", "skillsAutoDiscovery", "before", {
-    keyPath: "skills.auto_discovery",
-  }),
-  landmark("skills", "marketplaces", "skillsMarketplaces", "after"),
-  landmark("skills", "installed", "skillsInstalled", "after"),
-  landmark("subagents", "catalog", "subagentsCatalog", "after"),
-  landmark("providers", "models", "providerModels", "after", {
-    row: () => true,
-  }),
-];
-
 type PlainObject = Record<string, unknown>;
 
 function asObject(v: unknown): PlainObject {
@@ -370,15 +319,15 @@ function rowLabel(row: unknown, field: string): string {
 }
 
 /**
- * What the index reads from the document: the trimmed row names of the two
- * lists and a provider's type. The index is rebuilt when this changes only.
+ * What the index reads from the document: row names and the public row metadata
+ * a SettingsBlock match can read. Secret edits do not rebuild the index.
  */
 export function settingsIndexRowsKey(doc: PlainObject): string {
   return JSON.stringify(
     Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
       asArray(doc[key]).map((row) => [
         rowLabel(row, field),
-        key === "providers" ? text(asObject(row)["type"]) : "",
+        sanitizedSettingsRow(row),
       ]),
     ),
   );
@@ -558,30 +507,49 @@ function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
   }
 }
 
-function landmarkEntries(
+function specialEntries(
   out: SettingsSearchEntry[],
   section: SectionDescriptor,
+  doc: PlainObject,
   landmarks: readonly SettingsLandmark[],
+  blocks: readonly Owned<SettingsBlock>[],
+  alters: readonly SettingsRowAlter[],
+  includeExtensions: boolean,
   row: string | null,
 ): void {
-  for (const l of landmarks) {
-    if (l.shown !== undefined && !l.shown()) {
-      continue;
-    }
-    const text: DrawnText = SETTINGS_TEXTS[l.heading];
-    out.push(
-      makeSearchEntry({
-        kind: "landmark",
-        section: section.id,
-        row,
-        anchor: landmarkAnchor(l.section, l.id),
-        names: [text.label === undefined ? l.id : translate(text.label)],
-        descriptions: text.desc === undefined ? [] : [translate(text.desc)],
-        where: row === null ? [section.label] : [section.label, row],
-        keyPath: l.keyPath,
-      }),
-    );
+  const plan = buildSpecialRowPlan({
+    section: section.id,
+    doc,
+    rowName: row,
+    landmarks,
+    blocks,
+    alters,
+    includeExtensions,
+  });
+  for (const item of plan) {
+    out.push(specialSearchEntry(item, section, row));
   }
+}
+
+function specialSearchEntry(
+  item: SpecialRowPlanItem,
+  section: SectionDescriptor,
+  row: string | null,
+): SettingsSearchEntry {
+  const landmark =
+    item.source.type === "landmark" ? item.source.landmark : undefined;
+  return makeSearchEntry({
+    kind: landmark === undefined ? "block" : "landmark",
+    section: section.id,
+    row,
+    anchor: landmarkAnchor(section.id, item.descriptor.id),
+    names: [item.descriptor.label],
+    descriptions: item.descriptor.description
+      ? [item.descriptor.description]
+      : [],
+    where: row === null ? [section.label] : [section.label, row],
+    keyPath: landmark?.keyPath,
+  });
 }
 
 type TabForms = {
@@ -695,9 +663,12 @@ export function buildSettingsSearchIndex(input: {
   schema: JsonSchema | null;
   doc: PlainObject;
   rowAlters?: readonly SettingsRowAlter[];
+  blocks?: readonly Owned<SettingsBlock>[];
 }): SettingsSearchEntry[] {
   const out: SettingsSearchEntry[] = [];
   const props = input.schema?.properties ?? {};
+  const alters = input.rowAlters ?? [];
+  const registeredBlocks = input.blocks ?? [];
 
   for (const section of input.sections) {
     out.push(
@@ -708,18 +679,51 @@ export function buildSettingsSearchIndex(input: {
         descriptions: section.description ? [section.description] : [],
       }),
     );
-    const generated = tabForms(section, props, input.doc);
-    if (generated === null) {
-      continue;
-    }
     const tab = [section.label];
     const landmarks = SETTINGS_LANDMARKS.filter(
       (l) => l.section === section.id,
     );
-    const blocks = (place: "before" | "after") =>
+    const rootLandmarks = (place: "before" | "after") =>
       landmarks.filter((l) => l.row === undefined && l.place === place);
+    const before = rootLandmarks("before");
+    const after = rootLandmarks("after");
+    // A slot is the reorder boundary. Extension blocks join the one slot a
+    // special section draws them in, never a second copy on the other side of
+    // its generated form.
+    const extensionsBefore = before.length > 0 && after.length === 0;
+    const generated = tabForms(section, props, input.doc);
+    if (generated === null) {
+      // Skills and Subagents draw an error instead of their special body when
+      // the schema is absent. Ordinary schema sections can still host blocks.
+      if (
+        section.kind !== "skills" &&
+        section.kind !== "subagents" &&
+        section.id !== "providers"
+      ) {
+        specialEntries(
+          out,
+          section,
+          input.doc,
+          [],
+          registeredBlocks,
+          alters,
+          true,
+          null,
+        );
+      }
+      continue;
+    }
 
-    landmarkEntries(out, section, blocks("before"), null);
+    specialEntries(
+      out,
+      section,
+      input.doc,
+      before,
+      registeredBlocks,
+      alters,
+      extensionsBefore,
+      null,
+    );
     for (const { form, value } of generated.forms) {
       walkForm(
         {
@@ -727,7 +731,7 @@ export function buildSettingsSearchIndex(input: {
           section,
           form,
           row: null,
-          rowAlters: input.rowAlters ?? [],
+          rowAlters: alters,
         },
         value,
         tab,
@@ -753,19 +757,33 @@ export function buildSettingsSearchIndex(input: {
           section,
           form: generated.rows!,
           row: label,
-          rowAlters: input.rowAlters ?? [],
+          rowAlters: alters,
         },
         row,
         [...tab, label],
       );
-      landmarkEntries(
+      const rowLandmarks = landmarks.filter((l) => l.row !== undefined);
+      specialEntries(
         out,
         section,
-        landmarks.filter((l) => l.row?.(row) === true),
+        input.doc,
+        rowLandmarks,
+        registeredBlocks,
+        alters,
+        true,
         label,
       );
     }
-    landmarkEntries(out, section, blocks("after"), null);
+    specialEntries(
+      out,
+      section,
+      input.doc,
+      after,
+      registeredBlocks,
+      alters,
+      !extensionsBefore && section.id !== "providers",
+      null,
+    );
   }
   return out;
 }

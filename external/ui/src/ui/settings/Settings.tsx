@@ -35,6 +35,7 @@ import {
 } from "./settingsSearch";
 import { revealWhenReady } from "./settingsReveal";
 import { overrideTexts, SettingsSection } from "./SettingsSection";
+import { useSettingsBlocks } from "./SettingsSpecialRows";
 import {
   SettingsRowAlterContext,
   useSettingsRowAlters,
@@ -362,6 +363,7 @@ export function Settings(props: {
   const extensionSections = useExtensionSettingsSections();
   const sectionAlters = useSettingsSectionAlters();
   const rowAlters = useSettingsRowAlters();
+  const settingsBlocks = useSettingsBlocks();
   const rowAlterContext = useMemo(
     () => ({ alters: rowAlters, texts: overrideTexts }),
     [rowAlters],
@@ -444,12 +446,20 @@ export function Settings(props: {
   const statusOpen =
     (isMobileShell ? mobileSection : activeSection)?.kind === "status";
 
-  // Editing a value never rebuilds the index, only the row names do.
+  // Editing outside a list never rebuilds the index; row names and public row
+  // metadata do, because a declarative block's match can depend on them.
   const rowsKey = settingsIndexRowsKey(doc);
   const index = useMemo(
-    () => buildSettingsSearchIndex({ sections, schema, doc, rowAlters }),
+    () =>
+      buildSettingsSearchIndex({
+        sections,
+        schema,
+        doc,
+        rowAlters,
+        blocks: settingsBlocks,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sections, schema, rowsKey, locale, rowAlters],
+    [sections, schema, rowsKey, locale, rowAlters, settingsBlocks],
   );
 
   // A trip to a setting: a result opened or an address that names one. Each

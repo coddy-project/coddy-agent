@@ -22,6 +22,10 @@ import { extensionThemeRegistry } from "../extensions/themeRegistry";
 import { NotificationsSetting } from "../pwa/NotificationsSetting";
 import { BackdropSettings } from "./BackdropSettings";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
+import {
+  SpecialRows,
+  useSpecialRowLabel,
+} from "../settings/SettingsSpecialRows";
 import type { Owned, SettingsBlock } from "../extensions/contributions";
 
 /** Accent colours shown in each built-in theme's swatch. */
@@ -138,6 +142,11 @@ export function AppearanceLanguagePicker() {
     })),
   ];
 
+  const label = useSpecialRowLabel(
+    "language",
+    t(SETTINGS_TEXTS.appearanceLanguage.label),
+  );
+
   return (
     <div
       className="appearance-lang-block"
@@ -148,7 +157,7 @@ export function AppearanceLanguagePicker() {
         className="appearance-section-label"
         htmlFor="appearance-language-select"
       >
-        {t(SETTINGS_TEXTS.appearanceLanguage.label)}
+        {label}
       </label>
       <div className="appearance-language-select-wrap">
         <select
@@ -196,16 +205,15 @@ export function AppearanceThemePicker(props: {
   const pick = useCallback((id: UiThemeMode) => {
     void extensionThemeRegistry.apply(id);
   }, []);
+  const themeHeading = useSpecialRowLabel(
+    "theme",
+    t(SETTINGS_TEXTS.appearanceTheme.label),
+  );
 
-  return (
-    <div
-      className="appearance-sheet-body"
-      data-testid="appearance-theme-picker"
-    >
+  const nodes = {
+    theme: (
       <div data-settings-anchor={landmarkAnchor("appearance", "theme")}>
-        <p className="appearance-section-label">
-          {t(SETTINGS_TEXTS.appearanceTheme.label)}
-        </p>
+        <p className="appearance-section-label">{themeHeading}</p>
         <div
           className="appearance-swatch-grid"
           role="group"
@@ -235,10 +243,26 @@ export function AppearanceThemePicker(props: {
           ))}
         </div>
       </div>
-      <SimpleModeSetting />
-      <BackdropSettings />
-      <AppearanceLanguagePicker />
-      <NotificationsSetting />
+    ),
+    simple: <SimpleModeSetting />,
+    wallpaper: <BackdropSettings />,
+    language: <AppearanceLanguagePicker />,
+    notifications: <NotificationsSetting />,
+  };
+
+  return (
+    <div
+      className="appearance-sheet-body"
+      data-testid="appearance-theme-picker"
+    >
+      <SpecialRows
+        section="appearance"
+        doc={props.doc ?? {}}
+        nodes={nodes}
+        {...(props.settingsBlocks === undefined
+          ? {}
+          : { blocks: props.settingsBlocks })}
+      />
       {props.onRestartOnboarding ? (
         <div className="appearance-onboarding">
           <p className="settings-field-desc">{t("onboarding.restartHint")}</p>

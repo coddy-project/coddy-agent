@@ -123,6 +123,19 @@ func TestExtensionContributionsFeature(t *testing.T) {
 			}
 			return runVitestScenario("src/ui/extensions/themeRegistry.test.ts", "ExtensionThemeRegistry falls back to dark and rewrites the cookie when the selection is revoked")
 		})
+		sc.Step(`^a special block matching neuraldeep and an uptime API answer$`, func() {})
+		sc.Step(`^the provider row mounts the block$`, func() {})
+		sc.Step(`^it renders current status and daily history through the server proxy$`, func() error {
+			return runVitestScenario("src/ui/extensions/neuraldeepStabilityExample.test.js", "the NeuralDeep stability example matches only neuraldeep and renders uptime through the server proxy")
+		})
+		sc.Step(`^Appearance landmarks and a provider-row extension block$`, func() {})
+		sc.Step(`^alter passes hide, retitle and reorder special rows$`, func() {})
+		sc.Step(`^drawing and search agree and provider metadata stays sanitized$`, func() error {
+			if err := runVitestScenario("src/ui/settings/SettingsSpecialRows.test.tsx", "special Settings rows Appearance hides, retitles and reorders identically in drawing and search"); err != nil {
+				return err
+			}
+			return runVitestScenario("src/ui/settings/SettingsSpecialRows.test.tsx", "special Settings rows provider-row blocks receive only sanitized row metadata in matching, mounting and search")
+		})
 	}}
 	if suite.Run() != 0 {
 		t.Fatal("extension contributions feature failed")
