@@ -65,3 +65,54 @@ func contains(have []string, want string) bool {
 	}
 	return false
 }
+
+// The same tag set, in the five places the build reads it from.
+//
+// Two of them derive from FULL_TAGS (PKG_TAGS, LINT_TAGS_NO_UI); the four
+// below are written out by hand, in their own order and their own syntax, and
+// nothing but this test holds them to it. A release built without `desktop`,
+// or an image built with a tag the release does not carry, is a `coddy` that
+// is not the same program depending on where it came from - which is the
+// promise the Makefile makes at FULL_TAGS.
+func TestEveryBuildNamesTheSameTags(t *testing.T) {
+	full := makeVariable(t, "FULL_TAGS")
+	for _, place := range []struct {
+		name string
+		file string
+		re   string
+	}{
+		{"the container image", "../../Dockerfile", `(?m)^ARG BUILD_TAGS=(.*)$`},
+		{"the release binaries", "../../.github/workflows/release-binaries.yaml", `(?m)^\s*GO_BUILD_TAGS:\s*"([^"]*)"`},
+		{"the published image", "../../.github/workflows/docker-build-push.yaml", `(?m)^\s*BUILD_TAGS:\s*"([^"]*)"`},
+		{"the Homebrew formula", "../../packaging/homebrew/coddy-formula.rb.tmpl", `(?m)^\s*tags = %w\[([^\]]*)\]`},
+	} {
+		b, err := os.ReadFile(place.file)
+		if err != nil {
+			t.Errorf("reading %s: %v", place.file, err)
+			continue
+		}
+		m := regexp.MustCompile(place.re).FindSubmatch(b)
+		if m == nil {
+			t.Errorf("%s (%s) names no tag list this test can read", place.name, place.file)
+			continue
+		}
+		got := strings.FieldsFunc(string(m[1]), func(r rune) bool { return r == ',' || r == ' ' })
+		if !sameTags(got, full) {
+			t.Errorf("%s (%s) builds %v, and the shipped set is %v", place.name, place.file, got, full)
+		}
+	}
+}
+
+// sameTags compares two tag lists as sets: the order differs from one file to
+// the next and means nothing to the compiler.
+func sameTags(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, tag := range a {
+		if !contains(b, tag) {
+			return false
+		}
+	}
+	return true
+}

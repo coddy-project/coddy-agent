@@ -63,6 +63,9 @@ func chordKeys() []chordKey {
 		// to the beginning and every chat with it. Taken, it reloads the one
 		// chat in front.
 		{keysym: keysymR, chord: chordReloadTab},
+		// Ctrl+Shift+R is the hard reload of every browser, and a person who
+		// reaches for it means the chat in front, not the strip around it.
+		{keysym: keysymR, shift: true, chord: chordReloadTab},
 		{keysym: keysymTab, chord: chordNextTab},
 		{keysym: keysymTab, shift: true, chord: chordPrevTab},
 	}

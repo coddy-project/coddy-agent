@@ -365,6 +365,10 @@
     const startY = e.screenY;
     let dragging = false;
     let began = false;
+    // The start of the gesture, once asked for: everything that ends it waits
+    // on this, so a release while it is still in flight cannot leave the
+    // window thinking a drag is open.
+    let begun = null;
     let pending = null;
     let frame = 0;
 
@@ -379,7 +383,7 @@
       if (!began || !pending) return;
       const [dx, dy] = pending;
       pending = null;
-      askWindow("move-by", { x: dx, y: dy });
+      return askWindow("move-by", { x: dx, y: dy });
     };
 
     const onMove = (m) => {
@@ -396,11 +400,12 @@
         // Where the pointer took hold, so a window the window manager has
         // pinned - maximised, or tiled against an edge - can be let loose and
         // put back under the pointer instead of jumping out from under it.
-        askWindow("move-begin", { x: startX, y: startY }).then((ok) => {
+        begun = askWindow("move-begin", { x: startX, y: startY }).then((ok) => {
           began = ok;
           // The pointer has been moving while this was in flight, and the last
           // place it reached is where the window belongs.
           if (ok && pending && !frame) frame = requestAnimationFrame(send);
+          return ok;
         });
       }
       // One move per frame: a pointer reports far more often than a window
@@ -411,8 +416,19 @@
 
     const stop = () => {
       if (frame) cancelAnimationFrame(frame);
-      send();
-      if (dragging) askWindow("move-end");
+      // The gesture is ended in the order it was made: after the start it was
+      // waiting on, and after the last move it asked for. Three independent
+      // requests would be delivered in any order the browser liked - the last
+      // move answered 409 because the gesture was already closed, or a
+      // move-begin landing after the end and leaving one open for good.
+      if (begun) {
+        begun
+          .then(() => send())
+          .then(() => askWindow("move-end"))
+          .catch(() => {
+            /* the window is gone, and so is the drag */
+          });
+      }
       zone.removeEventListener("pointermove", onMove);
       zone.removeEventListener("pointerup", stop);
       zone.removeEventListener("pointercancel", stop);

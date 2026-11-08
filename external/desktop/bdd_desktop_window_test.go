@@ -105,6 +105,11 @@ type windowState struct {
 	servedAddr string
 	served     bool
 	serveEnded bool
+	// serveDone is closed when the stand-in pipeline of this scenario has
+	// returned. Cancelling its context only asks it to stop, and a scenario
+	// that reset the state while the goroutine was still writing it raced
+	// under -race -count=3.
+	serveDone chan struct{}
 
 	runErr  chan error
 	ln      net.Listener
@@ -152,9 +157,12 @@ func (s *windowState) reset(t *testing.T) {
 	s.home = t.TempDir()
 	s.recordPath = filepath.Join(t.TempDir(), "argv")
 	s.closePath = filepath.Join(t.TempDir(), "closed")
+	s.mu.Lock()
 	s.servedAddr = ""
 	s.served = false
 	s.serveEnded = false
+	s.serveDone = nil
+	s.mu.Unlock()
 	s.runErr = nil
 	s.lastCfg = nil
 	s.left = nil
@@ -168,6 +176,18 @@ func (s *windowState) stop() {
 	if s.cancel != nil {
 		s.cancel()
 		s.cancel = nil
+	}
+	// Wait for the stand-in to return before anything is reset: the run it
+	// belongs to is over, but its goroutine is not, and the next scenario
+	// would write the fields it is still writing.
+	s.mu.Lock()
+	done := s.serveDone
+	s.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+		}
 	}
 	if s.srv != nil {
 		_ = s.srv.Close()
@@ -532,6 +552,12 @@ func (s *windowState) serveStandIn(ctx context.Context, addr string) error {
 	s.servedAddr = addr
 	s.served = true
 	s.mu.Unlock()
+
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.serveDone = done
+	s.mu.Unlock()
+	defer close(done)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

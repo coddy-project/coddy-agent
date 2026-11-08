@@ -49,9 +49,17 @@ description: |
 recommends:
   - chromium
 
-# The program the menu entry starts.
-depends:
-  - coddy
+# The program the menu entry starts, and not just any version of it: `coddy
+# desktop` is a verb this release added, and an older `coddy` answers it with
+# an unknown command - a launcher entry that fails silently. deb and rpm spell
+# the relation differently, so each is set on its own.
+overrides:
+  deb:
+    depends:
+      - coddy (>= ${PKG_VERSION})
+  rpm:
+    depends:
+      - coddy >= ${PKG_VERSION}
 
 contents:
   # The menu entry: this is what puts Coddy in the application launcher.

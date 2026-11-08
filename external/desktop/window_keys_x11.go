@@ -22,10 +22,16 @@ import (
 // evdev map are used instead, which is where 't' and 'w' sit on every
 // ordinary keyboard.
 
-// evdevChordKeycodes are the keycodes of T and W on the Linux evdev keyboard
-// map (KEY_T and KEY_W, offset by the eight X reserves), used only when the
-// layout names no Latin letter at all.
-var evdevChordKeycodes = map[uint32]xproto.Keycode{keysymT: 28, keysymW: 25}
+// evdevChordKeycodes are the keycodes of the Latin letters of the chords on
+// the Linux evdev keyboard map (KEY_T, KEY_W and KEY_R, each offset by the
+// eight X reserves), used only when the layout names no Latin letter at all.
+// Tab needs no entry: every keyboard map names XK_Tab.
+//
+// A letter of chordKeys missing from here is a chord that is taken on an
+// ordinary layout and handed back to the browser on a Russian-only one, which
+// is the layout this table exists for; TestEveryLetterChordHasAnEvdevKeycode
+// is what keeps the two in step.
+var evdevChordKeycodes = map[uint32]xproto.Keycode{keysymT: 28, keysymW: 25, keysymR: 27}
 
 // deliverChord hands a key that was taken to whoever asked for the grab.
 func (c *x11Control) deliverChord(name string) {
