@@ -97,6 +97,32 @@ func TestExtensionContributionsFeature(t *testing.T) {
 			}
 			return runVitestScenario("src/ui/extensions/browserNetwork.test.ts", "webSocket closes on lifetime abort and removes every abort listener")
 		})
+		sc.Step(`^an enabled extension with a stylesheet$`, func() {})
+		sc.Step(`^the initial extension load starts$`, func() {})
+		sc.Step(`^the stylesheet is installed before the app mounts, without waiting for activation$`, func() error {
+			return runVitestScenario("src/ui/extensions/ExtensionsProvider.test.tsx", "the first App commit waits for extension CSS, not module activation")
+		})
+		sc.Step(`^host and extension controls in the composer$`, func() {})
+		sc.Step(`^an alter pass retitles, reorders and hides entries by namespaced key$`, func() {})
+		sc.Step(`^the mixed control list follows the pass and conditional controls stay live$`, func() error {
+			return runVitestScenario("src/ui/chat/Composer.extensions.test.tsx", "composer host controls in the extension pipeline mixed controls alter by namespaced key and follow conditional props")
+		})
+		sc.Step(`^nested schema-driven Settings rows and row alter passes$`, func() {})
+		sc.Step(`^a pass hides, retitles and reorders rows$`, func() {})
+		sc.Step(`^drawing and search agree and configuration values stay untouched$`, func() error {
+			if err := runVitestScenario("src/ui/extensions/settingsRowAlter.test.tsx", "Settings row alter passes hide removes a nested row and its search entry without deleting its value"); err != nil {
+				return err
+			}
+			return runVitestScenario("src/ui/extensions/settingsRowAlter.test.tsx", "Settings row alter passes retitle and reorder apply to nested objects and list item fields")
+		})
+		sc.Step(`^an enabled package with a manifest theme and its CSS$`, func() {})
+		sc.Step(`^the operator selects the theme and the package disappears$`, func() {})
+		sc.Step(`^the dynamic theme applies and the app falls back to the built-in dark theme$`, func() error {
+			if err := runVitestScenario("src/ui/extensions/themeRegistry.test.ts", "ExtensionThemeRegistry applies another dynamic theme on demand and removes it for a built-in"); err != nil {
+				return err
+			}
+			return runVitestScenario("src/ui/extensions/themeRegistry.test.ts", "ExtensionThemeRegistry falls back to dark and rewrites the cookie when the selection is revoked")
+		})
 	}}
 	if suite.Run() != 0 {
 		t.Fatal("extension contributions feature failed")

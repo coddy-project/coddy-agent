@@ -4,27 +4,61 @@ import type { ExtensionAnchorName } from "./anchors";
 
 /** An empty box of the host surface an extension may draw into. It registers
  * itself with the anchor registry on mount and clears on unmount, so
- * `ui.anchor(name)` and `ui.onAnchor` see the surface come and go. */
+ * `ui.anchor(name)` and `ui.onAnchor` see the surface come and go.
+ *
+ * Composer control anchors also attach the registered-control host. The mixed
+ * composer pipeline can give one control its own box (`controlKey`) and keep
+ * the generic anchor out of the registry (`registerAnchor: false`). */
 export function ExtensionAnchor(props: {
   name: ExtensionAnchorName;
   className?: string;
+  controlKey?: string;
+  registerAnchor?: boolean;
+  mountComposerControls?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const runtime = useExtensions()?.runtime;
-  const { name, className } = props;
+  const {
+    name,
+    className,
+    controlKey,
+    registerAnchor = true,
+    mountComposerControls = true,
+  } = props;
   useEffect(() => {
     const el = ref.current;
     if (!el || !runtime) return;
-    runtime.anchors.attach(name, el);
-    return () => runtime.anchors.detach(name, el);
-  }, [name, runtime]);
+    if (registerAnchor) runtime.anchors.attach(name, el);
+    const controller = new AbortController();
+    const composerPlacement =
+      name === "composer.actions"
+        ? "actions"
+        : name === "composer.tabs"
+          ? "tabs"
+          : null;
+    const attached =
+      mountComposerControls && composerPlacement
+        ? runtime.composerHost.attach(
+            composerPlacement,
+            el,
+            controller.signal,
+            controlKey,
+          )
+        : null;
+    return () => {
+      attached?.remove();
+      controller.abort();
+      if (registerAnchor) runtime.anchors.detach(name, el);
+    };
+  }, [controlKey, mountComposerControls, name, registerAnchor, runtime]);
   return (
     <div
       ref={ref}
       className={
         className ? `extension-anchor ${className}` : "extension-anchor"
       }
-      data-extension-anchor={name}
+      data-extension-anchor={registerAnchor ? name : undefined}
+      data-extension-composer-control={controlKey}
     />
   );
 }

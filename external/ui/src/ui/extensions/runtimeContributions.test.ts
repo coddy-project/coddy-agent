@@ -393,6 +393,45 @@ describe("the widened extension API", () => {
     expect(runtime.settingsAlters.rows).toHaveLength(0);
   });
 
+  test("alterRows needs the ui.alter scope and rewrites schema rows", async () => {
+    setup();
+    const plain = await activateOne(() => {});
+    expect(() => plain.api.settings.alterRows((rows) => rows)).toThrow(
+      /ui\.alter/,
+    );
+    plain.runtime.stop();
+
+    let handle!: { remove: () => void };
+    const { runtime } = await activateOne(
+      (api) => {
+        handle = api.settings.alterRows((rows, { section }) =>
+          section === "agent"
+            ? rows.filter((row) => row.id !== "legacy")
+            : rows,
+        );
+      },
+      {},
+      ["ui.page", "ui.alter"],
+    );
+    expect(runtime.settingsRowAlters.rows).toHaveLength(1);
+    const out = runtime.settingsRowAlters.rows[0]!.run(
+      [
+        {
+          section: "agent",
+          id: "legacy",
+          path: "legacy",
+          label: "Legacy",
+          kind: "field",
+          type: "string",
+        },
+      ],
+      { section: "agent" },
+    );
+    expect(out).toEqual([]);
+    handle.remove();
+    expect(runtime.settingsRowAlters.rows).toHaveLength(0);
+  });
+
   test("models.list reads the catalog and freezes every row", async () => {
     setup();
     // The stub goes in before the activation: extensionModels keeps the

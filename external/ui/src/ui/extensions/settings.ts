@@ -9,6 +9,8 @@ import {
   noteSettingsConfigSaved,
 } from "../settings/settingsConfigStore";
 
+import type { SettingsRowAlter, SettingsRowAlterFn } from "./settingsRowAlter";
+
 /** One Settings tab as an alter pass sees it. */
 export type SettingsSectionDescriptor = Readonly<{
   id: string;
@@ -37,6 +39,9 @@ export type ExtensionSettingsAPI = {
   alterSections: (
     pass: SettingsSectionAlterFn,
   ) => ContributionHandle<SettingsSectionAlter>;
+  /** Rewrites the rows of a schema-driven Settings section before the form
+   * and its search index draw them. Needs the `ui.alter` scope. */
+  alterRows: (pass: SettingsRowAlterFn) => ContributionHandle<SettingsRowAlter>;
   get: (id: string) => Promise<SettingValue | undefined>;
   set: (id: string, value: SettingValue | null) => Promise<void>;
 };
@@ -65,6 +70,7 @@ export function extensionSettings(
   registerField: ExtensionSettingsAPI["registerField"],
   registerSection: ExtensionSettingsAPI["registerSection"],
   alterSections: ExtensionSettingsAPI["alterSections"],
+  alterRows: ExtensionSettingsAPI["alterRows"],
   fields: () => AnySettingsField[],
 ): ExtensionSettingsAPI {
   let pending = Promise.resolve();
@@ -82,6 +88,7 @@ export function extensionSettings(
     registerField,
     registerSection,
     alterSections,
+    alterRows,
     async get(id) {
       const doc = await read();
       const values = ownerValues(doc, owner);

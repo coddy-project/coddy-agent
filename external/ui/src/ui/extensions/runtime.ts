@@ -46,6 +46,7 @@ import { extensionTasks, type ExtensionTasksAPI } from "./tasks";
 import { extensionModels, type ExtensionModelsAPI } from "./models";
 import { extensionProviders, type ExtensionProvidersAPI } from "./providers";
 import type { SettingsSectionAlter } from "./settings";
+import type { SettingsRowAlter } from "./settingsRowAlter";
 import { submitPermissionChoice } from "../chat/permissionSubmit";
 import { extensionNav, type ExtensionNavAPI, type NavScreen } from "./nav";
 import { chatBridge, type ChatStatus } from "./chatBridge";
@@ -79,6 +80,7 @@ import {
   type HookSlotHandle,
 } from "./hooks";
 import { engineInfo } from "./compat";
+import { ExtensionStylePreloader } from "./stylePreloader";
 import { readAppliedUiLocale } from "../i18n/uiLocale";
 
 export type ExtensionEntry = {
@@ -275,6 +277,9 @@ export class ExtensionRuntime {
     string,
     { digest: string; controller: AbortController; dispose: (() => void)[] }
   >();
+  readonly stylePreloader = new ExtensionStylePreloader(
+    () => engineInfo().tier === "legacy",
+  );
   private state: RuntimeSnapshot = {
     pages: [],
     menu: [],
@@ -324,6 +329,9 @@ export class ExtensionRuntime {
     },
   );
   readonly settingsAlters = new Contributions<SettingsSectionAlter>(() =>
+    this.publish({}),
+  );
+  readonly settingsRowAlters = new Contributions<SettingsRowAlter>(() =>
     this.publish({}),
   );
   readonly hookRows = new Contributions<HookContribution>(() => {
@@ -434,6 +442,7 @@ export class ExtensionRuntime {
   }
   stop() {
     for (const id of this.lifetimes.keys()) this.dispose(id);
+    this.stylePreloader.clear();
   }
   /** Reconciles what is installed with what is running. retryFailed asks again
    * for the ones a previous attempt failed, which only an explicit user action
@@ -631,6 +640,24 @@ export class ExtensionRuntime {
             throw new Error("alterSections needs the ui.alter scope");
           this.alterSeq += 1;
           return this.settingsAlters.register(
+            entry.id,
+            api,
+            { id: `alter-${this.alterSeq}`, run: alter },
+            () => {},
+          );
+        },
+        (alter) => {
+          if (!active()) throw new Error("Extension disposed");
+          if (typeof alter !== "function")
+            throw new Error("alterRows needs a function");
+          if (
+            entry.permissions &&
+            entry.permissions.length > 0 &&
+            !entry.permissions.includes("ui.alter")
+          )
+            throw new Error("alterRows needs the ui.alter scope");
+          this.alterSeq += 1;
+          return this.settingsRowAlters.register(
             entry.id,
             api,
             { id: `alter-${this.alterSeq}`, run: alter },
@@ -970,18 +997,30 @@ export class ExtensionRuntime {
         .join("");
       if (hex !== entry.entry_sha256)
         throw new Error("JavaScript digest mismatch");
-      for (const path of entry.ui.styles ?? []) {
-        const css = await assetText(path);
-        if (!active()) return;
-        const style = document.createElement("style");
-        style.dataset.ext = entry.id;
-        style.textContent = css;
-        document.head.append(style);
+      const preloaded = await this.stylePreloader.adopt(entry);
+      if (!active()) return;
+      if (preloaded?.error) throw preloaded.error;
+      for (const style of preloaded?.ordinary ?? [])
         life.dispose.push(() => style.remove());
+      if (!preloaded) {
+        for (const path of entry.ui.styles ?? []) {
+          const css = await assetText(path);
+          if (!active()) return;
+          const style = document.createElement("style");
+          style.dataset.ext = entry.id;
+          style.textContent = css;
+          document.head.append(style);
+          life.dispose.push(() => style.remove());
+        }
       }
       // Compat styles are the overlay of a legacy engine only: on a modern
       // one the ordinary stylesheet already draws what they would correct.
-      if (engineInfo().tier === "legacy") {
+      if ((preloaded?.compat.length ?? 0) > 0)
+        this.compatStyles.set(entry.id, [
+          ...(this.compatStyles.get(entry.id) ?? []),
+          ...preloaded!.compat,
+        ]);
+      if (!preloaded && engineInfo().tier === "legacy") {
         for (const path of entry.ui.compat_styles ?? []) {
           const css = await assetText(path);
           if (!active()) return;

@@ -71,11 +71,21 @@ export function activate(coddy) {
       element.append(button);
     },
   });
-  const alter = coddy.ui.alterControls((controls) =>
-    controls.map((row) =>
-      row.id === "disco-quick" ? { ...row, title: "Disco trick" } : row,
-    ),
-  );
+  const alter = coddy.ui.alterControls((controls) => {
+    const rank = (row) =>
+      row.key === "host/mode"
+        ? 0
+        : row.key === "host/model"
+          ? 1
+          : row.key === "host/reasoning"
+            ? 2
+            : 10;
+    return controls
+      .map((row) =>
+        row.id === "disco-quick" ? { ...row, title: "Disco trick" } : row,
+      )
+      .sort((a, b) => rank(a) - rank(b));
+  });
   return () => {
     alter.remove();
     control.remove();

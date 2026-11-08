@@ -6,16 +6,22 @@
  * shown. The document is read only for the row names of the two lists.
  */
 import {
+  buildSettingsRowPlan,
   defaultForSchema,
   entriesInSchemaOrder,
+  entriesInSettingsRowOrder,
   fieldAnchor,
   groupAnchor,
   isBlockField,
   isScalarItem,
   layoutSchemaForm,
+  settingsRowLabel,
+  settingsRowVisible,
   type JsonSchema,
   type SchemaFormGroup,
+  type SettingsRowPlan,
 } from "./SchemaForm";
+import type { SettingsRowAlter } from "../extensions/settingsRowAlter";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import {
   modelFormGroups,
@@ -392,6 +398,8 @@ type Walk = {
   section: SectionDescriptor;
   form: Form;
   row: string | null;
+  rowAlters: readonly SettingsRowAlter[];
+  rowPlan?: SettingsRowPlan | null;
 };
 
 type FieldFrame = {
@@ -410,17 +418,16 @@ function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
   const box = overrideTexts(form.domain, path, parent, schema);
-  if (box === false) {
+  if (box === false || !settingsRowVisible(walk.rowPlan, path)) {
     return;
   }
   const texts = box ?? {
     primary: schemaFieldLabel(form.domain, path, schema.title, name),
     primaryDesc: schemaFieldDesc(form.domain, path, schema.description),
   };
+  const primary = settingsRowLabel(walk.rowPlan, path, texts.primary);
   const names =
-    texts.second === undefined
-      ? [texts.primary]
-      : [texts.primary, texts.second];
+    texts.second === undefined ? [primary] : [primary, texts.second];
   const anchor = fieldAnchor(form.domain, path);
   walk.out.push(
     makeSearchEntry({
@@ -448,9 +455,10 @@ function walkField(frame: FieldFrame): void {
       held !== null && typeof held === "object" && !Array.isArray(held)
         ? (held as PlainObject)
         : asObject(defaultForSchema(schema));
-    for (const [k, sub] of entriesInSchemaOrder(
-      schema.properties,
-      schema["x-coddy-property-order"],
+    for (const [k, sub] of entriesInSettingsRowOrder(
+      entriesInSchemaOrder(schema.properties, schema["x-coddy-property-order"]),
+      walk.rowPlan,
+      path,
     )) {
       walkField({
         ...frame,
@@ -475,9 +483,10 @@ function walkField(frame: FieldFrame): void {
     items.properties !== undefined
   ) {
     const value = asObject(defaultForSchema(items));
-    for (const [k, sub] of entriesInSchemaOrder(
-      items.properties,
-      items["x-coddy-property-order"],
+    for (const [k, sub] of entriesInSettingsRowOrder(
+      entriesInSchemaOrder(items.properties, items["x-coddy-property-order"]),
+      walk.rowPlan,
+      path,
     )) {
       walkField({
         ...frame,
@@ -495,8 +504,18 @@ function walkField(frame: FieldFrame): void {
 
 function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
   const { form, section } = walk;
+  const rowPlan = buildSettingsRowPlan({
+    section: section.id,
+    domain: form.domain,
+    schema: form.schema,
+    groups: form.groups,
+    value: parent,
+    alters: walk.rowAlters,
+    texts: overrideTexts,
+  });
+  walk = { ...walk, rowPlan };
   const key = (k: string) => `${form.keyRoot}.${k}`;
-  for (const node of layoutSchemaForm(form.schema, form.groups)) {
+  for (const node of layoutSchemaForm(form.schema, form.groups, rowPlan)) {
     if (node.kind === "field") {
       walkField({
         walk,
@@ -675,6 +694,7 @@ export function buildSettingsSearchIndex(input: {
   sections: readonly SectionDescriptor[];
   schema: JsonSchema | null;
   doc: PlainObject;
+  rowAlters?: readonly SettingsRowAlter[];
 }): SettingsSearchEntry[] {
   const out: SettingsSearchEntry[] = [];
   const props = input.schema?.properties ?? {};
@@ -701,7 +721,17 @@ export function buildSettingsSearchIndex(input: {
 
     landmarkEntries(out, section, blocks("before"), null);
     for (const { form, value } of generated.forms) {
-      walkForm({ out, section, form, row: null }, value, tab);
+      walkForm(
+        {
+          out,
+          section,
+          form,
+          row: null,
+          rowAlters: input.rowAlters ?? [],
+        },
+        value,
+        tab,
+      );
     }
     const key = section.schemaKey ?? section.id;
     for (const { label, row } of generated.rows
@@ -717,10 +747,17 @@ export function buildSettingsSearchIndex(input: {
           where: tab,
         }),
       );
-      walkForm({ out, section, form: generated.rows!, row: label }, row, [
-        ...tab,
-        label,
-      ]);
+      walkForm(
+        {
+          out,
+          section,
+          form: generated.rows!,
+          row: label,
+          rowAlters: input.rowAlters ?? [],
+        },
+        row,
+        [...tab, label],
+      );
       landmarkEntries(
         out,
         section,

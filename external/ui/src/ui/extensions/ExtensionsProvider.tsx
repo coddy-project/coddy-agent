@@ -26,6 +26,8 @@ import {
 import { readAppliedUiLocale, subscribeUiLocale } from "../i18n/uiLocale";
 import "./extensions.css";
 import { parseAppHash } from "../scheduler/hashRoute";
+import { fetchExtensionAssetText } from "./stylePreloader";
+import { extensionThemeRegistry } from "./themeRegistry";
 
 export async function extensionRequest(path = "", init?: RequestInit) {
   const response = await fetch(`/coddy/extensions${path}`, init);
@@ -69,6 +71,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [page, setPage] = useState<RuntimePage | null>(null);
   const [panel, setPanel] = useState<RuntimePanel | null>(null);
+  const [stylesReady, setStylesReady] = useState(false);
   const [runtime] = useState(
     () => new ExtensionRuntime(setPage, undefined, undefined, setPanel),
   );
@@ -121,6 +124,15 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
           setEntries(body.items);
         }
         setError("");
+        // The first App commit waits for package CSS only, never for module
+        // evaluation or activate(). A broken package reports through activation
+        // later and does not keep the whole application off the screen.
+        await Promise.all([
+          runtime.stylePreloader.prepare(body.items),
+          extensionThemeRegistry.prepare(body.items, fetchExtensionAssetText),
+        ]);
+        if (current !== generation.current) return;
+        setStylesReady(true);
         const activation = runtime.reconcile(body.items, retryFailed);
         if (!startup.activation) {
           startup.activation = activation;
@@ -128,7 +140,10 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
         }
         await activation;
       } catch (e) {
-        if (current === generation.current) setError(String(e));
+        if (current === generation.current) {
+          setError(String(e));
+          setStylesReady(true);
+        }
         if (!startup.activation) startup.resolve();
       }
     },
@@ -153,6 +168,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("blur", blur);
       window.removeEventListener("beforeunload", beforeUnload);
       runtime.stop();
+      extensionThemeRegistry.clear();
     };
   }, [refresh, runtime]);
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
@@ -204,7 +220,7 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   );
   return (
     <Context.Provider value={value}>
-      {children}
+      {stylesReady ? children : null}
       {livePage ? (
         <ExtensionWindow page={livePage} onClose={() => setPage(null)} />
       ) : null}

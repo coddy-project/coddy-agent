@@ -27,6 +27,7 @@ test("SDK settings reads defaults and writes only its owner with a revision", as
     vi.fn(),
     vi.fn(),
     vi.fn(),
+    vi.fn(),
     () => [
       {
         id: "badge",

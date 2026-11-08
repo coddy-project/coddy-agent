@@ -50,9 +50,29 @@ The id uses lowercase ASCII letters, digits and hyphens, starts with a letter an
 
 `ui.entry` names one prebuilt ES module exporting `activate(coddy)`. Bundle dependencies into that file: relative imports have no base inside its blob URL. HTML and CSS may be embedded as strings in the module, or shipped as files in the ZIP. `ui.styles` lists CSS files loaded with the extension; use an extension-specific class prefix to avoid changing unrelated UI.
 
+Before the first app render, the browser fetches the enabled packages' `ui.styles` and the legacy engine's `ui.compat_styles` and installs them. Activation adopts the same nodes later, so nothing flashes or loads twice. This gate waits for CSS only, never for JavaScript evaluation or `activate()`; a stalled or broken asset gives up after five seconds and is reported on the extension card instead of holding the app off the screen.
+
 The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `ide.actions`, `kv`, `config.read`, `config.write` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
 
 The optional `ui.compat_styles` lists CSS files of the ZIP that load only on a legacy engine, layered over the ordinary styles. A modern engine never applies them; both are covered under the engine tier below.
+
+The optional top-level `themes` array adds appearance themes without JavaScript registrations:
+
+```json
+{
+  "themes": [
+    {
+      "id": "ocean",
+      "name": "Ocean",
+      "mode": "dark",
+      "styles": ["ocean.css"],
+      "swatch": { "bg": "#082f49", "accent": "#38bdf8", "text": "#e0f2fe" }
+    }
+  ]
+}
+```
+
+A theme id is lowercase and becomes `ext:<extension id>/<theme id>` in the theme cookie and `data-theme`. `name` or `title` labels the swatch (the id is the fallback), `mode` is `dark` (the default) or `light`, and `styles` lists package CSS files to apply while the theme is selected. `swatch` is optional; the registry derives one from the mode. The selected theme's CSS loads before the first app render; other themes load when picked. A removed package, a duplicate or malformed theme, or a failed selected asset returns the app to the built-in dark theme and rewrites the cookie. The browser parses and validates this field from the package's `manifest.json`; install-time Go validation is not part of this phase.
 
 An existing id cannot be overwritten. Remove the old package, install the new ZIP and approve its new digest. There is no automatic update or rollback in this version.
 
@@ -102,6 +122,7 @@ export function activate(coddy) {
 | `coddy.settings.registerField(field)` | Add a scalar or component field to a Settings section - the host's or this extension's own. Returns an update/remove handle. |
 | `coddy.settings.registerSection({id, title, weight?, mount?})` | Add a Settings section of this extension's own. Fields of the same extension may name it in `section`. |
 | `coddy.settings.alterSections(fn)` | The declare-then-alter pipeline of Settings: `fn(sections)` rewrites the tab list - hide, retitle or reorder any tab, the host's included - before the nav draws it. Needs the `ui.alter` scope. |
+| `coddy.settings.alterRows(fn)` | Rewrites schema-driven Settings rows before the form and its search index draw them: `fn(rows, {section})` receives frozen `{section, id, path, label, kind, type, description?}` descriptors and may hide, retitle or reorder them. Hand-drawn special controls stay outside the pass. Needs the `ui.alter` scope. |
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
@@ -128,7 +149,7 @@ export function activate(coddy) {
 | `coddy.composer.getMode()`, `setMode(mode)`, `getModel()`, `setModel(id)`, `getReasoning()`, `setReasoning(level)`, `getPermissionMode()` | The composer's picks - the mode (`agent`/`plan`/`ask`), the model, the reasoning level and the permission mode - read and set. |
 | `coddy.composer.onDraftChange(fn)`, `onPaste(fn)`, `onDrop(fn)` | Draft changes; a paste or drop listener that returns `true` takes the event before the host's own attachment and mention handling. |
 | `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Mounts a control into the composer - `actions` (its action row) or `tabs` (the strip of picks). Returns an `update`/`remove` handle. |
-| `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled control list - retitle, reorder, hide or drop any entry - before it renders. Needs the `ui.alter` scope; host controls join the list later. |
+| `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled host and extension control list - retitle, reorder, hide or drop any entry - before it renders. A descriptor's `key` is `host/<control>` or `<extension>/<control>`; the local `id` remains for older passes. Needs the `ui.alter` scope. |
 | `coddy.nav.currentRoute()`, `openSession(id)`, `openScreen(screen)` | Where the app is, and where an extension may take it: a conversation, or the `home`, `history`, `settings` and `scheduler` screens the rail opens. |
 | `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, parsed `activity` and generation `progress` (start, output tokens, estimate flag, tokens per second), token usage, a pending permission or question - what a status line and badges draw from. |
 | `coddy.models.list()` | The server's model catalog - the same rows Settings and the composer pickers fill themselves from - as frozen entries with `id` and what `/v1/models` reports beside it. |
@@ -264,7 +285,7 @@ coddy.ui.registerPermissionPreview({
 
 *The same page on the light theme: its swatches are painted from `coddy.theme`, its button and labels from the theme's CSS variables.*
 
-An extension's styles are injected into the app's document, so its CSS variables are the theme's colours whatever theme is active. Paint with these variables and every one of the seven themes follows.
+An extension's styles are injected into the app's document, so its CSS variables are the theme's colours whatever theme is active. Paint with these variables and every built-in or manifest theme follows.
 
 | Variable | The colour of |
 | --- | --- |
@@ -368,6 +389,8 @@ Registered fields appear below the existing section controls, grouped under the 
 An extension can own a section of its own: `coddy.settings.registerSection({id, title, weight?, mount?})` returns an update/remove handle. The id follows the field-id pattern and the title is required. The section renders after the host's sections, and `weight` orders it among the extension sections. `mount(element, api)` draws free content above the section's fields. A field of the same extension may name the section in `section`; a field of another extension may not.
 
 The tab list itself can be rewritten before it draws: `coddy.settings.alterSections(fn)` registers a pass that receives the frozen descriptors of every tab - the host's and the extensions', `{id, label, kind}` - and returns the new list. Dropping a tab hides it, returning a different `label` retitles it, and the order of the list is the order of the nav. Passes run in registration order, and a pass that throws loses only its own say. A manifest that declares permissions must name `ui.alter` in `permissions` to register a pass; the same handle removes it.
+
+Rows inside a schema-driven section follow the same pipeline through `coddy.settings.alterRows(fn)`. Each pass receives the section id and frozen row descriptors. Omitting a row or returning `visible: false` hides its whole subtree, a new `label` retitles it, and array order reorders siblings without changing their configuration paths. The form and the search index consume one ordered plan, so hidden rows are not searchable and retitles agree in both places. Nested objects, list-item fields and group membership are preserved, as are values and unsaved edits. Hand-drawn special controls and extension-mounted sections are outside this pass.
 
 A field may draw itself: `type: "component"` takes `mount(element, api, state)` instead of a scalar type, where `state` is a frozen `{value, setValue}` of the ordinary scalar value. A component field edits the same configuration draft and persists like any other field - its values are ordinary scalars in `extension_values` - and `default` is optional.
 
@@ -515,7 +538,7 @@ These seven ship as `coddy.sessions` in this build; the entries below name what 
 
 ### Composer
 
-These ship as `coddy.composer`, `registerComposerControl`, `alterControls` and the fine `composer` / `composer.model` / `composer.send` anchors; host entries in the alter list remain.
+These ship as `coddy.composer`, `registerComposerControl`, `alterControls` over host and extension entries, and the fine `composer` / `composer.model` / `composer.send` anchors.
 
 - **`registerComposerControl` and chips** - buttons and selects in the composer's action rows (section 11 of the specification) - frontend;
 - **Fine anchors** - `composer`, `composer.model`, `composer.send` beside the one `composer.actions` - frontend;
@@ -525,7 +548,7 @@ These ship as `coddy.composer`, `registerComposerControl`, `alterControls` and t
 
 ### Navigation and surfaces
 
-These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShell` and the session writes. Surfaces at once mean one panel plus modals and overlays; host entries of the alter list remain. Parsed activity, generation rate and usage feed the header and statusline anchors.
+These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShell` and the session writes. Surfaces at once mean one panel plus modals and overlays. Parsed activity, generation rate and usage feed the header and statusline anchors.
 
 - **`coddy.nav`** - `openSession`, `openScreen`, `currentRoute`; the hash router is there - frontend;
 - **`coddy.ui.openModal` and `openOverlay`** - modals, toasts, an always-on-top pet - frontend;
@@ -553,9 +576,9 @@ Surface openings and closings, window focus, unloading and the configuration swa
 
 ### Settings and configuration
 
-The tab-list alter, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; rows inside a tab remain.
+The tab-list and schema-row alters, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.settings.alterRows`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; hand-drawn special controls remain outside row alteration.
 
-- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs ship, rows remain - frontend;
+- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs and schema-driven rows ship, hand-drawn special controls remain - frontend;
 - **Complex field types** - lists and objects in the settings form - frontend, plus host persistence for non-scalar values;
 - **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
 - **The model and provider catalog** - both ship as `coddy.models.list()` and `coddy.providers` - frontend;
@@ -571,10 +594,10 @@ Direct browser streaming and WebSocket ship as `coddy.net.browserFetch` and `cod
 
 ### Theme and drawing
 
-Token contract version `1` pins both the keys `theme.tokens()` returns and the names `theme.override()` accepts.
+Token contract version `1` pins both the keys `theme.tokens()` returns and the names `theme.override()` accepts. Manifest styles preload before the first app render without waiting for activation, and manifest themes join the Appearance swatches with a dark fallback on revocation.
 
-- **Pre-paint** - extension styles land after activation and flash once; the build must place them earlier - frontend;
-- **Manifest themes** (`themes[]` of the specification) - an extension adds a theme to the switcher - frontend, plus the manifest field;
+- **Pre-paint** - the CSS-only preloader installs `ui.styles` and legacy `ui.compat_styles` before the first commit - frontend;
+- **Manifest themes** (`themes[]` of the specification) - parsed in the SPA, added to the switcher and loaded on selection; install-time Go validation remains - frontend;
 - **A frozen token contract** - the versioned shape and override allow-list ship - frontend.
 
 ### Trust

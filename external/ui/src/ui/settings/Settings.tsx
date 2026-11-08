@@ -34,7 +34,11 @@ import {
   type SettingsSearchEntry,
 } from "./settingsSearch";
 import { revealWhenReady } from "./settingsReveal";
-import { SettingsSection } from "./SettingsSection";
+import { overrideTexts, SettingsSection } from "./SettingsSection";
+import {
+  SettingsRowAlterContext,
+  useSettingsRowAlters,
+} from "../extensions/settingsRowAlter";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import { SettingsTileGrid } from "./SettingsTileGrid";
 import { RestartNotice } from "./RestartNotice";
@@ -357,6 +361,11 @@ export function Settings(props: {
   // weight their manifest-like registration asked for.
   const extensionSections = useExtensionSettingsSections();
   const sectionAlters = useSettingsSectionAlters();
+  const rowAlters = useSettingsRowAlters();
+  const rowAlterContext = useMemo(
+    () => ({ alters: rowAlters, texts: overrideTexts }),
+    [rowAlters],
+  );
   const sections = useMemo(() => {
     const base: SectionDescriptor[] = [
       ...deriveSettingsSections(schema, { relay }),
@@ -438,9 +447,9 @@ export function Settings(props: {
   // Editing a value never rebuilds the index, only the row names do.
   const rowsKey = settingsIndexRowsKey(doc);
   const index = useMemo(
-    () => buildSettingsSearchIndex({ sections, schema, doc }),
+    () => buildSettingsSearchIndex({ sections, schema, doc, rowAlters }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sections, schema, rowsKey, locale],
+    [sections, schema, rowsKey, locale, rowAlters],
   );
 
   // A trip to a setting: a result opened or an address that names one. Each
@@ -937,91 +946,130 @@ export function Settings(props: {
   );
 
   return (
-    <aside
-      ref={rootRef}
-      className="sessions settings drawer"
-      aria-label={t("settings.aria.panel")}
-      data-testid="settings-screen"
-      data-variant="drawer"
-    >
-      <div className="sessions-head">
-        {rowTitle && headSection && !showing ? (
-          <span className="settings-head-titlegroup">
-            <button
-              type="button"
-              className="settings-head-back"
-              aria-label={t("settings.array.backTo", {
-                list: headSection.label,
-              })}
-              title={t("settings.array.backTo", { list: headSection.label })}
-              data-testid="settings-head-back"
-              onClick={closeRowForm}
-            >
-              <IconArrowLeft />
-            </button>
-            <span className="settings-head-section">{rowTitle}</span>
-          </span>
-        ) : isMobileShell && (mobileSection || mobilePending) ? (
-          <span className="settings-head-titlegroup">
-            <button
-              type="button"
-              className="settings-head-back"
-              aria-label={t("settings.backToSections")}
-              title={t("settings.backToSections")}
-              data-testid="settings-head-back"
-              onClick={backToGrid}
-            >
-              <IconArrowLeft />
-            </button>
-            <span className="settings-head-section">
-              {mobileSection
-                ? mobileSection.label
-                : (knownSectionLabel(mobilePending ?? "") ?? "")}
+    <SettingsRowAlterContext.Provider value={rowAlterContext}>
+      <aside
+        ref={rootRef}
+        className="sessions settings drawer"
+        aria-label={t("settings.aria.panel")}
+        data-testid="settings-screen"
+        data-variant="drawer"
+      >
+        <div className="sessions-head">
+          {rowTitle && headSection && !showing ? (
+            <span className="settings-head-titlegroup">
+              <button
+                type="button"
+                className="settings-head-back"
+                aria-label={t("settings.array.backTo", {
+                  list: headSection.label,
+                })}
+                title={t("settings.array.backTo", { list: headSection.label })}
+                data-testid="settings-head-back"
+                onClick={closeRowForm}
+              >
+                <IconArrowLeft />
+              </button>
+              <span className="settings-head-section">{rowTitle}</span>
             </span>
-          </span>
-        ) : (
-          <span>{t("settings.title")}</span>
-        )}
-        <button
-          type="button"
-          className="sessions-close"
-          aria-label={t("settings.aria.close")}
-          data-testid="settings-drawer-close"
-          onClick={requestClose}
-        >
-          ×
-        </button>
-      </div>
-
-      {/* The status band says what went wrong, in words; a save that went
-          through says so on the Save button alone. */}
-      {copy.error || error || (savedOnce && !statusOpen && restart !== null) ? (
-        <div className="settings-lead-pane">
-          {copy.error ? (
-            <p className="settings-error">
-              {t("settings.error.failedToLoad", { error: copy.error })}
-            </p>
-          ) : null}
-          {error ? <p className="settings-error">{error}</p> : null}
-          {savedOnce && !statusOpen && restart !== null ? (
-            <RestartNotice refused={restart} address={restartAddress} />
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="settings-stack">
-        {isMobileShell ? (
-          mobileSection ? (
-            <div className="settings-mobile-detail">
-              {renderSectionBody(mobileSection)}
-            </div>
-          ) : mobilePending ? (
-            <div className="settings-mobile-detail">
-              <SettingsSkeleton />
-            </div>
+          ) : isMobileShell && (mobileSection || mobilePending) ? (
+            <span className="settings-head-titlegroup">
+              <button
+                type="button"
+                className="settings-head-back"
+                aria-label={t("settings.backToSections")}
+                title={t("settings.backToSections")}
+                data-testid="settings-head-back"
+                onClick={backToGrid}
+              >
+                <IconArrowLeft />
+              </button>
+              <span className="settings-head-section">
+                {mobileSection
+                  ? mobileSection.label
+                  : (knownSectionLabel(mobilePending ?? "") ?? "")}
+              </span>
+            </span>
           ) : (
-            <div className="settings-grid-view">
-              <div className="settings-grid-search">{searchField()}</div>
+            <span>{t("settings.title")}</span>
+          )}
+          <button
+            type="button"
+            className="sessions-close"
+            aria-label={t("settings.aria.close")}
+            data-testid="settings-drawer-close"
+            onClick={requestClose}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* The status band says what went wrong, in words; a save that went
+          through says so on the Save button alone. */}
+        {copy.error ||
+        error ||
+        (savedOnce && !statusOpen && restart !== null) ? (
+          <div className="settings-lead-pane">
+            {copy.error ? (
+              <p className="settings-error">
+                {t("settings.error.failedToLoad", { error: copy.error })}
+              </p>
+            ) : null}
+            {error ? <p className="settings-error">{error}</p> : null}
+            {savedOnce && !statusOpen && restart !== null ? (
+              <RestartNotice refused={restart} address={restartAddress} />
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="settings-stack">
+          {isMobileShell ? (
+            mobileSection ? (
+              <div className="settings-mobile-detail">
+                {renderSectionBody(mobileSection)}
+              </div>
+            ) : mobilePending ? (
+              <div className="settings-mobile-detail">
+                <SettingsSkeleton />
+              </div>
+            ) : (
+              <div className="settings-grid-view">
+                <div className="settings-grid-search">{searchField()}</div>
+                {showing ? (
+                  <SettingsSearchResults
+                    id={resultsId}
+                    search={search}
+                    index={index}
+                    onOpen={openResult}
+                  />
+                ) : (
+                  <SettingsTileGrid
+                    sections={sections}
+                    onSelect={navigateTo}
+                    placeholders={loading ? PLACEHOLDER_TABS : 0}
+                    badges={badges}
+                  />
+                )}
+              </div>
+            )
+          ) : (
+            <div className="settings-tabs-layout">
+              <SettingsNav
+                sections={sections}
+                active={showing || !activeSection ? "" : activeSection.id}
+                onSelect={navigateTo}
+                placeholders={loading ? PLACEHOLDER_TABS : 0}
+                search={searchField()}
+                badges={badges}
+              />
+              {/* The tab stays mounted under the results, hidden and deaf
+                (PaneHidden), so its edits survive a query cleared unchosen. */}
+              <PaneHidden.Provider value={showing}>
+                {activeSection ? (
+                  renderSectionBody(activeSection, showing)
+                ) : loading ? (
+                  <SettingsSkeleton />
+                ) : null}
+              </PaneHidden.Provider>
               {showing ? (
                 <SettingsSearchResults
                   id={resultsId}
@@ -1029,102 +1077,67 @@ export function Settings(props: {
                   index={index}
                   onOpen={openResult}
                 />
-              ) : (
-                <SettingsTileGrid
-                  sections={sections}
-                  onSelect={navigateTo}
-                  placeholders={loading ? PLACEHOLDER_TABS : 0}
-                  badges={badges}
-                />
-              )}
-            </div>
-          )
-        ) : (
-          <div className="settings-tabs-layout">
-            <SettingsNav
-              sections={sections}
-              active={showing || !activeSection ? "" : activeSection.id}
-              onSelect={navigateTo}
-              placeholders={loading ? PLACEHOLDER_TABS : 0}
-              search={searchField()}
-              badges={badges}
-            />
-            {/* The tab stays mounted under the results, hidden and deaf
-                (PaneHidden), so its edits survive a query cleared unchosen. */}
-            <PaneHidden.Provider value={showing}>
-              {activeSection ? (
-                renderSectionBody(activeSection, showing)
-              ) : loading ? (
-                <SettingsSkeleton />
               ) : null}
-            </PaneHidden.Provider>
-            {showing ? (
-              <SettingsSearchResults
-                id={resultsId}
-                search={search}
-                index={index}
-                onOpen={openResult}
-              />
-            ) : null}
-          </div>
-        )}
+            </div>
+          )}
 
-        <div className="scheduler-drawer-footer settings-footer-actions">
-          <ExtensionAnchor name="settings.footer" />
-          <span
-            className="settings-save-status"
-            data-testid="settings-save-status"
-          >
-            {dirty ? t("settings.status.unsaved") : ""}
-          </span>
-          <button
-            type="button"
-            className="settings-btn settings-btn-icon"
-            data-testid="settings-reload"
-            disabled={busy || reloading}
-            title={t("settings.reload.title")}
-            aria-label={t("settings.reload.aria")}
-            onClick={() => void onReload()}
-          >
-            <IconRefresh
-              className={`settings-footer-icon-svg${reloading ? " settings-icon-spin" : ""}`}
-            />
-          </button>
-          <button
-            type="button"
-            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved && !dirty ? " is-saved" : ""}${dirty ? " is-dirty" : ""}`}
-            data-testid="settings-save"
-            disabled={busy || !schema}
-            title={
-              dirty ? t("settings.save.dirtyTitle") : t("settings.save.title")
-            }
-            aria-label={
-              dirty ? t("settings.save.dirtyAria") : t("settings.save.aria")
-            }
-            onClick={() => void onSave()}
-          >
-            <IconSave className="settings-footer-icon-svg" />
-          </button>
-          {/* The green button is the whole message on screen; a screen reader
+          <div className="scheduler-drawer-footer settings-footer-actions">
+            <ExtensionAnchor name="settings.footer" />
+            <span
+              className="settings-save-status"
+              data-testid="settings-save-status"
+            >
+              {dirty ? t("settings.status.unsaved") : ""}
+            </span>
+            <button
+              type="button"
+              className="settings-btn settings-btn-icon"
+              data-testid="settings-reload"
+              disabled={busy || reloading}
+              title={t("settings.reload.title")}
+              aria-label={t("settings.reload.aria")}
+              onClick={() => void onReload()}
+            >
+              <IconRefresh
+                className={`settings-footer-icon-svg${reloading ? " settings-icon-spin" : ""}`}
+              />
+            </button>
+            <button
+              type="button"
+              className={`settings-btn settings-btn-primary settings-btn-icon${justSaved && !dirty ? " is-saved" : ""}${dirty ? " is-dirty" : ""}`}
+              data-testid="settings-save"
+              disabled={busy || !schema}
+              title={
+                dirty ? t("settings.save.dirtyTitle") : t("settings.save.title")
+              }
+              aria-label={
+                dirty ? t("settings.save.dirtyAria") : t("settings.save.aria")
+              }
+              onClick={() => void onSave()}
+            >
+              <IconSave className="settings-footer-icon-svg" />
+            </button>
+            {/* The green button is the whole message on screen; a screen reader
               hears it here. */}
-          <span className="sr-only" role="status">
-            {justSaved && !dirty ? t("settings.save.saved") : ""}
-          </span>
+            <span className="sr-only" role="status">
+              {justSaved && !dirty ? t("settings.save.saved") : ""}
+            </span>
+          </div>
         </div>
-      </div>
-      <ConfirmDialog
-        open={askClose}
-        title={t("settings.close.title")}
-        message={t("settings.close.message")}
-        confirmLabel={t("settings.close.save")}
-        cancelLabel={t("settings.close.keep")}
-        variant="primary"
-        ariaLabel={t("settings.close.title")}
-        onConfirm={() => void saveAndClose()}
-        onCancel={() => setAskClose(false)}
-        confirming={busy}
-        dataTestId="settings-close-dialog"
-      />
-    </aside>
+        <ConfirmDialog
+          open={askClose}
+          title={t("settings.close.title")}
+          message={t("settings.close.message")}
+          confirmLabel={t("settings.close.save")}
+          cancelLabel={t("settings.close.keep")}
+          variant="primary"
+          ariaLabel={t("settings.close.title")}
+          onConfirm={() => void saveAndClose()}
+          onCancel={() => setAskClose(false)}
+          confirming={busy}
+          dataTestId="settings-close-dialog"
+        />
+      </aside>
+    </SettingsRowAlterContext.Provider>
   );
 }

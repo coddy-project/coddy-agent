@@ -2,9 +2,13 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { ExtensionsProvider, useExtensions } from "./ExtensionsProvider";
 import { ExtensionRuntime } from "./runtime";
+import { extensionThemeRegistry } from "./themeRegistry";
 
 afterEach(() => {
   cleanup();
+  extensionThemeRegistry.clear();
+  document.cookie = "coddy_ui_theme=dark";
+  document.documentElement.dataset.theme = "dark";
   vi.restoreAllMocks();
 });
 
@@ -38,9 +42,9 @@ test("a poll that finds the same packages does not re-render the context", async
       <Consumer />
     </ExtensionsProvider>,
   );
-  // The first answer is the one list change this test allows.
+  // The first answer mounts the subtree once its style gate opens.
   await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-  await waitFor(() => expect(renders).toBeGreaterThanOrEqual(2));
+  await waitFor(() => expect(renders).toBeGreaterThanOrEqual(1));
   await act(async () => {});
   const settled = renders;
 
@@ -211,4 +215,101 @@ test("focus, blur and unload reach lifecycle listeners", async () => {
   });
   expect(focused).toEqual([{ focused: true }, { focused: false }]);
   expect(unloading).toEqual([{}]);
+});
+
+test("the first App commit waits for extension CSS, not module activation", async () => {
+  let releaseStyle!: () => void;
+  const styleAnswer = new Promise<Response>((resolve) => {
+    releaseStyle = () => resolve(new Response(".demo{}"));
+  });
+  const styled = {
+    ...installed,
+    enabled: true,
+    ui: { entry: "main.js", styles: ["style.css"] },
+  };
+  const fetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/assets/style.css")) return styleAnswer;
+      return new Response(JSON.stringify({ items: [styled] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  const reconcile = vi
+    .spyOn(ExtensionRuntime.prototype, "reconcile")
+    .mockResolvedValue(undefined);
+  render(
+    <ExtensionsProvider>
+      <span>application</span>
+    </ExtensionsProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/assets/style.css"),
+      ),
+    ).toBe(true),
+  );
+  expect(document.querySelector("span")).toBeNull();
+  releaseStyle();
+  await waitFor(() => expect(document.querySelector("span")).not.toBeNull());
+  expect(document.querySelector("style[data-ext='demo']")).not.toBeNull();
+  expect(reconcile).toHaveBeenCalled();
+});
+
+test("a selected manifest theme paints before the first App commit", async () => {
+  document.cookie = `coddy_ui_theme=${encodeURIComponent("ext:demo/ocean")}`;
+  document.documentElement.dataset.theme = "ext:demo/ocean";
+  let releaseTheme!: () => void;
+  const themeAnswer = new Promise<Response>((resolve) => {
+    releaseTheme = () => resolve(new Response(":root{--bg:navy}"));
+  });
+  const themed = {
+    ...installed,
+    enabled: true,
+    themes: [
+      {
+        id: "ocean",
+        name: "Ocean",
+        mode: "dark",
+        styles: ["ocean.css"],
+      },
+    ],
+  };
+  const fetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/assets/ocean.css")) return themeAnswer;
+      if (url.includes("/assets/manifest.json"))
+        return new Response(JSON.stringify({ themes: themed.themes }));
+      return new Response(JSON.stringify({ items: [themed] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  vi.spyOn(ExtensionRuntime.prototype, "reconcile").mockResolvedValue(
+    undefined,
+  );
+  render(
+    <ExtensionsProvider>
+      <span>application</span>
+    </ExtensionsProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/assets/ocean.css"),
+      ),
+    ).toBe(true),
+  );
+  expect(document.querySelector("span")).toBeNull();
+  releaseTheme();
+  await waitFor(() => expect(document.querySelector("span")).not.toBeNull());
+  expect(
+    document.querySelector('style[data-ext-theme="ext:demo/ocean"]'),
+  ).not.toBeNull();
+  expect(document.documentElement.dataset.theme).toBe("ext:demo/ocean");
 });

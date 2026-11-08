@@ -149,6 +149,11 @@ describe("composer controls", () => {
 
   test("an alter that throws is dropped, the list stays", () => {
     const { alters, host, failed } = setup();
+    const owner = {};
+    host.declareHostControls(
+      [{ id: "mode", key: "host/mode", placement: "tabs", title: "Mode" }],
+      owner,
+    );
     alters.register(
       "a",
       api("a"),
@@ -160,8 +165,124 @@ describe("composer controls", () => {
       },
       () => {},
     );
+    alters.register(
+      "a",
+      api("a"),
+      {
+        id: "invalid",
+        run: () => [null] as never,
+      },
+      () => {},
+    );
+    expect(host.descriptors("tabs")).toEqual([
+      expect.objectContaining({ key: "host/mode", title: "Mode" }),
+    ]);
     expect(host.descriptors("actions")).toEqual([]);
-    expect(failed).toEqual(["a/boom"]);
+    expect(failed).toEqual(["a/boom", "a/invalid", "a/boom", "a/invalid"]);
     expect(() => validateComposerAlter((() => {}) as never)).not.toThrow();
+  });
+
+  test("host and extension entries share retitle, reorder, hide and drop", () => {
+    const { controls, alters, host } = setup();
+    const owner = {};
+    host.declareHostControls(
+      [
+        { id: "mode", key: "host/mode", placement: "tabs", title: "Mode" },
+        {
+          id: "context",
+          key: "host/context",
+          placement: "tabs",
+          title: "Context",
+        },
+        { id: "send", key: "host/send", placement: "tabs", title: "Send" },
+      ],
+      owner,
+    );
+    for (const extension of ["a", "b"]) {
+      controls.register(
+        extension,
+        api(extension),
+        {
+          id: "shared",
+          placement: "tabs",
+          title: extension,
+          mount: (element) => {
+            element.textContent = extension;
+          },
+        },
+        validateComposerControl,
+      );
+    }
+    alters.register(
+      "alter",
+      api("alter"),
+      {
+        id: "mixed",
+        run: (list) =>
+          list
+            .filter((row) => row.key !== "host/send")
+            .map((row) => {
+              if (row.key === "host/mode") {
+                return { ...row, title: "Rewired mode" };
+              }
+              if (row.key === "host/context") {
+                return { ...row, visible: false };
+              }
+              if (row.key === "a/shared") {
+                return { ...row, title: "First extension" };
+              }
+              return row;
+            })
+            .reverse(),
+      },
+      () => {},
+    );
+
+    const descriptors = host.descriptors("tabs");
+    expect(descriptors.map((row) => row.key)).toEqual([
+      "host/context",
+      "host/mode",
+      "b/shared",
+      "a/shared",
+    ]);
+    expect(descriptors[1]).toMatchObject({
+      id: "mode",
+      title: "Rewired mode",
+    });
+    expect(
+      descriptors.filter((row) => row.visible !== false).map((r) => r.key),
+    ).toEqual(["host/mode", "b/shared", "a/shared"]);
+
+    const box = document.createElement("div");
+    host.attach("tabs", box, new AbortController().signal);
+    expect([...box.children].map((child) => child.textContent)).toEqual([
+      "b",
+      "a",
+    ]);
+    expect(box.children[1]).toHaveAttribute("title", "First extension");
+  });
+
+  test("conditional host declarations and stale cleanup do not clear a successor", () => {
+    const { host } = setup();
+    const first = {};
+    const second = {};
+    const attach = {
+      id: "attach",
+      key: "host/attach",
+      placement: "tabs" as const,
+    };
+    host.declareHostControls([attach], first);
+    expect(host.descriptors("tabs").map((row) => row.key)).toEqual([
+      "host/attach",
+    ]);
+    host.declareHostControls([], first);
+    expect(host.descriptors("tabs")).toEqual([]);
+    host.declareHostControls([attach], second);
+    host.clearHostControls(first);
+    expect(host.descriptors("tabs").map((row) => row.key)).toEqual([
+      "host/attach",
+    ]);
+    host.clearHostControls(second);
+    expect(host.descriptors("tabs")).toEqual([]);
   });
 });

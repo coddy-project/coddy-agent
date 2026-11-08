@@ -10,25 +10,23 @@ import {
   type UiLocale,
 } from "../i18n/localeCookie";
 import { isUiLocale, UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
-import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
-import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
+import {
+  UI_THEME_IDS,
+  LIGHT_THEMES,
+  type BuiltInUiThemeMode,
+  type UiThemeMode,
+} from "./themeCookie";
+import { readAppliedUiTheme, subscribeAppliedUiTheme } from "./uiTheme";
 import { SimpleModeSetting } from "./SimpleModeSetting";
+import { extensionThemeRegistry } from "../extensions/themeRegistry";
 import { NotificationsSetting } from "../pwa/NotificationsSetting";
 import { BackdropSettings } from "./BackdropSettings";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
+import type { Owned, SettingsBlock } from "../extensions/contributions";
 
-function subscribeTheme(onStoreChange: () => void): () => void {
-  const obs = new MutationObserver(onStoreChange);
-  obs.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["data-theme"],
-  });
-  return () => obs.disconnect();
-}
-
-/** Accent colours shown in each theme's swatch — approximates the CSS --accent + canvas background. */
+/** Accent colours shown in each built-in theme's swatch. */
 const SWATCH_COLORS: Record<
-  UiThemeMode,
+  BuiltInUiThemeMode,
   { bg: string; accent: string; text: string }
 > = {
   dark: { bg: "#121212", accent: "#9333ea", text: "#ffffff" },
@@ -43,13 +41,13 @@ const SWATCH_COLORS: Record<
 
 function ThemeSwatch(props: {
   id: UiThemeMode;
+  label: string;
+  colors: { bg: string; accent: string; text: string };
+  mode: "light" | "dark";
   active: boolean;
   onClick: () => void;
 }) {
-  const { id, active, onClick } = props;
-  const label = themeLabel(id);
-  const colors = SWATCH_COLORS[id];
-  const isLight = LIGHT_THEMES.has(id);
+  const { id, label, colors, mode, active, onClick } = props;
 
   return (
     <button
@@ -68,7 +66,8 @@ function ThemeSwatch(props: {
         <span
           className="appearance-swatch-bar"
           style={{
-            background: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
+            background:
+              mode === "light" ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.06)",
           }}
         />
         <span
@@ -175,18 +174,27 @@ export function AppearanceLanguagePicker() {
  * client-side only (no config save). Below the grid: the simplified mode,
  * wallpaper, language, system notifications, then the restart of the first-run
  * onboarding. */
+const NO_DYNAMIC_THEMES = extensionThemeRegistry.list();
+
 export function AppearanceThemePicker(props: {
   onRestartOnboarding?: (() => void) | undefined;
+  doc?: Record<string, unknown>;
+  settingsBlocks?: readonly Owned<SettingsBlock>[];
 }) {
   const { t } = useT();
   const current = useSyncExternalStore(
-    subscribeTheme,
+    subscribeAppliedUiTheme,
     readAppliedUiTheme,
     () => "dark" as UiThemeMode,
   );
+  const dynamicThemes = useSyncExternalStore(
+    extensionThemeRegistry.subscribe,
+    extensionThemeRegistry.list,
+    () => NO_DYNAMIC_THEMES,
+  );
 
   const pick = useCallback((id: UiThemeMode) => {
-    setUiTheme(id);
+    void extensionThemeRegistry.apply(id);
   }, []);
 
   return (
@@ -207,8 +215,22 @@ export function AppearanceThemePicker(props: {
             <ThemeSwatch
               key={id}
               id={id}
+              label={themeLabel(id)}
+              colors={SWATCH_COLORS[id]}
+              mode={LIGHT_THEMES.has(id) ? "light" : "dark"}
               active={current === id}
               onClick={() => pick(id)}
+            />
+          ))}
+          {dynamicThemes.map((theme) => (
+            <ThemeSwatch
+              key={theme.id}
+              id={theme.id}
+              label={theme.title}
+              colors={theme.swatch}
+              mode={theme.mode}
+              active={current === theme.id}
+              onClick={() => pick(theme.id)}
             />
           ))}
         </div>

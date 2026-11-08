@@ -73,3 +73,23 @@ Feature: UI extension contributions
     Given a streaming browser response and a WebSocket endpoint
     When the extension reads chunks and its lifetime ends
     Then chunks arrive incrementally and the socket closes
+
+  Scenario: Install extension styles before the first app render
+    Given an enabled extension with a stylesheet
+    When the initial extension load starts
+    Then the stylesheet is installed before the app mounts, without waiting for activation
+
+  Scenario: Alter host and extension composer controls together
+    Given host and extension controls in the composer
+    When an alter pass retitles, reorders and hides entries by namespaced key
+    Then the mixed control list follows the pass and conditional controls stay live
+
+  Scenario: Alter schema Settings rows and their search entries together
+    Given nested schema-driven Settings rows and row alter passes
+    When a pass hides, retitles and reorders rows
+    Then drawing and search agree and configuration values stay untouched
+
+  Scenario: Select and revoke a theme supplied by an extension manifest
+    Given an enabled package with a manifest theme and its CSS
+    When the operator selects the theme and the package disappears
+    Then the dynamic theme applies and the app falls back to the built-in dark theme
