@@ -42,7 +42,6 @@ test("initial extension loading has a bounded wait before the reader continues",
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (prefix) => prefix,
-    applyMemoryRunToItems: (prev) => prev,
   });
   expect(read).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(11000);
@@ -144,7 +143,6 @@ test.each(["post", "relay"] as const)(
       tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
       reasoningDurationMsByContentRef: { current: new Map() },
       newId: (prefix) => prefix,
-      applyMemoryRunToItems: (prev) => prev,
     });
     result.flushToolQueue();
     expect(items).toEqual(
