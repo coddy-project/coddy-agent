@@ -50,6 +50,7 @@ function setup() {
 async function activateOne(
   register: (api: ExtensionAPI) => void,
   opened: { page?: unknown; panel?: unknown } = {},
+  permissions: readonly string[] = entry.permissions ?? [],
 ) {
   let api!: ExtensionAPI;
   const runtime = new ExtensionRuntime(
@@ -67,7 +68,7 @@ async function activateOne(
       opened.panel = panel;
     },
   );
-  await runtime.reconcile([entry]);
+  await runtime.reconcile([{ ...entry, permissions }]);
   return { api, runtime };
 }
 
@@ -324,6 +325,25 @@ describe("the widened extension API", () => {
     ).rejects.toThrow(/timeoutMs/);
   });
 
+  test("answerPermission posts the choice to the session", async () => {
+    setup();
+    let api!: ExtensionAPI;
+    const runtime = new ExtensionRuntime(vi.fn(), async () => ({
+      activate(value) {
+        api = value;
+      },
+    }));
+    await runtime.reconcile([entry]);
+    await api.chat.answerPermission("s1", "call1", "allow");
+    expect(fetch).toHaveBeenCalledWith(
+      "/coddy/sessions/s1/permission",
+      expect.objectContaining({ method: "POST" }),
+    );
+    await expect(api.chat.answerPermission("s1", "", "allow")).rejects.toThrow(
+      /session, a call and an option/,
+    );
+  });
+
   test("anchors and the host channel answer through the API", async () => {
     setup();
     const { api, runtime } = await activateOne(() => {});
@@ -335,5 +355,73 @@ describe("the widened extension API", () => {
     api.ui.onAnchor("composer.actions", (el) => seen.push(el));
     expect(seen).toEqual([box]);
     await expect(api.host.capabilities()).resolves.toEqual(["ui.page"]);
+  });
+
+  test("alterSections needs the ui.alter scope and rewrites the tab list", async () => {
+    setup();
+    const plain = await activateOne(() => {});
+    expect(() =>
+      plain.api.settings.alterSections((sections) => sections),
+    ).toThrow(/ui\.alter/);
+    plain.runtime.stop();
+
+    let handle!: { remove: () => void };
+    const { runtime } = await activateOne(
+      (api) => {
+        handle = api.settings.alterSections((sections) =>
+          sections
+            .filter((section) => section.id !== "secrets")
+            .map((section) =>
+              section.id === "models"
+                ? { ...section, label: "Catalog" }
+                : section,
+            ),
+        );
+      },
+      {},
+      ["ui.page", "ui.alter"],
+    );
+    expect(runtime.settingsAlters.rows).toHaveLength(1);
+    const out = runtime.settingsAlters.rows[0]!.run([
+      Object.freeze({ id: "models", label: "Models", kind: "schema" }),
+      Object.freeze({ id: "secrets", label: "Secrets", kind: "schema" }),
+    ]);
+    expect(out).toEqual([
+      Object.freeze({ id: "models", label: "Catalog", kind: "schema" }),
+    ]);
+    handle.remove();
+    expect(runtime.settingsAlters.rows).toHaveLength(0);
+  });
+
+  test("models.list reads the catalog and freezes every row", async () => {
+    setup();
+    // The stub goes in before the activation: extensionModels keeps the
+    // fetch it sees at construction time, so a later stub would change
+    // nothing - the switch lives inside the one stub.
+    let failing = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        failing
+          ? new Response("", { status: 500 })
+          : url === "/v1/models"
+            ? new Response(
+                JSON.stringify({
+                  data: [
+                    { id: "vendor/one", multimodal: true },
+                    { id: "vendor/two" },
+                  ],
+                }),
+              )
+            : new Response(source),
+      ),
+    );
+    const { api } = await activateOne(() => {});
+    const rows = await api.models.list();
+    expect(rows.map((row) => row.id)).toEqual(["vendor/one", "vendor/two"]);
+    expect(rows[0]!.multimodal).toBe(true);
+    expect(Object.isFrozen(rows[0])).toBe(true);
+    failing = true;
+    await expect(api.models.list()).rejects.toThrow(/Models API/);
   });
 });

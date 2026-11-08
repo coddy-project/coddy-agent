@@ -83,3 +83,95 @@ test("an explicit refresh is the one that asks for the failed again", async () =
   });
   expect(reconcile).toHaveBeenLastCalledWith([installed], true);
 });
+
+test("surfaces coming and going arrive as events", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  let runtime!: ExtensionRuntime;
+  function Consumer() {
+    runtime = useExtensions()!.runtime;
+    return null;
+  }
+  render(
+    <ExtensionsProvider>
+      <Consumer />
+    </ExtensionsProvider>,
+  );
+  await waitFor(() => expect(runtime).toBeDefined());
+
+  const surfaces: unknown[] = [];
+  const overlaySets: unknown[] = [];
+  const signal = new AbortController().signal;
+  runtime.events.on("watcher", signal, "surfaceChanged", (event) =>
+    surfaces.push(event),
+  );
+  runtime.events.on("watcher", signal, "overlaysChanged", (event) =>
+    overlaySets.push(event),
+  );
+  // Mount alone is not a change: the diff starts from what is already open.
+  await act(async () => {});
+  expect(surfaces).toEqual([]);
+  expect(overlaySets).toEqual([]);
+
+  const publish = (patch: Record<string, unknown>) =>
+    (
+      runtime as unknown as {
+        publish: (p: Record<string, unknown>) => void;
+      }
+    ).publish(patch);
+  const shellRow = {
+    key: "demo/big",
+    owner: "demo",
+    id: "big",
+    mount: () => {},
+    api: {},
+  };
+  await act(async () => {
+    publish({ shell: shellRow });
+  });
+  expect(surfaces).toEqual([{ surface: "shell", id: "demo/big", open: true }]);
+
+  await act(async () => {
+    publish({
+      shell: null,
+      overlays: [{ ...shellRow, key: "demo/float", id: "float" }],
+    });
+  });
+  expect(surfaces[1]).toEqual({ surface: "shell", id: null, open: false });
+  expect(overlaySets).toEqual([{ ids: ["demo/float"] }]);
+
+  await act(async () => {
+    publish({ overlays: [] });
+  });
+  expect(overlaySets[1]).toEqual({ ids: [] });
+
+  const panelRow = {
+    ...shellRow,
+    key: "demo/lab",
+    id: "lab",
+    title: "Lab",
+    placement: "slide-over",
+  };
+  await act(async () => {
+    publish({ panels: [panelRow] });
+    (runtime as unknown as { openPanel: (panel: unknown) => void }).openPanel(
+      panelRow,
+    );
+  });
+  expect(surfaces[2]).toEqual({
+    surface: "panel",
+    id: "demo/lab",
+    open: true,
+  });
+  // Losing the registration closes the visible panel even while the host's
+  // open-panel state still points at its key.
+  await act(async () => {
+    publish({ panels: [] });
+  });
+  expect(surfaces[3]).toEqual({ surface: "panel", id: null, open: false });
+});

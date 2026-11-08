@@ -19,7 +19,9 @@ import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
 import {
   extensionSectionId,
   useExtensionSettingsSections,
+  useSettingsSectionAlters,
 } from "../extensions/ExtensionSections";
+import type { SettingsSectionDescriptor } from "../extensions/settings";
 import {
   createSettingsSearch,
   SettingsSearchField,
@@ -354,17 +356,37 @@ export function Settings(props: {
   // Sections an extension registered stand after the host's own, in the
   // weight their manifest-like registration asked for.
   const extensionSections = useExtensionSettingsSections();
-  const sections = useMemo(
-    () => [
+  const sectionAlters = useSettingsSectionAlters();
+  const sections = useMemo(() => {
+    const base: SectionDescriptor[] = [
       ...deriveSettingsSections(schema, { relay }),
       ...extensionSections.map((s) => ({
         id: extensionSectionId(s.owner, s.id),
         label: s.title,
         kind: "ext_section" as const,
       })),
-    ],
-    [schema, locale, relay, extensionSections],
-  );
+    ];
+    if (!sectionAlters.length) return base;
+    // The declare-then-alter pipeline over the tab list: a pass may hide,
+    // retitle or reorder any tab, and one that throws loses only its say.
+    let descriptors: readonly SettingsSectionDescriptor[] = base.map((s) =>
+      Object.freeze({ id: s.id, label: s.label, kind: s.kind }),
+    );
+    for (const row of sectionAlters) {
+      try {
+        const next = row.run(descriptors);
+        if (Array.isArray(next)) descriptors = next;
+      } catch {
+        /* a pass that throws keeps the list as it was */
+      }
+    }
+    return descriptors
+      .map((descriptor) => {
+        const found = base.find((section) => section.id === descriptor.id);
+        return found ? { ...found, label: descriptor.label } : null;
+      })
+      .filter((section): section is SectionDescriptor => section !== null);
+  }, [schema, locale, relay, extensionSections, sectionAlters]);
   // A tab the address names that is not among the tabs yet: the schema that
   // describes it is on its way. It shows as a skeleton rather than as another
   // tab first (Appearance, which needs no schema, used to stand in for it).

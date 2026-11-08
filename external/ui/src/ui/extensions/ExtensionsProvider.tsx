@@ -151,6 +151,46 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
   const livePage = page && snapshot.pages.find((p) => p.key === page.key);
   const livePanel = panel && snapshot.panels.find((p) => p.key === panel.key);
+  // Surfaces coming and going are events an extension can draw a badge or a
+  // mascot from; the diff keeps the stream to real changes only.
+  const surfaceState = {
+    page: livePage ? livePage.key : null,
+    panel: livePanel ? livePanel.key : null,
+    modal: snapshot.modals.length
+      ? snapshot.modals[snapshot.modals.length - 1]!.key
+      : null,
+    shell: snapshot.shell ? snapshot.shell.key : null,
+  };
+  const previousSurfaces = useRef<typeof surfaceState | null>(null);
+  useEffect(() => {
+    const before = previousSurfaces.current;
+    previousSurfaces.current = surfaceState;
+    if (!before) return;
+    for (const name of Object.keys(
+      surfaceState,
+    ) as (keyof typeof surfaceState)[]) {
+      if (before[name] !== surfaceState[name])
+        runtime.events.emit("surfaceChanged", {
+          surface: name,
+          id: surfaceState[name],
+          open: surfaceState[name] !== null,
+        });
+    }
+  });
+  const overlayKeys = snapshot.overlays.map((o) => o.key).join(",");
+  const previousOverlays = useRef<string | null>(null);
+  useEffect(() => {
+    // The first run records the starting set; only a real change is an event.
+    if (previousOverlays.current === null) {
+      previousOverlays.current = overlayKeys;
+      return;
+    }
+    if (previousOverlays.current === overlayKeys) return;
+    previousOverlays.current = overlayKeys;
+    runtime.events.emit("overlaysChanged", {
+      ids: snapshot.overlays.map((o) => o.key),
+    });
+  });
   const value = useMemo(
     () => ({ entries, error, refresh, runtime, ready: startup.ready }),
     [entries, error, refresh, runtime, startup.ready],

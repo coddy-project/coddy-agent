@@ -10,6 +10,16 @@ export type ExtensionEventMap = {
     usage: Record<string, unknown>;
   };
   turnEnded: { sessionId: string; at: string };
+  /** A single-slot surface opened or closed: page, panel, modal or shell. */
+  surfaceChanged: {
+    surface: "page" | "panel" | "modal" | "shell";
+    id: string | null;
+    open: boolean;
+  };
+  /** The set of open overlays changed. */
+  overlaysChanged: { ids: readonly string[] };
+  /** The live configuration changed somewhere: re-read what you drew. */
+  configReloaded: Record<string, never>;
 };
 /** An event an extension published through `host.fireEvent`. */
 export type ExtensionCustomEvent = Readonly<{
@@ -65,7 +75,14 @@ export class ExtensionEvents {
   ): EventHandle {
     if (signal.aborted) throw new Error("Extension disposed");
     if (
-      !["tabChanged", "stepEnded", "turnEnded"].includes(type) &&
+      ![
+        "tabChanged",
+        "stepEnded",
+        "turnEnded",
+        "surfaceChanged",
+        "overlaysChanged",
+        "configReloaded",
+      ].includes(type) &&
       !isCustomEventType(type)
     )
       throw new Error("Invalid extension event listener");

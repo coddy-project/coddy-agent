@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useExtensions } from "./ExtensionsProvider";
 import { ExtensionFields } from "./ExtensionFields";
 import type { Owned, SettingsSection } from "./contributions";
+import type { SettingsSectionAlter } from "./settings";
 
 const emptySubscribe = () => () => {};
 const emptySections: Owned<SettingsSection>[] = [];
@@ -25,6 +26,18 @@ export function useExtensionSettingsSections(): Owned<SettingsSection>[] {
           (a.id < b.id ? -1 : 1),
       ),
     [rows],
+  );
+}
+
+const emptyAlters: Owned<SettingsSectionAlter>[] = [];
+
+/** The registered Settings alter passes, live. */
+export function useSettingsSectionAlters(): Owned<SettingsSectionAlter>[] {
+  const runtime = useExtensions()?.runtime;
+  return useSyncExternalStore(
+    runtime ? runtime.subscribe : emptySubscribe,
+    runtime ? () => runtime.settingsAlters.rows : () => emptyAlters,
+    () => emptyAlters,
   );
 }
 

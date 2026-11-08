@@ -3603,6 +3603,7 @@ export function App() {
     configReloaded: () => {
       setConfigEpoch((e) => e + 1);
       noteSettingsConfigReloaded();
+      extensions?.runtime.events.emit("configReloaded", {});
       void refreshConfiguredRemotes();
     },
     // A session is shared: this is what someone else queued, in another

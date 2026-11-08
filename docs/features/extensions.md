@@ -89,7 +89,7 @@ export function activate(coddy) {
 | `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream so hook handlers and an IDE bridge can answer, and `ext.<id>.<type>` to this page's listeners - and `await host.request({type, data, timeoutMs})` sends one `extension_request` and resolves with the data whoever handles it answers, or `null` at the timeout. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
-| `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded` or `turnEnded`. Returns a `remove()` handle. |
+| `coddy.events.on(type, listener)` | Observe `tabChanged`, `stepEnded`, `turnEnded`, `surfaceChanged`, `overlaysChanged` or `configReloaded`, and `ext.<id>.<type>` events of other extensions. Returns a `remove()` handle. |
 | `coddy.theme.get()` | The active theme: its id, `light`/`dark` mode and the resolved colours an extension paints with. A frozen snapshot. |
 | `coddy.theme.onChange(listener)` | Observe every theme switch; the listener gets the new frozen snapshot. Returns a `remove()` handle. |
 | `coddy.theme.getEffects()`, `coddy.theme.onEffectsChange(listener)` | Reduced motion and the engine tier. The listener hears changes only; its first read is the baseline. |
@@ -100,6 +100,7 @@ export function activate(coddy) {
 | `coddy.ui.registerPermissionPreview({id, tool?, mount})` | Add a view under the host's own preview on a permission card. The prompt stays the host's. |
 | `coddy.settings.registerField(field)` | Add a scalar or component field to a Settings section - the host's or this extension's own. Returns an update/remove handle. |
 | `coddy.settings.registerSection({id, title, weight?, mount?})` | Add a Settings section of this extension's own. Fields of the same extension may name it in `section`. |
+| `coddy.settings.alterSections(fn)` | The declare-then-alter pipeline of Settings: `fn(sections)` rewrites the tab list - hide, retitle or reorder any tab, the host's included - before the nav draws it. Needs the `ui.alter` scope. |
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
@@ -129,9 +130,12 @@ export function activate(coddy) {
 | `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled control list - retitle, reorder, hide or drop any entry - before it renders. Needs the `ui.alter` scope; host controls join the list later. |
 | `coddy.nav.currentRoute()`, `openSession(id)`, `openScreen(screen)` | Where the app is, and where an extension may take it: a conversation, or the `home`, `history`, `settings` and `scheduler` screens the rail opens. |
 | `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, the token usage, a pending permission or question - what a status line and badges draw from. |
+| `coddy.models.list()` | The server's model catalog - the same rows Settings and the composer pickers fill themselves from - as frozen entries with `id` and what `/v1/models` reports beside it. |
 | `coddy.ui.openModal({id, title, mount})` | One modal at a time over the chat; Escape and the handle close it. |
 | `coddy.ui.openOverlay({id, mount, position?})` | A free-floating box the app never dims - a pet, a toast; several may be open. |
 | `coddy.ui.takeOverShell({id, mount})` | Takes the window: the host draws nothing of its own until `release()` or the extension goes away. |
+| `coddy.tasks.list(sessionId)`, `get(sessionId, taskId)`, `stop(sessionId, taskId)`, `clearFinished(sessionId)` | The background-task pool the agent's work runs in - shell commands, subagent runs, memory runs - read over the routes the Tasks panel reads and stopped over the route it stops with. `get` also hands the task's output. |
+| `coddy.chat.answerPermission(sessionId, toolCallId, optionId)` | Answers a pending permission prompt exactly as the host's card does: the allow and the deny halves of a say in tool execution; running the call itself stays the host's. |
 | `coddy.sessions.rename(id, title)`, `setTags(id, tags)`, `pin(id, pinned)`, `archive(id, archived)`, `remove(id)` | The listing's own writes: title, tags, pin, archive and removal. |
 | `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
 | `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
@@ -171,6 +175,9 @@ coddy.events.on("turnEnded", async ({ sessionId, at }) => {
 | `tabChanged` | `{from, to, sessionId}` for an app hash-route change: chats, Settings sections, Files, tasks and other sections. `from` and `to` are hashes; `sessionId` is the destination chat or `null`. The initial route, browser focus and switching to another browser tab do not emit it. |
 | `stepEnded` | `{sessionId, sequence, transport, turnStartedAt, usage}` when a completed model call's `token_usage` frame reaches this browser. This is the end of the model response, before any tools it requested finish. `sequence` is the frame id or count, `transport` is `post` or `relay`, `turnStartedAt` is the server timestamp when known or `null`, and `usage` holds the original model-call counters. |
 | `turnEnded` | `{sessionId, at}` from the app's existing shared `/coddy/events` connection when the whole turn ends, including cancellation or failure. It also covers turns started by another surface or in another chat. `at` is the server's timestamp. |
+| `surfaceChanged` | `{surface, id, open}` when a single-slot surface opens or closes: `surface` is `page`, `panel`, `modal` or `shell`, `id` is its `<extension id>/<surface id>` key or `null` on the close. |
+| `overlaysChanged` | `{ids}` whenever the set of open overlays changes, listing every open `<extension id>/<overlay id>` key. |
+| `configReloaded` | `{}` when the live configuration was replaced anywhere - a Settings save, the agent's `config_commit`, a skill install. Re-read what you drew from the configuration. |
 
 These callbacks observe events; their return values do not cancel navigation or change the agent's control flow. They may start asynchronous work. The host consumes rejected promises, removes a failing listener and reports its error in Settings. Other listeners continue. Delivery runs by extension id in ascending ASCII order, then registration order. Each payload is a frozen copy.
 
@@ -356,6 +363,8 @@ Registered fields appear below the existing section controls, grouped under the 
 
 An extension can own a section of its own: `coddy.settings.registerSection({id, title, weight?, mount?})` returns an update/remove handle. The id follows the field-id pattern and the title is required. The section renders after the host's sections, and `weight` orders it among the extension sections. `mount(element, api)` draws free content above the section's fields. A field of the same extension may name the section in `section`; a field of another extension may not.
 
+The tab list itself can be rewritten before it draws: `coddy.settings.alterSections(fn)` registers a pass that receives the frozen descriptors of every tab - the host's and the extensions', `{id, label, kind}` - and returns the new list. Dropping a tab hides it, returning a different `label` retitles it, and the order of the list is the order of the nav. Passes run in registration order, and a pass that throws loses only its own say. A manifest that declares permissions must name `ui.alter` in `permissions` to register a pass; the same handle removes it.
+
 A field may draw itself: `type: "component"` takes `mount(element, api, state)` instead of a scalar type, where `state` is a frozen `{value, setValue}` of the ordinary scalar value. A component field edits the same configuration draft and persists like any other field - its values are ordinary scalars in `extension_values` - and `default` is optional.
 
 Values live in the server's `config.yaml`, under `extension_values.<extension-id>.<field-id>`. They are ordinary readable configuration, not write-only secrets. Each extension may store at most 128 scalar fields; all extension values together are limited to 256 KiB. SDK-written strings preserve literal dollar signs. Existing YAML environment references follow the normal loader rules.
@@ -523,6 +532,8 @@ These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShe
 
 ### Tools, agents and background work
 
+Reading, stopping and clearing tasks and answering permission prompts ship as `coddy.tasks` and `coddy.chat.answerPermission`; an agent's own tools, spawning a subagent and handling a call from the interface stay with the host.
+
 - **Own agent tools** (`manifest.tools[]` with execution in the ReAct loop) - host;
 - **A say in tool execution** - allow, deny or handle a call from the UI, the browser side of the PreToolUse `handled` outcome - host;
 - **Subagents** - spawn, observe, approve - host;
@@ -530,17 +541,21 @@ These ship as `coddy.nav`, `coddy.chat`, `openModal`/`openOverlay`, `takeOverShe
 
 ### Events and lifecycle
 
+Surface openings and closings and the configuration swap ship as the `surfaceChanged`, `overlaysChanged` and `configReloaded` events; the specification's full host set and synchronous decisions remain.
+
 - **The full host event set** of the specification (`session.created`, `turn.started`, `tool.finished`, `config.reloaded`, ...) - host;
 - **Synchronous hooks with a decision**, the `handled` shape of the PreToolUse handlers - host;
-- **Surface events** - panel opened and closed, focus, beforeunload - frontend.
+- **Surface events** - opened and closed ship as `surfaceChanged` and `overlaysChanged`; focus and beforeunload remain - frontend.
 
 ### Settings and configuration
 
-- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`) - frontend;
+The tab-list alter, the model catalog and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.models.list()` and the `configReloaded` event; rows inside a tab and the provider half of the catalog remain.
+
+- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs ship, rows remain - frontend;
 - **Complex field types** - lists and objects in the settings form - frontend;
 - **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
-- **The model and provider catalog** - what is available now - frontend;
-- **A `config.reloaded` subscription** - the event already flows on the shared stream - frontend.
+- **The model and provider catalog** - models ship as `coddy.models.list()`; providers remain - frontend;
+- **A `config.reloaded` subscription** - ships as the `configReloaded` event, which the shared stream's `config_reloaded` server event feeds.
 
 ### Network
 

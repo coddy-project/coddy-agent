@@ -42,6 +42,10 @@ import { extensionHost, type ExtensionHostAPI } from "./hostChannel";
 import { extensionConfig, type ExtensionConfigAPI } from "./configApi";
 import { extensionSessions, type ExtensionSessionsAPI } from "./sessions";
 import { composerBridge } from "./composerBridge";
+import { extensionTasks, type ExtensionTasksAPI } from "./tasks";
+import { extensionModels, type ExtensionModelsAPI } from "./models";
+import type { SettingsSectionAlter } from "./settings";
+import { submitPermissionChoice } from "../chat/permissionSubmit";
 import { extensionNav, type ExtensionNavAPI, type NavScreen } from "./nav";
 import { chatBridge, type ChatStatus } from "./chatBridge";
 import {
@@ -126,7 +130,18 @@ export type ExtensionAPI = {
     onStatusChange: (listener: (status: ChatStatus) => void) => {
       remove: () => void;
     };
+    /** Answers a pending permission prompt the host put to the operator:
+     * the allow half of a say in tool execution, the deny half included. */
+    answerPermission: (
+      sessionId: string,
+      toolCallId: string,
+      optionId: string,
+    ) => Promise<void>;
   };
+  /** The background-task pool: shell commands, subagent runs, memory runs. */
+  tasks: ExtensionTasksAPI;
+  /** The model catalog of the server the page talks to. */
+  models: ExtensionModelsAPI;
   /** The composer's draft and picks: what an alternative input line drives. */
   composer: {
     getText: () => string;
@@ -304,6 +319,9 @@ export class ExtensionRuntime {
       this.composerRows.remove(key);
       this.reportError(owner, String(error));
     },
+  );
+  readonly settingsAlters = new Contributions<SettingsSectionAlter>(() =>
+    this.publish({}),
   );
   readonly hookRows = new Contributions<HookContribution>(() => {
     this.publish({ hooks: this.hookRows.rows });
@@ -598,6 +616,24 @@ export class ExtensionRuntime {
         },
         (section) =>
           this.sections.register(entry.id, api, section, validateSection),
+        (alter) => {
+          if (!active()) throw new Error("Extension disposed");
+          // The courtesy of the configuration API: a manifest that declares
+          // permissions must name `ui.alter` to rewrite the Settings tabs.
+          if (
+            entry.permissions &&
+            entry.permissions.length > 0 &&
+            !entry.permissions.includes("ui.alter")
+          )
+            throw new Error("alterSections needs the ui.alter scope");
+          this.alterSeq += 1;
+          return this.settingsAlters.register(
+            entry.id,
+            api,
+            { id: `alter-${this.alterSeq}`, run: alter },
+            () => {},
+          );
+        },
         () => this.fields.rows.filter((row) => row.owner === entry.id),
       ),
       i18n: this.i18n.api(entry.id, controller.signal),
@@ -608,7 +644,17 @@ export class ExtensionRuntime {
         status: () => chatBridge.current(),
         onStatusChange: (listener) =>
           chatBridge.onStatusChange(controller.signal, listener),
+        answerPermission: async (sessionId, toolCallId, optionId) => {
+          if (!active()) throw new Error("Extension disposed");
+          if (!sessionId.trim() || !toolCallId.trim() || !optionId.trim())
+            throw new Error(
+              "answerPermission needs a session, a call and an option",
+            );
+          await submitPermissionChoice(sessionId, toolCallId, optionId);
+        },
       },
+      tasks: extensionTasks(controller.signal),
+      models: extensionModels(controller.signal),
       composer: {
         getText: () => composerBridge.text(),
         setText: (text) => {

@@ -9,6 +9,20 @@ import {
   noteSettingsConfigSaved,
 } from "../settings/settingsConfigStore";
 
+/** One Settings tab as an alter pass sees it. */
+export type SettingsSectionDescriptor = Readonly<{
+  id: string;
+  label: string;
+  kind: string;
+}>;
+export type SettingsSectionAlterFn = (
+  sections: readonly SettingsSectionDescriptor[],
+) => readonly SettingsSectionDescriptor[];
+export type SettingsSectionAlter = {
+  id: string;
+  run: SettingsSectionAlterFn;
+};
+
 export type ExtensionSettingsAPI = {
   registerField: (
     field: AnySettingsField,
@@ -18,6 +32,11 @@ export type ExtensionSettingsAPI = {
   registerSection: (
     section: SettingsSection,
   ) => ContributionHandle<SettingsSection>;
+  /** Rewrites the Settings tab list before the nav draws it: hide, retitle
+   * or reorder any tab, the host's included. Needs the `ui.alter` scope. */
+  alterSections: (
+    pass: SettingsSectionAlterFn,
+  ) => ContributionHandle<SettingsSectionAlter>;
   get: (id: string) => Promise<SettingValue | undefined>;
   set: (id: string, value: SettingValue | null) => Promise<void>;
 };
@@ -45,6 +64,7 @@ export function extensionSettings(
   signal: AbortSignal,
   registerField: ExtensionSettingsAPI["registerField"],
   registerSection: ExtensionSettingsAPI["registerSection"],
+  alterSections: ExtensionSettingsAPI["alterSections"],
   fields: () => AnySettingsField[],
 ): ExtensionSettingsAPI {
   let pending = Promise.resolve();
@@ -61,6 +81,7 @@ export function extensionSettings(
   return {
     registerField,
     registerSection,
+    alterSections,
     async get(id) {
       const doc = await read();
       const values = ownerValues(doc, owner);
