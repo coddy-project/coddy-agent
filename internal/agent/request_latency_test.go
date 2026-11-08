@@ -24,6 +24,7 @@ import (
 
 type latencyScriptProvider struct {
 	calls       int
+	activations int
 	seen        [][]llm.Message
 	definitions [][]llm.ToolDefinition
 }
@@ -40,8 +41,12 @@ func (p *latencyScriptProvider) Stream(_ context.Context, messages []llm.Message
 	}
 	p.seen = append(p.seen, snapshot)
 	p.definitions = append(p.definitions, append([]llm.ToolDefinition(nil), definitions...))
+	if response := fixtureActivateTools(messages, definitions, emit, "coddy_todo_plan_read"); response != nil {
+		p.activations++
+		return response, nil
+	}
 	emit(llm.StreamChunk{}) // Metadata/usage-only callback is not meaningful output.
-	if p.calls == 1 {
+	if p.calls-p.activations == 1 {
 		emit(llm.StreamChunk{ReasoningDelta: "LATENCY_REASON_SENTINEL"})
 		tc := llm.ToolCall{ID: "latency-tool", Name: "coddy_todo_plan_read", InputJSON: `{}`}
 		emit(llm.StreamChunk{ToolCallNamed: &tc})
@@ -115,6 +120,11 @@ func checkLatencyRecords(records []map[string]any) error {
 				return fmt.Errorf("invented HTTP stages: %v", r)
 			}
 			if counts[name] == 1 {
+				if r["first_tool_ms"] == nil || r["first_reasoning_ms"] != nil || r["first_text_ms"] != nil {
+					return fmt.Errorf("incorrect activation channel observations: %v", r)
+				}
+			}
+			if counts[name] == 2 {
 				if r["first_reasoning_ms"] == nil || r["first_tool_ms"] == nil || r["first_text_ms"] != nil {
 					return fmt.Errorf("incorrect first channel observations: %v", r)
 				}
@@ -128,7 +138,7 @@ func checkLatencyRecords(records []map[string]any) error {
 			return fmt.Errorf("content leaked in %s", name)
 		}
 	}
-	for name, want := range map[string]int{"llm request latency": 2, "llm call finished": 2, "llm call usage": 2, "llm tool dispatch latency": 1} {
+	for name, want := range map[string]int{"llm request latency": 3, "llm call finished": 3, "llm call usage": 3, "llm tool dispatch latency": 1} {
 		if counts[name] != want {
 			return fmt.Errorf("%s count = %d, want %d", name, counts[name], want)
 		}

@@ -44,8 +44,9 @@ const streamToggleE2EFileToken = "STREAM-TOGGLE-E2E-OK"
 type blockingOpenAIBackend struct {
 	readPath string
 
-	mu       sync.Mutex
-	requests []string
+	mu          sync.Mutex
+	requests    []string
+	activations int
 }
 
 func (b *blockingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -56,9 +57,13 @@ func (b *blockingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	raw, _ := io.ReadAll(r.Body)
+	activation := fixtureWireActivation(string(raw), []string{"read"})
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))
-	turn := len(b.requests)
+	if activation != nil {
+		b.activations++
+	}
+	turn := len(b.requests) - b.activations
 	b.mu.Unlock()
 
 	if gjson.GetBytes(raw, "stream").Bool() {
@@ -69,8 +74,12 @@ func (b *blockingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if turn == 1 {
+	if activation != nil || turn == 1 {
 		args, _ := json.Marshal(map[string]string{"path": b.readPath})
+		name, id := "read", "call_read_1"
+		if activation != nil {
+			name, id, args = activation.Name, activation.ID, []byte(activation.InputJSON)
+		}
 		payload := map[string]any{
 			"id": "chatcmpl-e2e-1", "object": "chat.completion", "model": "qwen3-1.7b",
 			"choices": []map[string]any{{
@@ -80,8 +89,8 @@ func (b *blockingOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request
 					"content":           "",
 					"reasoning_content": "The answer is in that file.",
 					"tool_calls": []map[string]any{{
-						"id": "call_read_1", "type": "function",
-						"function": map[string]string{"name": "read", "arguments": string(args)},
+						"id": id, "type": "function",
+						"function": map[string]string{"name": name, "arguments": string(args)},
 					}},
 				},
 			}},
@@ -215,8 +224,8 @@ func (s *streamToggleE2EState) sendStreamingPrompt() error {
 
 func (s *streamToggleE2EState) backendSawOnlyBlockingRequests() error {
 	requests := s.backend.snapshot()
-	if len(requests) < 2 {
-		return fmt.Errorf("backend received %d requests, want the two turns of the ReAct loop", len(requests))
+	if len(requests) != 3 {
+		return fmt.Errorf("backend received %d requests, want activation, read, answer", len(requests))
 	}
 	for i, raw := range requests {
 		if gjson.Get(raw, "stream").Exists() {

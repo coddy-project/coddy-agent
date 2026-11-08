@@ -37,7 +37,10 @@ func (p *reusedIDProvider) Complete(context.Context, []llm.Message, []llm.ToolDe
 	return nil, fmt.Errorf("stream required")
 }
 
-func (p *reusedIDProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *reusedIDProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+	if response := fixtureActivateTools(messages, definitions, emit, "write"); response != nil {
+		return response, nil
+	}
 	if p.i >= len(p.paths) {
 		emit(llm.StreamChunk{TextDelta: p.answer})
 		return &llm.Response{Content: p.answer, StopReason: "end_turn"}, nil
@@ -142,7 +145,7 @@ func (s *tcidFeatureState) announcedUnder(first, second string) error {
 			announced = append(announced, v.ToolCallID)
 		}
 	}
-	if strings.Join(announced, ",") != first+","+second {
+	if strings.Join(announced, ",") != "fixture_activation_tools,"+first+","+second {
 		return fmt.Errorf("the calls were announced under %v, want [%s %s]", announced, first, second)
 	}
 	return nil
@@ -162,7 +165,7 @@ func (s *tcidFeatureState) recordPerCall() error {
 	if err != nil {
 		return fmt.Errorf("list tool calls: %w", err)
 	}
-	if len(dirs) != len(s.paths) {
+	if len(dirs) != 1+len(s.paths) {
 		return fmt.Errorf("the bundle holds %d tool call records %v, want %d", len(dirs), dirs, len(s.paths))
 	}
 	seen := make(map[string]bool, len(s.paths))
@@ -195,7 +198,7 @@ func (s *tcidFeatureState) historyPairsEachResult() error {
 			results = append(results, m.ToolCallID)
 		}
 	}
-	if len(calls) != len(s.paths) || calls[0] == calls[1] {
+	if len(calls) != 1+len(s.paths) || calls[0] != "fixture_activation_tools" || calls[1] == calls[2] {
 		return fmt.Errorf("the history holds the calls %v, want %d calls with different ids", calls, len(s.paths))
 	}
 	if strings.Join(results, ",") != strings.Join(calls, ",") {

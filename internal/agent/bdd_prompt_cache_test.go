@@ -48,7 +48,7 @@ func (p *pcScriptProvider) Complete(_ context.Context, _ []llm.Message, _ []llm.
 	return &llm.Response{Content: "summary", StopReason: "end_turn"}, nil
 }
 
-func (p *pcScriptProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *pcScriptProvider) Stream(_ context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
 	var step pcStep
 	if p.i < len(p.steps) {
@@ -58,7 +58,11 @@ func (p *pcScriptProvider) Stream(_ context.Context, messages []llm.Message, _ [
 	}
 	p.i++
 	if len(step.calls) > 0 {
-		return &llm.Response{ToolCalls: step.calls, StopReason: "tool_use"}, nil
+		response := toolStep(step.calls...)(messages, defs, onChunk)
+		if len(response.ToolCalls) == 1 && response.ToolCalls[0].ID == "fixture_activation_tools" {
+			p.i--
+		}
+		return response, nil
 	}
 	if step.text == "" {
 		step.text = "done"
@@ -406,9 +410,15 @@ func (s *pcFeatureState) scopedRuleInReadResult() error {
 	if len(reqs) < 2 {
 		return fmt.Errorf("expected at least two requests, got %d", len(reqs))
 	}
-	res, ok := toolResultOf(reqs[1], "r1")
+	var res string
+	var ok bool
+	for _, request := range reqs[1:] {
+		if res, ok = toolResultOf(request, "r1"); ok {
+			break
+		}
+	}
 	if !ok {
-		return fmt.Errorf("the request after the read carries no result of it")
+		return fmt.Errorf("no request after activation and read carries its result")
 	}
 	if !strings.Contains(res, pcScopedRuleTag) {
 		return fmt.Errorf("the result of the read carries no scoped rule: %q", truncateForError(res))

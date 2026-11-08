@@ -110,6 +110,9 @@ type scriptedProvider struct {
 	// the lane answers again.
 	fail   func(call int) (partial string, err error)
 	failed int
+	// Fixture activation requests are real recorded provider calls but do not
+	// consume the logical tool response waiting for its native definitions.
+	activations int
 }
 
 func (p *scriptedProvider) Complete(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition) (*llm.Response, error) {
@@ -138,14 +141,20 @@ func (p *scriptedProvider) Stream(_ context.Context, messages []llm.Message, def
 		}
 	}
 	var step scriptStep
-	if next := call - p.failed; next <= len(p.steps) {
+	if next := call - p.failed - p.activations; next <= len(p.steps) {
 		step = p.steps[next-1]
 	}
 	p.mu.Unlock()
 	if step == nil {
 		return answerStep("done")(messages, defs, onChunk), nil
 	}
-	return step(messages, defs, onChunk), nil
+	response := step(messages, defs, onChunk)
+	if response != nil && len(response.ToolCalls) == 1 && response.ToolCalls[0].ID == "fixture_activation_tools" {
+		p.mu.Lock()
+		p.activations++
+		p.mu.Unlock()
+	}
+	return response, nil
 }
 
 func (p *scriptedProvider) firstSystemPrompt() (string, bool) {
@@ -170,6 +179,17 @@ func (p *scriptedProvider) everOffered(name string) bool {
 	return false
 }
 
+func (p *scriptedProvider) catalogOffers(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, req := range p.requests {
+		if len(req) > 0 && contains(promptToolNames(req[0].Content), name) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *scriptedProvider) wasCalled() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -183,7 +203,59 @@ func answerStep(text string) scriptStep {
 	}
 }
 
+// toolStep models a cooperative model: catalogued tools are activated in a
+// separate recorded request before the scripted action. A negative fixture
+// uses rawToolStep; excluded/unknown names are never silently activated.
 func toolStep(calls ...llm.ToolCall) scriptStep {
+	raw := rawToolStep(calls...)
+	return func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		names := make([]string, len(calls))
+		for i, call := range calls {
+			names[i] = call.Name
+		}
+		if response := fixtureActivateTools(messages, defs, onChunk, names...); response != nil {
+			return response
+		}
+		return raw(messages, defs, onChunk)
+	}
+}
+
+// fixtureActivateTools is the shared positive fixture's discovery step. It
+// returns nil for already offered or excluded names; callers keep recording
+// this physical request and advance their action only after native loading.
+func fixtureActivateTools(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk), names ...string) *llm.Response {
+	if !offersTool(defs, activateToolsName) {
+		return nil
+	}
+	var catalog []string
+	if len(messages) > 0 {
+		catalog = promptToolNames(messages[0].Content)
+	}
+	var missing []string
+	for _, name := range names {
+		if name != activateToolsName && !offersTool(defs, name) && contains(catalog, name) && !contains(missing, name) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	args, _ := json.Marshal(map[string]interface{}{"names": missing})
+	return rawToolStep(llm.ToolCall{ID: "fixture_activation_tools", Name: activateToolsName, InputJSON: string(args)})(messages, defs, onChunk)
+}
+
+func fixtureRequestAfterTool(requests [][]llm.Message, id string) int {
+	for i, messages := range requests {
+		for _, m := range messages {
+			if m.Role == llm.RoleTool && m.ToolCallID == id {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func rawToolStep(calls ...llm.ToolCall) scriptStep {
 	return func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
 		for i := range calls {
 			tc := calls[i]
@@ -1173,7 +1245,7 @@ func (s *subagentsFeatureState) systemPromptDoesNotList(name string) error {
 }
 
 func (s *subagentsFeatureState) modelOfferedSpawn() error {
-	if !s.parentProvider.everOffered("spawn_agent") {
+	if !s.parentProvider.catalogOffers("spawn_agent") {
 		return fmt.Errorf("spawn_agent was not offered to the parent model")
 	}
 	return nil
@@ -1384,7 +1456,7 @@ func (s *subagentsFeatureState) childNotOffered(tool string) error {
 	if err != nil {
 		return err
 	}
-	if p.everOffered(tool) {
+	if p.everOffered(tool) || p.catalogOffers(tool) {
 		return fmt.Errorf("the child model was offered %q", tool)
 	}
 	return nil
@@ -1395,7 +1467,7 @@ func (s *subagentsFeatureState) childOffered(tool string) error {
 	if err != nil {
 		return err
 	}
-	if !p.everOffered(tool) {
+	if !p.catalogOffers(tool) {
 		return fmt.Errorf("the child model was not offered %q (offered: %v)", tool, p.offered)
 	}
 	return nil

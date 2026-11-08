@@ -24,9 +24,9 @@ func TestModelSwitchUserRequestFeature(t *testing.T) {
 				h.prompt(t, "Please switch to "+model)
 			})
 			sc.Step(`^the user sends another message$`, func() { h.prompt(t, "Continue") })
-			sc.Step(`^the first model served one request and the chosen model served two$`, func() error {
-				if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 2 {
-					return fmt.Errorf("model calls: a=%d b=%d, want 1 and 2", a, b)
+			sc.Step(`^the first model served two requests and the chosen model served two$`, func() error {
+				if a, b := h.provider("a").calls, h.provider("b").calls; a != 2 || b != 2 {
+					return fmt.Errorf("model calls: a=%d b=%d, want 2 (activation and switch) and 2", a, b)
 				}
 				return nil
 			})

@@ -63,7 +63,7 @@ func (p *inTurnProvider) Complete(_ context.Context, _ []llm.Message, _ []llm.To
 
 // requestTokens is the provider's own count of a request. It is built on the
 // estimate Coddy's trigger uses - the system message, the conversation with its
-// reasoning and tool calls, and the schemas of the tool definitions - so a
+// reasoning and tool calls, and complete native tool definitions - so a
 // scenario can size a window against it without guessing at a tokenizer.
 func requestTokens(messages []llm.Message, defs []llm.ToolDefinition) int {
 	total := 0
@@ -77,7 +77,7 @@ func requestTokens(messages []llm.Message, defs []llm.ToolDefinition) int {
 	}
 	total += conversationTokens(history, false)
 	for _, d := range defs {
-		if raw, err := json.Marshal(d.InputSchema); err == nil {
+		if raw, err := json.Marshal(d); err == nil {
 			total += session.EstimateContextTokens(string(raw))
 		}
 	}
@@ -98,6 +98,9 @@ func (p *inTurnProvider) Stream(_ context.Context, messages []llm.Message, defs 
 		p.afterRefusal = req
 	}
 	p.accepted = append(p.accepted, req)
+	if p.answered < p.steps && !offersTool(defs, "read") {
+		return rawToolStep(discoveryActivation("activate_reads", "read"))(messages, defs, onChunk), nil
+	}
 	if p.onStep != nil {
 		p.onStep(p.answered)
 	}

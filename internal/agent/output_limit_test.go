@@ -52,19 +52,33 @@ type outputLimitStep struct {
 // repeats) and records every request it was sent. A compaction's summarizer
 // gets "Earlier turn summary." back.
 type outputLimitProvider struct {
-	steps []outputLimitStep
-	calls int
-	seen  [][]llm.Message
+	steps       []outputLimitStep
+	calls       int
+	activations int
+	seen        [][]llm.Message
+	definitions [][]llm.ToolDefinition
 }
 
 func (p *outputLimitProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return &llm.Response{Content: "Earlier turn summary."}, nil
 }
 
-func (p *outputLimitProvider) Stream(_ context.Context, msgs []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
-	step := p.steps[min(p.calls, len(p.steps)-1)]
+func (p *outputLimitProvider) Stream(_ context.Context, msgs []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+	stepIndex := min(p.calls-p.activations, len(p.steps)-1)
+	step := p.steps[stepIndex]
 	p.calls++
 	p.seen = append(p.seen, append([]llm.Message(nil), msgs...))
+	p.definitions = append(p.definitions, append([]llm.ToolDefinition(nil), definitions...))
+	var names []string
+	for _, response := range p.steps[stepIndex:] {
+		for _, call := range response.calls {
+			names = append(names, call.Name)
+		}
+	}
+	if response := fixtureActivateTools(msgs, definitions, emit, names...); response != nil {
+		p.activations++
+		return response, nil
+	}
 	if step.during != nil {
 		step.during()
 	}
@@ -479,14 +493,39 @@ func TestOutputLimitRecoveryIsBounded(t *testing.T) {
 				p := &outputLimitProvider{steps: steps}
 				var ag *Agent
 				var sender *outputLimitSender
-				ag, st, sender = cutCallAgent(t, p, sit.adjust)
+				discoveryCalls := 0
+				// Bare SubagentMeta below has nil Tools: it deliberately permits none.
+				if len(step.calls) > 0 && !sit.subagent {
+					discoveryCalls = 1
+				}
+				adjust := func(c *config.Config) {
+					if sit.adjust != nil {
+						sit.adjust(c)
+					}
+					if sit.name == "at the step cap" {
+						c.Agent.MaxTurns += discoveryCalls
+					}
+				}
+				ag, st, sender = cutCallAgent(t, p, adjust)
 				if sit.subagent {
 					ag.subagent = &session.SubagentMeta{Name: "general"}
 				}
 
 				stop, err := runOutputLimitTurn(ag)
-				if err != nil || stop != string(sit.stop) || p.calls != sit.calls {
-					t.Fatalf("stop = %q, err = %v after %d calls; want %s after %d", stop, err, p.calls, sit.stop, sit.calls)
+				if sit.subagent {
+					for i, defs := range p.definitions {
+						if len(defs) != 0 || strings.Contains(p.seen[i][0].Content, "Lossy discovery summaries") {
+							t.Fatal("deny-all child advertised native tools or discovery")
+						}
+					}
+					if p.activations != 0 {
+						t.Fatal("deny-all child activated a schema")
+					}
+				} else if discoveryCalls == 1 && (len(p.definitions[0]) != 1 || p.definitions[0][0].Name != "activate_tools" || p.activations != 1) {
+					t.Fatal("parent tool fixture did not use one explicit bootstrap activation")
+				}
+				if err != nil || stop != string(sit.stop) || p.calls != sit.calls+discoveryCalls {
+					t.Fatalf("stop = %q, err = %v after %d calls; want %s after %d", stop, err, p.calls, sit.stop, sit.calls+discoveryCalls)
 				}
 				want := ""
 				switch {
@@ -508,8 +547,9 @@ func TestOutputLimitRecoveryIsBounded(t *testing.T) {
 				if hasEmptyAssistant(last) {
 					t.Fatal("a cut-off step was replayed to the model")
 				}
-				if ids := callIDs(last); len(ids) != 0 {
-					t.Fatalf("the last request replays tool calls %v", ids)
+				ids := callIDs(last)
+				if (discoveryCalls == 0 && len(ids) != 0) || (discoveryCalls == 1 && (len(ids) != 1 || ids[0] != "fixture_activation_tools")) {
+					t.Fatalf("the last request replays calls %v, want only the setup activation when needed", ids)
 				}
 				texts := 0
 				if kind.text {
@@ -623,8 +663,8 @@ func TestPromptCacheNextTurnReplaysNoEmptyStep(t *testing.T) {
 	if stop, err := runOutputLimitTurn(ag); err != nil || stop != string(acp.StopReasonEndTurn) {
 		t.Fatalf("first turn: stop = %q, err = %v", stop, err)
 	}
-	if p.calls != 3 {
-		t.Fatalf("first turn: provider called %d times, want 3", p.calls)
+	if p.calls != 4 {
+		t.Fatalf("first turn: provider called %d times, want 4 including setup", p.calls)
 	}
 	var cut bool
 	for _, m := range st.GetMessages() {
@@ -639,12 +679,14 @@ func TestPromptCacheNextTurnReplaysNoEmptyStep(t *testing.T) {
 	if stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "now test it"}}); err != nil || stop != string(acp.StopReasonEndTurn) {
 		t.Fatalf("second turn: stop = %q, err = %v", stop, err)
 	}
-	if p.calls != 4 {
-		t.Fatalf("second turn: provider called %d times in all, want 4", p.calls)
+	if p.calls != 5 {
+		t.Fatalf("second turn: provider called %d times in all, want 5", p.calls)
 	}
-	hist := requestHistory(p.seen[3])
+	hist := requestHistory(p.seen[4])
 	want := []string{
 		"user: write the module",
+		"assistant: ", // schema discovery is an actual paired history row.
+		`tool: {"activated":["coddy_todo_plan_read"]}`,
 		"assistant: Reading the plan.",
 		"tool: ",
 		"assistant: Done.",
@@ -660,5 +702,5 @@ func TestPromptCacheNextTurnReplaysNoEmptyStep(t *testing.T) {
 			t.Fatalf("message %d = %q, want it to start with %q", i+1, hist[i+1], w)
 		}
 	}
-	requireNoAssistantInARow(t, p.seen[3])
+	requireNoAssistantInARow(t, p.seen[4])
 }

@@ -46,12 +46,22 @@ func (p *settingsProvider) Complete(ctx context.Context, m []llm.Message, d []ll
 	return p.Stream(ctx, m, d, func(llm.StreamChunk) {})
 }
 
-func (p *settingsProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *settingsProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.mu.Lock()
 	p.calls++
 	var step *llm.Response
 	if len(p.steps) > 0 {
-		step, p.steps = p.steps[0], p.steps[1:]
+		step = p.steps[0]
+		var names []string
+		for _, call := range step.ToolCalls {
+			names = append(names, call.Name)
+		}
+		if activation := fixtureActivation(messages, definitions, names); activation != nil {
+			p.mu.Unlock()
+			onChunk(llm.StreamChunk{ToolCall: activation})
+			return &llm.Response{ToolCalls: []llm.ToolCall{*activation}, StopReason: "tool_use"}, nil
+		}
+		p.steps = p.steps[1:]
 	}
 	during := p.during
 	p.during = nil
@@ -617,7 +627,7 @@ func initializeSessionSettingsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the server restarts$`, s.serverRestarts)
 	sc.Step(`^both commands ran$`, s.bothCommandsRan)
 	sc.Step(`^the browser switches the session to "([^"]*)" while the model "([^"]*)" answers$`, s.browserSwitchesModelDuringAnswer)
-	sc.Step(`^the transcript signs the answers "([^"]*)"$`, s.transcriptSignsAnswers)
+	sc.Step(`^the transcript signs the assistant rows "([^"]*)"$`, s.transcriptSignsAnswers)
 	sc.Step(`^the session was started on the model "([^"]*)" in the mode "([^"]*)"$`, s.sessionStartedWith)
 	sc.Step(`^the browser switches the session to "([^"]*)"$`, s.browserSwitchesModel)
 	sc.Step(`^the user asks the agent to switch to "([^"]*)"$`, s.userAsksAgentToSwitch)

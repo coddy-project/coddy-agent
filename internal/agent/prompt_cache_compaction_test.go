@@ -158,8 +158,8 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 	// every request is the plain history. What each one weighs, to the gate's own
 	// arithmetic, sizes the window of the real run.
 	plain := runPCacheListingTurn(t, cwd, 1<<30)
-	if got := len(plain.reqs); got != pcEvictFolders+1 {
-		t.Fatalf("calibration made %d requests, want %d", got, pcEvictFolders+1)
+	if got := len(plain.reqs); got != pcEvictFolders+2 {
+		t.Fatalf("calibration made %d requests, want %d", got, pcEvictFolders+2)
 	}
 	for i, req := range plain.reqs {
 		for _, m := range req {
@@ -170,7 +170,7 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 	}
 	// The first request that finds the gate open: the one after the first that
 	// carries a step outside the window, so a gate that opened early shows up.
-	const crossAt = pcEvictKeep + 2
+	const crossAt = pcEvictKeep + 3 // includes the initial activation request
 	below := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[crossAt-1]))
 	above := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[crossAt]))
 	if above-below < 1000 {
@@ -180,8 +180,8 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 
 	run := runPCacheListingTurn(t, cwd, window)
 	reqs := run.reqs
-	if len(reqs) != pcEvictFolders+1 {
-		t.Fatalf("the run made %d requests, want %d", len(reqs), pcEvictFolders+1)
+	if len(reqs) != pcEvictFolders+2 {
+		t.Fatalf("the run made %d requests, want %d", len(reqs), pcEvictFolders+2)
 	}
 	hist := make([][]llm.Message, len(reqs))
 	for i, r := range reqs {
@@ -289,8 +289,8 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 			steps++
 		}
 	}
-	if steps != pcEvictFolders {
-		t.Fatalf("the last request carries %d steps, want %d", steps, pcEvictFolders)
+	if steps != pcEvictFolders+1 {
+		t.Fatalf("the last request carries %d steps, want %d", steps, pcEvictFolders+1)
 	}
 	stepOfCall := map[string]int{}
 	n := 0
@@ -307,7 +307,13 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 		if m.Role != llm.RoleTool {
 			continue
 		}
-		kept := stepOfCall[m.ToolCallID] >= pcEvictFolders-pcEvictKeep
+		if toolOf[m.ToolCallID] == activateToolsName {
+			if isPlaceholder(m) {
+				t.Fatal("activation acknowledgement was treated as a listing")
+			}
+			continue
+		}
+		kept := stepOfCall[m.ToolCallID] >= pcEvictFolders+1-pcEvictKeep
 		if kept == isPlaceholder(m) {
 			t.Fatalf("result %s of step %d: collapsed=%v, want %v", m.ToolCallID, stepOfCall[m.ToolCallID], isPlaceholder(m), !kept)
 		}
@@ -325,8 +331,8 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	// The window is sized so that a fold keeps two steps (the aim leaves room for
 	// them beside the request's fixed overhead) and the trigger fires every few
 	// steps: the run folds several times, which is what makes the check mean
-	// something. The fixed overhead includes the definitions of every built-in
-	// tool, so a new tool can leave room for the latest step only: grow the
+	// something. The fixed overhead includes the discovery catalog and loaded read
+	// definition, so a changed catalog can leave room for the latest step only: grow the
 	// window then, keeping at least two folds and multiple appends.
 	dirs := []string{}
 	tempDir := func() (string, error) {
@@ -356,8 +362,8 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	for i, r := range reqs {
 		hist[i] = withoutTurnContext(r)
 	}
-	if got := len(hist); got != steps+1 {
-		t.Fatalf("the run made %d requests, want %d: a request per step and the answer", got, steps+1)
+	if got := len(hist); got != steps+2 {
+		t.Fatalf("the run made %d requests, want %d: activation, one request per step and the answer", got, steps+2)
 	}
 
 	// The system message is the same bytes in every request, folds included.

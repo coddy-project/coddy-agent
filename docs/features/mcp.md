@@ -462,18 +462,7 @@ Because `__` separates the server and tool parts, server names must not contain 
 
 ## How tools reach the model
 
-MCP tools are **not** injected into the system prompt text (unlike skills, which render
-into a prompt section). They join the built-in tools in the native function-calling
-`tools` array of every LLM request, one definition per enabled tool: name
-`server__tool`, the server's own `inputSchema`, and the description prefixed with
-`[server]` so the model can tell providers apart. When the model emits a tool call whose
-name contains `__`, the agent routes it to the owning server over its transport and
-returns the MCP result to the model as a regular tool observation - the same loop as
-built-in tools, and the same approach Claude Code, Codex, and Cursor use. The end-to-end
-happy path (two servers over stdio and streamable HTTP, the model picking one by its
-namespaced tool, the result landing in the final answer) is specified in
-`features/mcp_tool_calls.feature` for both the OpenAI-compatible HTTP surface and the
-ACP session flow.
+Every permitted MCP tool appears in the compact system-prompt catalog under its `server__tool` name. The native offer initially contains only `activate_tools` when any tools are permitted. After activation, a later request carries the server's complete `inputSchema` and description prefixed with `[server]`. Activation cannot enable an excluded tool. When the model calls an activated name containing `__`, the agent routes it to the owning server over its transport and returns the MCP result as a regular tool observation. The end-to-end happy path with two servers over stdio and streamable HTTP is specified in `features/mcp_tool_calls.feature` for both the OpenAI-compatible HTTP surface and the ACP session flow.
 
 ## Permission Model
 

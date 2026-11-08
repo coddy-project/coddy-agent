@@ -2,10 +2,9 @@ Feature: A toolset narrows the tools a session is offered
   A toolsets[] preset names an allowlist (tools) and a denylist
   (disallowed_tools). A model names the preset its sessions run with
   (models[].toolset), and a session may pick another, or default for none
-  (/toolset). While a session runs with a preset, the request's tool list and
-  the tool list printed in the system prompt hold exactly the tools it leaves,
-  so a small-context local model is not sent the schemas of tools it never
-  calls, while another model on the same configuration keeps every tool. A call
+  (/toolset). While a session runs with a preset, the discovery catalog
+  holds exactly the tools it permits. Native schemas are loaded with activate_tools
+  before execution; activation never bypasses the toolset. A call
   to a tool the request did not offer is refused when it is about to run, with
   a clear result and without a permission prompt.
 
@@ -13,16 +12,16 @@ Feature: A toolset narrows the tools a session is offered
     Given a coddy session on a model whose toolset offers "read, grep"
     And a model that answers directly
     When the user sends a message
-    Then the model is offered exactly the tools "grep, read"
-    And the system prompt lists exactly the tools "grep, read"
+    Then the discovery catalog lists exactly the tools "grep, read"
+    And the initial native offer contains only activation
     And the turn ends with the model's answer
 
   Scenario: A toolset's denylist removes tools from the full set
     Given a coddy session on a model whose toolset disallows "write, run_command"
     And a model that answers directly
     When the user sends a message
-    Then the model is offered the full set of tools without "write, run_command"
-    And the system prompt lists the same tools
+    Then the discovery catalog lists the full set without "write, run_command"
+    And the initial native offer contains only activation
     And the turn ends with the model's answer
 
   Scenario: A call to a tool outside the toolset is refused
@@ -39,7 +38,7 @@ Feature: A toolset narrows the tools a session is offered
     And the session picked the toolset "default"
     And a model that requests the "write" tool once, then answers
     When the user sends a message
-    Then the model is offered the full set of tools without ""
+    Then the discovery catalog lists the full set without ""
     And the file is written
     And the turn ends with the model's answer
 
@@ -47,6 +46,6 @@ Feature: A toolset narrows the tools a session is offered
     Given a coddy session on a model without a toolset
     And a model that requests the "write" tool once, then answers
     When the user sends a message
-    Then the model is offered the full set of tools without ""
+    Then the discovery catalog lists the full set without ""
     And the file is written
     And the turn ends with the model's answer

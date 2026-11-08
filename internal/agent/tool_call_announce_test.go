@@ -26,7 +26,10 @@ func (p *announceProvider) Complete(context.Context, []llm.Message, []llm.ToolDe
 	return nil, fmt.Errorf("stream required")
 }
 
-func (p *announceProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *announceProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+	if response := fixtureActivateTools(messages, definitions, emit, "read"); response != nil {
+		return response, nil
+	}
 	if p.done {
 		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
 	}

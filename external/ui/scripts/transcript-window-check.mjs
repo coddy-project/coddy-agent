@@ -281,7 +281,17 @@ function startModel(port) {
           : Array.isArray(m.content)
             ? m.content.map((p) => p.text || "").join("")
             : "";
-      const typed = [...(parsed.messages || [])]
+      const messages = parsed.messages || [];
+      const native = new Set((parsed.tools || []).map((t) => t.function?.name));
+      const catalog = messages
+        .filter((m) => m.role === "system")
+        .map(textOf)
+        .join("\n");
+      const needsActivation = (name) =>
+        native.has("activate_tools") &&
+        !native.has(name) &&
+        catalog.includes("- `" + name + "`:");
+      const typed = [...messages]
         .reverse()
         .map((m) => (m.role === "user" ? textOf(m).trim() : ""))
         .find((t) => t && !t.startsWith("<"));
@@ -298,14 +308,19 @@ function startModel(port) {
           Connection: "close",
         });
         const send = (v) => res.write(`data: ${JSON.stringify(v)}\n\n`);
-        const args = JSON.stringify({
-          questions: [
-            {
-              question: "Which one?",
-              options: [{ label: "Alpha" }, { label: "Beta" }],
-            },
-          ],
-        });
+        const activate = needsActivation("question");
+        const args = JSON.stringify(
+          activate
+            ? { names: ["question"] }
+            : {
+                questions: [
+                  {
+                    question: "Which one?",
+                    options: [{ label: "Alpha" }, { label: "Beta" }],
+                  },
+                ],
+              },
+        );
         send({
           id: "q",
           object: "chat.completion.chunk",
@@ -329,9 +344,14 @@ function startModel(port) {
                 tool_calls: [
                   {
                     index: 0,
-                    id: "call_question_1",
+                    id: activate
+                      ? "activate_question_fixture"
+                      : "call_question_1",
                     type: "function",
-                    function: { name: "question", arguments: args },
+                    function: {
+                      name: activate ? "activate_tools" : "question",
+                      arguments: args,
+                    },
                   },
                 ],
               },

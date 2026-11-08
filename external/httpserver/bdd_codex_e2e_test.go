@@ -93,6 +93,7 @@ func (b *fakeCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Input        []struct {
 			Type   string `json:"type"`
 			Output string `json:"output"`
+			CallID string `json:"call_id"`
 		} `json:"input"`
 		Tools []struct {
 			Name string `json:"name"`
@@ -102,7 +103,7 @@ func (b *fakeCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	toolResult := ""
 	for _, item := range req.Input {
-		if item.Type == "function_call_output" {
+		if item.Type == "function_call_output" && item.CallID == "call_codex_e2e_1" {
 			toolResult = item.Output
 		}
 	}
@@ -120,8 +121,22 @@ func (b *fakeCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.offeredTools = append(b.offeredTools, names)
 	b.mu.Unlock()
 
+	activation := false
+	for _, name := range names {
+		if name == "activate_tools" {
+			activation = true
+		}
+	}
+	for _, name := range names {
+		if name == "read" {
+			activation = false
+		}
+	}
+	activation = activation && strings.Contains(req.Instructions, "- `read`:")
 	w.Header().Set("Content-Type", "text/event-stream")
-	if toolResult == "" {
+	if activation {
+		codexSSE(w, "response.output_item.done", map[string]any{"item": map[string]any{"type": "function_call", "call_id": "activate_codex_fixture", "name": "activate_tools", "arguments": `{"names":["read"]}`}})
+	} else if toolResult == "" {
 		codexSSE(w, "response.output_item.done", map[string]any{
 			"item": map[string]any{
 				"type":      "function_call",
@@ -472,16 +487,12 @@ func codexAssertCoddyTurn(instructions []string, offered [][]string) error {
 	if !strings.Contains(strings.ToLower(instructions[0]), "coddy") {
 		return fmt.Errorf("instructions are not coddy's system prompt: %q", instructions[0])
 	}
+	if strings.Join(offered[0], ",") != "activate_tools" {
+		return fmt.Errorf("initial native offer = %v", offered[0])
+	}
 	for _, want := range []string{"read", "glob", "run_command"} {
-		found := false
-		for _, name := range offered[0] {
-			if name == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("coddy tool %q was not offered to the Codex backend; offered: %v", want, offered[0])
+		if !strings.Contains(instructions[0], "- `"+want+"`:") {
+			return fmt.Errorf("tool %q missing from discovery", want)
 		}
 	}
 	return nil

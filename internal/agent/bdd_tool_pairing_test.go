@@ -21,23 +21,30 @@ import (
 )
 
 type pairingProvider struct {
-	mu       sync.Mutex
-	requests [][]llm.Message
-	calls    int
-	legacy   bool
+	mu          sync.Mutex
+	requests    [][]llm.Message
+	calls       int
+	activations int
+	legacy      bool
 }
 
 func (p *pairingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, fmt.Errorf("Complete must not be used")
 }
 
-func (p *pairingProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *pairingProvider) Stream(_ context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.mu.Lock()
 	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
 	p.calls++
-	call := p.calls
+	call := p.calls - p.activations
 	p.mu.Unlock()
 	if call == 1 && !p.legacy {
+		if response := fixtureActivateTools(messages, definitions, onChunk, "run_command"); response != nil {
+			p.mu.Lock()
+			p.activations++
+			p.mu.Unlock()
+			return response, nil
+		}
 		calls := []llm.ToolCall{
 			{ID: "pair-1", Name: "run_command", InputJSON: `{"command":"printf first > pair-1"}`},
 			{ID: "pair-2", Name: "run_command", InputJSON: `{"command":"printf second > pair-2; sleep 10"}`},
@@ -272,7 +279,7 @@ func (s *toolPairingFeatureState) followUpPaired() error {
 	if len(s.provider.requests) < 2 {
 		return fmt.Errorf("only %d provider requests", len(s.provider.requests))
 	}
-	return assertPairedBatch(s.provider.requests[1], "pair-1", "pair-2", "pair-3")
+	return assertPairedBatch(s.provider.requests[len(s.provider.requests)-1], "pair-1", "pair-2", "pair-3")
 }
 
 func (s *toolPairingFeatureState) legacy() error {

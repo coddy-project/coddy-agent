@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -36,7 +37,9 @@ func TestGoalVerifierReadsTheWorkspaceAndAnswersAVerdict(t *testing.T) {
 	}
 
 	child.mu.Lock()
-	offered := append([]string(nil), child.offered[0]...)
+	offered := promptToolNames(child.requests[0][0].Content)
+	initial := strings.Join(child.offered[0], ",")
+	loaded := append([]llm.ToolDefinition(nil), child.definitions[1]...)
 	var task string
 	for _, m := range child.requests[0] {
 		if m.Role == llm.RoleUser && strings.Contains(m.Content, "Verify that") {
@@ -44,6 +47,18 @@ func TestGoalVerifierReadsTheWorkspaceAndAnswersAVerdict(t *testing.T) {
 		}
 	}
 	child.mu.Unlock()
+	if initial != activateToolsName {
+		t.Fatalf("verifier initial native offer = %q", initial)
+	}
+	var original llm.ToolDefinition
+	for _, d := range NewAgent(rig.cfg, rig.parent, resumePermissionSender{}, nil).currentToolDefinitions("agent") {
+		if d.Name == "read" {
+			original = d
+		}
+	}
+	if len(loaded) != 2 || !reflect.DeepEqual(loaded[1], original) {
+		t.Fatal("verifier read schema was not loaded whole after activation")
+	}
 	sort.Strings(offered)
 	if strings.Join(offered, ",") != "glob,grep,print_tree,read" {
 		t.Fatalf("the verifier was offered %v, want the read-only tools", offered)

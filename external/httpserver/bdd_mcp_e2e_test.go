@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/tidwall/gjson"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
@@ -45,11 +46,13 @@ const (
 // records the tool names offered so the harness can assert MCP tools reach
 // the model as native definitions (and disappear once disabled).
 type mcpScriptedProvider struct {
-	mu            sync.Mutex
-	tool          string
-	calls         int
-	offeredTools  []string
-	sawToolResult string
+	mu              sync.Mutex
+	tool            string
+	calls           int
+	offeredTools    []string
+	sawToolResult   string
+	nativeOffers    [][]llm.ToolDefinition
+	activationCalls int // real recorded requests, excluded only from scripted two-step phase
 }
 
 func (p *mcpScriptedProvider) setTool(tool string) {
@@ -66,11 +69,22 @@ func (p *mcpScriptedProvider) Stream(_ context.Context, messages []llm.Message, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
+	p.nativeOffers = append(p.nativeOffers, append([]llm.ToolDefinition(nil), tools...))
 	p.offeredTools = nil
 	for _, t := range tools {
 		p.offeredTools = append(p.offeredTools, t.Name)
 	}
-	if p.calls%2 == 1 { // first LLM call of a turn: request the tool
+	for _, name := range fixtureCatalogNames(messages) {
+		if name == p.tool {
+			if call := mcpFixtureActivation(messages, tools, mcpFixtureCatalog(messages)); call != nil {
+				p.activationCalls++
+				onChunk(llm.StreamChunk{ToolCall: call})
+				return &llm.Response{ToolCalls: []llm.ToolCall{*call}, StopReason: "tool_use"}, nil
+			}
+			break
+		}
+	}
+	if (p.calls-p.activationCalls)%2 == 1 { // first LLM call of a turn: request the tool
 		tc := llm.ToolCall{ID: fmt.Sprintf("call-%d", p.calls), Name: p.tool, InputJSON: `{}`}
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
@@ -84,6 +98,104 @@ func (p *mcpScriptedProvider) Stream(_ context.Context, messages []llm.Message, 
 	answer := "The token is " + p.sawToolResult + "."
 	onChunk(llm.StreamChunk{TextDelta: answer})
 	return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
+}
+
+// fixtureCatalogNames reads the full permitted catalog separately from native offers.
+func fixtureCatalogNames(messages []llm.Message) []string {
+	var names []string
+	if len(messages) == 0 {
+		return names
+	}
+	for _, line := range strings.Split(messages[0].Content, "\n") {
+		if !strings.HasPrefix(line, "- `") {
+			continue
+		}
+		parts := strings.SplitN(strings.TrimPrefix(line, "- `"), "`:", 2)
+		if len(parts) == 2 {
+			names = append(names, parts[0])
+		}
+	}
+	return names
+}
+
+func mcpFixtureCatalog(messages []llm.Message) []string {
+	var names []string
+	for _, name := range fixtureCatalogNames(messages) {
+		if strings.Contains(name, "__") {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// Only a cooperative positive fixture loads schemas. A missing catalog name
+// stays a raw call, and direct client-tool pass-through has no bootstrap.
+func fixtureActivation(messages []llm.Message, defs []llm.ToolDefinition, wanted []string) *llm.ToolCall {
+	native := map[string]bool{}
+	for _, def := range defs {
+		native[def.Name] = true
+	}
+	if !native["activate_tools"] {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, name := range fixtureCatalogNames(messages) {
+		allowed[name] = true
+	}
+	var missing []string
+	for _, name := range wanted {
+		if !allowed[name] {
+			return nil
+		}
+		if !native[name] {
+			duplicate := false
+			for _, prior := range missing {
+				duplicate = duplicate || prior == name
+			}
+			if !duplicate {
+				missing = append(missing, name)
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(map[string]interface{}{"names": missing})
+	return &llm.ToolCall{ID: "activate_mcp_fixture", Name: "activate_tools", InputJSON: string(raw)}
+}
+
+func mcpFixtureActivation(messages []llm.Message, defs []llm.ToolDefinition, wanted []string) *llm.ToolCall {
+	return fixtureActivation(messages, defs, wanted)
+}
+
+func fixtureWireCatalog(raw string) []string {
+	var system string
+	for _, message := range gjson.Get(raw, "messages").Array() {
+		if message.Get("role").String() != "system" {
+			continue
+		}
+		content := message.Get("content")
+		if content.IsArray() {
+			for _, part := range content.Array() {
+				system += part.Get("text").String()
+			}
+		} else {
+			system += content.String()
+		}
+	}
+	return fixtureCatalogNames([]llm.Message{{Role: llm.RoleSystem, Content: system}})
+}
+
+func fixtureWireActivation(raw string, wanted []string) *llm.ToolCall {
+	var definitions []llm.ToolDefinition
+	for _, tool := range gjson.Get(raw, "tools").Array() {
+		definitions = append(definitions, llm.ToolDefinition{Name: tool.Get("function.name").String()})
+	}
+	var system strings.Builder
+	for _, name := range fixtureWireCatalog(raw) {
+		fmt.Fprintf(&system, "- `%s`: fixture\n", name)
+	}
+	return fixtureActivation([]llm.Message{{Role: llm.RoleSystem, Content: system.String()}}, definitions, wanted)
 }
 
 // fakeBetaMCPHandler is a minimal streamable HTTP MCP server exposing one

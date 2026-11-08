@@ -605,8 +605,8 @@ func TestOverflowRecoveryKeepsTheAnswerTheModelGoesOn(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != len(tc.steps) {
-				t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after %d", stop, err, p.calls, len(tc.steps))
+			if err != nil || stop != string(acp.StopReasonEndTurn) || p.calls != 1+len(tc.steps) {
+				t.Fatalf("stop = %q, err = %v after %d calls; want end_turn after %d", stop, err, p.calls, 1+len(tc.steps))
 			}
 			after := p.seen[len(p.seen)-1]
 			if !compacted(after) {

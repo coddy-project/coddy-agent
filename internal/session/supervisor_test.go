@@ -1929,7 +1929,7 @@ func withoutTurnContext(raw []json.RawMessage) []json.RawMessage {
 // either history: the rows a blocked turn ended with are the rows it was run
 // from, /goal resume only sets its flag on the row of the accepted call, and
 // the requests the worker sends after the resume start with the bytes of the
-// ones it sent before the block.
+// ones it sent before the block; native activation starts afresh.
 func TestPromptCacheRiskGateLeavesTheHistoryAlone(t *testing.T) {
 	var mu sync.Mutex
 	var bodies [][]byte
@@ -1948,9 +1948,11 @@ func TestPromptCacheRiskGateLeavesTheHistoryAlone(t *testing.T) {
 	}
 	worker := &wireWorker{wire: wire, answer: func(call int) (string, []llm.ToolCall) {
 		switch call {
-		case 0: // echo prints the words of the command; docker never runs
+		case 0:
+			return "", []llm.ToolCall{{ID: "activate_command", Name: "activate_tools", InputJSON: `{"names":["run_command"]}`}}
+		case 1: // echo prints the words of the command; docker never runs
 			return "", []llm.ToolCall{{ID: "call_down", Name: "run_command", InputJSON: `{"command":"echo docker compose down -v"}`}}
-		case 1:
+		case 2:
 			return "the containers are gone", nil
 		}
 		return "carrying on", nil
@@ -2020,28 +2022,41 @@ func TestPromptCacheRiskGateLeavesTheHistoryAlone(t *testing.T) {
 
 	// What the provider was sent: the last request before the block and the
 	// first after the resume share every byte of the system message, the tool
-	// definitions and the history the first of them carried.
+	// history the first of them carried; the native offer resets to activation.
 	mu.Lock()
 	defer mu.Unlock()
-	if len(bodies) != 3 {
-		t.Fatalf("the worker sent %d requests, want 3", len(bodies))
+	if len(bodies) != 4 {
+		t.Fatalf("the worker sent %d requests, want 4 including activation", len(bodies))
 	}
 	type request struct {
 		Messages []json.RawMessage `json:"messages"`
 		Tools    json.RawMessage   `json:"tools"`
 	}
 	var before, after request
-	if err := json.Unmarshal(bodies[1], &before); err != nil {
+	if err := json.Unmarshal(bodies[2], &before); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(bodies[2], &after); err != nil {
+	if err := json.Unmarshal(bodies[3], &after); err != nil {
 		t.Fatal(err)
 	}
 	if len(before.Messages) < 4 || len(after.Messages) <= len(before.Messages) {
 		t.Fatalf("messages before = %d, after = %d", len(before.Messages), len(after.Messages))
 	}
-	if !bytes.Equal(before.Tools, after.Tools) {
-		t.Fatalf("the tool definitions changed:\n%s\n---\n%s", before.Tools, after.Tools)
+	// A new Run resets native activation while keeping the history and
+	// system bytes intact. Inspect the actual offered names, not a cached set.
+	var beforeTools, afterTools []struct {
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(before.Tools, &beforeTools); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(after.Tools, &afterTools); err != nil {
+		t.Fatal(err)
+	}
+	if len(beforeTools) != 2 || len(afterTools) != 1 || afterTools[0].Function.Name != "activate_tools" {
+		t.Fatalf("activation reset differs from wire offers: before=%s after=%s", before.Tools, after.Tools)
 	}
 	// The turn context rides after the history and is rebuilt for every step.
 	before.Messages, after.Messages = withoutTurnContext(before.Messages), withoutTurnContext(after.Messages)

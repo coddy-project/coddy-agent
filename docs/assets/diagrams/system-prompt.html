@@ -106,9 +106,9 @@
         <h2>1. The request, top to bottom</h2>
         <div class="req">
           <div class="box blue" id="tools">
-            <span class="why turn">mode, model, toolset, MCP</span>
+            <span class="why turn">activation, policy changes</span>
             <span class="k">Tool definitions</span> (the request's <code>tools</code> field)
-            <small>the built-in tools of the mode, plus MCP tools in agent and plan mode</small>
+            <small>empty when no tools are permitted; otherwise activate_tools, then complete activated definitions</small>
           </div>
           <div></div>
 
@@ -136,7 +136,7 @@
           <div class="box blue">
             <span class="why turn">mode, model, toolset, MCP</span>
             <span class="k">## Available tools</span>
-            <small>the same tools as text, MCP tools among them; MCP has no section of its own</small>
+            <small>compact lossy discovery catalog of every permitted name, including MCP</small>
           </div>
           <div class="box blue">
             <span class="why turn">config reload, workspace switch</span>

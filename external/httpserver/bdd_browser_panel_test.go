@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/browser"
@@ -53,7 +55,7 @@ func (p *panelStand) start() error {
 	stub := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "read this page", Tool: &llmstub.ToolCall{Name: "browser", Arguments: snapshot}, Answer: "The page is Example Domain."},
 	}}
-	p.model = httptest.NewServer(stub.Handler())
+	p.model = httptest.NewServer(llmtest.DiscoveryHandler(stub))
 	root := p.t.TempDir()
 	home, cwd := filepath.Join(root, "home"), filepath.Join(root, "work")
 	for _, dir := range []string{home, cwd} {

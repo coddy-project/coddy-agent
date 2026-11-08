@@ -51,11 +51,14 @@ func (p *bddLoopProvider) Complete(context.Context, []llm.Message, []llm.ToolDef
 	return nil, fmt.Errorf("Complete must not be used by the loop guard suite")
 }
 
-func (p *bddLoopProvider) Stream(ctx context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddLoopProvider) Stream(ctx context.Context, messages []llm.Message, definitions []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
 
 	if p.toolCall != nil {
+		if response := fixtureActivateTools(messages, definitions, onChunk, p.toolCall.Name); response != nil {
+			return response, nil
+		}
 		tc := *p.toolCall
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
@@ -297,8 +300,16 @@ func (s *loopGuardFeatureState) turnEndsWithRealAnswer() error {
 func (s *loopGuardFeatureState) toolRanFewerTimesThanTheLimit() error {
 	limit := s.cfg.Agent.EffectiveLoopToolRepeatLimit()
 	executed := 0
+	actions := map[string]bool{}
 	for _, m := range s.st.GetMessages() {
-		if m.Role == llm.RoleTool && m.Content != toolLoopNudge && m.Content != toolLoopSkippedResult {
+		for _, call := range m.ToolCalls {
+			if call.Name == s.provider.toolCall.Name {
+				actions[call.ID] = true
+			}
+		}
+	}
+	for _, m := range s.st.GetMessages() {
+		if m.Role == llm.RoleTool && actions[m.ToolCallID] && m.Content != toolLoopNudge && m.Content != toolLoopSkippedResult {
 			executed++
 		}
 	}

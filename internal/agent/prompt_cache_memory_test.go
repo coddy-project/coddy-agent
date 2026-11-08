@@ -87,7 +87,7 @@ func TestPromptCacheMemoryChildPrefixIgnoresItsGuides(t *testing.T) {
 	if first.system == "" || first.system != second.system {
 		t.Fatalf("the child's system message moved between runs whose guides differ:\n--- first\n%s\n--- second\n%s", first.system, second.system)
 	}
-	if first.defs != second.defs || !strings.Contains(first.defs, "coddy_memory_search") {
+	if first.defs != second.defs || !strings.Contains(first.defs, "activate_tools") || strings.Contains(first.defs, "coddy_memory_search") || !strings.Contains(first.system, "`coddy_memory_search`") {
 		t.Fatalf("the child's tool definitions moved between runs whose guides differ:\n%s\n%s", first.defs, second.defs)
 	}
 	for _, guide := range []string{"Global guide", "Project guide", "{{.CWD}}"} {

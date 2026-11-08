@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Telegram gateway e2e with no Telegram: starts tgfake (a fake Bot API plus a
-# scripted model, github.com/EvilFreelancer/tgfake: the binary in
+# Telegram gateway e2e with no Telegram: starts a fake Bot API and a scripted
+# model. The Bot API uses github.com/EvilFreelancer/tgfake (the binary in
 # CODDY_TGFAKE_BIN, else built from the version go.mod pins), boots coddy serve
 # against it in a temporary home, sends a message through the fake and checks
 # that the bot answered. Expects a coddy built with a gateway tag
@@ -11,6 +11,9 @@
 #   TG_E2E_KEEP=1 ./examples/gateway/tg_e2e_offline.sh   # leave the stand up, print the page URL
 #   RICH_MESSAGES=true ./examples/gateway/tg_e2e_offline.sh
 #   TG_E2E_METRICS=1 ./examples/gateway/tg_e2e_offline.sh   # also scrape the exporter
+#
+# Go is required even with prebuilt CODDY_BIN and CODDY_TGFAKE_BIN: the stand
+# builds its small discovery-aware model fixture from the pinned llmstub.
 #
 # Knobs: TG_PORT (18790), LLM_DELAY (50ms), RICH_MESSAGES (false), TG_VERBOSE
 # (unset), CODDY_BIN (build/coddy), CODDY_TGFAKE_BIN (a prebuilt tgfake, as CI
@@ -36,7 +39,7 @@ if [[ ! -x "$BIN" ]]; then
   echo "coddy binary not found at $BIN; build it with a gateway tag: ./examples/build_coddy.sh" >&2
   exit 1
 fi
-for tool in curl mktemp; do
+for tool in go curl mktemp; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "$tool not found" >&2
     exit 1
@@ -57,15 +60,17 @@ WORK_DIR="$TMP/work"
 mkdir -p "$HOME_DIR" "$WORK_DIR"
 TGFAKE_PID=""
 CODDY_PID=""
+MODEL_PID=""
 
 cleanup() {
   if [[ -n "${TG_E2E_KEEP:-}" ]]; then
-    echo "stand left running: chat page $ORIGIN/  (coddy pid $CODDY_PID, tgfake pid $TGFAKE_PID, home $HOME_DIR)"
+    echo "stand left running: chat page $ORIGIN/  (coddy pid $CODDY_PID, tgfake pid $TGFAKE_PID, model pid $MODEL_PID, home $HOME_DIR)"
     wait
     return
   fi
   [[ -n "$CODDY_PID" ]] && kill "$CODDY_PID" 2>/dev/null || true
   [[ -n "$TGFAKE_PID" ]] && kill "$TGFAKE_PID" 2>/dev/null || true
+  [[ -n "$MODEL_PID" ]] && kill "$MODEL_PID" 2>/dev/null || true
   wait 2>/dev/null || true
   rm -rf "$TMP"
 }
@@ -87,15 +92,14 @@ cat >"$RULES" <<'EOF_RULES'
 EOF_RULES
 
 # Built rather than `go run`: on Windows a kill of the go run parent leaves
-# the child listening. The model is told to ignore the <turn_context> block
-# Coddy appends to every request, so a rule matches what the person wrote.
+# the child listening. This process serves the Bot API and simulation page;
+# the discovery-aware scripted model below has its own listener.
 TGFAKE="${CODDY_TGFAKE_BIN:-}"
 if [[ -z "$TGFAKE" ]]; then
   go build -o "$TMP/tgfake$EXE" github.com/EvilFreelancer/tgfake/cmd/tgfake
   TGFAKE="$TMP/tgfake$EXE"
 fi
-"$TGFAKE" --addr "127.0.0.1:$TG_PORT" --llm --llm-model coddy-demo --llm-strip-tag turn_context \
-  --llm-script "$(hostpath "$RULES")" --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
+"$TGFAKE" --addr "127.0.0.1:$TG_PORT" ${TG_VERBOSE:+--verbose} &
 TGFAKE_PID=$!
 for _ in $(seq 1 40); do
   if curl -sf -o /dev/null "$ORIGIN/bot1/getMe"; then break; fi
@@ -115,12 +119,26 @@ free_port() {
   return 1
 }
 
+# The standalone tgfake CLI's model assumes any tool result finishes the task.
+# This model fixture follows the real catalog/activation/native-schema protocol
+# while keeping the same rules and the original wire requests and call count.
+go build -o "$TMP/tgmodel$EXE" ./examples/gateway/tgmodel
+MODEL_PORT="$(free_port)" || { echo "no free port for the model near $TG_PORT" >&2; exit 1; }
+MODEL_ORIGIN="http://127.0.0.1:$MODEL_PORT"
+"$TMP/tgmodel$EXE" --port "$MODEL_PORT" --rules "$(hostpath "$RULES")" --delay "$LLM_DELAY" &
+MODEL_PID=$!
+for _ in $(seq 1 40); do
+  if curl -sf -o /dev/null "$MODEL_ORIGIN/v1/models"; then break; fi
+  sleep 0.25
+done
+curl -sf -o /dev/null "$MODEL_ORIGIN/v1/models" || { echo "fixture model did not come up" >&2; exit 1; }
+
 CFG="$HOME_DIR/config.yaml"
 cat >"$CFG" <<EOF
 providers:
   - name: stub
     type: openai
-    api_base: "$ORIGIN/v1"
+    api_base: "$MODEL_ORIGIN/v1"
     api_key: "sk-tgfake"
 models:
   - model: stub/coddy-demo

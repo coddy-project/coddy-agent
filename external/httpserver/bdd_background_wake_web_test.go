@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -121,7 +123,7 @@ func (s *wakeWebState) startServer(fixes bool) error {
 		{Match: "start the tests", Tool: &llmstub.ToolCall{Name: "run_command", Arguments: start}, Answer: "Started the tests in the background."},
 		woken,
 	}}
-	s.model = httptest.NewServer(stub.Handler())
+	s.model = httptest.NewServer(llmtest.DiscoveryHandler(stub))
 
 	home := filepath.Join(s.root, "home")
 	s.cwd = filepath.Join(s.root, "work")

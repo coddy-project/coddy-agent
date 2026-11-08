@@ -117,14 +117,23 @@ func (s *acpDevinState) standReadsThenQuotes() error {
 			{UID: "claude-opus-5-high", Family: "claude-opus-5", FamilyLabel: "Claude Opus 5", ContextWindow: 1000000, MaxOutput: 128000},
 		},
 		Reply: func(req devinfake.ChatRequest, n int) devinfake.Turn {
-			for _, p := range req.Prompts {
-				if p.Source == 4 {
-					return devinfake.Turn{Text: "The file says: " + strings.TrimSpace(p.Text), StopReason: 4, Input: 40, Output: 8}
-				}
-			}
 			tool, args := "read", map[string]string{"path": readPath}
 			if s.grep {
 				tool, args = "grep", map[string]string{"pattern": acpDevinFileText, "path": readPath}
+			}
+			for _, p := range req.Prompts {
+				if p.Source == 4 && p.ToolCallID == "toolu_devin_1" {
+					return devinfake.Turn{Text: "The file says: " + strings.TrimSpace(p.Text), StopReason: 4, Input: 40, Output: 8}
+				}
+			}
+			bootstrap, loaded := false, false
+			for _, name := range req.Tools {
+				bootstrap = bootstrap || name == "activate_tools"
+				loaded = loaded || name == tool
+			}
+			if bootstrap && !loaded && strings.Contains(req.System, "- `"+tool+"`:") {
+				raw, _ := json.Marshal(map[string]any{"names": []string{tool}})
+				return devinfake.Turn{ToolCalls: []devinfake.ToolCall{{ID: "activate_devin_fixture", Name: "activate_tools", Args: string(raw)}}, StopReason: 10, Input: 30, Output: 12}
 			}
 			raw, _ := json.Marshal(args)
 			return devinfake.Turn{
@@ -232,16 +241,12 @@ func (s *acpDevinState) requestCarriedCoddyToolsAndPrompt() error {
 	if !strings.Contains(strings.ToLower(first.System), "coddy") {
 		return fmt.Errorf("system prompt is not coddy's: %.200q", first.System)
 	}
+	if strings.Join(first.Tools, ",") != "activate_tools" {
+		return fmt.Errorf("initial native offer = %v", first.Tools)
+	}
 	for _, want := range []string{"read", "glob", "run_command"} {
-		found := false
-		for _, name := range first.Tools {
-			if name == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("coddy tool %q was not offered; offered %v", want, first.Tools)
+		if !strings.Contains(first.System, "- `"+want+"`:") {
+			return fmt.Errorf("tool %q missing from discovery", want)
 		}
 	}
 	if first.MaxTokens <= 0 {
@@ -252,12 +257,12 @@ func (s *acpDevinState) requestCarriedCoddyToolsAndPrompt() error {
 
 func (s *acpDevinState) secondRequestReplayedToolRound() error {
 	chats := s.stand.Chats()
-	if len(chats) < 2 {
-		return fmt.Errorf("the stand saw %d chat requests, want 2", len(chats))
+	if len(chats) != 3 {
+		return fmt.Errorf("the stand saw %d chat requests, want activation, read, answer", len(chats))
 	}
 	var call, result *devinfake.Prompt
-	for i := range chats[1].Prompts {
-		p := &chats[1].Prompts[i]
+	for i := range chats[2].Prompts {
+		p := &chats[2].Prompts[i]
 		switch {
 		case p.Source == 2 && len(p.ToolCalls) > 0:
 			call = p
@@ -266,7 +271,7 @@ func (s *acpDevinState) secondRequestReplayedToolRound() error {
 		}
 	}
 	if call == nil || call.ToolCalls[0].ID != "toolu_devin_1" || call.ToolCalls[0].Name != "read" {
-		return fmt.Errorf("the assistant tool call was not replayed: %+v", chats[1].Prompts)
+		return fmt.Errorf("the assistant tool call was not replayed: %+v", chats[2].Prompts)
 	}
 	if call.Signature != acpDevinSignature || call.SignatureType != "anthropic" || call.Thinking != acpDevinThinking {
 		return fmt.Errorf("the signed reasoning was not replayed verbatim: thinking %q signature %q type %q", call.Thinking, call.Signature, call.SignatureType)
@@ -290,12 +295,12 @@ func (s *acpDevinState) modelGrepsTheFile() error {
 
 func (s *acpDevinState) toolResultWasValidUTF8() error {
 	chats := s.stand.Chats()
-	if len(chats) < 2 {
-		return fmt.Errorf("the stand saw %d chat requests, want 2", len(chats))
+	if len(chats) != 3 {
+		return fmt.Errorf("the stand saw %d chat requests, want activation, grep, answer", len(chats))
 	}
 	results := 0
-	for _, p := range chats[1].Prompts {
-		if p.Source != 4 {
+	for _, p := range chats[2].Prompts {
+		if p.Source != 4 || p.ToolCallID != "toolu_devin_1" {
 			continue
 		}
 		results++
@@ -303,8 +308,8 @@ func (s *acpDevinState) toolResultWasValidUTF8() error {
 			return fmt.Errorf("tool result %q is not the file as valid UTF-8", p.Text)
 		}
 	}
-	if results == 0 {
-		return fmt.Errorf("the second request carried no tool result")
+	if results != 1 {
+		return fmt.Errorf("the request after execution must carry exactly one real tool result")
 	}
 	return nil
 }

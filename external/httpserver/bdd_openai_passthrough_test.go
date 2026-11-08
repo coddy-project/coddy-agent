@@ -426,12 +426,15 @@ func (s *openAIPassthroughState) upstreamOfferedCoddysToolsNot(name string) erro
 			return fmt.Errorf("the client's tool %q leaked into the agent's tool set", name)
 		}
 	}
-	for _, t := range tools {
-		if t.Get("function.name").String() == "read" {
+	if len(tools) != 1 || tools[0].Get("function.name").String() != "activate_tools" {
+		return fmt.Errorf("agent initial native offer = %s", gjson.Get(last, "tools").Raw)
+	}
+	for _, tool := range fixtureWireCatalog(last) {
+		if tool == "read" {
 			return nil
 		}
 	}
-	return fmt.Errorf("coddy's own read tool is missing from the agent's tool set: %s", gjson.Get(last, "tools").Raw)
+	return fmt.Errorf("coddy's read tool is missing from discovery")
 }
 
 func (s *openAIPassthroughState) upstreamCarriedToolResult(result, callID string) error {

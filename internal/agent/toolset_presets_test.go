@@ -172,11 +172,11 @@ func TestModelToolListsMayOfferNoToolAtAll(t *testing.T) {
 		t.Fatalf("Run = %q, %v", stop, err)
 	}
 	if len(provider.offered) != 1 || len(provider.offered[0]) != 0 {
-		t.Fatalf("the request carried tools %v, want none", provider.offered)
+		t.Fatalf("the request carried tools %v, want no native tools", provider.offered)
 	}
 	system := provider.seen[0][0].Content
-	if strings.Contains(system, "## Available tools") {
-		t.Fatalf("the system prompt still has a tools section:\n%s", system)
+	if len(promptToolNames(system)) != 0 {
+		t.Fatalf("the system prompt still lists excluded tools:\n%s", system)
 	}
 	if msgs := st.GetMessages(); len(msgs) == 0 || msgs[len(msgs)-1].Content != bddModelToolsAnswer {
 		t.Fatalf("the turn did not end with the answer: %+v", msgs)
@@ -383,6 +383,11 @@ func TestModelToolListsBindASpawnedChildByItsOwnModel(t *testing.T) {
 			toolRow{Model: "fake/small", MaxTokens: 100, Tools: []string{"read", "grep", "spawn_agent"}},
 		)
 	})
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(func(messages []llm.Message, defs []llm.ToolDefinition, chunk func(llm.StreamChunk)) *llm.Response {
+			return rawToolStep(discoveryActivation("child_activate", promptToolNames(messages[0].Content)...))(messages, defs, chunk)
+		}, answerStep("done"))
+	})
 	rig.approvedDefinition("on-small", "model: fake/small\ntools: read, grep, write\n")
 	rig.approvedDefinition("on-big", "model: fake/model\ntools: read, grep, write\n")
 	rig.approvedDefinition("inherits", "tools: read, grep, write\n")
@@ -399,10 +404,15 @@ func TestModelToolListsBindASpawnedChildByItsOwnModel(t *testing.T) {
 			t.Fatalf("spawn %s started %d children", agent, len(children)-before)
 		}
 		offered := rig.childProviderOf(children[len(children)-1]).offered
-		if len(offered) == 0 {
+		if len(offered) != 2 || joined(offered[0]) != activateToolsName {
 			t.Fatalf("spawn %s: the child never called its model", agent)
 		}
-		got := append([]string(nil), offered[0]...)
+		var got []string
+		for _, name := range offered[1] {
+			if name != activateToolsName {
+				got = append(got, name)
+			}
+		}
 		sort.Strings(got)
 		return got
 	}
@@ -493,14 +503,14 @@ func TestModelToolListsTakeEffectFromTheRequestAfterAMidTurnSwitch(t *testing.T)
 	if err != nil || stop != string(acp.StopReasonEndTurn) {
 		t.Fatalf("Run = %q, %v", stop, err)
 	}
-	if len(provider.offered) != 2 {
-		t.Fatalf("the model was called %d times, want 2", len(provider.offered))
+	if len(provider.offered) != 3 {
+		t.Fatalf("the model was called %d times, want 3 including activation", len(provider.offered))
 	}
-	if first := sortedNames(provider.offered[0]); len(first) < 30 {
+	if first := sortedNames(provider.offered[0]); joined(first) != activateToolsName {
 		t.Fatalf("the first request, on the model without lists, carried %v", first)
 	}
-	if second := sortedNames(provider.offered[1]); strings.Join(second, ",") != "grep,read" {
-		t.Fatalf("the request after the switch carried %v, want grep,read", second)
+	if second := sortedNames(provider.offered[1]); strings.Join(second, ",") != "activate_tools,read" {
+		t.Fatalf("the request after the switch carried %v, want activation and loaded read", second)
 	}
 	if listed := promptToolNames(provider.seen[1][0].Content); strings.Join(listed, ",") != "grep,read" {
 		t.Fatalf("the system message after the switch lists %v, want grep,read", listed)
@@ -519,12 +529,13 @@ func TestModelToolListsTakeEffectFromTheRequestAfterAMidTurnSwitch(t *testing.T)
 func joined(names []string) string { return strings.Join(names, ",") }
 
 // A switch between models that carry no lists on either side leaves the system
-// message and the tool list exactly as the turn began with them, even when the
-// MCP set moved meanwhile: the rebuild belongs to the lists, not to every switch.
-func TestModelToolListsMidTurnSwitchWithoutListsKeepsTheRequestAsIs(t *testing.T) {
+// active native offer intact. A newly connected MCP server refreshes discovery,
+// but its schema is not loaded implicitly.
+func TestModelToolListsMidTurnSwitchWithoutListsRefreshesMCPDiscovery(t *testing.T) {
 	levels := []string{"low", "high"}
 	ag, st, _ := modelToolsAgent(t, session.ModeAgent, "", toolRow{Model: "fake/model", ReasoningLevels: &levels})
 	provider := scripted(
+		rawToolStep(discoveryActivation("activate_read", "read")),
 		func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
 			// An MCP server comes up and the reasoning level changes while the
 			// first reply is produced: the transport is rebuilt at the next step.
@@ -540,10 +551,10 @@ func TestModelToolListsMidTurnSwitchWithoutListsKeepsTheRequestAsIs(t *testing.T
 	if err != nil || stop != string(acp.StopReasonEndTurn) {
 		t.Fatalf("Run = %q, %v", stop, err)
 	}
-	if len(provider.offered) != 2 {
-		t.Fatalf("the model was called %d times, want 2", len(provider.offered))
+	if len(provider.offered) != 3 {
+		t.Fatalf("the model was called %d times, want 3 including activation", len(provider.offered))
 	}
-	if joined(provider.offered[0]) != joined(provider.offered[1]) {
+	if joined(provider.offered[1]) != joined(provider.offered[2]) {
 		t.Fatalf("the tool list moved with the switch:\nfirst  %v\nsecond %v", provider.offered[0], provider.offered[1])
 	}
 	for _, name := range provider.offered[1] {
@@ -551,8 +562,11 @@ func TestModelToolListsMidTurnSwitchWithoutListsKeepsTheRequestAsIs(t *testing.T
 			t.Fatalf("the MCP tool %s reached a request the switch only re-keyed", name)
 		}
 	}
-	if first, second := provider.requests[0][0].Content, provider.requests[1][0].Content; first != second {
-		t.Fatalf("the system message was rendered again by a switch that moved no tool list")
+	if first, second := provider.requests[1][0].Content, provider.requests[2][0].Content; first == second {
+		t.Fatalf("the newly permitted MCP tool never reached discovery")
+	}
+	if !contains(promptToolNames(provider.requests[2][0].Content), "srv__tool") {
+		t.Fatal("new MCP tool missing from discovery")
 	}
 }
 
@@ -565,6 +579,7 @@ func TestModelToolListsRefusalFollowsTheTransportWhenTheSwitchCannotBeBuilt(t *t
 	ag, st, _ := modelToolsAgent(t, session.ModeAgent, "fake/big", big, small)
 	target := filepath.Join(st.CWD, "notes.md")
 	provider := scripted(
+		rawToolStep(discoveryActivation("activate_write", "write")),
 		func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
 			st.SetSelectedModelID("fake/small")
 			call := llm.ToolCall{ID: "call_write", Name: "write", InputJSON: `{"path":` + quoteJSON(target) + `,"content":"hello"}`}
@@ -591,8 +606,8 @@ func TestModelToolListsRefusalFollowsTheTransportWhenTheSwitchCannotBeBuilt(t *t
 			t.Fatalf("a tool the request offered was refused: %q", m.Content)
 		}
 	}
-	if len(provider.offered) != 2 || joined(provider.offered[0]) != joined(provider.offered[1]) {
-		t.Fatalf("offers = %v, want the same set on both requests (the switch was not built)", provider.offered)
+	if len(provider.offered) != 3 || joined(provider.offered[1]) != joined(provider.offered[2]) {
+		t.Fatalf("offers = %v, want the same loaded set after activation (the switch was not built)", provider.offered)
 	}
 	// Once the offer is over the lists of the state's model apply again.
 	if _, refused := ag.toolCallRefusedByToolset("write"); !refused {
@@ -640,14 +655,14 @@ func TestModelToolListsABatchWithASwitchIsJudgedByItsOwnOffer(t *testing.T) {
 	if writeResult == "" || strings.Contains(writeResult, "is not offered") {
 		t.Fatalf("the write was answered with %q", writeResult)
 	}
-	if len(provider.offered) != 2 {
-		t.Fatalf("the model was called %d times, want 2", len(provider.offered))
+	if len(provider.offered) != 3 {
+		t.Fatalf("the model was called %d times, want 3 including activation", len(provider.offered))
 	}
-	if !contains(provider.offered[0], "write") || !contains(provider.offered[0], "switch_model") {
-		t.Fatalf("the first request did not offer write and switch_model: %v", provider.offered[0])
+	if !contains(provider.offered[1], "write") || !contains(provider.offered[1], "switch_model") {
+		t.Fatalf("the activated request did not offer write and switch_model: %v", provider.offered[1])
 	}
-	if got := joined(provider.offered[1]); got != "read,grep" && got != "grep,read" {
-		t.Fatalf("the request after the switch carried %v, want the small model's read and grep", provider.offered[1])
+	if got := joined(provider.offered[2]); got != activateToolsName {
+		t.Fatalf("the request after the switch carried %v, want only activation after excluded tools were removed", provider.offered[1])
 	}
 	// The next batch is judged by the new offer.
 	if _, refused := ag.toolCallRefusedByToolset("write"); !refused {
@@ -703,16 +718,16 @@ func TestModelToolListsConfigReloadTakesEffectFromTheNextRequest(t *testing.T) {
 	if b, err := os.ReadFile(target); err != nil || string(b) != "batch" {
 		t.Fatalf("the write the batch was offered did not run after the commit: %q, %v", b, err)
 	}
-	if len(provider.offered) != 3 {
-		t.Fatalf("the model was called %d times, want 3", len(provider.offered))
+	if len(provider.offered) != 5 {
+		t.Fatalf("the model was called %d times, want 5 including two activation batches", len(provider.offered))
 	}
-	if !contains(provider.offered[1], "write") {
-		t.Fatalf("the batch that committed was not offered write: %v", provider.offered[1])
+	if !contains(provider.offered[3], "write") {
+		t.Fatalf("the batch that committed was not offered write: %v", provider.offered[3])
 	}
-	if got := joined(provider.offered[2]); got != "read,grep" && got != "grep,read" {
-		t.Fatalf("the request after the commit carried %v, want read and grep", provider.offered[2])
+	if got := joined(provider.offered[4]); got != activateToolsName {
+		t.Fatalf("the request after the commit carried %v, want only activation after excluded tools were removed", provider.offered[2])
 	}
-	system := provider.requests[2][0]
+	system := provider.requests[4][0]
 	if system.Role != llm.RoleSystem {
 		t.Fatalf("the request after the commit starts with %s", system.Role)
 	}
@@ -827,6 +842,7 @@ func TestToolsetPickedMidTurnTakesEffectFromTheNextRequest(t *testing.T) {
 	ag, st, _ := modelToolsAgent(t, session.ModeAgent, "", toolRow{Model: "fake/model"})
 	ag.cfg.Toolsets = []config.Toolset{{Name: "lean", Tools: []string{"read", "grep"}}}
 	provider := scripted(
+		rawToolStep(discoveryActivation("activate_read", "read")),
 		func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
 			st.SetSelectedToolset("lean")
 			return toolStep(llm.ToolCall{ID: "call_read", Name: "read", InputJSON: `{"path":"missing.txt"}`})(nil, nil, onChunk)
@@ -837,13 +853,13 @@ func TestToolsetPickedMidTurnTakesEffectFromTheNextRequest(t *testing.T) {
 	if stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look"}}); err != nil || stop != string(acp.StopReasonEndTurn) {
 		t.Fatalf("Run = %q, %v", stop, err)
 	}
-	if len(provider.offered) != 2 || len(provider.offered[0]) < 20 {
+	if len(provider.offered) != 3 || joined(provider.offered[0]) != activateToolsName {
 		t.Fatalf("offers = %v", provider.offered)
 	}
-	if got := joined(provider.offered[1]); got != "read,grep" && got != "grep,read" {
-		t.Fatalf("the request after the pick carried %v", provider.offered[1])
+	if got := joined(provider.offered[2]); got != "activate_tools,read" && got != "read,activate_tools" {
+		t.Fatalf("the request after the pick carried %v", provider.offered[2])
 	}
-	if got := joined(promptToolNames(provider.requests[1][0].Content)); got != "grep,read" {
+	if got := joined(promptToolNames(provider.requests[2][0].Content)); got != "grep,read" {
 		t.Fatalf("the system message after the pick lists %s", got)
 	}
 }

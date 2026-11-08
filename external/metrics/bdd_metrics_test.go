@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/llmtest"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -163,7 +165,7 @@ func (s *exporterState) providerWithModel(provider, model string) error {
 	stub := &llmstub.Server{Model: api, StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "SECRET-PROMPT", Answer: "A scripted answer.", Tool: &llmstub.ToolCall{Name: "read", Arguments: []byte(`{"path":"notes.txt"}`)}},
 	}}
-	handler := stub.Handler()
+	handler := llmtest.DiscoveryHandler(stub)
 	s.model = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.asked.Add(1)
 		handler.ServeHTTP(w, r)
