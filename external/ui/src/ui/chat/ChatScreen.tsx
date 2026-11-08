@@ -368,6 +368,9 @@ export function ChatScreen(props: {
           rowGap: px(column, "row-gap") || 10,
           contentEndAboveBlockEnd:
             underContent - px(host.parentElement, "padding-bottom"),
+          // On desktop the tail sat one small step too far above the docked
+          // composer. The stacked shell keeps its established spacing.
+          endGapReductionPx: mobileDocScroll ? 0 : 5,
         }),
       );
     };
