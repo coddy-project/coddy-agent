@@ -39,6 +39,8 @@ func KeysymOf(key string) uint32 {
 		return keysymW
 	case "Tab":
 		return keysymTab
+	case "R", "r":
+		return keysymR
 	}
 	return 0
 }
@@ -74,6 +76,7 @@ type MenuWindow struct {
 	mu        sync.Mutex
 	activated int
 	minimised int
+	closed    int
 }
 
 func NewMenuWindow() *MenuWindow { return &MenuWindow{queue: newChordQueue()} }
@@ -96,8 +99,6 @@ func (w *MenuWindow) Minimise() error {
 	return nil
 }
 
-func (w *MenuWindow) pushChord(name string) { w.queue.push(name) }
-
 func (w *MenuWindow) NextChord(ctx context.Context) string { return w.queue.next(ctx) }
 
 // Shown and Hidden are how many times the menu asked for each.
@@ -113,6 +114,64 @@ func (w *MenuWindow) Hidden() int {
 	return w.minimised
 }
 
+func (w *MenuWindow) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed++
+	return nil
+}
+
+// Closed is how many times the menu asked for the application to end.
+func (w *MenuWindow) Closed() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
+}
+
 // BindWindow is what the launcher does once the browser has a window: it gives
 // the settings store the window a switch and a menu row act on.
 func (s *SettingsStore) BindWindow(h *WindowHandle) { s.bind(h, nil) }
+
+// ShellWindow is a window the shell's own routes can be driven against: it can
+// be asked, and it writes down what it was asked for rather than touching a
+// display or starting a browser.
+type ShellWindow struct {
+	noWindowControl
+
+	mu     sync.Mutex
+	moves  [][2]int
+	opened []string
+}
+
+func NewShellWindow() *ShellWindow { return &ShellWindow{} }
+
+func (w *ShellWindow) Supported() bool { return true }
+
+func (w *ShellWindow) BeginMove(_, _ int) error { return nil }
+
+func (w *ShellWindow) MoveBy(dx, dy int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.moves = append(w.moves, [2]int{dx, dy})
+	return nil
+}
+
+// OpenExternal is this machine's own browser being started on a link.
+func (w *ShellWindow) OpenExternal(url string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.opened = append(w.opened, url)
+	return nil
+}
+
+func (w *ShellWindow) Moves() [][2]int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([][2]int(nil), w.moves...)
+}
+
+func (w *ShellWindow) Opened() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.opened...)
+}

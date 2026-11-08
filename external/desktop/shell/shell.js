@@ -364,12 +364,19 @@
     const startX = e.screenX;
     const startY = e.screenY;
     let dragging = false;
+    let began = false;
     let pending = null;
     let frame = 0;
 
     const send = () => {
       frame = 0;
-      if (!pending) return;
+      // Nothing is sent until the window has answered that it knows where the
+      // drag began. The two are separate requests and the browser may deliver
+      // them in either order: a move that overtook the start used to be
+      // measured from wherever the last drag left the window, which threw the
+      // window sideways for a frame or two before the start landed and put it
+      // right. The window refuses such a move; the page does not send one.
+      if (!began || !pending) return;
       const [dx, dy] = pending;
       pending = null;
       askWindow("move-by", { x: dx, y: dy });
@@ -389,7 +396,12 @@
         // Where the pointer took hold, so a window the window manager has
         // pinned - maximised, or tiled against an edge - can be let loose and
         // put back under the pointer instead of jumping out from under it.
-        askWindow("move-begin", { x: startX, y: startY });
+        askWindow("move-begin", { x: startX, y: startY }).then((ok) => {
+          began = ok;
+          // The pointer has been moving while this was in flight, and the last
+          // place it reached is where the window belongs.
+          if (ok && pending && !frame) frame = requestAnimationFrame(send);
+        });
       }
       // One move per frame: a pointer reports far more often than a window
       // needs to be put somewhere, and every report is a request.
@@ -400,6 +412,7 @@
     const stop = () => {
       if (frame) cancelAnimationFrame(frame);
       send();
+      if (dragging) askWindow("move-end");
       zone.removeEventListener("pointermove", onMove);
       zone.removeEventListener("pointerup", stop);
       zone.removeEventListener("pointercancel", stop);
@@ -420,6 +433,57 @@
     zone.addEventListener("pointermove", onMove);
     zone.addEventListener("pointerup", stop);
     zone.addEventListener("pointercancel", stop);
+  }
+
+  // A link out of Coddy opens in this machine's own browser.
+  //
+  // Clicked inside a frame, a link to another site loads that site into the
+  // frame: a page from the internet under a tab strip, with no address bar,
+  // no back button and no way out but closing the tab. It is handed to the
+  // desktop's own opener instead, which is where a person expects a link to
+  // go. Coddy's own addresses are not links out and stay in the window.
+  function watchLinks(doc) {
+    doc.addEventListener(
+      "click",
+      (e) => {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey) return;
+        // Not `e.target instanceof Element`: the target belongs to the
+        // frame's document and this script runs in the strip's, and every
+        // document has constructors of its own, so the check is false for
+        // every element of every chat. What is asked instead is whether the
+        // node can answer the question.
+        const target = e.target;
+        const anchor =
+          target && typeof target.closest === "function"
+            ? target.closest("a[href]")
+            : null;
+        if (!anchor) return;
+        let url;
+        try {
+          url = new URL(anchor.getAttribute("href") || "", doc.baseURI);
+        } catch {
+          return;
+        }
+        if (url.protocol !== "http:" && url.protocol !== "https:") return;
+        if (url.origin === location.origin) return;
+        e.preventDefault();
+        openOutside(url.href);
+      },
+      true,
+    );
+  }
+
+  async function openOutside(url) {
+    try {
+      await fetch("/desktop/open", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+    } catch {
+      /* nothing opens, and the window is where it was */
+    }
   }
 
   // --- frames -------------------------------------------------------------
@@ -508,6 +572,9 @@
       // It needs saying twice because a pointer event inside a frame is
       // delivered to that frame's document and stops there.
       frame.contentDocument.addEventListener("pointerdown", closeMenu);
+      // A link to another site goes to this machine's own browser rather than
+      // into the frame, and that is said per document for the same reason.
+      watchLinks(frame.contentDocument);
       // A theme, the simplified mode or a wallpaper chosen in this chat belongs
       // to the window, so the choice is carried to every other tab (spreadLook)
       // rather than left in the document it was made in.
@@ -764,7 +831,10 @@
       /* the menu then draws the defaults, and a switch will say why */
     }
     syncWindowButtons();
-    if (!menu.hidden) renderMenu();
+    // The rows carry the ticks, so they are read again with the settings: the
+    // launcher says a switch moved when it was the tray icon's menu that
+    // moved it, and this is what redraws the menu in the bar.
+    await refreshMenu();
   }
 
   // A switch moves only when the launcher says it did: the tray needs a tray
@@ -791,7 +861,7 @@
       settingsError[key] = "the window did not answer";
     }
     syncWindowButtons();
-    if (!menu.hidden) renderMenu();
+    await refreshMenu();
   }
 
   // --- the chords the browser answers itself -------------------------------
@@ -823,6 +893,27 @@
       else if (chord === "close-tab") closeTab(activeUid);
       else if (chord === "next-tab") step(1);
       else if (chord === "prev-tab") step(-1);
+      else if (chord === "reload-tab") reloadActiveFrame();
+      else if (chord === "settings-moved") readSettings();
+    }
+  }
+
+  // Reload the chat in front, and only it.
+  //
+  // The browser's own reload would reload this document, which is the strip:
+  // every tab's frame would go back to its chat at once and the strip would be
+  // rebuilt around them. A tab exists so that one chat can be worked on
+  // without the others moving, so the key reloads the frame of the tab in
+  // front and leaves the rest alone.
+  function reloadActiveFrame() {
+    const frame = frameOf.get(activeUid);
+    if (!frame) return;
+    try {
+      frame.contentWindow.location.reload();
+    } catch {
+      // A frame that will not be reached from here is reloaded by being
+      // pointed at its own address again.
+      frame.src = frame.src;
     }
   }
 
@@ -850,22 +941,27 @@
 
   // A switch: it stays where it is, so the menu stays open and the tick moves
   // once the launcher says the change actually happened.
-  function menuSwitch(key, text) {
+  //
+  // The tick is the launcher's answer (row.checked), not a value this page
+  // remembers: the same switch is drawn in the tray icon's menu, which the
+  // page cannot see, and a tick drawn from a copy taken when the window
+  // opened went on saying what the machine was doing an hour ago.
+  function menuSwitch(key, text, checked) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "row";
     row.setAttribute("role", "menuitemcheckbox");
-    row.setAttribute("aria-checked", String(settings[key] === true));
+    row.setAttribute("aria-checked", String(checked === true));
     const m = document.createElement("span");
     m.className = "mark";
-    m.textContent = settings[key] ? "✓" : "";
+    m.textContent = checked ? "✓" : "";
     row.appendChild(m);
     row.appendChild(document.createTextNode(text));
     if (settingsError[key]) {
       row.classList.add("failed");
       row.title = settingsError[key];
     }
-    row.addEventListener("click", () => setSetting(key, !settings[key]));
+    row.addEventListener("click", () => setSetting(key, !checked));
     return row;
   }
 
@@ -906,7 +1002,7 @@
       if (row.kind === "separator") {
         menu.appendChild(menuSeparator());
       } else if (row.kind === "switch") {
-        menu.appendChild(menuSwitch(row.id, row.label));
+        menu.appendChild(menuSwitch(row.id, row.label, row.checked === true));
       } else {
         const mark = row.id === "new-chat" ? "+" : "";
         menu.appendChild(
@@ -916,15 +1012,20 @@
     }
   }
 
+  // refreshMenu takes the rows again and redraws an open menu from them.
+  async function refreshMenu() {
+    await readMenuRows();
+    if (!menu.hidden) renderMenu();
+  }
+
   function openMenu() {
     renderMenu();
     menu.hidden = false;
     menuButton.setAttribute("aria-expanded", "true");
     // Read again on every open: the rows depend on what the window can be
-    // asked, and the window appears a moment after this page does.
-    readMenuRows().then(() => {
-      if (!menu.hidden) renderMenu();
-    });
+    // asked, and the window appears a moment after this page does; the ticks
+    // may have moved in the tray icon's menu since this one was last drawn.
+    refreshMenu();
     // The listener is added on the next tick so that the click which opened
     // the menu does not immediately close it again.
     setTimeout(() => document.addEventListener("pointerdown", onAway), 0);
@@ -970,7 +1071,8 @@
 
   // --- keys ---------------------------------------------------------------
 
-  // Ctrl is what a person expects, and Alt is bound beside it.
+  // Ctrl is what a person expects, Alt is bound beside it, and on a Mac the
+  // Command key stands with them.
   //
   // A Chromium window opened with --app has no tab strip of its own, so it
   // hands Ctrl+T, Ctrl+W and Ctrl+1..9 to the page instead of acting on them
@@ -978,6 +1080,14 @@
   // leaves the application running, which it would not if the browser had kept
   // the key). Every one of them is cancelled, so the browser cannot act on it
   // afterwards, and Alt stands beside Ctrl for a browser that does keep it.
+  // On Linux the launcher also takes Ctrl+T, Ctrl+W, Ctrl+R and Ctrl+Tab at
+  // the X server (desktop/chords.go) and hands them back through /desktop/keys.
+  //
+  // The key is read off e.code, the physical key, and never off e.key: with a
+  // Russian layout active Ctrl+T reports "т", and on a Mac Alt+T reports "†",
+  // so a strip that matched the character answered neither.
+  const chordModifier = (e) => e.ctrlKey || e.altKey || e.metaKey;
+
   function onKeyDown(e) {
     if (e.key === "Escape" && !menu.hidden) {
       closeMenu();
@@ -986,26 +1096,30 @@
     // Tab walks the row, and it is the one chord that takes Shift: forward
     // with Ctrl, back with Ctrl+Shift, the way every tabbed application does
     // it. It is handled before the guard below, which turns Shift away.
-    if (e.key === "Tab" && (e.altKey || e.ctrlKey) && !e.metaKey) {
+    if (e.code === "Tab" && chordModifier(e)) {
       e.preventDefault();
       step(e.shiftKey ? -1 : 1);
       return;
     }
-    const chord = (e.altKey || e.ctrlKey) && !e.metaKey && !e.shiftKey;
-    if (!chord) return;
-    const key = e.key.toLowerCase();
-    if (key === "t") {
+    if (!chordModifier(e) || e.shiftKey) return;
+    if (e.code === "KeyT") {
       e.preventDefault();
       openTab();
       return;
     }
-    if (key === "w") {
+    if (e.code === "KeyW") {
       e.preventDefault();
       closeTab(activeUid);
       return;
     }
-    if (key >= "1" && key <= "9") {
-      const index = Number(key) - 1;
+    if (e.code === "KeyR") {
+      e.preventDefault();
+      reloadActiveFrame();
+      return;
+    }
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (digit) {
+      const index = Number(digit[1]) - 1;
       if (index < tabs.length) {
         e.preventDefault();
         activate(tabs[index].uid);

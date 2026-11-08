@@ -20,10 +20,17 @@ import "context"
 // browser keeps. The browser check of the SPA cannot see this; the probe is
 // `xdotool`-style XTEST input against a window on a display of its own.
 const (
-	chordNewTab   = "new-tab"
-	chordCloseTab = "close-tab"
-	chordNextTab  = "next-tab"
-	chordPrevTab  = "prev-tab"
+	chordNewTab    = "new-tab"
+	chordCloseTab  = "close-tab"
+	chordNextTab   = "next-tab"
+	chordPrevTab   = "prev-tab"
+	chordReloadTab = "reload-tab"
+	// chordSettingsMoved is not a key. It travels down the same queue when a
+	// switch is thrown somewhere the page cannot see - the tray icon's menu -
+	// so the menu in the bar reads the settings again and draws what the
+	// machine is now doing. One queue, because the page is already holding a
+	// poll on it and a second channel would answer the same question twice.
+	chordSettingsMoved = "settings-moved"
 )
 
 // The X keysyms of the keys. A Latin-1 character is its own keysym, so the
@@ -31,6 +38,7 @@ const (
 const (
 	keysymT   uint32 = 0x0074
 	keysymW   uint32 = 0x0077
+	keysymR   uint32 = 0x0072
 	keysymTab uint32 = 0xff09
 )
 
@@ -50,6 +58,11 @@ func chordKeys() []chordKey {
 	return []chordKey{
 		{keysym: keysymT, chord: chordNewTab},
 		{keysym: keysymW, chord: chordCloseTab},
+		// Reload, which a browser answers by reloading the document - and the
+		// document here is the strip, so the whole application would go back
+		// to the beginning and every chat with it. Taken, it reloads the one
+		// chat in front.
+		{keysym: keysymR, chord: chordReloadTab},
 		{keysym: keysymTab, chord: chordNextTab},
 		{keysym: keysymTab, shift: true, chord: chordPrevTab},
 	}

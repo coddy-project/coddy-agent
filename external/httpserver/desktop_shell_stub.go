@@ -15,3 +15,5 @@ import "net/http"
 const desktopShellPrefix = "/desktop/"
 
 func desktopShellHandler(*Server) http.Handler { return nil }
+
+func (s *Server) servesDesktopShell() bool { return false }

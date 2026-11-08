@@ -36,6 +36,32 @@ func TestTheSwitchesComeBackFromTheFile(t *testing.T) {
 	}
 }
 
+// The same switches are drawn in two places - the menu in the bar and the
+// menu of the tray icon - and a switch thrown in one has to move in the other.
+// Neither menu watches the other: the store announces the change, and the
+// launcher's watcher is what redraws the tray and tells the page to read again.
+func TestAChangeIsAnnouncedToWhoeverDrawsIt(t *testing.T) {
+	store := LoadSettings(t.TempDir(), nil)
+	told := 0
+	store.watch(func() { told++ })
+	if err := store.SetSettings(Settings{StartMinimised: true}); err != nil {
+		t.Fatal(err)
+	}
+	if told != 1 {
+		t.Fatalf("the change was announced %d times", told)
+	}
+	// A write that changes nothing is still a write, and announcing it costs a
+	// redraw of a menu that is almost never open; a refusal announces nothing,
+	// because nothing moved.
+	store.tray = nil
+	if err := store.SetSettings(Settings{StartMinimised: true, Tray: true}); err == nil {
+		t.Fatal("a tray icon nobody can show was reported as shown")
+	}
+	if told != 1 {
+		t.Fatalf("a refused change was announced: %d", told)
+	}
+}
+
 func TestADefaultWindowOpensWhenThereIsNoFileYet(t *testing.T) {
 	if got := LoadSettings(t.TempDir(), nil).Settings(); got != (Settings{}) {
 		t.Fatalf("a home with no settings file opened on %+v", got)

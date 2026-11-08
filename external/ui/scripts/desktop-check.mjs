@@ -21,7 +21,8 @@
  *   npm run check:desktop
  *
  * Environment:
- *   CODDY_DESKTOP_BIN   the binary (default ../../build/coddy-desktop)
+ *   CODDY_DESKTOP_BIN   the binary (default ../../build/coddy), run as
+ *                       `coddy desktop`
  *   CODDY_BROWSER_PATH  an installed Chromium instead of Playwright's download
  *   CODDY_SHOTS_DIR     write a picture of the strip there, for a look at a run.
  *                       Not the picture docs/surfaces/desktop.md embeds: that
@@ -39,8 +40,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.resolve(
-  process.env.CODDY_DESKTOP_BIN ||
-    path.join(here, "../../../build/coddy-desktop"),
+  process.env.CODDY_DESKTOP_BIN || path.join(here, "../../../build/coddy"),
 );
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
 const SHOTS = process.env.CODDY_SHOTS_DIR || "";
@@ -78,6 +78,19 @@ fs.writeFileSync(path.join(workspace, "README.md"), "# demo\n");
 // so the surface behind it serves for as long as the checks need.
 const fakeWindow = path.join(root, "window.sh");
 fs.writeFileSync(fakeWindow, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
+
+// A link out of Coddy is handed to this machine's own opener. The stand puts
+// its own `xdg-open` first on PATH, both so that nothing opens on the
+// operator's desktop and so that the check can read what the opener was
+// given.
+const binDir = path.join(root, "bin");
+const openedLog = path.join(root, "opened.txt");
+fs.mkdirSync(binDir, { recursive: true });
+fs.writeFileSync(
+  path.join(binDir, "xdg-open"),
+  `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(openedLog)}\n`,
+  { mode: 0o755 },
+);
 
 const MODEL_PORT = Number(process.env.CODDY_PORT_BASE || 19910);
 fs.writeFileSync(
@@ -189,10 +202,10 @@ let modelServer = null;
 function startDesktop() {
   const proc = spawn(
     BIN,
-    ["--home", home, "--cwd", workspace, "--log-level", "warn"],
+    ["desktop", "--home", home, "--cwd", workspace, "--log-level", "warn"],
     {
       env: {
-        PATH: process.env.PATH,
+        PATH: `${binDir}:${process.env.PATH}`,
         HOME: root,
         TMPDIR: root,
         CODDY_DESKTOP_BROWSER: fakeWindow,
@@ -472,6 +485,103 @@ async function main() {
       .getAttribute("aria-selected")) === "true",
     "Alt+1 from a focused chat switched to the first tab",
   );
+
+  console.log("a link out of Coddy goes to this machine's own browser");
+  const navigatedTo = await page.evaluate(async () => {
+    const frame = document.querySelectorAll(".frames iframe")[0];
+    const doc = frame.contentDocument;
+    const was = doc.location.href;
+    const anchor = doc.createElement("a");
+    anchor.href = "https://coddy.dev/docs/surfaces-desktop";
+    anchor.textContent = "the documentation";
+    doc.body.appendChild(anchor);
+    anchor.click();
+    await new Promise((r) => setTimeout(r, 500));
+    return { was, now: doc.location.href };
+  });
+  expect(
+    navigatedTo.now === navigatedTo.was,
+    "the chat stayed where it was instead of loading the site into its frame",
+  );
+  await page.waitForFunction(() => true);
+  const opened = fs.existsSync(openedLog)
+    ? fs.readFileSync(openedLog, "utf8").trim().split("\n")
+    : [];
+  expect(
+    opened.includes("https://coddy.dev/docs/surfaces-desktop"),
+    `the opener of this machine was started on the link (it got ${JSON.stringify(opened)})`,
+  );
+
+  console.log("Alt+R reloads the chat in front and nothing else");
+  // Two tabs are open here, and neither is touched: what is being checked is
+  // that the key reloads one chat and not the document that holds them all.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll(".frames iframe")].every(
+      (f) => f.contentDocument && f.contentDocument.body,
+    ),
+  );
+  // A mark in each frame's window, which a reload of that frame takes with it.
+  await page.evaluate(() => {
+    for (const frame of document.querySelectorAll(".frames iframe")) {
+      frame.contentWindow.__coddyReloadMark = true;
+    }
+  });
+  // The key is pressed inside the chat in front, which is the one that must
+  // reload. It is the frame without [hidden]: the others are hidden with
+  // visibility rather than display, so they keep their box and a key pressed
+  // in one of them reaches nothing.
+  const activeHandle = await page.evaluateHandle(() =>
+    [...document.querySelectorAll(".frames iframe")].find((f) => !f.hidden),
+  );
+  const reloadFrame = await activeHandle.asElement().contentFrame();
+  await reloadFrame.locator("body").press("Alt+r");
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll(".frames iframe")].find((f) => !f.hidden)
+        .contentWindow.__coddyReloadMark,
+    null,
+    { timeout: 20000 },
+  );
+  ok("the chat in front went back to its server");
+  expect(
+    await page.evaluate(() =>
+      [...document.querySelectorAll(".frames iframe")]
+        .filter((f) => f.hidden)
+        .every((f) => f.contentWindow.__coddyReloadMark === true),
+    ),
+    "the chats behind were left alone: a reload of the strip would have taken every tab with it",
+  );
+
+  console.log("a switch thrown outside the page reaches the menu in the bar");
+  // What the tray icon's menu does, which this stand has no tray for: the
+  // launcher is told, and the page has to redraw from it rather than from the
+  // copy it took when the window opened.
+  await page.click("#menu-btn");
+  await page.waitForSelector("#menu:not([hidden])");
+  const switchRow = page.locator("#menu .row", { hasText: "Start minimised" });
+  expect(
+    (await switchRow.getAttribute("aria-checked")) === "false",
+    "the switch starts off",
+  );
+  await fetch(`http://127.0.0.1:${port}/desktop/settings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: JSON.stringify({ start_minimised: true }),
+  });
+  await page.waitForFunction(
+    () => {
+      const rows = [...document.querySelectorAll("#menu .row")];
+      const row = rows.find((r) => r.textContent.includes("Start minimised"));
+      return row && row.getAttribute("aria-checked") === "true";
+    },
+    null,
+    { timeout: 15000 },
+  );
+  ok("the open menu moved its tick without being touched");
+  await page.keyboard.press("Escape");
 
   await page.waitForTimeout(1000);
   if (SHOTS) {

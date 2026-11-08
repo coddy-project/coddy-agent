@@ -37,6 +37,11 @@ type SettingsStore struct {
 	// thrown before then is still remembered and applied when it does.
 	win  *WindowHandle
 	tray *trayIcon
+	// quit ends the run, for the row of the tray's menu that says so.
+	quit func()
+	// changed is told whenever a switch moved, so the menu that did not move
+	// it is redrawn: the tray icon's, or the one in the bar, through the page.
+	changed []func()
 }
 
 // LoadSettings reads the switches of this home, answering the defaults when
@@ -98,8 +103,28 @@ func (s *SettingsStore) SetSettings(next Settings) error {
 
 	s.mu.Lock()
 	s.cur = next
+	watchers := append([]func(){}, s.changed...)
 	s.mu.Unlock()
-	return s.write(next)
+	err := s.write(next)
+	// The machine is already doing it, so whoever draws a switch is told even
+	// when the file could not be written: a menu that drew the file rather
+	// than the machine would be the lie this store exists to avoid.
+	for _, tell := range watchers {
+		tell()
+	}
+	return err
+}
+
+// watch registers something to be told when a switch moves. The launcher
+// registers one watcher: it redraws the tray icon's menu and tells the page to
+// read the settings again, so a switch thrown in either menu moves in both.
+func (s *SettingsStore) watch(fn func()) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	s.changed = append(s.changed, fn)
+	s.mu.Unlock()
 }
 
 func (s *SettingsStore) write(v Settings) error {
@@ -126,6 +151,16 @@ func (s *SettingsStore) bind(win *WindowHandle, tray *trayIcon) {
 	s.mu.Unlock()
 }
 
+// bindQuit gives the store the way to end this run, for the tray's last row.
+func (s *SettingsStore) bindQuit(quit func()) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.quit = quit
+	s.mu.Unlock()
+}
+
 // MenuRows answers the rows of the tray icon's menu: the same ones the menu in
 // the tab strip draws, with showing and hiding the window above them.
 func (s *SettingsStore) MenuRows() []shell.MenuItem {
@@ -149,13 +184,26 @@ func (s *SettingsStore) PickMenu(id string) error {
 		return errors.New("desktop: this window keeps no settings")
 	}
 	s.mu.Lock()
-	win, cur := s.win, s.cur
+	win, cur, quit := s.win, s.cur, s.quit
 	s.mu.Unlock()
 	switch id {
 	case shell.MenuShowWindow:
 		return win.Activate()
 	case shell.MenuHideWindow:
 		return win.Minimise()
+	case shell.MenuQuit:
+		// Closing the window is what ends the run, the same path as its own
+		// close button, so nothing of the session is lost. A window that
+		// cannot be asked - or is not there at all - leaves the run to be
+		// ended directly.
+		if err := win.Close(); err == nil {
+			return nil
+		}
+		if quit == nil {
+			return errors.New("desktop: there is nothing to quit here")
+		}
+		quit()
+		return nil
 	case shell.MenuNewChat:
 		// The window comes back first: a chat opened behind a hidden window is
 		// one nobody asked for.

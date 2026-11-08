@@ -10,6 +10,7 @@ _coddy() {
         'cli:interactive console TUI'
         'acp:Agent Client Protocol server on stdio'
         'serve:run every subsystem enabled in config.yaml'
+        'desktop:open Coddy as a window on this machine'
         'sessions:list or export stored sessions'
         'skills:manage skills'
         'plugin:manage plugins and marketplaces'
@@ -122,6 +123,18 @@ _coddy() {
                         '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
                         '--remote[drive a remote coddy serve server]:remote:' \
                         '--remote-token[bearer token for --remote]:token:'
+                    ;;
+                desktop)
+                    _arguments \
+                        '--window[window backend]:backend:(auto browser native)' \
+                        '--browser[browser to open the window with]:browser:_files' \
+                        '--frame[keep the system title bar and borders]' \
+                        '--auth[ask for the credential the configuration carries]' \
+                        '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default workspace for new chats]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)'
                     ;;
                 serve)
                     _arguments \

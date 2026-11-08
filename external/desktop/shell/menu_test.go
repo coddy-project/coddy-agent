@@ -89,10 +89,52 @@ func TestPickingASwitchFlipsExactlyThatOne(t *testing.T) {
 	}
 }
 
+// The tray is the only way back to a window that is hidden, and the only way
+// out of an application whose window is in the tray rather than on screen, so
+// its menu ends with Quit, set apart from the switches above it.
+func TestTheTraysMenuEndsWithQuitBehindALine(t *testing.T) {
+	for _, driven := range []bool{true, false} {
+		rows := MenuRows(Settings{}, MenuInTray, driven)
+		if len(rows) < 2 {
+			t.Fatalf("the tray's menu has %d rows", len(rows))
+		}
+		last, line := rows[len(rows)-1], rows[len(rows)-2]
+		if last.ID != MenuQuit || last.Kind != MenuAction {
+			t.Fatalf("the tray's menu ends with %q (%s)", last.ID, last.Kind)
+		}
+		if line.Kind != MenuSeparator {
+			t.Fatalf("Quit stands straight under %q", line.ID)
+		}
+	}
+}
+
+// The bar's menu does not: the window it is drawn in carries a close button of
+// its own, an arm's length from the row that would do the same thing.
+func TestTheBarsMenuDoesNotOfferQuit(t *testing.T) {
+	for _, id := range idsOf(MenuRows(Settings{}, MenuInBar, true)) {
+		if id == MenuQuit {
+			t.Fatal("the bar's menu offers Quit beside the window's own close button")
+		}
+	}
+}
+
+// New chat is the first row of what both menus share, and in the tray that
+// puts it third: under the two window rows and the line that sets them apart.
+func TestNewChatIsTheFirstRowBothMenusShare(t *testing.T) {
+	bar := MenuRows(Settings{}, MenuInBar, true)
+	if len(bar) == 0 || bar[0].ID != MenuNewChat {
+		t.Fatalf("the bar's menu starts with %v", idsOf(bar))
+	}
+	tray := MenuRows(Settings{}, MenuInTray, true)
+	if len(tray) < 4 || tray[3].ID != MenuNewChat {
+		t.Fatalf("the tray's menu starts with %v", idsOf(tray))
+	}
+}
+
 // An action and anything the menu does not know are not switches, and leave
 // the settings exactly as they were.
 func TestPickingSomethingThatIsNotASwitchChangesNothing(t *testing.T) {
-	for _, id := range []string{MenuNewChat, MenuShowWindow, MenuHideWindow, "", "nonsense"} {
+	for _, id := range []string{MenuNewChat, MenuShowWindow, MenuHideWindow, MenuQuit, "", "nonsense"} {
 		next, ok := ApplyMenuSwitch(Settings{Tray: true}, id)
 		if ok {
 			t.Fatalf("%q was taken for a switch", id)

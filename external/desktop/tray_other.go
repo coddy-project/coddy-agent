@@ -27,3 +27,5 @@ func (t *trayIcon) Show() error {
 }
 
 func (t *trayIcon) Hide() {}
+
+func (t *trayIcon) menuChanged() {}

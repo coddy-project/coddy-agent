@@ -1,16 +1,17 @@
-//go:build desktop && (!linux || android)
+//go:build desktop && !darwin && !windows && (!linux || android)
 
 package desktop
 
 import "errors"
 
-// The window itself is ported to Linux only for now, and so is the entry that
-// opens it at login: the XDG autostart folder is what a Linux session reads,
-// and a macOS launch agent or a Windows startup entry is a different file in a
-// different place, written when the window is ported there.
+// Every platform with no autostart of its own: the BSDs, Plan 9, and Android,
+// where Termux has no login session to open a window in. Linux has the XDG
+// autostart folder, macOS a launch agent and Windows a value under the Run
+// key; there is nothing to write here, and the switch says so rather than
+// pretending it took.
 
 func setAutostart(bool) error {
-	return errors.New("desktop: opening the window at login is ported to Linux only for now")
+	return errors.New("desktop: opening the window at login is written for Linux, macOS and Windows; this platform has no autostart Coddy knows")
 }
 
 func autostartEnabled() bool { return false }

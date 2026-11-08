@@ -19,7 +19,8 @@ func mountEmbeddedSPARoot(s *Server) {
 	// open (isProtectedPattern), which is what lets a browser with no cookie
 	// reach the page and sign in through it. The shell frames the SPA and
 	// draws its titles from the gated session list, so nothing behind the gate
-	// moves in front of it. Nil in a build without the surface.
+	// moves in front of it. Nil in a build without the surface, and silent on
+	// a server that opened no window of its own.
 	desktopShell := desktopShellHandler(s)
 	s.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// ui.enable: false runs an API-only server even though the SPA is compiled in.
@@ -27,7 +28,11 @@ func mountEmbeddedSPARoot(s *Server) {
 			writeUIDisabledNotice(w)
 			return
 		}
-		if desktopShell != nil {
+		// Only the process that opened a window answers /desktop/: on
+		// `coddy serve` the page belongs to nobody, and its routes sit
+		// outside the authentication gate because the window's fresh profile
+		// has no cookie to pass it with.
+		if desktopShell != nil && s.servesDesktopShell() {
 			if r.URL.Path == strings.TrimSuffix(desktopShellPrefix, "/") {
 				http.Redirect(w, r, desktopShellPrefix, http.StatusMovedPermanently)
 				return

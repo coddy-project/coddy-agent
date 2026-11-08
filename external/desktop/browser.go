@@ -266,7 +266,7 @@ func openBrowserWindow(ctx context.Context, opts Options, url string) error {
 			// Ctrl+T and Ctrl+W are taken from the browser here rather than
 			// read in the page, which never sees them (chords.go).
 			if g, ok := ctl.(chordGrabber); ok {
-				g.grabChords()
+				g.grabChords(opts.Handle.pushGrabbed)
 			}
 			if opts.StartMinimised {
 				if err := ctl.Minimise(); err != nil {

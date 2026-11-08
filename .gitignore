@@ -10,7 +10,6 @@ build/
 dist/
 coddy-agent
 /coddy
-/coddy-desktop
 rpa-agent
 *.exe
 *.exe~

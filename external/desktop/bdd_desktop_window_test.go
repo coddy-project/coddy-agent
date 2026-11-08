@@ -16,10 +16,12 @@ package desktop_test
 // handover scenario below asserts on the probe rather than on the browser.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -126,6 +128,15 @@ type windowState struct {
 	menuWindow   *desktop.MenuWindow
 	menuSettings *desktop.SettingsStore
 
+	// The window the shell's own routes are driven against, and what the last
+	// request to each of them answered.
+	shellWindow    *desktop.ShellWindow
+	shellServer    *httptest.Server
+	lastOpenStatus int
+	lastMoveStatus int
+	lastAsked      string
+	opensSeen      int
+
 	// What a drag of the bar is asked about: where the window stands, what
 	// size it has of its own, where the pointer took hold, and the answers.
 	dragCur                desktop.WindowRect
@@ -170,9 +181,18 @@ func (s *windowState) stop() {
 		s.chordServer.Close()
 		s.chordServer = nil
 	}
+	if s.shellServer != nil {
+		s.shellServer.Close()
+		s.shellServer = nil
+	}
 	s.chordWindow = nil
 	s.menuWindow = nil
 	s.menuSettings = nil
+	s.shellWindow = nil
+	s.lastOpenStatus = 0
+	s.lastMoveStatus = 0
+	s.lastAsked = ""
+	s.opensSeen = 0
 }
 
 // --- the chords the browser answers itself --------------------------------
@@ -205,10 +225,11 @@ func (s *windowState) pressesChord(keys string) error {
 
 func (s *windowState) stripIsToldTo(what string) error {
 	want := map[string]string{
-		"open a chat":             "new-tab",
-		"close the chat in front": "close-tab",
-		"go to the next chat":     "next-tab",
-		"go to the previous chat": "prev-tab",
+		"open a chat":              "new-tab",
+		"close the chat in front":  "close-tab",
+		"go to the next chat":      "next-tab",
+		"go to the previous chat":  "prev-tab",
+		"reload the chat in front": "reload-tab",
 	}[what]
 	if want == "" {
 		return fmt.Errorf("the strip is never told to %q", what)
@@ -349,6 +370,123 @@ func (s *windowState) windowBroughtBack() error {
 func (s *windowState) windowPutAway() error {
 	if s.menuWindow.Hidden() != 1 {
 		return fmt.Errorf("the window was put away %d times", s.menuWindow.Hidden())
+	}
+	return nil
+}
+
+func (s *windowState) windowClosed() error {
+	if s.menuWindow.Closed() != 1 {
+		return fmt.Errorf("the window was closed %d times", s.menuWindow.Closed())
+	}
+	return nil
+}
+
+// --- the shell's own routes, over a window that records what it is asked ---
+
+func (s *windowState) windowOnTheTabShell() error {
+	s.shellWindow = desktop.NewShellWindow()
+	s.shellServer = httptest.NewServer(shell.Handler(s.shellWindow))
+	return nil
+}
+
+// askTheWindow is one POST the strip makes, answered the way the page's own
+// document is answered.
+func (s *windowState) askTheWindow(route string, body any) (int, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.shellServer.URL+shell.Prefix+route, bytes.NewReader(b))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	_, _ = io.Copy(io.Discard, res.Body)
+	return res.StatusCode, nil
+}
+
+func (s *windowState) chatAsksToOpen(url string) error {
+	s.opensSeen = len(s.shellWindow.Opened())
+	s.lastAsked = url
+	code, err := s.askTheWindow("open", map[string]string{"url": url})
+	if err != nil {
+		return err
+	}
+	s.lastOpenStatus = code
+	return nil
+}
+
+func (s *windowState) browserOpenedOnIt() error {
+	if s.lastOpenStatus != http.StatusNoContent {
+		return fmt.Errorf("the window answered %d", s.lastOpenStatus)
+	}
+	opened := s.shellWindow.Opened()
+	if len(opened) != s.opensSeen+1 || opened[len(opened)-1] != s.lastAsked {
+		return fmt.Errorf("this machine's browser was opened on %v", opened)
+	}
+	return nil
+}
+
+func (s *windowState) windowOpensNothing() error {
+	if s.lastOpenStatus == http.StatusNoContent {
+		return errors.New("the window took the address")
+	}
+	if opened := s.shellWindow.Opened(); len(opened) != s.opensSeen {
+		return fmt.Errorf("this machine's browser was opened on %v", opened)
+	}
+	return nil
+}
+
+// A move that arrives before the window has been told where the drag began is
+// refused rather than measured from wherever the last drag left the window:
+// the two are separate requests, and the browser is free to deliver them in
+// either order.
+func (s *windowState) movesBeforeTheDragBegan() error {
+	code, err := s.askTheWindow("window", map[string]any{"action": "move-by", "x": 40, "y": 20})
+	if err != nil {
+		return err
+	}
+	s.lastMoveStatus = code
+	return nil
+}
+
+func (s *windowState) windowDoesNotMove() error {
+	if s.lastMoveStatus == http.StatusNoContent {
+		return errors.New("the window was moved by a drag that had not begun")
+	}
+	if moves := s.shellWindow.Moves(); len(moves) != 0 {
+		return fmt.Errorf("the window was moved %v", moves)
+	}
+	return nil
+}
+
+func (s *windowState) dragBeginsAndThePageAsksAgain() error {
+	if code, err := s.askTheWindow("window", map[string]any{"action": "move-begin", "x": 100, "y": 10}); err != nil {
+		return err
+	} else if code != http.StatusNoContent {
+		return fmt.Errorf("the window answered the start of the drag with %d", code)
+	}
+	code, err := s.askTheWindow("window", map[string]any{"action": "move-by", "x": 40, "y": 20})
+	if err != nil {
+		return err
+	}
+	s.lastMoveStatus = code
+	return nil
+}
+
+func (s *windowState) windowFollowsThePointer() error {
+	if s.lastMoveStatus != http.StatusNoContent {
+		return fmt.Errorf("the window answered %d", s.lastMoveStatus)
+	}
+	moves := s.shellWindow.Moves()
+	if len(moves) != 1 || moves[0] != [2]int{40, 20} {
+		return fmt.Errorf("the window was moved %v", moves)
 	}
 	return nil
 }
@@ -816,6 +954,16 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^the operator picks "([^"]+)" from the tray$`, st.picksFromTheTray)
 			sc.Step(`^the window is brought back$`, st.windowBroughtBack)
 			sc.Step(`^the window is put away$`, st.windowPutAway)
+			sc.Step(`^the window is closed$`, st.windowClosed)
+
+			sc.Step(`^a window on the tab shell$`, st.windowOnTheTabShell)
+			sc.Step(`^a chat asks the window to open "([^"]*)"$`, st.chatAsksToOpen)
+			sc.Step(`^this machine's own browser is opened on it$`, st.browserOpenedOnIt)
+			sc.Step(`^the window opens nothing$`, st.windowOpensNothing)
+			sc.Step(`^the page asks to move the window before saying where the drag began$`, st.movesBeforeTheDragBegan)
+			sc.Step(`^the window does not move$`, st.windowDoesNotMove)
+			sc.Step(`^the drag begins and the page asks again$`, st.dragBeginsAndThePageAsksAgain)
+			sc.Step(`^the window follows the pointer$`, st.windowFollowsThePointer)
 			sc.Step(`^the switch is written down for the next launch$`, st.switchWrittenDown)
 			sc.Step(`^the bar's menu draws it ticked$`, st.barDrawsItTicked)
 

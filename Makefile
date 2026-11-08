@@ -2,7 +2,7 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 #     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -13,13 +13,14 @@
 #     cli      interactive console TUI (bare `coddy` on a terminal; see external/cli/)
 #     swarm    stateless relay that aggregates nodes (coddy serve; see external/swarm/)
 #     metrics  Prometheus exporter, off by default (coddy serve; see external/metrics/)
+#     desktop  `coddy desktop`, the web UI in a window of this machine (needs http and ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="gateway metrics"
-#             make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+#             make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
 #   VERSION / REVISION / LDFLAGS   embedded version string and commit (see print-version, print-revision).
 
@@ -50,8 +51,11 @@ empty :=
 space := $(empty) $(empty)
 comma := ,
 
-# Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser
+# Default tag set for `make install` when build/coddy is missing. One set
+# everywhere: the release binaries, the packages, the Homebrew formula and the
+# container image (Dockerfile BUILD_TAGS) all build from it, so a `coddy` is
+# the same program wherever it came from.
+FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser desktop
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -123,27 +127,21 @@ android:
 
 # ---- Desktop window ----
 #
-# coddy-desktop is a binary of its own, not a verb of coddy: the web interface
-# in a window on this machine, over an HTTP surface it starts on a loopback
-# port the agent home remembers. It carries the SPA, so this builds it first.
+# `coddy desktop` is a verb of the ordinary binary, so there is nothing of its
+# own to build: this target is `make build` with the shipped tag set, which
+# carries the window. It stays because it is what the documentation, the
+# browser check and the packaging script name.
 #
-# The window is ported to Linux, where it opens a Chromium-family browser in
-# app mode. macOS and Windows each need their own browser locations, and a
-# signed application before Gatekeeper or SmartScreen will open a window
-# without a warning, so neither is claimed yet: the binary builds there and
-# says what it cannot do, and CODDY_DESKTOP_BROWSER names a browser by path
-# for anyone who wants it anyway.
-DESKTOP_TAGS := http ui desktop
+# The window is a Chromium-family browser in app mode on every platform that
+# has one. Linux is the one where it is also driven: X11 takes the system
+# frame off, cuts the corners, moves the window with the bar and grabs the
+# chords the browser would answer itself, and a DBus tray carries the icon.
+# macOS and Windows get the window with the frame their desktop gives it.
+DESKTOP_TAGS := $(FULL_TAGS)
 DESKTOP_TAGS_CSV := $(subst $(space),$(comma),$(strip $(DESKTOP_TAGS)))
-DESKTOP_BINARY := $(BUILD_DIR)/coddy-desktop$(GOEXE)
 
-desktop: ui-build
 desktop:
-	@mkdir -p $(BUILD_DIR)
-	@if [ "$$(go env GOOS)" != "linux" ]; then \
-		echo "warning: the desktop window is ported to Linux only; on $$(go env GOOS) point CODDY_DESKTOP_BROWSER at a Chromium-family executable to open one" >&2; \
-	fi
-	go build -tags "$(DESKTOP_TAGS)" -ldflags "$(LDFLAGS)" -o $(DESKTOP_BINARY) ./cmd/coddy-desktop/
+	$(MAKE) build TAGS="$(DESKTOP_TAGS)"
 
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
@@ -211,12 +209,10 @@ deb:
 rpm:
 	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
 
-# The desktop window is a package of its own, `coddy-desktop`: it carries the
-# embedded web UI, so it is built with its own tags and has no business on a
-# server that only runs `coddy serve`. Beyond the binary it installs the menu
-# entry and the icon, which is what puts Coddy in the application launcher.
-deb-desktop rpm-desktop: ui-build
-
+# The desktop application is a package of its own, `coddy-desktop`, and it
+# carries no binary: it installs the menu entry and the icon that put Coddy in
+# the application launcher, and depends on `coddy`, whose `desktop` verb is
+# the window. A server that only runs `coddy serve` installs the agent alone.
 deb-desktop:
 	scripts/build-desktop-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats deb
 
@@ -394,19 +390,13 @@ TEST_TAG_SETS := \
 	http,browser \
 	desktop \
 	http,desktop \
-	$(DESKTOP_TAGS_CSV) \
+	http,ui,desktop \
 	$(FULL_TAGS_CSV)
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
 # module compiled in.
 test: test-agent-rules ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
-	# The desktop window is a binary of its own and its tag is not in
-	# FULL_TAGS, so the run above never compiles it. Its own packages, and the
-	# shell page the HTTP server mounts for it, run here instead of growing
-	# the shipped tag set with a surface the shipped binary does not carry.
-	go test -tags=$(DESKTOP_TAGS_CSV) ./external/desktop/... ./cmd/coddy-desktop/...
-	go test -tags=$(DESKTOP_TAGS_CSV) ./external/httpserver/ -run Desktop
 
 # Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
 # it locally only when a build-tag boundary moved and one combination is not
@@ -526,7 +516,9 @@ check-windows:
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
 	GOOS=windows go vet -tags=metrics ./...
 	GOOS=windows go vet -tags=browser ./...
-	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser ./...
+	GOOS=windows go vet -tags=desktop ./...
+	GOOS=windows go vet -tags=http,ui,desktop ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop ./...
 
 # Type-check the Android build without a device, test files included.
 #
@@ -591,7 +583,6 @@ lint: fmt-check ui-build
 	golangci-lint run ./...
 	golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
 	golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
-	golangci-lint run --build-tags $(DESKTOP_TAGS_CSV) ./...
 	$(MAKE) ui-typecheck
 
 # The same three passes against the Windows build, which lint above never

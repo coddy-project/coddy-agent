@@ -55,6 +55,16 @@ func TestOnlyTheKeysTheBrowserAnswersAreTaken(t *testing.T) {
 	if chord, ok := chordOf(keysymW, false); !ok || chord != chordCloseTab {
 		t.Fatalf("Ctrl+W answered %q, %v", chord, ok)
 	}
+	// Ctrl+R is the browser's reload, and in a window whose document is the
+	// strip that reloads the whole application: every tab's frame goes back to
+	// its chat at once and the strip is rebuilt around them. Taken here, it
+	// reloads the one chat the operator is looking at.
+	if chord, ok := chordOf(keysymR, false); !ok || chord != chordReloadTab {
+		t.Fatalf("Ctrl+R answered %q, %v", chord, ok)
+	}
+	if !containsKeysym(chordKeysyms(), keysymR) {
+		t.Fatal("Ctrl+R is answered but never grabbed, so the browser still reloads the window")
+	}
 	// A digit is not taken: an application window has no tabs of its own to
 	// switch to, so it hands Ctrl+1..9 to the page, which reads them there.
 	if _, ok := chordOf('1', false); ok {
@@ -78,9 +88,10 @@ func TestTabWalksTheRowBothWays(t *testing.T) {
 	if chord, ok := chordOf(keysymT, true); ok {
 		t.Fatalf("Ctrl+Shift+T answered %q", chord)
 	}
-	// One keyboard map search per distinct key, Tab named once for its two.
-	if got := len(chordKeysyms()); got != 3 {
-		t.Fatalf("the keyboard map is searched for %d keys, wanted 3", got)
+	// One keyboard map search per distinct key, Tab named once for its two:
+	// T, W, R and Tab.
+	if got := len(chordKeysyms()); got != 4 {
+		t.Fatalf("the keyboard map is searched for %d keys, wanted 4", got)
 	}
 }
 

@@ -47,10 +47,9 @@ type x11Control struct {
 	shapeOnce sync.Once
 	shaped    bool
 
-	// chords carries the keys the browser would have answered itself from the
-	// X event loop to the strip's long poll (window_keys_x11.go).
-	chords *chordQueue
-
+	// deliver is where a grabbed key goes: the handle's queue, which the page
+	// long-polls. It is set when the chords are grabbed.
+	deliver func(string)
 	// mu guards where a drag started from, which the page sets once and then
 	// measures every move against.
 	mu               sync.Mutex
@@ -67,11 +66,10 @@ func newWindowControl(log *slog.Logger, pid int) WindowControl {
 		return noWindowControl{}
 	}
 	return &x11Control{
-		log:    log,
-		pid:    pid,
-		conn:   c,
-		root:   xproto.Setup(c).DefaultScreen(c).Root,
-		chords: newChordQueue(),
+		log:  log,
+		pid:  pid,
+		conn: c,
+		root: xproto.Setup(c).DefaultScreen(c).Root,
 	}
 }
 

@@ -19,7 +19,7 @@ Build with **`memory`** to link long-term memory (`external/memory`). Enable beh
 The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`** — see [`docs/surfaces/gateway.md`](../surfaces/gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/surfaces/console.md`](../surfaces/console.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 Output: **`build/coddy`**.
@@ -42,14 +42,14 @@ The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags 
 
 **`make install`** copies **`build/coddy`** onto your **`PATH`**:
 
-- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** first.
+- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** first.
 
 - **root** - **`/usr/local/bin/coddy`**, man page in **`/usr/local/share/man/man1`**
 - **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**), man page in **`~/.local/share/man/man1`**
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 make install
 ```
 
@@ -68,7 +68,7 @@ Output: **`dist/coddy_<version>_linux_<arch>.deb`** and **`.rpm`**. Knobs:
 | Variable | Default | What |
 |----------|---------|------|
 | **`PKG_ARCHS`** | host **`GOARCH`** | architectures to package, e.g. **`"amd64 arm64"`** |
-| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics browser`** | build tags for the packaged binary |
+| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics browser desktop`** | build tags for the packaged binary |
 | **`DIST_DIR`** | **`dist`** | where the packages land |
 
 ```bash
@@ -231,45 +231,53 @@ make build
 
 Use this when you only need stdio ACP and want fewer dependencies and no **`npm`** step.
 
-## Desktop window (`coddy-desktop`)
+## Desktop window (`coddy desktop`)
 
-The desktop window is a second binary, built with its own tag set and not by `make build`:
+The window is a verb of the ordinary binary, and the `desktop` tag is in `FULL_TAGS`, so every
+release binary has it. `make desktop` is `make build` with that tag set:
 
 ```bash
-make desktop            # build/coddy-desktop, tags: http ui desktop
-./build/coddy-desktop
+make desktop            # build/coddy with the shipped tags
+./build/coddy desktop
 ```
 
 It serves the web interface on a loopback port the agent home remembers and opens a
 Chromium-family browser on it in application mode, with a browser profile of its own under
-`<home>/desktop/profiles/`. The window is ported to Linux; elsewhere the binary builds, and
-`CODDY_DESKTOP_BROWSER` names a browser by path. The `desktop` tag is not in `FULL_TAGS`, so the
-`coddy` binary, the container image and the packages do not carry the surface, and the desktop
-binary is in no release artefact yet. What it is and how it behaves: [Desktop
-window](../surfaces/desktop.md).
+`<home>/desktop/profiles/`. The surface costs 0.44 MiB in a binary that already carries the HTTP
+server and the SPA, because the X11 library it drives the window with (`jezek/xgb`) is already
+there for the console's clipboard pictures; only the DBus client of the tray icon is new.
+
+The container image builds the same set (`BUILD_TAGS` in the `Dockerfile` and in
+`.github/workflows/docker-build-push.yaml`), so a `coddy` is the same program wherever it came
+from, even though nothing in a container has a display to open a window on.
+The command itself needs `http` and `ui` beside `desktop` - it opens on the SPA - and a build
+missing any of the three answers `coddy desktop` with the line that names the tags. What it is and
+how it behaves: [Desktop window](../surfaces/desktop.md).
 
 The browser checks of the shell (`npm run check:desktop` in `external/ui`) drive the real binary:
-tabs, the chords, and the tab list surviving a restart.
+tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart.
 
-Its Linux packages are built separately from the agent's, under a name of their own:
+The desktop application is a Linux package of its own, and it carries no binary: the menu entry and
+the icon that put Coddy in the application launcher, depending on `coddy` for the program.
 
 ```bash
 make deb-desktop        # dist/coddy-desktop_<version>_linux_<arch>.deb
 make rpm-desktop        # the same as an .rpm
 ```
 
-They take the same `PKG_ARCHS` and `DIST_DIR` knobs; the tags are `DESKTOP_TAGS` and not
-`PKG_TAGS`, since a window with no embedded interface would be an empty frame. The recipe is
-`packaging/nfpm-desktop.yaml`, driven by `scripts/build-desktop-packages.sh`, which stages the
-binary, the menu entry (`packaging/desktop/coddy-desktop.desktop`), the icon - the web interface's
-own `coddy-favicon.svg` and `icon-512.png`, taken from `external/ui/public/` rather than copied
-into the tree a second time - and `LICENSE`. The entry and the icon are what put Coddy in the
-application launcher; the package enables nothing and has no maintainer scripts.
+They take the same `PKG_ARCHS` and `DIST_DIR` knobs and build nothing, since the package has no
+binary in it. The recipe is `packaging/nfpm-desktop.yaml`, driven by
+`scripts/build-desktop-packages.sh`, which stages the menu entry
+(`packaging/desktop/coddy-desktop.desktop`), the icon (`packaging/desktop/coddy-desktop.svg` and
+the sizes under `packaging/desktop/icons/`, rendered from it with `rsvg-convert` and committed:
+the web interface's favicon leaves too much air around the mark to read at the 32 and 48 pixels an
+application menu gives it) and `LICENSE`. The package enables nothing, has no maintainer scripts
+and depends on `coddy`.
 
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm metrics browser"   # build/coddy-android-arm64, -amd64
+make android TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop desktop"   # build/coddy-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -337,7 +345,7 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
@@ -361,9 +369,9 @@ Order does not matter for these tags.
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) |
 | **`swarm`** | Stateless relay that aggregates nodes, started by **`coddy serve`** under **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../external/swarm) |
 | **`metrics`** | Prometheus exporter, started by **`coddy serve`** under **`metrics.enable`** (off by default); serves **`/metrics`** on a port of its own | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../external/metrics) |
-| **`desktop`** | The desktop window: the `coddy-desktop` binary, the tab shell the HTTP server mounts at `/desktop/`, and the browser backend that opens the window. Built by **`make desktop`**, not by **`make build`**: it is a binary of its own | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../external/desktop) |
+| **`desktop`** | The desktop window: the **`coddy desktop`** command, the tab shell the HTTP server mounts at `/desktop/` for the process that opened a window, and the browser backend that opens it. Needs **`http`** and **`ui`** beside it; in **`FULL_TAGS`**, and out of the container image | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../external/desktop) |
 
-**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination. The `cli` job also starts the built binary and drives the console through a real pty (`examples/cli/cli_e2e_startup.py`), and the **Telegram stand (tgfake)** job runs the Telegram bot against the release binary of [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; the binary it runs is built with `gateway metrics`, and the script scrapes the exporter after the chat). The **Docker image** job builds the runtime image for **`linux/amd64`** and **`linux/arm64`**, the platforms a release pushes, and checks that each variant carries a binary of its own platform (**`make check-image`**, see [Checking the platforms of the image](../getting-started/docker.md#checking-the-platforms-of-the-image)). **`make test-race`** runs the whole tree under the Go race detector with every tag but `ui`; CI runs it on every pull request in the **Race detector** job, and `GOFLAGS=-count=3 make test-race` repeats every test locally for a race that shows up rarely. Two groups can be run on their own: **`make test-cache`** is the prompt-cache group (the `features/prompt_cache_*.feature` specs and the `TestPromptCache*` tests, part of `make test`: what every request sends the provider, held byte for byte across a session), and **`make test-perf`** is the performance group (the benchmarks of the `perf_test.go` files, never part of `make test`: timings of the work a turn repeats and the context a session over this repository's own rules costs, as `system-tokens`, `request-tokens` and `duplicate-rules`).
+**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination. The `cli` job also starts the built binary and drives the console through a real pty (`examples/cli/cli_e2e_startup.py`), and the **Telegram stand (tgfake)** job runs the Telegram bot against the release binary of [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; the binary it runs is built with `gateway metrics`, and the script scrapes the exporter after the chat). The **Docker image** job builds the runtime image for **`linux/amd64`** and **`linux/arm64`**, the platforms a release pushes, and checks that each variant carries a binary of its own platform (**`make check-image`**, see [Checking the platforms of the image](../getting-started/docker.md#checking-the-platforms-of-the-image)). **`make test-race`** runs the whole tree under the Go race detector with every tag but `ui`; CI runs it on every pull request in the **Race detector** job, and `GOFLAGS=-count=3 make test-race` repeats every test locally for a race that shows up rarely. Two groups can be run on their own: **`make test-cache`** is the prompt-cache group (the `features/prompt_cache_*.feature` specs and the `TestPromptCache*` tests, part of `make test`: what every request sends the provider, held byte for byte across a session), and **`make test-perf`** is the performance group (the benchmarks of the `perf_test.go` files, never part of `make test`: timings of the work a turn repeats and the context a session over this repository's own rules costs, as `system-tokens`, `request-tokens` and `duplicate-rules`).
 
 On Windows, run Make through Git Bash. The build and install targets use Go's
 executable suffix (`coddy.exe`), including the binary that `make docs` runs.
@@ -446,4 +454,4 @@ land in **`dist/security/`**. Runner, gate knobs and triage:
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** (or **`go build -tags=...`** as above).

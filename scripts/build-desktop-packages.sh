@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build the Linux packages of the desktop window (deb and rpm).
+# Build the Linux packages of the desktop application (deb and rpm).
 #
-# A package of its own, coddy-desktop, beside the agent's: the window carries
-# the embedded web UI and is built with its own tags, and the two share no
-# file. Beyond the binary it installs what makes this an application on a Linux
-# desktop - the entry in /usr/share/applications and the icon it names - so
-# Coddy can be started from the menu.
+# The window is a verb of the ordinary binary (`coddy desktop`), so this
+# package carries no binary at all: it installs what makes Coddy an
+# application on a Linux desktop - the entry in /usr/share/applications and
+# the icon it names - and depends on `coddy` for the program itself. That is
+# why it is a package of its own rather than files added to the agent's: a
+# server that only runs `coddy serve` has no use for a menu entry.
 #
 # Usage:
 #   scripts/build-desktop-packages.sh [options]
@@ -14,18 +15,10 @@
 #   --version VER     raw version to package (default: `make -s print-version`)
 #   --formats LIST    package formats (default: deb,rpm)
 #   --out DIR         where the packages land (default: dist)
-#   --binary PATH     use this coddy-desktop binary instead of building one
-#                     (only valid with a single --arch)
 #
 # Environment:
-#   TAGS          go build tags for the binary built here
-#                 (default: the desktop set, `make print-desktop-tags`)
 #   NFPM          nfpm command to use (default: nfpm on PATH, else `go run`)
 #   NFPM_VERSION  pinned nfpm module version for the `go run` fallback
-#
-# The embedded SPA has to exist before a binary claims to carry it: `make
-# deb-desktop` runs ui-build first. Calling this script by hand on a tree that
-# never built the UI packages a window with no web interface in it.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,7 +28,6 @@ archs="amd64"
 formats="deb,rpm"
 out="dist"
 version=""
-binary=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -43,8 +35,7 @@ while [ $# -gt 0 ]; do
         --version) version="$2"; shift 2 ;;
         --formats) formats="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
-        --binary) binary="$2"; shift 2 ;;
-        -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -52,18 +43,12 @@ done
 archs=$(echo "$archs" | tr ',' ' ')
 formats=$(echo "$formats" | tr ',' ' ')
 
-TAGS="${TAGS:-$(make -s -C "$root" print-desktop-tags | tr , ' ')}"
 NFPM_VERSION="${NFPM_VERSION:-v2.45.0}"
 
 if [ -z "$version" ]; then
     version=$(make -s print-version)
 fi
 pkg_version=$("$root/scripts/package-version.sh" "$version")
-
-if [ -n "$binary" ] && [ "$(echo "$archs" | wc -w)" -ne 1 ]; then
-    echo "--binary takes a single --arch, got: $archs" >&2
-    exit 2
-fi
 
 if [ -n "${NFPM:-}" ]; then
     nfpm=$NFPM
@@ -80,28 +65,20 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 
 # Everything except the binary is architecture-independent, so stage it once.
-# The icon is the web interface's own, taken from where it already lives rather
-# than copied into the tree a second time: one logo, one place to change it.
+# The icon is the application's own (packaging/desktop/coddy-desktop.svg and
+# the sizes rendered from it): the same mark as the web interface's favicon,
+# drawn to survive the 32 and 48 pixels an application menu gives it.
 cp packaging/desktop/coddy-desktop.desktop "$stage/coddy-desktop.desktop"
-cp external/ui/public/coddy-favicon.svg "$stage/coddy-desktop.svg"
-cp external/ui/public/icon-512.png "$stage/coddy-desktop-512.png"
+cp packaging/desktop/coddy-desktop.svg "$stage/coddy-desktop.svg"
+for size in 512 256 128 64 48; do
+    cp "packaging/desktop/icons/coddy-desktop-${size}.png" "$stage/coddy-desktop-${size}.png"
+done
 cp LICENSE "$stage/LICENSE"
 
+# The package has no binary in it, so an architecture only names the package.
+# It is still built per architecture, because the dependency on `coddy` is
+# satisfied by a package of that architecture.
 for arch in $archs; do
-    if [ -n "$binary" ]; then
-        cp "$binary" "$stage/coddy-desktop"
-    else
-        echo "building coddy-desktop for linux/${arch} with tags \"${TAGS}\""
-        revision=$(git rev-parse --verify -q HEAD 2>/dev/null || true)
-        GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build \
-            -tags "$TAGS" \
-            -trimpath \
-            -ldflags "-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${version} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${revision}" \
-            -o "$stage/coddy-desktop" \
-            ./cmd/coddy-desktop/
-    fi
-    chmod 0755 "$stage/coddy-desktop"
-
     for format in $formats; do
         target="${out}/coddy-desktop_${version}_linux_${arch}.${format}"
         echo "packaging ${target}"

@@ -52,7 +52,7 @@ groups:
         summary: The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages.
       - path: surfaces/desktop.md
         title: Desktop window
-        summary: coddy-desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and which platforms it is ported to.
+        summary: coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window.
       - path: surfaces/editors.md
         title: Editors (ACP)
         summary: Zed, VS Code, Obsidian and scripts as ACP clients of coddy acp, and what they share with the other surfaces.

@@ -3,8 +3,6 @@
 package desktop
 
 import (
-	"context"
-
 	"github.com/jezek/xgb/xproto"
 )
 
@@ -29,22 +27,14 @@ import (
 // layout names no Latin letter at all.
 var evdevChordKeycodes = map[uint32]xproto.Keycode{keysymT: 28, keysymW: 25}
 
-// NextChord answers the next chord taken from the window.
-func (c *x11Control) NextChord(ctx context.Context) string {
-	if c == nil || c.chords == nil {
-		<-ctx.Done()
-		return ""
+// deliverChord hands a key that was taken to whoever asked for the grab.
+func (c *x11Control) deliverChord(name string) {
+	c.mu.Lock()
+	deliver := c.deliver
+	c.mu.Unlock()
+	if deliver != nil {
+		deliver(name)
 	}
-	return c.chords.next(ctx)
-}
-
-// pushChord puts a chord into the same queue a grabbed key goes down, for a
-// row of the tray's menu to ask the strip for what that key does.
-func (c *x11Control) pushChord(name string) {
-	if c == nil || c.chords == nil {
-		return
-	}
-	c.chords.push(name)
 }
 
 // grabChords takes the chords the browser answers itself and starts the loop
@@ -53,7 +43,13 @@ func (c *x11Control) pushChord(name string) {
 // A chord it could not take is a debug line and nothing more: the window still
 // works, the browser answers that key the way it always did, and `Alt` stands
 // beside every chord for exactly this case.
-func (c *x11Control) grabChords() {
+func (c *x11Control) grabChords(deliver func(string)) {
+	if deliver == nil {
+		return
+	}
+	c.mu.Lock()
+	c.deliver = deliver
+	c.mu.Unlock()
 	win, err := c.window()
 	if err != nil {
 		logger(c.log).Debug("no window to take the chords of", "error", err)
@@ -225,7 +221,7 @@ func (c *x11Control) readChords(codes map[chordCode]string) {
 		}
 		shift := press.State&uint16(xproto.ModMaskShift) != 0
 		if chord, ok := codes[chordCode{code: press.Detail, shift: shift}]; ok {
-			c.chords.push(chord)
+			c.deliverChord(chord)
 		}
 	}
 }

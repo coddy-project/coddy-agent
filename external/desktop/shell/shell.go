@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -116,10 +117,16 @@ var assets embed.FS
 // the files it has; anything else under the prefix is a 404, so a typo does
 // not fall through to the SPA and come back as a chat.
 func Handler(ctl WindowControl) http.Handler {
+	// One window, one drag at a time, so the gesture's state belongs to the
+	// handler rather than to a request.
+	drag := &dragGesture{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, Prefix) {
 		case windowAction:
-			serveWindowAction(w, r, ctl)
+			serveWindowAction(w, r, ctl, drag)
+			return
+		case windowOpen:
+			serveOpen(w, r, ctl)
 			return
 		case windowKeys:
 			serveChords(w, r, ctl)
@@ -160,6 +167,7 @@ const (
 	windowKeys     = "keys"
 	windowSettings = "settings"
 	windowMenu     = "menu"
+	windowOpen     = "open"
 )
 
 // chordWait bounds one long poll for a chord. It is long because a key is
@@ -262,7 +270,74 @@ func serveSettings(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
 // request of its own page: minimising or closing somebody's window from a page
 // they are merely visiting is a nuisance worth closing off, and nothing here
 // reads or writes a single byte of the session.
-func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
+// serveOpen hands a link out of Coddy to this machine's own browser.
+func serveOpen(w http.ResponseWriter, r *http.Request, ctl WindowControl) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !sameOrigin(r) {
+		http.Error(w, "the window is driven by its own page only", http.StatusForbidden)
+		return
+	}
+	opener, ok := ctl.(ExternalOpener)
+	if !ok {
+		http.Error(w, "this window opens nothing outside itself", http.StatusNotImplemented)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxExternalURL+1<<10)).Decode(&body); err != nil {
+		http.Error(w, "a link is a small JSON object", http.StatusBadRequest)
+		return
+	}
+	link, ok := ExternalURL(body.URL)
+	if !ok {
+		http.Error(w, "only an http or https address is opened outside the window", http.StatusBadRequest)
+		return
+	}
+	if err := opener.OpenExternal(link); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// dragGesture is whether a drag of the bar is under way.
+//
+// The page sends the start of a drag and every move of it as separate
+// requests, and a browser is free to deliver them in any order it likes: the
+// first move used to overtake the start and be measured from wherever the
+// previous drag had left the window, which threw the window sideways for a
+// frame or two before the start landed and put it right. A move that arrives
+// with no gesture behind it is refused, and the page waits for the start to be
+// answered before it sends one.
+type dragGesture struct {
+	mu   sync.Mutex
+	open bool
+}
+
+func (g *dragGesture) begin() {
+	g.mu.Lock()
+	g.open = true
+	g.mu.Unlock()
+}
+
+func (g *dragGesture) end() {
+	g.mu.Lock()
+	g.open = false
+	g.mu.Unlock()
+}
+
+func (g *dragGesture) under() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.open
+}
+
+func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl, drag *dragGesture) {
 	if r.Method == http.MethodGet {
 		// What the page asks before it draws: a strip that drew a close
 		// button nothing answers would be worse than a system frame.
@@ -302,9 +377,17 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 	case "close":
 		err = ctl.Close()
 	case "move-begin":
-		err = ctl.BeginMove(body.X, body.Y)
+		if err = ctl.BeginMove(body.X, body.Y); err == nil {
+			drag.begin()
+		}
 	case "move-by":
+		if !drag.under() {
+			http.Error(w, "no drag of the bar has begun", http.StatusConflict)
+			return
+		}
 		err = ctl.MoveBy(body.X, body.Y)
+	case "move-end":
+		drag.end()
 	case "decorate":
 		err = ctl.Decorate()
 	case "undecorate":

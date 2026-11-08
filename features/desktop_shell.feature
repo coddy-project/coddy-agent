@@ -6,22 +6,35 @@ Feature: The tab shell of the desktop window
   yet reaches the shell and the sign-in form inside it rather than a bare 401.
   The window itself asks for no credential: it binds loopback for the person
   who started the application, and the configuration on disk is left as it is,
-  so the same file still signs in a `coddy serve` that is reachable.
+  so the same file still signs in a `coddy serve` that is reachable. Only the
+  process that opened a window answers the page at all: the shell's own routes
+  sit outside the gate with it, and a server nobody opened a window on has no
+  reason to publish them.
+
+  Scenario: A server that opened no window does not answer the shell
+    Given a Coddy whose web UI asks for a sign-in
+    But no window was opened on it
+    When a browser with no credential opens the tab shell
+    Then no tab shell is served there
+    And the window actions of the shell answer nothing
 
   Scenario: The shell is reachable before anyone has signed in
     Given a Coddy whose web UI asks for a sign-in
+    And a window of this machine was opened on it
     When a browser with no credential opens the tab shell
     Then the shell answers with its tab strip
     And it tells a launcher that a Coddy desktop is serving here
 
   Scenario: A tab holds the web UI of the same server
     Given a Coddy whose web UI asks for a sign-in
+    And a window of this machine was opened on it
     When a browser with no credential opens the tab shell
     Then the shell frames the web UI of this server
     And the session list it draws its titles from is still behind the gate
 
   Scenario: The window opens on the chat, not on a sign-in form
     Given a Coddy whose web UI asks for a sign-in
+    And a window of this machine was opened on it
     And the desktop serves it for a window of its own
     When a browser with no credential opens the tab shell
     Then the shell answers with its tab strip

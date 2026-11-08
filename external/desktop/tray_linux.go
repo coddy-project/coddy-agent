@@ -94,6 +94,15 @@ func (t *trayIcon) Show() error {
 	return nil
 }
 
+// menuChanged redraws the icon's menu, for a switch thrown somewhere else -
+// the menu in the tab strip, or the window's own settings.
+func (t *trayIcon) menuChanged() {
+	if t == nil || t.menu == nil {
+		return
+	}
+	t.menu.changed()
+}
+
 // publish is everything the item needs to exist: a name of its own, the
 // object behind it, and the watcher being told about it.
 func (t *trayIcon) publish(conn *dbus.Conn) error {

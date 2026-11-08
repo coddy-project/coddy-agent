@@ -48,11 +48,11 @@ func standRows() []shell.MenuItem {
 func newMenuStand() (*trayMenu, *menuStand) {
 	stand := &menuStand{rows: standRows()}
 	m := newTrayMenu(stand.list, stand.pick)
-	m.items = stand.list()
+	m.snapshot()
 	return m, stand
 }
 
-func TestTheMenuNumbersItsRowsFromOne(t *testing.T) {
+func TestTheMenuHandsEveryRowAnIdOfItsOwn(t *testing.T) {
 	m, _ := newMenuStand()
 	_, layout, derr := m.GetLayout(menuRoot, -1, nil)
 	if derr != nil {
@@ -67,14 +67,19 @@ func TestTheMenuNumbersItsRowsFromOne(t *testing.T) {
 	if len(layout.Children) != 3 {
 		t.Fatalf("the root has %d children", len(layout.Children))
 	}
+	seen := map[int32]bool{}
 	for i, child := range layout.Children {
 		item, ok := child.Value().(menuLayout)
 		if !ok {
 			t.Fatalf("child %d is %T, not a menu item", i, child.Value())
 		}
-		if want := int32(i) + 1; item.ID != want {
-			t.Fatalf("child %d is item %d, wanted %d", i, item.ID, want)
+		if item.ID == menuRoot {
+			t.Fatalf("child %d took the root's id", i)
 		}
+		if seen[item.ID] {
+			t.Fatalf("child %d shares item %d with a row above it", i, item.ID)
+		}
+		seen[item.ID] = true
 	}
 }
 
@@ -95,7 +100,7 @@ func TestASwitchCarriesItsTickAndASeparatorItsType(t *testing.T) {
 		t.Fatal("a separator is not drawn as one")
 	}
 	// And the same through the call a host makes about several items at once.
-	got, derr := m.GetGroupProperties([]int32{2, 3, 99}, nil)
+	got, derr := m.GetGroupProperties([]int32{separatorID(t, m), itemOf(t, m, "Show the tray icon"), 9999}, nil)
 	if derr != nil {
 		t.Fatalf("the properties: %v", derr)
 	}
@@ -104,9 +109,134 @@ func TestASwitchCarriesItsTickAndASeparatorItsType(t *testing.T) {
 	}
 }
 
+// itemOf answers the id the menu handed the row with that label.
+func itemOf(t *testing.T, m *trayMenu, label string) int32 {
+	t.Helper()
+	id, ok := idsByLabel(t, m)[label]
+	if !ok {
+		t.Fatalf("the menu has no row labelled %q", label)
+	}
+	return id
+}
+
+// separatorID answers the id of the menu's first separator, which carries no
+// label to be found by.
+func separatorID(t *testing.T, m *trayMenu) int32 {
+	t.Helper()
+	_, layout, derr := m.GetLayout(menuRoot, -1, nil)
+	if derr != nil {
+		t.Fatalf("the layout: %v", derr)
+	}
+	for _, child := range layout.Children {
+		item, ok := child.Value().(menuLayout)
+		if ok && item.Props["type"].Value() == "separator" {
+			return item.ID
+		}
+	}
+	t.Fatal("the menu draws no separator")
+	return 0
+}
+
+// Every property a host can hold on to is sent on every row, at its default
+// where the row does not use it.
+//
+// This is not tidiness. A dbusmenu host caches an item's properties by id and
+// merges what it is told next into what it has: Plasma drew the separator of
+// this menu as a ticked row labelled after a switch, because the separator
+// sent only its type and the label and the tick of the row that had held that
+// id survived underneath it. A row that names every property it has cannot be
+// drawn with another row's.
+func TestEveryRowCarriesEveryPropertyAHostCanCache(t *testing.T) {
+	want := []string{"label", "type", "toggle-type", "toggle-state", "enabled", "visible"}
+	for _, row := range []shell.MenuItem{
+		{ID: shell.MenuNewChat, Kind: shell.MenuAction, Label: "New chat"},
+		{ID: shell.MenuTray, Kind: shell.MenuSwitch, Label: "Show the tray icon", Checked: true},
+		{Kind: shell.MenuSeparator},
+	} {
+		props := propsOf(row)
+		for _, name := range want {
+			if _, ok := props[name]; !ok {
+				t.Fatalf("the %s row %q sends no %s", row.Kind, row.ID, name)
+			}
+		}
+	}
+	action := propsOf(shell.MenuItem{ID: shell.MenuNewChat, Kind: shell.MenuAction, Label: "New chat"})
+	if action["toggle-type"].Value() != "" {
+		t.Fatalf("an action is drawn as %v", action["toggle-type"].Value())
+	}
+	if action["toggle-state"].Value() != int32(-1) {
+		t.Fatalf("an action reports the tick %v", action["toggle-state"].Value())
+	}
+	if action["type"].Value() != "standard" {
+		t.Fatalf("an action is of type %v", action["type"].Value())
+	}
+	sep := propsOf(shell.MenuItem{Kind: shell.MenuSeparator})
+	if sep["label"].Value() != "" {
+		t.Fatalf("a separator carries the label %v", sep["label"].Value())
+	}
+	if sep["toggle-type"].Value() != "" || sep["toggle-state"].Value() != int32(-1) {
+		t.Fatalf("a separator carries a tick: %v %v", sep["toggle-type"].Value(), sep["toggle-state"].Value())
+	}
+}
+
+// idsByLabel reads the menu the way a host does and answers which item is which.
+func idsByLabel(t *testing.T, m *trayMenu) map[string]int32 {
+	t.Helper()
+	_, layout, derr := m.GetLayout(menuRoot, -1, nil)
+	if derr != nil {
+		t.Fatalf("the layout: %v", derr)
+	}
+	out := map[string]int32{}
+	for _, child := range layout.Children {
+		item, ok := child.Value().(menuLayout)
+		if !ok {
+			t.Fatalf("a child is %T, not a menu item", child.Value())
+		}
+		label, _ := item.Props["label"].Value().(string)
+		if label != "" {
+			out[label] = item.ID
+		}
+	}
+	return out
+}
+
+// A row keeps its id when the menu around it changes.
+//
+// The ids used to be positions, so a row that gained a neighbour above it took
+// over the id of the row that had been there - and a host that had cached that
+// id drew the old row's label and tick on the new one. An id that belongs to
+// the row itself cannot be inherited.
+func TestARowKeepsItsIdWhenTheMenuAboveItChanges(t *testing.T) {
+	m, stand := newMenuStand()
+	m.snapshot()
+	before := idsByLabel(t, m)["Show the tray icon"]
+	if before == 0 {
+		t.Fatal("the switch has no id of its own")
+	}
+	stand.mu.Lock()
+	stand.rows = append([]shell.MenuItem{
+		{ID: shell.MenuNewChat, Kind: shell.MenuAction, Label: "New chat"},
+		{Kind: shell.MenuSeparator},
+	}, standRows()...)
+	stand.mu.Unlock()
+	m.snapshot()
+	after := idsByLabel(t, m)["Show the tray icon"]
+	if after != before {
+		t.Fatalf("the switch moved from item %d to item %d", before, after)
+	}
+	// And picking that id still picks that row, not whatever now stands where
+	// the row used to be.
+	if derr := m.Event(after, "clicked", dbus.MakeVariant(""), 0); derr != nil {
+		t.Fatalf("picking the switch: %v", derr)
+	}
+	if len(stand.picked) != 1 || stand.picked[0] != shell.MenuTray {
+		t.Fatalf("the launcher was told %v", stand.picked)
+	}
+}
+
 func TestPickingARowIsTheRowsOwnId(t *testing.T) {
 	m, stand := newMenuStand()
-	if derr := m.Event(3, "clicked", dbus.MakeVariant(""), 0); derr != nil {
+	if derr := m.Event(itemOf(t, m, "Show the tray icon"), "clicked", dbus.MakeVariant(""), 0); derr != nil {
 		t.Fatalf("picking the switch: %v", derr)
 	}
 	if len(stand.picked) != 1 || stand.picked[0] != shell.MenuTray {
@@ -118,11 +248,12 @@ func TestPickingARowIsTheRowsOwnId(t *testing.T) {
 // nothing to act on: a menu must never do something nobody chose.
 func TestNothingButAClickOnARowIsActedOn(t *testing.T) {
 	m, stand := newMenuStand()
-	_ = m.Event(2, "clicked", dbus.MakeVariant(""), 0) // the separator
-	_ = m.Event(99, "clicked", dbus.MakeVariant(""), 0)
-	_ = m.Event(0, "clicked", dbus.MakeVariant(""), 0)
-	_ = m.Event(3, "hovered", dbus.MakeVariant(""), 0)
-	_ = m.Event(3, "opened", dbus.MakeVariant(""), 0)
+	sw := itemOf(t, m, "Show the tray icon")
+	_ = m.Event(separatorID(t, m), "clicked", dbus.MakeVariant(""), 0)
+	_ = m.Event(9999, "clicked", dbus.MakeVariant(""), 0)
+	_ = m.Event(menuRoot, "clicked", dbus.MakeVariant(""), 0)
+	_ = m.Event(sw, "hovered", dbus.MakeVariant(""), 0)
+	_ = m.Event(sw, "opened", dbus.MakeVariant(""), 0)
 	if len(stand.picked) != 0 {
 		t.Fatalf("the launcher was told %v", stand.picked)
 	}
@@ -133,7 +264,7 @@ func TestNothingButAClickOnARowIsActedOn(t *testing.T) {
 func TestASwitchThatDidNotTakeIsReportedBack(t *testing.T) {
 	m, stand := newMenuStand()
 	stand.err = errors.New("this session has no tray")
-	derr := m.Event(3, "clicked", dbus.MakeVariant(""), 0)
+	derr := m.Event(itemOf(t, m, "Show the tray icon"), "clicked", dbus.MakeVariant(""), 0)
 	if derr == nil {
 		t.Fatal("the desktop was told the switch took")
 	}

@@ -30,6 +30,7 @@ const (
 	MenuNewChat        = "new-chat"
 	MenuShowWindow     = "show-window"
 	MenuHideWindow     = "hide-window"
+	MenuQuit           = "quit"
 	MenuAutostart      = "autostart"
 	MenuTray           = "tray"
 	MenuStartMinimised = "start_minimised"
@@ -78,6 +79,15 @@ func MenuRows(s Settings, place MenuPlace, driven bool) []MenuItem {
 	)
 	if driven {
 		rows = append(rows, MenuItem{ID: MenuFramed, Kind: MenuSwitch, Label: "Show the system frame", Checked: s.Framed})
+	}
+	// The tray's menu ends with the way out of the application, set apart from
+	// the switches above it. The bar's does not: it is drawn inside the window,
+	// an arm's length from the window's own close button.
+	if place == MenuInTray {
+		rows = append(rows,
+			MenuItem{Kind: MenuSeparator},
+			MenuItem{ID: MenuQuit, Kind: MenuAction, Label: "Quit Coddy"},
+		)
 	}
 	return rows
 }

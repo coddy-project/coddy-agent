@@ -49,11 +49,16 @@ func TestTheAutostartEntryIsWrittenAndTakenAway(t *testing.T) {
 }
 
 func TestTheAutostartEntryQuotesAPathWithASpaceInIt(t *testing.T) {
-	line := autostartEntry("/opt/Coddy Agent/coddy-desktop")
-	if !strings.Contains(line, `Exec="/opt/Coddy Agent/coddy-desktop"`) {
+	line := autostartEntry("/opt/Coddy Agent/coddy")
+	if !strings.Contains(line, `Exec="/opt/Coddy Agent/coddy" desktop`) {
 		t.Fatalf("an unquoted Exec line would start something else:\n%s", line)
 	}
-	if strings.Contains(autostartEntry("/usr/bin/coddy-desktop"), `"`) {
+	if strings.Contains(autostartEntry("/usr/bin/coddy"), `"`) {
 		t.Fatal("an ordinary path is quoted for no reason")
+	}
+	// The verb is what makes it a window: the same binary with no argument is
+	// the interactive console, which is not what a login should open.
+	if !strings.Contains(autostartEntry("/usr/bin/coddy"), "Exec=/usr/bin/coddy desktop") {
+		t.Fatalf("the entry does not open a window:\n%s", autostartEntry("/usr/bin/coddy"))
 	}
 }

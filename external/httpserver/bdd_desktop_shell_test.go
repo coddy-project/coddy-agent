@@ -18,6 +18,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/coddy-agent/external/desktop"
 	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
 )
 
@@ -35,6 +36,43 @@ func (s *desktopShellState) reset(t *testing.T) {
 
 func (s *desktopShellState) uiAsksForSignIn() error {
 	s.srv = newLoginServer(s.t, configuredLogin(s.t))
+	return nil
+}
+
+// windowWasOpened is what the launcher does before the surface starts: it
+// hands the server the handle the window will attach itself to. Only a server
+// holding one answers the shell at all.
+func (s *desktopShellState) windowWasOpened() error {
+	s.srv.SetDesktopWindow(desktop.NewWindowHandle())
+	return nil
+}
+
+func (s *desktopShellState) noWindowWasOpened() error { return nil }
+
+// On a `coddy serve` the address belongs to the web UI like any other the SPA
+// does not know. What matters is that the page is not there and neither are
+// its routes, which is the point: they sit outside the authentication gate.
+func (s *desktopShellState) noShellIsServed() error {
+	body := s.page.Body.String()
+	if strings.Contains(body, `id="coddy-desktop-tabs"`) {
+		return fmt.Errorf("a server with no window of its own served the tab strip:\n%s", head(body))
+	}
+	if got := s.page.Header().Get(shell.MarkerHeader); got != "" {
+		return fmt.Errorf("it marked itself as a Coddy desktop (%s: %s)", shell.MarkerHeader, got)
+	}
+	return nil
+}
+
+func (s *desktopShellState) windowActionsAnswerNothing() error {
+	for _, route := range []string{"window", "settings", "menu", "open", "keys"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, shell.Prefix+route, nil)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		s.srv.Handler().ServeHTTP(rec, req)
+		if strings.Contains(rec.Body.String(), `"supported"`) || rec.Header().Get(shell.MarkerHeader) != "" {
+			return fmt.Errorf("%s%s is answered by a server with no window: %s", shell.Prefix, route, head(rec.Body.String()))
+		}
+	}
 	return nil
 }
 
@@ -126,7 +164,11 @@ func TestDesktopShellFeature(t *testing.T) {
 				st.reset(t)
 				return st.uiAsksForSignIn()
 			})
+			sc.Step(`^a window of this machine was opened on it$`, st.windowWasOpened)
+			sc.Step(`^no window was opened on it$`, st.noWindowWasOpened)
 			sc.Step(`^a browser with no credential opens the tab shell$`, st.opensTheShell)
+			sc.Step(`^no tab shell is served there$`, st.noShellIsServed)
+			sc.Step(`^the window actions of the shell answer nothing$`, st.windowActionsAnswerNothing)
 			sc.Step(`^the shell answers with its tab strip$`, st.answersWithTheTabStrip)
 			sc.Step(`^it tells a launcher that a Coddy desktop is serving here$`, st.tellsALauncherADesktopIsHere)
 			sc.Step(`^the shell frames the web UI of this server$`, st.framesTheWebUI)

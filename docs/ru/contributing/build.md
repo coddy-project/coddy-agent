@@ -19,7 +19,7 @@
 **HTTP-шлюз**, **встроенный SPA**, **планировщик**, **память**, **шлюз мессенджеров** (**`gateway`**, см. [`docs/surfaces/gateway.md`](../surfaces/gateway.md)) и **интерактивная консоль** (**`cli`**, **`coddy`** без аргументов в терминале, см. [`docs/surfaces/console.md`](../surfaces/console.md)) управляются тегами сборки Go. Один бинарник, который соответствует **Docker**-образу по умолчанию и включает все необязательные возможности, собирается так.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 Результат - **`build/coddy`**.
@@ -42,14 +42,14 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser \
 
 **`make install`** копирует **`build/coddy`** в каталог из вашего **`PATH`**:
 
-- если **`build/coddy`** уже есть (например, после **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`**), он устанавливается как есть, без пересборки;
-- если бинарника нет, **`make install`** сначала запускает **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`**.
+- если **`build/coddy`** уже есть (например, после **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`**), он устанавливается как есть, без пересборки;
+- если бинарника нет, **`make install`** сначала запускает **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`**.
 
 - **root** - **`/usr/local/bin/coddy`**, man-страница в **`/usr/local/share/man/man1`**;
 - **не root** - **`~/.local/bin/coddy`** (убедитесь, что этот каталог есть в **`PATH`**), man-страница в **`~/.local/share/man/man1`**.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 make install
 ```
 
@@ -67,7 +67,7 @@ make rpm
 | Переменная | По умолчанию | Назначение |
 |----------|---------|------|
 | **`PKG_ARCHS`** | **`GOARCH`** хоста | архитектуры для упаковки, например **`"amd64 arm64"`** |
-| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics browser`** | теги сборки упакованного бинарника |
+| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics browser desktop`** | теги сборки упакованного бинарника |
 | **`DIST_DIR`** | **`dist`** | куда кладутся пакеты |
 
 ```bash
@@ -159,45 +159,51 @@ make build
 
 Используйте эту сборку, когда вам нужен только ACP через stdio, а зависимостей хочется меньше и без шага **`npm`**.
 
-## Окно на рабочем столе (`coddy-desktop`)
+## Окно на рабочем столе (`coddy desktop`)
 
-Окно на рабочем столе - это второй бинарник, со своим набором тегов, и `make build` его не собирает:
+Окно - это команда обычного бинарника, а тег `desktop` входит в `FULL_TAGS`, поэтому оно есть в
+каждом релизном бинарнике. `make desktop` - это `make build` с этим набором тегов:
 
 ```bash
-make desktop            # build/coddy-desktop, теги: http ui desktop
-./build/coddy-desktop
+make desktop            # build/coddy с релизным набором тегов
+./build/coddy desktop
 ```
 
 Он поднимает веб-интерфейс на loopback-порту, который запоминает домашняя папка агента, и открывает
 на нём браузер семейства Chromium в режиме приложения, с собственным профилем браузера в
-`<home>/desktop/profiles/`. Окно портировано под Linux; на других платформах бинарник собирается, а
-браузер называют по пути через `CODDY_DESKTOP_BROWSER`. Тега `desktop` нет в `FULL_TAGS`, поэтому
-бинарник `coddy`, образ контейнера и пакеты этот интерфейс не несут, а десктопного бинарника пока нет
-ни в одном релизном артефакте. Что это такое и как себя ведёт: [Окно на рабочем
-столе](../surfaces/desktop.md).
+`<home>/desktop/profiles/`. Поверхность стоит 0,44 МиБ в бинарнике, где уже есть HTTP-сервер и SPA:
+библиотека X11, которой окно управляется (`jezek/xgb`), там уже лежит ради картинок из буфера
+обмена консоли, новым собирается только DBus-клиент значка в лотке.
+
+Образ контейнера собирает тот же набор (`BUILD_TAGS` в `Dockerfile` и в
+`.github/workflows/docker-build-push.yaml`), чтобы `coddy` был одной и той же программой, откуда
+бы он ни приехал, хотя в контейнере и нет экрана, на котором открылось бы окно. Самой команде кроме `desktop` нужны `http` и `ui`, потому что она открывается на SPA, и сборка без
+любого из трёх отвечает на `coddy desktop` строкой с перечислением тегов. Что это такое и как себя
+ведёт: [Окно на рабочем столе](../surfaces/desktop.md).
 
 Браузерные проверки оболочки (`npm run check:desktop` в `external/ui`) гоняют настоящий бинарник:
-вкладки, аккорды и список вкладок, переживающий перезапуск.
+вкладки, аккорды, ссылки наружу, меню и список вкладок, переживающий перезапуск.
 
-Пакеты для Linux собираются отдельно от пакетов агента, под своим именем:
+Десктопное приложение - отдельный пакет для Linux, и бинарника в нём нет: это пункт меню и иконка,
+которые ставят Coddy в меню приложений, с зависимостью от `coddy`.
 
 ```bash
 make deb-desktop        # dist/coddy-desktop_<версия>_linux_<арх>.deb
 make rpm-desktop        # то же самое в виде .rpm
 ```
 
-Они берут те же ручки `PKG_ARCHS` и `DIST_DIR`, а теги - `DESKTOP_TAGS`, а не `PKG_TAGS`: окно без
-встроенного интерфейса было бы пустой рамкой. Рецепт - `packaging/nfpm-desktop.yaml`, его гоняет
-`scripts/build-desktop-packages.sh`, который складывает бинарник, пункт меню
-(`packaging/desktop/coddy-desktop.desktop`), иконку - собственные `coddy-favicon.svg` и
-`icon-512.png` веб-интерфейса, взятые из `external/ui/public/`, а не скопированные в дерево второй
-раз, - и `LICENSE`. Пункт меню и иконка и дают Coddy место в меню приложений; пакет ничего не
-включает и не несёт сопроводительных скриптов.
+Они берут те же ручки `PKG_ARCHS` и `DIST_DIR` и ничего не собирают, потому что бинарника в пакете
+нет. Рецепт - `packaging/nfpm-desktop.yaml`, его гоняет `scripts/build-desktop-packages.sh`,
+который складывает пункт меню (`packaging/desktop/coddy-desktop.desktop`), иконку
+(`packaging/desktop/coddy-desktop.svg` и размеры из `packaging/desktop/icons/`, отрисованные из
+него через `rsvg-convert` и закоммиченные: вокруг знака в фавиконе веб-интерфейса слишком много
+воздуха, чтобы он читался на 32 и 48 пикселях меню приложений) и `LICENSE`. Пакет ничего не
+включает, не несёт сопроводительных скриптов и зависит от `coddy`.
 
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm metrics browser"   # build/coddy-android-arm64, -amd64
+make android TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"   # build/coddy-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -240,7 +246,7 @@ go build \
 В **`Makefile`** список **`TAGS`** разделяется **пробелами**.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 **`go build`** ожидает список **через запятую** (без пробелов).
@@ -264,9 +270,9 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 | **`gateway`** | Все адаптеры мессенджеров (надмножество **`gateway.telegram`**; включает будущие адаптеры Discord и Slack) | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) |
 | **`swarm`** | Релей без состояния, который объединяет узлы и запускается **`coddy serve`** при **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../../external/swarm) |
 | **`metrics`** | Экспортёр Prometheus, который запускает **`coddy serve`** при **`metrics.enable`** (по умолчанию выключен); отдаёт **`/metrics`** на отдельном порту | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../../external/metrics) |
-| **`desktop`** | Окно на рабочем столе: бинарник `coddy-desktop`, оболочка вкладок, которую HTTP-сервер монтирует на `/desktop/`, и бэкенд браузера, открывающий окно. Собирается через **`make desktop`**, а не через **`make build`**: это отдельный бинарник | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../../external/desktop) |
+| **`desktop`** | Окно на рабочем столе: команда **`coddy desktop`**, оболочка вкладок, которую HTTP-сервер монтирует на `/desktop/` для процесса, открывшего окно, и бэкенд браузера, который его открывает. Рядом нужны **`http`** и **`ui`**; входит в **`FULL_TAGS`** и не входит в образ контейнера | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../../external/desktop) |
 
-**`make test`** - экспресс-прогон, то есть всё дерево один раз со всеми необязательными модулями (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`**). **`make test-matrix`** перебирает все комбинации (список **`TEST_TAG_SETS`** в [`Makefile`](../../../Makefile)); CI прогоняет эту матрицу на каждом пул-реквесте, по заданию на комбинацию. Задание `cli` к тому же запускает собранный бинарник и управляет консолью через настоящий pty (`examples/cli/cli_e2e_startup.py`), а задание **Telegram stand (tgfake)** запускает Telegram-бота против релизного бинарника [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; запускаемый им бинарник собран с `gateway metrics`, и после чата скрипт снимает метрики экспортёра). Задание **Docker image** собирает образ рантайма для **`linux/amd64`** и **`linux/arm64`**, платформ, которые публикует релиз, и проверяет, что в каждом варианте лежит бинарник его собственной платформы (**`make check-image`**, см. [Проверка платформ образа](../getting-started/docker.md#проверка-платформ-образа)). **`make test-race`** прогоняет всё дерево под детектором гонок Go со всеми тегами, кроме `ui`; CI запускает его на каждом пул-реквесте в задании **Race detector**, а `GOFLAGS=-count=3 make test-race` локально повторяет каждый тест, чтобы поймать редко проявляющуюся гонку. Две группы можно запускать отдельно. **`make test-cache`** - группа кэша промптов (спецификации `features/prompt_cache_*.feature` и тесты `TestPromptCache*`, входят в `make test`; они проверяют, что каждый запрос отправляет провайдеру, байт в байт на протяжении сессии), а **`make test-perf`** - группа производительности (бенчмарки файлов `perf_test.go`, никогда не входят в `make test`; они измеряют время работы, которую повторяет каждый ход, и стоимость контекста сессии над собственными правилами этого репозитория в виде `system-tokens`, `request-tokens` и `duplicate-rules`).
+**`make test`** - экспресс-прогон, то есть всё дерево один раз со всеми необязательными модулями (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop`**). **`make test-matrix`** перебирает все комбинации (список **`TEST_TAG_SETS`** в [`Makefile`](../../../Makefile)); CI прогоняет эту матрицу на каждом пул-реквесте, по заданию на комбинацию. Задание `cli` к тому же запускает собранный бинарник и управляет консолью через настоящий pty (`examples/cli/cli_e2e_startup.py`), а задание **Telegram stand (tgfake)** запускает Telegram-бота против релизного бинарника [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; запускаемый им бинарник собран с `gateway metrics`, и после чата скрипт снимает метрики экспортёра). Задание **Docker image** собирает образ рантайма для **`linux/amd64`** и **`linux/arm64`**, платформ, которые публикует релиз, и проверяет, что в каждом варианте лежит бинарник его собственной платформы (**`make check-image`**, см. [Проверка платформ образа](../getting-started/docker.md#проверка-платформ-образа)). **`make test-race`** прогоняет всё дерево под детектором гонок Go со всеми тегами, кроме `ui`; CI запускает его на каждом пул-реквесте в задании **Race detector**, а `GOFLAGS=-count=3 make test-race` локально повторяет каждый тест, чтобы поймать редко проявляющуюся гонку. Две группы можно запускать отдельно. **`make test-cache`** - группа кэша промптов (спецификации `features/prompt_cache_*.feature` и тесты `TestPromptCache*`, входят в `make test`; они проверяют, что каждый запрос отправляет провайдеру, байт в байт на протяжении сессии), а **`make test-perf`** - группа производительности (бенчмарки файлов `perf_test.go`, никогда не входят в `make test`; они измеряют время работы, которую повторяет каждый ход, и стоимость контекста сессии над собственными правилами этого репозитория в виде `system-tokens`, `request-tokens` и `duplicate-rules`).
 
 В Windows запускайте Make через Git Bash. Цели сборки и установки используют суффикс исполняемых файлов Go (`coddy.exe`), в том числе для бинарника, который запускает `make docs`. `.gitattributes` сохраняет окончания строк LF в текстовых файлах, включая CSS для проверок исходников и встроенную документацию Markdown. Запускайте `GOFLAGS=-p=4 make test`, чтобы дочерним процессам MCP и PowerShell хватало времени на запуск. Задание CI для Windows проверяет адаптеры правил, SPA и весь набор Go-тестов с тегами релизной сборки.
 
@@ -327,6 +333,6 @@ GitHub не отдаёт секрет обратно, поэтому храни�
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** (или **`go build -tags=...`**, как выше).
+Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=1ec24b62f25caea6 -->
+<!-- docsgen:source sha256=fe32871583c47efa -->

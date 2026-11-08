@@ -72,6 +72,10 @@ func autostartEnabled() bool {
 
 // autostartEntry is the desktop entry itself.
 //
+// The Exec line is this program with the desktop verb after it: `coddy` is one
+// binary for the terminal and the window both, and a bare path would open a
+// console session at login instead of a window.
+//
 // The path is quoted the way the specification asks for it, because a program
 // installed under a folder with a space in its name is still a program, and an
 // unquoted Exec line would silently start something else.
@@ -81,7 +85,7 @@ func autostartEntry(exe string) string {
 		"Type=Application",
 		"Name=Coddy",
 		"Comment=Coddy agent in a window",
-		"Exec=" + quoteExec(exe),
+		"Exec=" + quoteExec(exe) + " desktop",
 		// The icon the package installs into the hicolor theme
 		// (packaging/nfpm-desktop.yaml), so an entry written here draws the
 		// same mark as the one in the application menu.

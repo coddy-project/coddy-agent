@@ -84,13 +84,19 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Handle != nil {
 		opts.Handle.AttachSettings(settings)
 	}
+	// The run ends when the window closes, and Quit in the tray's menu is the
+	// other way to end it: a window that cannot be closed - minimised into the
+	// tray on a session nothing can be asked of - still has to let go.
+	runCtx, endRun := context.WithCancel(ctx)
+	defer endRun()
+	settings.bindQuit(endRun)
 	saved := settings.Settings()
 	opts.Framed = opts.Framed || saved.Framed
 	opts.StartMinimised = opts.StartMinimised || saved.StartMinimised
 
-	if addr, ok := runningDesktop(ctx, opts.Home); ok {
+	if addr, ok := runningDesktop(runCtx, opts.Home); ok {
 		log.Info("a Coddy desktop is already serving here, opening a window on it", "addr", addr)
-		return finishWindow(opts, openWindow(ctx, opts, shellURL(addr)), shellURL(addr), nil, ctx)
+		return finishWindow(opts, openWindow(runCtx, opts, shellURL(addr)), shellURL(addr), nil, runCtx)
 	}
 
 	if opts.Serve == nil {
@@ -109,6 +115,15 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}, newTrayMenu(settings.MenuRows, settings.PickMenu))
 	settings.bind(opts.Handle, tray)
+	// A switch is drawn in two menus, and only one of them was thrown: the
+	// tray redraws from the store, and the page is told to read it again
+	// through the queue it is already holding a poll on.
+	settings.watch(func() {
+		tray.menuChanged()
+		if opts.Handle != nil {
+			opts.Handle.RequestChord(chordSettingsMoved)
+		}
+	})
 	defer tray.Hide()
 	if saved.Tray {
 		if err := tray.Show(); err != nil {
@@ -121,7 +136,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	addr := loopbackAddr(port)
 
-	serveCtx, stopServe := context.WithCancel(ctx)
+	serveCtx, stopServe := context.WithCancel(runCtx)
 	defer stopServe()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- opts.Serve(serveCtx, addr) }()
@@ -130,15 +145,15 @@ func Run(ctx context.Context, opts Options) error {
 	if bound <= 0 {
 		bound = DefaultReadyTimeout
 	}
-	if err := waitForListener(ctx, addr, serveErr, bound); err != nil {
+	if err := waitForListener(runCtx, addr, serveErr, bound); err != nil {
 		stopServe()
 		return err
 	}
 	log.Info("the desktop is serving", "addr", addr)
 
 	url := shellURL(addr)
-	windowErr := openWindow(ctx, opts, url)
-	err = finishWindow(opts, windowErr, url, serveErr, ctx)
+	windowErr := openWindow(runCtx, opts, url)
+	err = finishWindow(opts, windowErr, url, serveErr, runCtx)
 	// The surface exists for the window: when the window is gone, so is the
 	// reason to keep serving, and the process ends with both.
 	stopServe()

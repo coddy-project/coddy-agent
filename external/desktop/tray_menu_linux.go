@@ -69,11 +69,62 @@ type trayMenu struct {
 	mu       sync.Mutex
 	conn     *dbus.Conn
 	revision uint32
-	items    []shell.MenuItem
+	items    []menuRow
+	// ids is the id each row has had for the life of this menu, and nextID the
+	// one to hand out next. An id belongs to the row, not to its position: a
+	// row that gained a neighbour above it used to take over the id of
+	// whatever had been there, and a host drawing from its cache put the old
+	// row's label and tick on the new one.
+	ids    map[string]int32
+	nextID int32
+}
+
+// menuRow is one row of the menu as it now stands, with the id it answers to.
+type menuRow struct {
+	shell.MenuItem
+	id int32
 }
 
 func newTrayMenu(rows func() []shell.MenuItem, pick func(string) error) *trayMenu {
-	return &trayMenu{rows: rows, pick: pick, revision: 1}
+	return &trayMenu{rows: rows, pick: pick, revision: 1, ids: map[string]int32{}, nextID: menuRoot + 1}
+}
+
+// idFor answers the id of a row, handing out a new one the first time that row
+// is seen. Separators have no id of their own, so they are numbered in the
+// order they appear.
+func (m *trayMenu) idFor(key string) int32 {
+	if id, ok := m.ids[key]; ok {
+		return id
+	}
+	id := m.nextID
+	m.nextID++
+	m.ids[key] = id
+	return id
+}
+
+// number is the rows with their ids. It is called under the lock.
+func (m *trayMenu) number(rows []shell.MenuItem) []menuRow {
+	out := make([]menuRow, 0, len(rows))
+	separators := 0
+	for _, row := range rows {
+		key := row.ID
+		if row.Kind == shell.MenuSeparator || key == "" {
+			separators++
+			key = fmt.Sprintf("\x00separator-%d", separators)
+		}
+		out = append(out, menuRow{MenuItem: row, id: m.idFor(key)})
+	}
+	return out
+}
+
+// rowOf answers the row an id names.
+func (m *trayMenu) rowOf(rows []menuRow, id int32) (menuRow, bool) {
+	for _, row := range rows {
+		if row.id == id {
+			return row, true
+		}
+	}
+	return menuRow{}, false
 }
 
 // publish exports the menu object beside the item, and answers the path the
@@ -81,7 +132,7 @@ func newTrayMenu(rows func() []shell.MenuItem, pick func(string) error) *trayMen
 func (m *trayMenu) publish(conn *dbus.Conn) (dbus.ObjectPath, error) {
 	m.mu.Lock()
 	m.conn = conn
-	m.items = m.rows()
+	m.items = m.number(m.rows())
 	m.mu.Unlock()
 
 	if err := conn.Export(m, menuPath, menuInterface); err != nil {
@@ -117,16 +168,16 @@ func (m *trayMenu) publish(conn *dbus.Conn) (dbus.ObjectPath, error) {
 }
 
 // snapshot retakes the rows and answers them with the revision they belong to.
-func (m *trayMenu) snapshot() ([]shell.MenuItem, uint32) {
+func (m *trayMenu) snapshot() ([]menuRow, uint32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.items = m.rows()
+	m.items = m.number(m.rows())
 	m.revision++
 	return m.items, m.revision
 }
 
 // current answers the rows the ids in flight were handed out against.
-func (m *trayMenu) current() ([]shell.MenuItem, uint32) {
+func (m *trayMenu) current() ([]menuRow, uint32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.items, m.revision
@@ -145,23 +196,35 @@ func (m *trayMenu) changed() {
 	_ = conn.Emit(menuPath, menuInterface+".LayoutUpdated", revision, menuRoot)
 }
 
-// propsOf is one row as dbusmenu properties. A property at its default - an
-// enabled, visible, standard item - is left out, which is what the protocol
-// expects.
+// propsOf is one row as dbusmenu properties.
+//
+// Every property is sent on every row, at its default where the row does not
+// use it, and that is deliberate: a host caches an item's properties by id and
+// merges what it is told next into what it already has. Plasma drew the
+// separator of this menu as a ticked row labelled after a switch, because the
+// separator sent only its type and the label and the tick left over from
+// whatever had held that id survived underneath it. A row that names
+// everything it has cannot be drawn with another row's.
 func propsOf(row shell.MenuItem) map[string]dbus.Variant {
+	kind := "standard"
 	if row.Kind == shell.MenuSeparator {
-		return map[string]dbus.Variant{"type": dbus.MakeVariant("separator")}
+		kind = "separator"
 	}
-	props := map[string]dbus.Variant{"label": dbus.MakeVariant(row.Label)}
+	toggle, state := "", int32(-1) // -1 is dbusmenu's "this is not a tick".
 	if row.Kind == shell.MenuSwitch {
-		props["toggle-type"] = dbus.MakeVariant("checkmark")
-		state := int32(0)
+		toggle, state = "checkmark", 0
 		if row.Checked {
 			state = 1
 		}
-		props["toggle-state"] = dbus.MakeVariant(state)
 	}
-	return props
+	return map[string]dbus.Variant{
+		"type":         dbus.MakeVariant(kind),
+		"label":        dbus.MakeVariant(row.Label),
+		"toggle-type":  dbus.MakeVariant(toggle),
+		"toggle-state": dbus.MakeVariant(state),
+		"enabled":      dbus.MakeVariant(true),
+		"visible":      dbus.MakeVariant(true),
+	}
 }
 
 // GetLayout answers the tree. Only two levels exist - the root and its rows -
@@ -169,15 +232,15 @@ func propsOf(row shell.MenuItem) map[string]dbus.Variant {
 func (m *trayMenu) GetLayout(parentID, _ int32, _ []string) (uint32, menuLayout, *dbus.Error) {
 	rows, revision := m.current()
 	if parentID != menuRoot {
-		i := int(parentID) - 1
-		if i < 0 || i >= len(rows) {
+		row, ok := m.rowOf(rows, parentID)
+		if !ok {
 			return revision, menuLayout{}, dbus.MakeFailedError(fmt.Errorf("no menu item %d", parentID))
 		}
-		return revision, menuLayout{ID: parentID, Props: propsOf(rows[i])}, nil
+		return revision, menuLayout{ID: parentID, Props: propsOf(row.MenuItem)}, nil
 	}
 	children := make([]dbus.Variant, 0, len(rows))
-	for i, row := range rows {
-		children = append(children, dbus.MakeVariant(menuLayout{ID: int32(i) + 1, Props: propsOf(row)}))
+	for _, row := range rows {
+		children = append(children, dbus.MakeVariant(menuLayout{ID: row.id, Props: propsOf(row.MenuItem)}))
 	}
 	return revision, menuLayout{
 		ID:       menuRoot,
@@ -190,22 +253,22 @@ func (m *trayMenu) GetGroupProperties(ids []int32, _ []string) ([]menuProps, *db
 	rows, _ := m.current()
 	out := make([]menuProps, 0, len(ids))
 	for _, id := range ids {
-		i := int(id) - 1
-		if i < 0 || i >= len(rows) {
+		row, ok := m.rowOf(rows, id)
+		if !ok {
 			continue
 		}
-		out = append(out, menuProps{ID: id, Props: propsOf(rows[i])})
+		out = append(out, menuProps{ID: id, Props: propsOf(row.MenuItem)})
 	}
 	return out, nil
 }
 
 func (m *trayMenu) GetProperty(id int32, name string) (dbus.Variant, *dbus.Error) {
 	rows, _ := m.current()
-	i := int(id) - 1
-	if i < 0 || i >= len(rows) {
+	row, found := m.rowOf(rows, id)
+	if !found {
 		return dbus.Variant{}, dbus.MakeFailedError(fmt.Errorf("no menu item %d", id))
 	}
-	v, ok := propsOf(rows[i])[name]
+	v, ok := propsOf(row.MenuItem)[name]
 	if !ok {
 		return dbus.Variant{}, dbus.MakeFailedError(fmt.Errorf("menu item %d has no %s", id, name))
 	}
@@ -219,12 +282,12 @@ func (m *trayMenu) Event(id int32, eventID string, _ dbus.Variant, _ uint32) *db
 		return nil
 	}
 	rows, _ := m.current()
-	i := int(id) - 1
-	if i < 0 || i >= len(rows) || rows[i].Kind == shell.MenuSeparator {
+	row, ok := m.rowOf(rows, id)
+	if !ok || row.Kind == shell.MenuSeparator {
 		return nil
 	}
 	if m.pick != nil {
-		if err := m.pick(rows[i].ID); err != nil {
+		if err := m.pick(row.ID); err != nil {
 			// The row stays where the machine actually left it, and the
 			// desktop is told the menu moved so it redraws from the truth.
 			m.changed()

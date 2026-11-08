@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // WindowControl is the strip's view of the window around it; the interface
@@ -23,10 +24,21 @@ type WindowHandle struct {
 	mu       sync.Mutex
 	ctl      WindowControl
 	settings *SettingsStore
+	// chords is what the page long-polls: the keys the launcher took from the
+	// browser, and the messages that are not keys at all - a row of the tray's
+	// menu asking for a new chat, a switch that moved where the page cannot
+	// see it.
+	//
+	// It belongs to the handle and not to the window on purpose. While it
+	// lived in the X11 control, a machine where no window can be driven - a
+	// Wayland session, macOS, Windows - dropped every one of those messages,
+	// though it still had a tray icon to pick New chat from and switches that
+	// move outside the page.
+	chords *chordQueue
 }
 
 // NewWindowHandle answers an empty handle.
-func NewWindowHandle() *WindowHandle { return &WindowHandle{} }
+func NewWindowHandle() *WindowHandle { return &WindowHandle{chords: newChordQueue()} }
 
 // Attach gives the handle the window this run opened.
 func (h *WindowHandle) Attach(ctl WindowControl) {
@@ -73,28 +85,40 @@ func (h *WindowHandle) SetSettings(next Settings) error {
 	return s.SetSettings(next)
 }
 
-// NextChord waits for a key the launcher took from the browser.
+// NextChord waits for the next thing the strip is told.
 //
-// The page asks for one the moment it is drawn, which is before the browser
-// has mapped a window and therefore before anything can be grabbed, so a
-// handle with no window yet waits rather than answering no: the long poll the
-// page is already holding is the one that delivers the first chord.
+// The page asks the moment it is drawn, which is before the browser has
+// mapped a window and therefore before anything can be grabbed, so this waits
+// rather than answering no: the long poll the page is already holding is the
+// one that delivers the first chord.
 func (h *WindowHandle) NextChord(ctx context.Context) string {
-	for {
-		if src, ok := h.current().(shell.ChordSource); ok {
-			return src.NextChord(ctx)
-		}
-		select {
-		case <-ctx.Done():
-			return ""
-		case <-time.After(chordAttachPoll):
-		}
+	if h == nil || h.chords == nil {
+		<-ctx.Done()
+		return ""
 	}
+	return h.chords.next(ctx)
 }
 
-// chordAttachPoll is how often a page that is already waiting looks again for
-// a window to take its chords from.
-const chordAttachPoll = 250 * time.Millisecond
+// pushGrabbed is how a key taken at the X server reaches the strip. The window
+// control calls it; nothing else does.
+func (h *WindowHandle) pushGrabbed(name string) {
+	if h == nil || h.chords == nil {
+		return
+	}
+	h.chords.push(name)
+}
+
+// OpenExternal hands a link out of Coddy to this machine's own browser.
+//
+// It does not go through the window at all - the window is a browser in
+// application mode on this one address, and loading a site into it would put
+// that site under a tab strip with no address bar and no way back. The
+// opener is the desktop's own (`xdg-open` and its kin), so the link lands in
+// whatever browser the person actually uses. The address has been through
+// shell.ExternalURL before it reaches here.
+func (h *WindowHandle) OpenExternal(url string) error {
+	return platform.OpenBrowser(url)
+}
 
 // Activate brings the window back, for the tray icon to call. A window that
 // cannot be asked is not an error here: there is nothing to bring back.
@@ -106,13 +130,10 @@ func (h *WindowHandle) Activate() error {
 }
 
 // RequestChord asks the strip for what that chord does, from somewhere that is
-// not a key: a row of the tray's menu. It travels down the same queue a grabbed
-// key does, so the strip needs to know nothing about where it came from.
-func (h *WindowHandle) RequestChord(name string) {
-	if p, ok := h.current().(chordPusher); ok {
-		p.pushChord(name)
-	}
-}
+// not a key: a row of the tray's menu, or a switch that moved where the page
+// cannot see it. It travels down the same queue a grabbed key does, so the
+// strip needs to know nothing about where it came from.
+func (h *WindowHandle) RequestChord(name string) { h.pushGrabbed(name) }
 
 func (h *WindowHandle) Supported() bool                    { return h.current().Supported() }
 func (h *WindowHandle) Undecorate() error                  { return h.current().Undecorate() }
@@ -147,16 +168,12 @@ type cornerRounder interface {
 	watchShape(stop <-chan struct{})
 }
 
-// chordGrabber is the part of a window control that can take a chord away from
-// the browser before the browser answers it itself.
+// chordGrabber is the part of a window control that can take a chord away
+// from the browser before the browser answers it itself. It is given the
+// place to put what it took, which is the handle's queue: one queue for the
+// keys and for everything else the strip is told.
 type chordGrabber interface {
-	grabChords()
-}
-
-// chordPusher is the part of a window control that holds the queue the strip
-// polls, so something that is not a key can ask the strip for the same thing.
-type chordPusher interface {
-	pushChord(name string)
+	grabChords(deliver func(string))
 }
 
 // windowActivator is the part of a window control that can bring the window

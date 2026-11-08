@@ -1,17 +1,28 @@
-//go:build desktop && http
+//go:build desktop && http && ui
 
-// Command coddy-desktop opens Coddy as a window on this machine.
-//
-// It is a binary of its own rather than a verb of `coddy`, because what it
-// needs is a different shape of program: `coddy serve` is a server that
-// outlives every client, and this is a client whose server lives exactly as
-// long as the window. Keeping them apart also keeps the desktop surface out of
-// the binary that runs on servers and in containers, where there is no display
-// for a window to open on.
+// `coddy desktop` opens Coddy as a window on this machine.
 //
 // The window is the operator's Chromium-family browser in app mode, in a
-// profile of its own. The native window around the system WebView arrives with
-// the desktop.native tag, which needs cgo.
+// profile of its own, over an HTTP surface started on a loopback port the
+// agent home remembers; the page it opens on is a tab strip with one chat per
+// tab (external/desktop/shell). The whole of Coddy is behind it - the same
+// binary, the same configuration, the same session store - so a window is
+// another way in, not a smaller Coddy.
+//
+// The ui tag is in the constraint beside http because the window opens on the
+// SPA: a binary with the server but no interface would start a browser on a
+// page that is not there.
+//
+// It is a verb of `coddy` rather than a binary of its own because the surface
+// costs 0.44 MiB in a binary that already carries the HTTP server and the SPA:
+// the X11 library it drives the window with (jezek/xgb) is already there for
+// the console's clipboard pictures, and only the DBus client of the tray icon
+// is new. A second 72 MiB artefact to ship, package and update was the larger
+// cost by far.
+//
+// The native window around the system WebView arrives with the desktop.native
+// tag, which needs cgo.
+
 package main
 
 import (
@@ -34,27 +45,29 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
-// hiddenSections are the settings sections the window does not offer.
+// desktopHiddenSections are the settings sections the window does not offer.
 //
 // They are the surfaces of `coddy serve` - a bot polling a messenger, a relay,
-// a cron daemon, an exporter - and the desktop turns every one of them off
-// before it starts (desktop.ApplyConfig). Offering a switch the window ignores
-// would be worse than not offering it, so the form of this binary does not
-// draw them whatever tags it was built with.
-var hiddenSections = []string{"gateways", "swarm", "scheduler", "metrics", "browser"}
+// a cron daemon, an exporter - and the window runs none of them: it is handed
+// one subsystem descriptor and serve.Resolve consults no other. Offering a
+// switch the window ignores would be worse than not offering it, so its
+// settings form does not draw them whatever tags the binary was built with.
+var desktopHiddenSections = []string{"gateways", "swarm", "scheduler", "metrics", "browser"}
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return
-		}
-		fmt.Fprintf(os.Stderr, "coddy-desktop: %v\n", err)
-		os.Exit(1)
+// runDesktop is the `desktop` command: it returns when the window closes.
+//
+// A context that was cancelled - Ctrl+C, or Quit in the tray's menu - is the
+// ordinary end of a window and not a failure, so it is swallowed here rather
+// than printed by main as an error.
+func runDesktop(args []string) error {
+	if err := runDesktopWindow(args); err != nil && !errors.Is(err, context.Canceled) {
+		return err
 	}
+	return nil
 }
 
-func run(args []string) error {
-	fs := flag.NewFlagSet("coddy-desktop", flag.ContinueOnError)
+func runDesktopWindow(args []string) error {
+	fs := flag.NewFlagSet("coddy desktop", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml)")
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
@@ -62,14 +75,12 @@ func run(args []string) error {
 	window := fs.String("window", desktop.WindowAuto, "window backend: auto|browser|native")
 	browser := fs.String("browser", "", "browser to open the window with, by name on PATH or by path (else "+desktop.BrowserEnvVar+", else the first Chromium-family browser installed)")
 	logLevel := fs.String("log-level", "", "log level: debug|info|warn|error (default from config)")
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	fs.BoolVar(showVersion, "v", false, "alias of --version")
 	framed := fs.Bool("frame", false, "keep the system title bar and borders. Without it the window is a bare rectangle and the tab strip is its title bar: it carries the window's own buttons and is what you drag it by (X11 sessions; elsewhere the frame stays)")
 	keepAuth := fs.Bool("auth", false, "ask for the credential the configuration carries (a token, the sign-in form). By default the window asks for nothing: it binds loopback for the person who started it, and a form in a window they opened themselves proves nothing")
 	testConfig := config.AddCheckFlag(fs)
 
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "Usage of coddy-desktop (opens Coddy in a window on this machine):\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of coddy desktop (opens Coddy in a window on this machine):\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -79,13 +90,8 @@ func run(args []string) error {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unknown argument %q: coddy-desktop takes flags only", fs.Arg(0))
+		return fmt.Errorf("unknown argument %q: coddy desktop takes flags only", fs.Arg(0))
 	}
-	if *showVersion {
-		fmt.Println(version.Get())
-		return nil
-	}
-
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*cwd),
@@ -117,7 +123,7 @@ func run(args []string) error {
 	// settings screen inside the window reads, and therefore what a save from
 	// that screen writes back.
 	if left := desktop.SurfacesLeftToServe(cfg); len(left) > 0 {
-		fmt.Fprintf(os.Stderr, "coddy-desktop runs the web interface only; left to `coddy serve`: %s\n", strings.Join(left, ", "))
+		fmt.Fprintf(os.Stderr, "coddy desktop runs the web interface only; left to `coddy serve`: %s\n", strings.Join(left, ", "))
 	}
 	if lvl := strings.TrimSpace(*logLevel); lvl != "" {
 		cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: lvl})
@@ -137,7 +143,7 @@ func run(args []string) error {
 	}); err != nil {
 		return err
 	}
-	log.Info("starting coddy-desktop", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
+	log.Info("starting the desktop window", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.SetACPLogger(log)
 	defer llm.StopACPAgents()
 	if rt.Mgr != nil {
@@ -197,7 +203,7 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 					ListenAddr: addr, DetachedPrompts: rt, Wakes: rt,
 					NoAuth:          noAuth,
 					DesktopWindow:   window,
-					UnbuiltSections: hiddenSections, Status: rt.StatusDocument,
+					UnbuiltSections: desktopHiddenSections, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -225,23 +231,5 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 		// in the log, not an exit.
 		sup.Restartable = false
 		return sup.Run(ctx, cfg, reloads)
-	}
-}
-
-// offerNewest keeps only the newest configuration in the supervisor's queue.
-// An observer must not block the goroutine that replaced it, and a document
-// already superseded is wrong by the time the supervisor would read it.
-func offerNewest(ch chan *config.Config, next *config.Config) {
-	for {
-		select {
-		case ch <- next:
-			return
-		default:
-		}
-		select {
-		case <-ch:
-		default:
-			return
-		}
 	}
 }

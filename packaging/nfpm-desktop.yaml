@@ -1,17 +1,18 @@
-# nfpm recipe for the Linux packages of the desktop window (deb and rpm).
+# nfpm recipe for the Linux packages of the desktop application (deb and rpm).
 #
-# A package of its own, `coddy-desktop`, and not a file added to `coddy`: the
-# window carries the embedded web UI and is built with its own tags, so it is
-# several times the size of the agent and has no business on a server that only
-# runs `coddy serve`. The two install side by side and share no file.
+# It carries no binary: the window is a verb of the ordinary one (`coddy
+# desktop`), which the release build already has, so this package installs
+# what makes an application an application on a Linux desktop - an entry in
+# /usr/share/applications, so Coddy is in the menu and the launcher, and its
+# icon in the hicolor theme that entry names - and depends on `coddy` for the
+# program. It stays a package of its own rather than files added to the
+# agent's because a server that only runs `coddy serve` has no use for a menu
+# entry.
 #
-# What it adds beyond the binary is what makes an application an application on
-# a Linux desktop: an entry in /usr/share/applications, so Coddy is in the menu
-# and the launcher, and its icon in the hicolor theme the entry names. Like the
-# agent's package it enables nothing, creates no system account and writes
-# nothing under /etc; the window's own state lives in the invoking user's
-# ~/.coddy, and the autostart entry of the menu's "Open at login" is written
-# into that user's own autostart folder.
+# Like the agent's package it enables nothing, creates no system account and
+# writes nothing under /etc; the window's own state lives in the invoking
+# user's ~/.coddy, and the autostart entry of the menu's "Open at login" is
+# written into that user's own autostart folder.
 #
 # Staged by scripts/build-desktop-packages.sh; run `make deb-desktop` or
 # `make rpm-desktop`.
@@ -32,26 +33,27 @@ homepage: https://coddy.dev
 license: MIT
 description: |
   Coddy as a desktop window, with tabs.
-  coddy-desktop runs Coddy's HTTP surface on a loopback port this machine
-  remembers and opens a window on a tab strip over it, one chat per tab. The
-  window carries the embedded web UI, so nothing but a browser engine is
-  needed; without a system frame the strip is the title bar, with the window's
-  own buttons, a menu of the desktop's switches and an optional icon in the
-  system tray.
+  The menu entry and the icon for `coddy desktop`, which runs Coddy's HTTP
+  surface on a loopback port this machine remembers and opens a window on a
+  tab strip over it, one chat per tab. The program itself is the coddy
+  package. On an X11 session the window has no system frame: the strip is its
+  title bar, with the window's own buttons, a menu of the desktop's switches
+  and an optional icon in the system tray.
 
-# The window is opened with a browser already on the machine (Chrome, Chromium,
-# Yandex Browser, Firefox), in a profile of its own. Naming one as a dependency
-# would be wrong - any of them does, and CODDY_DESKTOP_BROWSER names another -
-# so they are a recommendation, which apt and zypper offer and dnf records.
+# The window is opened with a Chromium-family browser already on the machine
+# (Chrome, Chromium, Edge, Brave, Vivaldi, Yandex Browser), in a profile of
+# its own; Firefox has no --app and cannot carry one. Naming one as a
+# dependency would be wrong - any of them does, and CODDY_DESKTOP_BROWSER
+# names another - so it is a recommendation, which apt and zypper offer and
+# dnf records.
 recommends:
   - chromium
 
-contents:
-  - src: coddy-desktop
-    dst: /usr/bin/coddy-desktop
-    file_info:
-      mode: 0755
+# The program the menu entry starts.
+depends:
+  - coddy
 
+contents:
   # The menu entry: this is what puts Coddy in the application launcher.
   - src: coddy-desktop.desktop
     dst: /usr/share/applications/coddy-desktop.desktop
@@ -68,6 +70,27 @@ contents:
 
   - src: coddy-desktop-512.png
     dst: /usr/share/icons/hicolor/512x512/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  # The two sizes a menu and a task bar actually draw.
+  - src: coddy-desktop-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/coddy-desktop.png
     file_info:
       mode: 0644
 

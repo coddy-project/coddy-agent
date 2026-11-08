@@ -25,7 +25,7 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 
 - [Console (TUI)](surfaces/console.md) - Bare coddy in a terminal, the layout, keys, slash commands, the local shell, print mode and remote mode.
 - [Web UI](surfaces/web-ui.md) - The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages.
-- [Desktop window](surfaces/desktop.md) - coddy-desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and which platforms it is ported to.
+- [Desktop window](surfaces/desktop.md) - coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window.
 - [Editors (ACP)](surfaces/editors.md) - Zed, VS Code, Obsidian and scripts as ACP clients of coddy acp, and what they share with the other surfaces.
 - [Telegram gateway](surfaces/gateway.md) - The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
 - [Pachca gateway](surfaces/pachca.md) - The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits.

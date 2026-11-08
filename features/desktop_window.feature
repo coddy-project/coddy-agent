@@ -45,6 +45,8 @@ Feature: Opening Coddy as a desktop window
     Then the strip is told to go to the next chat
     When the operator presses Ctrl+Shift+Tab
     Then the strip is told to go to the previous chat
+    When the operator presses Ctrl+R
+    Then the strip is told to reload the chat in front
 
   Scenario: The tray icon offers the menu of the bar, and the window above it
     Given a desktop window whose tray icon carries a menu
@@ -59,6 +61,22 @@ Feature: Opening Coddy as a desktop window
     And the bar's menu draws it ticked
     When the operator picks "New chat" from the tray
     Then the strip is told to open a chat
+    When the operator picks "Quit Coddy" from the tray
+    Then the window is closed
+
+  Scenario: A link out of Coddy opens in this machine's own browser
+    Given a window on the tab shell
+    When a chat asks the window to open "https://coddy.dev/docs/surfaces-desktop"
+    Then this machine's own browser is opened on it
+    When a chat asks the window to open "file:///etc/shadow"
+    Then the window opens nothing
+
+  Scenario: A drag moves the window only once it knows where the drag began
+    Given a window on the tab shell
+    When the page asks to move the window before saying where the drag began
+    Then the window does not move
+    When the drag begins and the page asks again
+    Then the window follows the pointer
 
   Scenario: A window the desktop pinned is let loose before it is dragged
     Given a window the window manager has pinned to the left half of the screen
