@@ -21,7 +21,7 @@ func TestDirectServiceTierParameters(t *testing.T) {
 			if err := json.Unmarshal(raw, &chat); err != nil {
 				t.Fatal(err)
 			}
-			opts, err := directRequestOptions(cfg, "api/test", chat)
+			opts, err := (&Server{}).directRequestOptions(cfg, "api/test", chat)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -36,7 +36,7 @@ func TestDirectServiceTierParameters(t *testing.T) {
 			if err := json.Unmarshal(raw, &req); err != nil {
 				t.Fatal(err)
 			}
-			opts, err = responsesGenerationOptions(cfg, "api/test", &req)
+			opts, err = (&Server{}).responsesGenerationOptions(cfg, "api/test", &req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +72,7 @@ func TestResponsesTierFieldsKeepRequestedAndActualDistinct(t *testing.T) {
 func TestDirectTierRejectsKnownIncompatibleModel(t *testing.T) {
 	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "oauth", Type: "codex"}, {Name: "api", Type: "openai"}}, Models: []config.ModelEntry{{Model: "oauth/gpt-6-astra"}, {Model: "api/gpt-6-luna"}}}
 	for _, model := range []string{"oauth/gpt-6-astra", "api/gpt-6-luna"} {
-		if _, err := directRequestOptions(cfg, model, chatCompletionRequest{ServiceTier: "ultrafast"}); err == nil {
+		if _, err := (&Server{}).directRequestOptions(cfg, model, chatCompletionRequest{ServiceTier: "ultrafast"}); err == nil {
 			t.Fatalf("accepted Ultra on %s", model)
 		}
 	}

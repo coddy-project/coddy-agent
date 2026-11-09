@@ -78,7 +78,7 @@ func TestDirectRequestTopP(t *testing.T) {
 		t.Run(typ, func(t *testing.T) {
 			cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "p", Type: typ}}, Models: []config.ModelEntry{{Model: "p/test-model"}}}
 			value := 0.7
-			opts, err := directRequestOptions(cfg, "p/test-model", chatCompletionRequest{}, &value)
+			opts, err := (&Server{}).directRequestOptions(cfg, "p/test-model", chatCompletionRequest{}, &value)
 			if typ != "openai" {
 				if err == nil {
 					t.Fatalf("%s accepted top_p", typ)

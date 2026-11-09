@@ -150,7 +150,7 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // names, so a request may carry both only when they agree. reasoning_effort
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
-func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
+func (s *Server) directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
 	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature, ServiceTier: req.ServiceTier}
 	if len(topP) > 0 {
 		opts.TopP = topP[0]
@@ -172,8 +172,14 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 			}
 		}
 	}
-	if req.ServiceTier != "" && cfg != nil && !cfg.ServiceTierSupported(ent, req.ServiceTier) {
-		return llm.RequestOptions{}, fmt.Errorf("service_tier %q is not supported by model %q", req.ServiceTier, model)
+	if req.ServiceTier != "" && cfg != nil {
+		supported := cfg.ServiceTierSupported(ent, req.ServiceTier)
+		if s.mgr != nil {
+			supported = s.mgr.ServiceTierSupported(cfg, model, req.ServiceTier)
+		}
+		if !supported {
+			return llm.RequestOptions{}, fmt.Errorf("service_tier %q is not supported by model %q", req.ServiceTier, model)
+		}
 	}
 	level := ""
 	if req.ReasoningEffort != nil {

@@ -489,7 +489,7 @@ func parseResponsesTools(rawTools json.RawMessage, limits clientToolLimits) ([]l
 // responsesGenerationOptions maps the request's generation fields onto the
 // chat shape directRequestOptions reads: max_output_tokens is the newer name
 // of the output cap, reasoning.effort the level name.
-func responsesGenerationOptions(cfg *config.Config, model string, req *responsesDirectRequest) (llm.RequestOptions, error) {
+func (s *Server) responsesGenerationOptions(cfg *config.Config, model string, req *responsesDirectRequest) (llm.RequestOptions, error) {
 	var effort *string
 	if req.Reasoning != nil && strings.TrimSpace(req.Reasoning.Effort) != "" {
 		level := strings.TrimSpace(req.Reasoning.Effort)
@@ -501,5 +501,5 @@ func responsesGenerationOptions(cfg *config.Config, model string, req *responses
 		Temperature:         req.Temperature,
 		ReasoningEffort:     effort,
 	}
-	return directRequestOptions(cfg, model, chat, req.TopP)
+	return s.directRequestOptions(cfg, model, chat, req.TopP)
 }

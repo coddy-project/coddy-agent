@@ -85,6 +85,15 @@ func (s *State) ServiceTiers(cfg *config.Config, model string) []string {
 	return cfg.ServiceTiersFor(cfg.FindModelEntry(model))
 }
 func (s *State) ServiceTierSupported(cfg *config.Config, model, tier string) bool {
+	if catalog, ok := s.contextWindows.(interface {
+		ServiceTierSupported(*config.Config, string, string) bool
+	}); ok {
+		return catalog.ServiceTierSupported(cfg, model, tier)
+	}
+	return cfg.ServiceTierSupported(cfg.FindModelEntry(model), tier)
+}
+
+func (m *Manager) ServiceTierSupported(cfg *config.Config, model, tier string) bool {
 	if tier == "" || tier == "default" {
 		return true
 	}
@@ -96,7 +105,7 @@ func (s *State) ServiceTierSupported(cfg *config.Config, model, tier string) boo
 		if tier == "fast" {
 			tier = "priority"
 		}
-		return slices.Contains(s.ServiceTiers(cfg, model), tier)
+		return slices.Contains(m.ServiceTiers(cfg, model), tier)
 	}
 	return cfg.ServiceTierSupported(ent, tier)
 }

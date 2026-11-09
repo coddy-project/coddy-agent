@@ -730,7 +730,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		// Refused here for the same reason: an option the provider cannot
 		// send as asked must not cost a session, nor reach the provider.
-		genOpts, err = directRequestOptions(s.directCapabilityConfig(r.Context(), s.activeCfg(), model), model, req, parsedOpts.TopP)
+		genOpts, err = s.directRequestOptions(s.directCapabilityConfig(r.Context(), s.activeCfg(), model), model, req, parsedOpts.TopP)
 		if err != nil {
 			if parsedOpts.TopP != nil && strings.HasPrefix(err.Error(), "top_p ") {
 				writeOpenAIValidationError(w, err.Error(), "top_p")

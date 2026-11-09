@@ -83,3 +83,22 @@ func TestOpenAIResponsesBlocking(t *testing.T) {
 		t.Fatalf("response=%+v", r)
 	}
 }
+
+func TestOpenAIResponsesBlockingContentFilter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"r1","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}]}`)
+	}))
+	defer srv.Close()
+	p, err := NewProvider(ProviderInput{Type: "openai", Model: "test", Protocol: "responses", BaseURL: srv.URL, RetryDisabled: true, DisableStream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Content != "partial" || out.StopReason != "content_filter" {
+		t.Fatalf("response=%+v", out)
+	}
+}

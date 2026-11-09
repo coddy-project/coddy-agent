@@ -693,8 +693,12 @@ that sends no `Origin` is not affected.
 
 Direct requests to `/v1/chat/completions` and `/v1/responses` accept `service_tier` independently of reasoning. `default` requests Standard explicitly; omission uses the configured model default. The accepted wire names are `default`, `auto`, `priority`, `fast`, `ultrafast` and `flex`; availability depends on the deployment.
 
+Direct requests and session settings use the same cached Codex tier catalog. An empty catalog permits only Standard; an absent catalog uses the fallback choices. The `fast` alias is checked as `priority`.
+
 Profile turns use `metadata.service_tier`. `PATCH /coddy/sessions/{id}` accepts `selectedServiceTier`; an empty string clears the override. Settings snapshots carry `selectedServiceTier`, effective `serviceTier` and `serviceTierChoices`. `/v1/models` includes `service_tiers` and `service_tier_default`. The saved assistant message distinguishes `requested_service_tier` from the provider-reported `actual_service_tier`; an absent provider report is not invented.
 
 Direct Responses replies expose `requested_service_tier`, `actual_service_tier`, and the standard `service_tier` field for the actual tier. Unknown actual tiers are omitted. Streaming tier fallback emits `response.service_tier_notice` with a message before the Standard attempt; terminal events carry the separate requested and actual values, including incomplete answers.
+
+An upstream Responses answer stopped by `content_filter` keeps its partial text and stop reason in both streaming and blocking calls.
 
 A first direct request to a Codex model without explicit `reasoning_levels` waits up to three seconds for its capability catalog before validating the effort. The request context can cancel this wait. Only that provider is queried; explicit lists, including `[]`, remain authoritative and require no discovery. A prior `GET /v1/models` is not required. If the catalog is unavailable within the bound, validation uses the available fallback capabilities.

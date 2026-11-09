@@ -39,7 +39,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 		"instructions": map[string]any{"type": "string", "nullable": true},
 		"metadata":     metadata,
 		"tools":        array(ref("OpenAIResponsesFunctionTool")), "tool_choice": enum("auto", "none"),
-		"service_tier":      map[string]any{"type": "string", "description": "Direct request tier, overriding the model default; default requests Standard."},
+		"service_tier":      map[string]any{"type": "string", "description": "Direct request tier, overriding the model default; default requests Standard. Codex tiers follow the cached catalog, as session settings do; an empty catalog allows only Standard."},
 		"max_output_tokens": map[string]any{"type": "integer", "minimum": 1, "nullable": true},
 		"temperature":       map[string]any{"type": "number", "minimum": 0, "maximum": 2, "nullable": true},
 		"top_p":             map[string]any{"type": "number", "minimum": 0, "maximum": 1, "nullable": true},

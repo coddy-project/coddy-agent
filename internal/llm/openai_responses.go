@@ -47,6 +47,8 @@ func (p *openAIResponsesProvider) Complete(ctx context.Context, m []Message, t [
 	out.StopReason = codexStopReason(out.ToolCalls)
 	if response.Status == "incomplete" && response.IncompleteDetails.Reason == "max_output_tokens" {
 		out.StopReason = "max_tokens"
+	} else if response.Status == "incomplete" && response.IncompleteDetails.Reason == "content_filter" {
+		out.StopReason = "content_filter"
 	} else if response.Status != "completed" {
 		return out, fmt.Errorf("openai responses: response status %s", response.Status)
 	}
