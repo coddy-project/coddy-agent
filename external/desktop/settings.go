@@ -17,6 +17,15 @@ import (
 // Settings are the switches of the menu in the bar.
 type Settings = shell.Settings
 
+// trayControl is what the settings store needs from this machine's tray. The
+// visibility read keeps a saved preference from hiding the window when the
+// icon could not be published or its session bus has already gone away.
+type trayControl interface {
+	Show() error
+	Hide()
+	Visible() bool
+}
+
 // settingsFile is where they are kept, under the agent home: these outlive a
 // document, and the browser scopes its own storage to the origin, which
 // carries the port and therefore moves.
@@ -36,7 +45,7 @@ type SettingsStore struct {
 	// Both are attached by the launcher once the window exists, so a switch
 	// thrown before then is still remembered and applied when it does.
 	win  *WindowHandle
-	tray *trayIcon
+	tray trayControl
 	// quit ends the run, for the row of the tray's menu that says so.
 	quit func()
 	// changed is told whenever a switch moved, so the menu that did not move
@@ -147,13 +156,26 @@ func (s *SettingsStore) write(v Settings) error {
 }
 
 // bind gives the store the window and the tray of this run.
-func (s *SettingsStore) bind(win *WindowHandle, tray *trayIcon) {
+func (s *SettingsStore) bind(win *WindowHandle, tray trayControl) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	s.win, s.tray = win, tray
 	s.mu.Unlock()
+}
+
+// canCloseToTray reports whether a close request has somewhere visible to
+// leave the application. A preference alone is not enough: without the icon
+// the minimised window would have no way back.
+func (s *SettingsStore) canCloseToTray() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	tray, enabled := s.tray, s.cur.Tray
+	s.mu.Unlock()
+	return enabled && tray != nil && tray.Visible()
 }
 
 // bindQuit gives the store the way to end this run, for the tray's last row.
@@ -197,10 +219,10 @@ func (s *SettingsStore) PickMenu(id string) error {
 	case shell.MenuHideWindow:
 		return win.Minimise()
 	case shell.MenuQuit:
-		// Closing the window is what ends the run, the same path as its own
-		// close button, so nothing of the session is lost. A window that
-		// cannot be asked - or is not there at all - leaves the run to be
-		// ended directly.
+		// Quit is a real close even when the shell's close button minimises
+		// to the tray, so nothing of the session is lost. A window that cannot
+		// be asked - or is not there at all - leaves the run to be ended
+		// directly.
 		if err := win.Close(); err == nil {
 			return nil
 		}

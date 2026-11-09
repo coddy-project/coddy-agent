@@ -81,7 +81,7 @@ type Options struct {
 }
 
 // Run serves Coddy on this machine's desktop port and opens a window on it,
-// returning when that window closes.
+// returning when the desktop run ends.
 //
 // A desktop already serving on the remembered port is handed the window
 // instead: the second launch starts nothing of its own, which is what the
@@ -100,9 +100,9 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Handle != nil {
 		opts.Handle.AttachSettings(settings)
 	}
-	// The run ends when the window closes, and Quit in the tray's menu is the
-	// other way to end it: a window that cannot be closed - minimised into the
-	// tray on a session nothing can be asked of - still has to let go.
+	// A real window close ends the run, and Quit in the tray's menu is the
+	// other way to end it: a window minimised into the tray still has to let
+	// go. The shell's close button may instead minimise when the tray is shown.
 	runCtx, endRun := context.WithCancel(ctx)
 	defer endRun()
 	settings.bindQuit(endRun)

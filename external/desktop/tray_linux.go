@@ -206,6 +206,18 @@ func (t *trayIcon) Hide() {
 	t.conn = nil
 }
 
+// Visible reports whether this run still owns the published tray connection.
+// A close request reads it before minimising, so a vanished tray never leaves
+// a hidden window with no icon to bring it back.
+func (t *trayIcon) Visible() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.conn != nil
+}
+
 // sniObject is the item's methods: what a host calls when somebody clicks the
 // icon. A click brings the window back, which is what a tray icon is for; the
 // menu is drawn by the host itself off the object the Menu property names, so

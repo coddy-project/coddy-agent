@@ -134,6 +134,20 @@ func (w *MenuWindow) Closed() int {
 // the settings store the window a switch and a menu row act on.
 func (s *SettingsStore) BindWindow(h *WindowHandle) { s.bind(h, nil) }
 
+// TrayPresence is a tray the close scenarios can make visible without a
+// session bus. It satisfies the store's small tray interface.
+type TrayPresence struct{ visible bool }
+
+func NewTrayPresence(visible bool) *TrayPresence { return &TrayPresence{visible: visible} }
+func (t *TrayPresence) Show() error              { t.visible = true; return nil }
+func (t *TrayPresence) Hide()                    { t.visible = false }
+func (t *TrayPresence) Visible() bool            { return t.visible }
+
+// BindWindowAndTray gives the settings store both sides of a close request.
+func (s *SettingsStore) BindWindowAndTray(h *WindowHandle, tray *TrayPresence) {
+	s.bind(h, tray)
+}
+
 // ShellWindow is a window the shell's own routes can be driven against: it can
 // be asked, and it writes down what it was asked for rather than touching a
 // display or starting a browser.

@@ -840,7 +840,7 @@
     if (index < 0) return;
     tabs.splice(index, 1);
     // The window keeps a tab: closing the last chat would leave a blank frame
-    // with no way back, and closing the window is what ends the application.
+    // with no way back. Closing a tab never closes the window around it.
     if (!tabs.length) tabs.push({ uid: uid(), session: null });
     if (activeUid === tabUid) {
       activeUid = tabs[Math.min(index, tabs.length - 1)].uid;

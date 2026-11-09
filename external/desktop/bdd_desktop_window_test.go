@@ -135,14 +135,15 @@ type windowState struct {
 
 	// The window the shell's own routes are driven against, and what the last
 	// request to each of them answered.
-	shellWindow    *desktop.ShellWindow
-	shellServer    *httptest.Server
-	lastOpenStatus int
-	lastMoveStatus int
-	lastAsked      string
-	opensSeen      int
-	lastTabStatus  int
-	tabsSeen       int
+	shellWindow     *desktop.ShellWindow
+	shellServer     *httptest.Server
+	lastOpenStatus  int
+	lastMoveStatus  int
+	lastCloseStatus int
+	lastAsked       string
+	opensSeen       int
+	lastTabStatus   int
+	tabsSeen        int
 	// menuFolders are the workspaces the launcher is given for the rows of
 	// this user's application entry.
 	menuFolders []string
@@ -216,6 +217,7 @@ func (s *windowState) stop() {
 	s.shellWindow = nil
 	s.lastOpenStatus = 0
 	s.lastMoveStatus = 0
+	s.lastCloseStatus = 0
 	s.lastAsked = ""
 	s.opensSeen = 0
 	s.lastTabStatus = 0
@@ -414,6 +416,60 @@ func (s *windowState) windowClosed() error {
 func (s *windowState) windowOnTheTabShell() error {
 	s.shellWindow = desktop.NewShellWindow()
 	s.shellServer = httptest.NewServer(shell.Handler(s.shellWindow))
+	return nil
+}
+
+// shellWithTray binds the real close path to a recording window and a tray
+// whose visibility the scenario chooses, without needing a session bus.
+func (s *windowState) shellWithTray(visible bool) error {
+	s.menuWindow = desktop.NewMenuWindow()
+	handle := desktop.NewWindowHandle()
+	handle.Attach(s.menuWindow)
+	s.menuSettings = desktop.LoadSettings(s.home, nil)
+	s.menuSettings.BindWindowAndTray(handle, desktop.NewTrayPresence(visible))
+	handle.AttachSettings(s.menuSettings)
+	if visible {
+		if err := s.menuSettings.SetSettings(desktop.Settings{Tray: true}); err != nil {
+			return err
+		}
+	}
+	s.shellServer = httptest.NewServer(shell.Handler(handle))
+	return nil
+}
+
+func (s *windowState) desktopWindowWithAVisibleTray() error { return s.shellWithTray(true) }
+func (s *windowState) desktopWindowWithoutATray() error     { return s.shellWithTray(false) }
+
+func (s *windowState) closeFromTheShell() error {
+	code, err := s.askTheWindow("window", map[string]string{"action": "close"})
+	if err != nil {
+		return err
+	}
+	s.lastCloseStatus = code
+	if code != http.StatusNoContent {
+		return fmt.Errorf("closing the window answered %d", code)
+	}
+	return nil
+}
+
+func (s *windowState) windowMinimised() error {
+	if s.menuWindow.Hidden() != 1 {
+		return fmt.Errorf("the window was minimised %d times", s.menuWindow.Hidden())
+	}
+	return nil
+}
+
+func (s *windowState) windowNotClosed() error {
+	if s.menuWindow.Closed() != 0 {
+		return fmt.Errorf("the window was closed %d times", s.menuWindow.Closed())
+	}
+	return nil
+}
+
+func (s *windowState) windowNotMinimised() error {
+	if s.menuWindow.Hidden() != 0 {
+		return fmt.Errorf("the window was minimised %d times", s.menuWindow.Hidden())
+	}
 	return nil
 }
 
@@ -1089,6 +1145,13 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^the window is brought back$`, st.windowBroughtBack)
 			sc.Step(`^the window is put away$`, st.windowPutAway)
 			sc.Step(`^the window is closed$`, st.windowClosed)
+			sc.Step(`^a desktop window with a visible tray icon$`, st.desktopWindowWithAVisibleTray)
+			sc.Step(`^a desktop window without a tray icon$`, st.desktopWindowWithoutATray)
+			sc.Step(`^the operator closes the window from the shell$`, st.closeFromTheShell)
+			sc.Step(`^the window is minimised$`, st.windowMinimised)
+			sc.Step(`^the window is not closed$`, st.windowNotClosed)
+			sc.Step(`^the window is closed once$`, st.windowClosed)
+			sc.Step(`^the window is not minimised$`, st.windowNotMinimised)
 
 			sc.Step(`^a window on the tab shell$`, st.windowOnTheTabShell)
 			sc.Step(`^a chat asks the window to open "([^"]*)"$`, st.chatAsksToOpen)
