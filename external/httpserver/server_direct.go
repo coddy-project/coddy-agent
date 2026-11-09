@@ -227,10 +227,18 @@ func (s *Server) contextWindowFor(cfg *config.Config, modelRef string) int {
 	return tokens
 }
 
-// directCapabilityConfig overlays just the requested model's cached capabilities.
-func (s *Server) directCapabilityConfig(_ context.Context, cfg *config.Config, model string) *config.Config {
+// directCapabilityConfig warms only the Codex capability catalog before validation.
+// Explicit reasoning lists need no discovery; other providers keep their existing
+// admission path and must not receive unrelated model-list requests here.
+func (s *Server) directCapabilityConfig(ctx context.Context, cfg *config.Config, model string) *config.Config {
 	if cfg == nil || s.mgr == nil {
 		return cfg
+	}
+	configured := cfg.FindModelEntry(model)
+	if configured != nil && configured.ReasoningLevels == nil && ctx.Err() == nil {
+		if provider := cfg.FindProvider(configured.ProviderName()); provider != nil && provider.Type == "codex" {
+			s.mgr.AwaitContextWindows(ctx, cfg, []string{model}, session.ContextWindowWait)
+		}
 	}
 	entry := s.mgr.ReasoningModel(cfg, model)
 	if entry == nil {

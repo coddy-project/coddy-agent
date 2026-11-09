@@ -2589,7 +2589,7 @@ Other provider types hide the selector.
 
 ## Service-tier picker
 
-The composer has a service-tier picker separate from reasoning. It offers Standard, Fast and, for supported API models, Ultra. **Model default** clears the chat override rather than selecting Standard. The choice is persisted with the chat and restored when it is reopened. A manual switch to an incompatible model clears the override and leaves a notice. Per-model defaults are edited in Settings under `service_tier`.
+The composer has a service-tier picker separate from reasoning. It offers Standard, Fast and, for supported API models, Ultra. **Model default** clears the chat override rather than selecting Standard. The choice is persisted with the chat and restored when it is reopened. A manual switch to an incompatible model clears the override and leaves a notice, including before the first message creates a session. Supported choices remain selected. Per-model defaults are edited in Settings under `service_tier`.
 
 ![Service-tier menu](../assets/web-ui/service-tier-menu-dark-1280.png)
 *Service tier is independent of reasoning; Model default clears the chat override.*

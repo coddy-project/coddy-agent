@@ -1732,7 +1732,14 @@ export function App() {
     turnEpoch: providerUsageTurnEpoch,
   });
   const [llmReasoning, setLlmReasoning] = useState("");
-  const [serviceTier, setServiceTier] = useState("");
+  const [serviceTier, setServiceTierState] = useState("");
+  const serviceTierRef = useRef("");
+  const selectedModelRef = useRef(llmModel);
+  selectedModelRef.current = llmModel;
+  const setServiceTier = useCallback((tier: string) => {
+    serviceTierRef.current = tier;
+    setServiceTierState(tier);
+  }, []);
   /**
    * The opened session's own model and reasoning, as its settings snapshot
    * names them, with the levels the snapshot says it may hold. Held until the
@@ -5489,6 +5496,11 @@ export function App() {
     let assistantStreamId = "";
     let postCursor: ComposerStreamCursor | undefined;
     const isNewChatFirstSend = !sessionId.trim();
+    // Capture synchronous picker changes before the first send awaits workspace setup.
+    const sendModel = isNewChatFirstSend ? selectedModelRef.current : llmModel;
+    const sendServiceTier = isNewChatFirstSend
+      ? serviceTierRef.current
+      : serviceTier;
     setStartNotice("");
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
@@ -5852,7 +5864,7 @@ export function App() {
           (f): f is { name: string; data_url: string } => f !== null,
         );
       }
-      const yamlSel = llmModel.trim();
+      const yamlSel = sendModel.trim();
       const reasoningSel = llmReasoning.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
       // The version of the settings snapshot these selectors mirror: when a
@@ -5875,7 +5887,7 @@ export function App() {
       meta.lang = locale;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
-      if (serviceTier) meta.service_tier = serviceTier;
+      if (sendServiceTier) meta.service_tier = sendServiceTier;
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
       // A toolset picked on the start screen goes with the messages of the
@@ -6771,15 +6783,32 @@ export function App() {
       if (!mid) {
         return;
       }
+      selectedModelRef.current = mid;
       setLlmModel(mid);
       writeLlmModelCookie(mid);
       const sid = sessionId.trim();
+      if (!sid) {
+        const selected = serviceTierRef.current;
+        const choices =
+          modelInfos.find((row) => row.id === mid)?.serviceTiers ?? [];
+        if (selected && !choices.includes(selected)) {
+          setServiceTier("");
+          setStartNotice(t("composer.serviceTierReset"));
+        }
+      }
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
       void patchSessionSettings(sid, { selectedModelId: mid });
     },
-    [sessionId, llmModelIds, patchSessionSettings],
+    [
+      sessionId,
+      llmModelIds,
+      modelInfos,
+      patchSessionSettings,
+      setServiceTier,
+      t,
+    ],
   );
 
   const contextPct = useMemo(
