@@ -292,6 +292,8 @@ import { isFilesHotkey } from "./files/filesHotkey";
 import {
   readLastWorkspaceDir,
   readWorktreePref,
+  publishWorkspaceToDesktop,
+  takeDesktopWorkspaceDir,
   writeLastWorkspaceDir,
   writeWorktreePref,
 } from "./chat/workspaceCookies";
@@ -592,6 +594,7 @@ export function App() {
   const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
   const setPendingWorkspace = useCallback(
     (next: { path?: string; branch?: string; worktree?: boolean } | null) => {
+      publishWorkspaceToDesktop(next?.path ?? "");
       pendingWorkspaceRef.current = next;
       setPendingWorkspacePath(next?.path ?? "");
     },
@@ -2303,7 +2306,9 @@ export function App() {
       return;
     }
     // The start screen opens on the folder last picked in this browser.
-    const remembered = sessionId ? "" : readLastWorkspaceDir();
+    const remembered = sessionId
+      ? ""
+      : takeDesktopWorkspaceDir() || readLastWorkspaceDir();
     if (remembered) {
       setPendingWorkspace({ path: remembered });
       void refreshHomeWorkspace();

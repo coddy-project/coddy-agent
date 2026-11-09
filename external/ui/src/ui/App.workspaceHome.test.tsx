@@ -65,6 +65,13 @@ vi.mock("./chat/ChatScreen", () => ({
       </button>
       <button
         type="button"
+        data-testid="pick-invalid-folder"
+        onClick={() => props.onWorkspacePickFolder?.("/projects/gone")}
+      >
+        pick invalid
+      </button>
+      <button
+        type="button"
         data-testid="pick-remote-branch"
         onClick={() => props.onWorkspacePickBranch?.("feat/fresh", false)}
       >
@@ -217,6 +224,44 @@ function mountApp() {
 }
 
 const state = () => screen.getByTestId("workspace-state");
+
+test("a desktop new-chat handoff wins over the shared last-picked folder once", async () => {
+  writeLastWorkspaceDir(PICKED);
+  history.replaceState(null, "", "/?desktop_workspace=%2Fprojects%2Fdesktop#/");
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe("home:/projects/desktop"),
+  );
+  expect(window.location.search).toBe("");
+  expect(readLastWorkspaceDir()).toBe(PICKED);
+});
+
+test("an invalid draft folder clears its desktop handoff", async () => {
+  history.replaceState(null, "", "/?desktop_workspace=%2Fprojects%2Fdesktop#/");
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe("home:/projects/desktop"),
+  );
+  fireEvent.click(screen.getByTestId("pick-invalid-folder"));
+  await waitFor(() => expect(window.location.search).toBe(""));
+});
+
+test("a draft tells the desktop shell which folder it picked", async () => {
+  history.replaceState(null, "", "/#/");
+  const posted = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe("home:/projects/default"),
+  );
+  fireEvent.click(screen.getByTestId("pick-folder"));
+  await waitFor(() =>
+    expect(state().textContent).toBe("home:/projects/picked"),
+  );
+  expect(posted).toHaveBeenCalledWith(
+    { channel: "coddy.desktop", type: "workspace", path: "/projects/picked" },
+    window.location.origin,
+  );
+});
 
 // The start screen opens on the folder last picked in this browser, not on the
 // folder of the chat just left: what a new chat keeps is the operator's pick.

@@ -408,6 +408,159 @@ async function main() {
   await page.waitForSelector("#strip .tab .dot.is-idle", { timeout: 60000 });
   ok("and it goes back to the finished mark when the turn ends");
 
+  console.log("middle clicks open Coddy routes in tabs of this window");
+  const firstSessionID = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("coddy.desktop.tabs.v1"))[0].session,
+  );
+  const browserPages = context.pages().length;
+  const activeHash = () =>
+    page.evaluate(() => {
+      const frame = [...document.querySelectorAll(".frames iframe")].find(
+        (f) => !f.hidden,
+      );
+      return frame ? frame.contentWindow.location.hash : null;
+    });
+  const closeSecondTab = async () => {
+    await page.locator("#strip .tab").nth(1).locator(".close").click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("#strip .tab").length === 1,
+    );
+  };
+  const expectMiddleClickTab = async (testID, hash) => {
+    await first
+      .locator(`[data-testid='${testID}']`)
+      .click({ button: "middle" });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#strip .tab").length === 2,
+    );
+    await page.waitForFunction((want) => {
+      const frame = [...document.querySelectorAll(".frames iframe")].find(
+        (f) => !f.hidden,
+      );
+      return frame && frame.contentWindow.location.hash === want;
+    }, hash);
+    expect(
+      context.pages().length === browserPages,
+      `${testID} opened no browser window`,
+    );
+    expect((await activeHash()) === hash, `${testID} opened ${hash} in a tab`);
+    await closeSecondTab();
+  };
+
+  await first.locator("[data-testid='nav-history']").click();
+  await first.locator(`[data-testid='session-row-${firstSessionID}'] a`).click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction((sessionID) => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === `#/s/${sessionID}`;
+  }, firstSessionID);
+  expect(
+    (await activeHash()) === `#/s/${firstSessionID}`,
+    "a History row opened its session in a new tab",
+  );
+  expect(
+    context.pages().length === browserPages,
+    "the History row opened no browser window",
+  );
+  await closeSecondTab();
+  await first.locator("body").press("Escape");
+
+  const workspaceCookieBefore = await page.evaluate(() =>
+    document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("coddy_workspace_dir=")),
+  );
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction(() => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === "#/";
+  });
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[1];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, workspace);
+  expect(
+    context.pages().length === browserPages,
+    "nav-new-chat opened no browser window",
+  );
+  expect((await activeHash()) === "#/", "nav-new-chat opened #/ in a tab");
+  expect(
+    (await page.evaluate(() =>
+      document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("coddy_workspace_dir=")),
+    )) === workspaceCookieBefore,
+    "inheriting a folder did not change the shared last-picked cookie",
+  );
+  await closeSecondTab();
+  for (const [testID, hash] of [
+    ["nav-history", "#/history"],
+    ["nav-scheduler", "#/scheduler"],
+    ["nav-docs", "#/docs"],
+    ["nav-settings", "#/settings"],
+  ]) {
+    await expectMiddleClickTab(testID, hash);
+  }
+  await first
+    .locator("[data-testid='nav-settings']")
+    .click({ modifiers: ["Control"] });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction(() => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === "#/settings";
+  });
+  await closeSecondTab();
+  ok("Ctrl+click opens the same routes in tabs too");
+
+  console.log("a delayed folder answer does not steal the current tab");
+  let releaseWorkspace;
+  const workspaceDelayed = new Promise((resolve) => {
+    releaseWorkspace = resolve;
+  });
+  await page.route("**/coddy/workspace/context", async (route) => {
+    await workspaceDelayed;
+    await route.continue();
+  });
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.locator("#strip .tab").first().click();
+  releaseWorkspace();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".frames iframe").length === 2,
+  );
+  expect(
+    (await page
+      .locator("#strip .tab")
+      .first()
+      .getAttribute("aria-selected")) === "true",
+    "the delayed answer left the operator on the tab they picked",
+  );
+  await page.unroute("**/coddy/workspace/context");
+  await closeSecondTab();
+
   console.log("a second tab opens beside it and both stay loaded");
   await page.click("#new-tab");
   await page.waitForFunction(
@@ -427,6 +580,67 @@ async function main() {
     await page.locator(".frames iframe").first().isHidden(),
     "the tab behind is hidden, not removed",
   );
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[1];
+    return (
+      frame?.contentDocument
+        .querySelector("[data-testid='composer-workspace-chip']")
+        ?.getAttribute("title") === folder
+    );
+  }, workspace);
+  await page
+    .frameLocator(".frames iframe")
+    .nth(1)
+    .locator("[data-testid='nav-new-chat']")
+    .click({ button: "middle" });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 3,
+  );
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, workspace);
+  await page.locator("#strip .tab").nth(2).locator(".close").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  ok("a new chat from an empty tab keeps its picked folder");
+  const namedDraftWorkspace = path.join(workspace, "named-draft");
+  fs.mkdirSync(namedDraftWorkspace, { recursive: true });
+  await page.locator("#strip .tab").first().click();
+  await first.locator("body").evaluate((_, folder) => {
+    history.replaceState(
+      null,
+      "",
+      `/?desktop_workspace=${encodeURIComponent(folder)}#/draft/draft_test`,
+    );
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  }, namedDraftWorkspace);
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[0];
+    return (
+      frame?.contentWindow.location.hash === "#/draft/draft_test" &&
+      frame.contentDocument
+        .querySelector("[data-testid='composer-workspace-chip']")
+        ?.getAttribute("title") === folder
+    );
+  }, namedDraftWorkspace);
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, namedDraftWorkspace);
+  await page.locator("#strip .tab").nth(2).locator(".close").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  ok("a named draft does not inherit the previous session's folder");
   console.log("a look chosen in one tab reaches the others");
   // What the SPA itself does when a theme is picked (ui/theme/uiTheme.ts): the
   // name on <html> and the colour scheme beside it. Everything else is CSS.
@@ -439,7 +653,7 @@ async function main() {
   await page.waitForFunction(
     () => {
       const second = document.querySelectorAll(".frames iframe")[1];
-      return second.contentDocument.documentElement.dataset.theme === "nord";
+      return second?.contentDocument?.documentElement?.dataset.theme === "nord";
     },
     null,
     { timeout: 10000 },
@@ -451,6 +665,9 @@ async function main() {
   await page.waitForFunction(
     () => {
       const [a, b] = document.querySelectorAll(".frames iframe");
+      if (!a?.contentDocument?.documentElement || !b?.contentDocument) {
+        return false;
+      }
       const read = (f) =>
         f.contentWindow
           .getComputedStyle(f.contentDocument.documentElement)
@@ -707,6 +924,14 @@ async function main() {
   await page.waitForFunction(
     () => document.querySelectorAll("#strip .tab").length === 2,
   );
+  await page
+    .frameLocator(".frames iframe")
+    .nth(1)
+    .locator("[data-testid='nav-settings']")
+    .click({ button: "middle" });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 3,
+  );
   await stopDesktop(desktop);
   desktop = startDesktop();
   const second = await rememberedPort();
@@ -717,9 +942,21 @@ async function main() {
   await waitForShell(second);
   await page.goto(shellURL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#strip .tab");
+  await page.waitForFunction(() => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame?.contentWindow.location.hash === "#/settings";
+  });
   expect(
-    (await page.locator("#strip .tab").count()) === 2,
-    "both tabs came back after the restart",
+    (await page.locator("#strip .tab").count()) === 3,
+    "all three tabs came back after the restart",
+  );
+  expect(
+    (await page
+      .frameLocator(".frames iframe")
+      .nth(2)
+      .locator("body")
+      .evaluate(() => location.hash)) === "#/settings",
+    "the route of a tab came back after the restart",
   );
 
   if (!KEEP) {

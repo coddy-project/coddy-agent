@@ -105,6 +105,12 @@ its port would take the window down with it.
 | Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
 | Walk a long row | the two arrows beside the window's own buttons, which appear once the tabs are wider than the bar |
 
+A middle click on **New chat**, a conversation in **History**, or a rail item such as **Settings**,
+**Scheduler**, **Docs** or **Swarm** opens that route in a new tab of this window instead of another
+browser window. `Ctrl`+click and `Cmd`+click do the same. A new chat opened this way starts in the
+folder of the chat you were reading; before a chat has started, it uses the folder picked on the
+start screen. The route of every tab is restored after a restart, including an open rail screen.
+
 The chords work while you are typing in a chat, and some of them take a detour to get there. A
 browser window in application mode answers `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R` and `Ctrl`+`Tab`
 itself - with a new browser window, by closing the application, by reloading the whole strip and by
