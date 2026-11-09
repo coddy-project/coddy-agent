@@ -28,4 +28,6 @@ func (t *trayIcon) Show() error {
 
 func (t *trayIcon) Hide() {}
 
+func (t *trayIcon) Visible() bool { return false }
+
 func (t *trayIcon) menuChanged() {}

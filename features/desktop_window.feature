@@ -2,9 +2,10 @@ Feature: Opening Coddy as a desktop window
   `coddy desktop` runs the HTTP surface on a loopback port this machine
   remembers and opens a window on the tab shell. The port is remembered rather
   than taken fresh each time because the origin includes it, and the shell
-  keeps its tabs where the browser keeps them per origin. Closing the window
-  ends the run; starting the app again while a window is open returns to that
-  window instead of serving a second time.
+  keeps its tabs where the browser keeps them per origin. The strip's close
+  button ends the run unless a visible tray keeps it alive; starting the app
+  again while a window is open returns to that window instead of serving a
+  second time.
 
   Scenario: The window opens on a port the desktop writes down
     Given a machine where Coddy has never opened a desktop window
@@ -63,6 +64,18 @@ Feature: Opening Coddy as a desktop window
     Then the strip is told to open a chat
     When the operator picks "Quit Coddy" from the tray
     Then the window is closed
+
+  Scenario: Closing the shell minimises to a visible tray
+    Given a desktop window with a visible tray icon
+    When the operator closes the window from the shell
+    Then the window is minimised
+    And the window is not closed
+
+  Scenario: Closing the shell without a tray ends the window
+    Given a desktop window without a tray icon
+    When the operator closes the window from the shell
+    Then the window is closed once
+    And the window is not minimised
 
   Scenario: A link out of Coddy opens in this machine's own browser
     Given a window on the tab shell

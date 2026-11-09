@@ -85,6 +85,19 @@ func (h *WindowHandle) SetSettings(next Settings) error {
 	return s.SetSettings(next)
 }
 
+// RequestClose is what the shell's close button means. A visible tray gives
+// the window somewhere to stay; without one the request remains a real close,
+// so a saved preference cannot strand a hidden process.
+func (h *WindowHandle) RequestClose() error {
+	h.mu.Lock()
+	settings := h.settings
+	h.mu.Unlock()
+	if settings != nil {
+		return settings.requestClose(h)
+	}
+	return h.Close()
+}
+
 // NextChord waits for the next thing the strip is told.
 //
 // The page asks the moment it is drawn, which is before the browser has

@@ -461,7 +461,13 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 	case "maximise":
 		err = ctl.ToggleMaximise()
 	case "close":
-		err = ctl.Close()
+		// The launcher can give closing a different meaning when a tray is
+		// present. Other window controls keep their ordinary close behavior.
+		if requester, ok := ctl.(interface{ RequestClose() error }); ok {
+			err = requester.RequestClose()
+		} else {
+			err = ctl.Close()
+		}
 	case "move-begin":
 		if err = ctl.BeginMove(body.X, body.Y); err == nil {
 			drag.begin()
