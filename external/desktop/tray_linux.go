@@ -215,7 +215,7 @@ func (t *trayIcon) Visible() bool {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.conn != nil
+	return t.conn != nil && t.conn.Connected()
 }
 
 // sniObject is the item's methods: what a host calls when somebody clicks the

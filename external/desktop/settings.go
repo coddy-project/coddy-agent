@@ -51,6 +51,10 @@ type SettingsStore struct {
 	// changed is told whenever a switch moved, so the menu that did not move
 	// it is redrawn: the tray icon's, or the one in the bar, through the page.
 	changed []func()
+	// windowOps serialises operations whose order matters across the store,
+	// the tray and the window: close-to-tray, and restoring before the icon
+	// is taken away. State locks are never held across those calls.
+	windowOps sync.Mutex
 }
 
 // LoadSettings reads the switches of this home, answering the defaults when
@@ -178,6 +182,18 @@ func (s *SettingsStore) canCloseToTray() bool {
 	return enabled && tray != nil && tray.Visible()
 }
 
+// requestClose keeps the visibility decision and the minimise together. If
+// the tray is being switched off at the same time, its restore operation runs
+// either before this decision or after the window is already minimised.
+func (s *SettingsStore) requestClose(win *WindowHandle) error {
+	s.windowOps.Lock()
+	defer s.windowOps.Unlock()
+	if s.canCloseToTray() {
+		return win.Minimise()
+	}
+	return win.Close()
+}
+
 // bindQuit gives the store the way to end this run, for the tray's last row.
 func (s *SettingsStore) bindQuit(quit func()) {
 	if s == nil {
@@ -264,14 +280,24 @@ func (s *SettingsStore) applyFrame(framed bool) error {
 }
 
 func (s *SettingsStore) applyTray(show bool) error {
+	s.windowOps.Lock()
+	defer s.windowOps.Unlock()
 	s.mu.Lock()
-	tray := s.tray
+	tray, win := s.tray, s.win
 	s.mu.Unlock()
 	if tray == nil {
 		return errors.New("desktop: this machine has no system tray this window can reach")
 	}
 	if show {
 		return tray.Show()
+	}
+	// The tray menu can switch its own icon off while the window is
+	// minimised. Bring that window back first, or the icon going away would
+	// take the normal restore path with it.
+	if win != nil && win.Supported() {
+		if err := win.Activate(); err != nil {
+			return err
+		}
 	}
 	tray.Hide()
 	return nil

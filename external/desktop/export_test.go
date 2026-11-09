@@ -79,6 +79,7 @@ type MenuWindow struct {
 	activated int
 	minimised int
 	closed    int
+	events    []string
 }
 
 func NewMenuWindow() *MenuWindow { return &MenuWindow{queue: newChordQueue()} }
@@ -91,13 +92,29 @@ func (w *MenuWindow) activate() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.activated++
+	w.events = append(w.events, "activate")
 	return nil
+}
+
+// RecordEvent lets a tray double share the window's operation journal.
+func (w *MenuWindow) RecordEvent(event string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.events = append(w.events, event)
+}
+
+// Events returns the window and tray operations in their actual order.
+func (w *MenuWindow) Events() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.events...)
 }
 
 func (w *MenuWindow) Minimise() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.minimised++
+	w.events = append(w.events, "minimise")
 	return nil
 }
 
@@ -120,6 +137,7 @@ func (w *MenuWindow) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.closed++
+	w.events = append(w.events, "close")
 	return nil
 }
 
@@ -138,13 +156,16 @@ func (s *SettingsStore) BindWindow(h *WindowHandle) { s.bind(h, nil) }
 // session bus. It satisfies the store's small tray interface.
 type TrayPresence struct{ visible bool }
 
+// TrayControl lets a blocking test double drive the same store boundary.
+type TrayControl = trayControl
+
 func NewTrayPresence(visible bool) *TrayPresence { return &TrayPresence{visible: visible} }
 func (t *TrayPresence) Show() error              { t.visible = true; return nil }
 func (t *TrayPresence) Hide()                    { t.visible = false }
 func (t *TrayPresence) Visible() bool            { return t.visible }
 
 // BindWindowAndTray gives the settings store both sides of a close request.
-func (s *SettingsStore) BindWindowAndTray(h *WindowHandle, tray *TrayPresence) {
+func (s *SettingsStore) BindWindowAndTray(h *WindowHandle, tray TrayControl) {
 	s.bind(h, tray)
 }
 

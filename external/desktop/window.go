@@ -92,8 +92,8 @@ func (h *WindowHandle) RequestClose() error {
 	h.mu.Lock()
 	settings := h.settings
 	h.mu.Unlock()
-	if settings != nil && settings.canCloseToTray() {
-		return h.Minimise()
+	if settings != nil {
+		return settings.requestClose(h)
 	}
 	return h.Close()
 }

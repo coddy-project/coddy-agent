@@ -134,7 +134,13 @@ Ahead of the name each tab carries the state of its chat, the same mark the Hist
 | A hollow ring | the chat is finished |
 
 The window keeps a tab: closing the last one opens an empty chat instead of leaving the window
-blank. Closing the window is what ends the application, and the surface behind it stops with it.
+blank. The strip's close button minimises the window when **Show the tray icon** is enabled and
+the icon is present: the application and the surface behind it keep running, and clicking the icon
+or picking **Show the window** brings the window back. With the tray off, or when the icon could
+not be shown, the same button closes the application and stops the surface. **Quit Coddy** in the
+tray's menu always ends the application, whichever state the switch is in. Turning **Show the tray
+icon** off from the tray's own menu restores a minimised window before removing the icon, so the
+restore path is not lost with it.
 
 Each tab is a full instance of the web interface, so memory grows with the number of tabs about as
 it would with that many browser tabs. The event streams do not multiply: every instance of one
