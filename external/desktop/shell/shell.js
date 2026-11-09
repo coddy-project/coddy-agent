@@ -54,7 +54,7 @@
   const scrollLeft = document.getElementById("scroll-left");
   const scrollRight = document.getElementById("scroll-right");
 
-  /** @type {{uid: string, session: string|null}[]} */
+  /** @type {{uid: string, session: string|null, route: string, workspace: string, workspacePending?: boolean, workspaceSource?: string, workspaceSourceUid?: string}[]} */
   let tabs = [];
   let activeUid = null;
   /** @type {Map<string, HTMLIFrameElement>} */
@@ -267,12 +267,26 @@
           .map((t) => ({
             uid: typeof t.uid === "string" && t.uid ? t.uid : uid(),
             session: typeof t.session === "string" ? t.session : null,
+            route:
+              typeof t.route === "string" && t.route.startsWith("#/")
+                ? t.route
+                : "",
+            workspace: typeof t.workspace === "string" ? t.workspace : "",
+            workspacePending: t.workspacePending === true,
+            workspaceSource:
+              typeof t.workspaceSource === "string" ? t.workspaceSource : "",
+            workspaceSourceUid:
+              typeof t.workspaceSourceUid === "string"
+                ? t.workspaceSourceUid
+                : "",
           }));
       }
     } catch {
       tabs = [];
     }
-    if (!tabs.length) tabs = [{ uid: uid(), session: null }];
+    if (!tabs.length) {
+      tabs = [{ uid: uid(), session: null, route: "#/", workspace: "" }];
+    }
     activeUid = tabs[0].uid;
   }
 
@@ -458,21 +472,24 @@
   // no back button and no way out but closing the tab. It is handed to the
   // desktop's own opener instead, which is where a person expects a link to
   // go. Coddy's own addresses are not links out and stay in the window.
+  function linkAt(e) {
+    // Not `e.target instanceof Element`: the target belongs to the frame's
+    // document and this script runs in the strip's, and every document has
+    // constructors of its own, so the check is false for every element of
+    // every chat. What is asked instead is whether the node can answer the
+    // question.
+    const target = e.target;
+    return target && typeof target.closest === "function"
+      ? target.closest("a[href]")
+      : null;
+  }
+
   function watchLinks(doc) {
     doc.addEventListener(
       "click",
       (e) => {
-        if (e.defaultPrevented || e.button !== 0 || e.metaKey) return;
-        // Not `e.target instanceof Element`: the target belongs to the
-        // frame's document and this script runs in the strip's, and every
-        // document has constructors of its own, so the check is false for
-        // every element of every chat. What is asked instead is whether the
-        // node can answer the question.
-        const target = e.target;
-        const anchor =
-          target && typeof target.closest === "function"
-            ? target.closest("a[href]")
-            : null;
+        if (e.defaultPrevented || e.button !== 0) return;
+        const anchor = linkAt(e);
         if (!anchor) return;
         let url;
         try {
@@ -481,12 +498,45 @@
           return;
         }
         if (url.protocol !== "http:" && url.protocol !== "https:") return;
-        if (url.origin === location.origin) return;
+        if (url.origin === location.origin) {
+          if (e.ctrlKey || e.metaKey) openRouteTab(e, anchor, url);
+          return;
+        }
+        if (e.metaKey) return;
         e.preventDefault();
         openOutside(url.href);
       },
       true,
     );
+    // In Chromium's application mode the default for a middle click is a new
+    // browser window. Coddy has its own tab strip, so an in-app route belongs
+    // there instead. Stopping the default also keeps that window from opening.
+    doc.addEventListener(
+      "auxclick",
+      (e) => {
+        if (e.defaultPrevented || e.button !== 1) return;
+        const anchor = linkAt(e);
+        if (!anchor) return;
+        let url;
+        try {
+          url = new URL(anchor.getAttribute("href") || "", doc.baseURI);
+        } catch {
+          return;
+        }
+        if (url.origin === location.origin) openRouteTab(e, anchor, url);
+      },
+      true,
+    );
+  }
+
+  function openRouteTab(e, anchor, url) {
+    if (url.pathname !== "/" || !url.hash.startsWith("#/")) return;
+    e.preventDefault();
+    if (anchor.matches('[data-testid="nav-new-chat"]')) {
+      void openNewChatTab(url.hash);
+    } else {
+      openTab("", url.hash);
+    }
   }
 
   async function openOutside(url) {
@@ -504,10 +554,27 @@
 
   // --- frames -------------------------------------------------------------
 
-  const addressOf = (tab) => (tab.session ? "/#/s/" + tab.session : "/");
+  const addressOf = (tab) =>
+    "/" +
+    (tab.workspace
+      ? "?desktop_workspace=" + encodeURIComponent(tab.workspace)
+      : "") +
+    (tab.route || (tab.session ? "#/s/" + tab.session : "#/"));
+
+  function routeOfFrame(frame) {
+    try {
+      const location = frame.contentWindow.location;
+      if (location.href === "about:blank") return null;
+      const hash = location.hash || "";
+      return hash.startsWith("#/") ? hash : "#/";
+    } catch {
+      return null;
+    }
+  }
 
   function ensureFrame(tab) {
     let frame = frameOf.get(tab.uid);
+    if (tab.workspacePending) return frame || null;
     if (frame) return frame;
     frame = document.createElement("iframe");
     frame.src = addressOf(tab);
@@ -533,7 +600,14 @@
       const hash = frame.contentWindow.location.hash || "";
       const m = hash.match(/^#\/s\/([A-Za-z0-9_-]+)/);
       if (m) return m[1];
-      if (hash === "" || hash === "#" || hash === "#/") return "";
+      if (
+        hash === "" ||
+        hash === "#" ||
+        hash === "#/" ||
+        hash.startsWith("#/draft/")
+      ) {
+        return "";
+      }
       return null;
     } catch {
       return null;
@@ -554,6 +628,11 @@
     for (const tab of tabs) {
       const frame = frameOf.get(tab.uid);
       if (!frame) continue;
+      const route = routeOfFrame(frame);
+      if (route !== null && route !== (tab.route || "#/")) {
+        tab.route = route;
+        moved = true;
+      }
       const session = sessionOfFrame(frame);
       if (session === null || session === (tab.session || "")) continue;
       tab.session = session;
@@ -695,6 +774,7 @@
   function renderFrames() {
     tabs.forEach((tab) => {
       const frame = ensureFrame(tab);
+      if (!frame) return;
       frame.hidden = tab.uid !== activeUid;
     });
     for (const [tabUid, frame] of frameOf) {
@@ -776,13 +856,127 @@
     activate(tabs[next].uid);
   }
 
-  function openTab(cwd) {
-    if (cwd) rememberWorkspace(cwd);
-    const tab = { uid: uid(), session: null };
+  function openTab(
+    cwd,
+    route = "#/",
+    workspacePending = false,
+    workspaceSource = "",
+    workspaceSourceUid = "",
+  ) {
+    // An inherited folder belongs to the new tab. It is not a new pick and
+    // must not overwrite the shared last-picked cookie.
+    if (cwd && !workspacePending) rememberWorkspace(cwd);
+    const match = route.match(/^#\/s\/([A-Za-z0-9_-]+)/);
+    const tab = {
+      uid: uid(),
+      session: match ? match[1] : null,
+      route,
+      workspace: cwd,
+      workspacePending,
+      workspaceSource,
+      workspaceSourceUid,
+    };
     tabs.push(tab);
     activeUid = tab.uid;
     save();
     render();
+    return tab;
+  }
+
+  function openNewChatTab(route) {
+    const source = tabs.find((t) => t.uid === activeUid);
+    const sourceFrame = source && frameOf.get(source.uid);
+    const liveRoute = sourceFrame ? routeOfFrame(sourceFrame) : null;
+    const liveSession = sourceFrame ? sessionOfFrame(sourceFrame) : null;
+    const sourceSession =
+      liveSession ||
+      (liveRoute !== "#/" && !liveRoute?.startsWith("#/draft/")
+        ? source?.session || ""
+        : "");
+    const fallback =
+      workspaceInSourceFrame(source) ||
+      (source && source.workspace) ||
+      rememberedWorkspace();
+    // Reserve the tab in gesture order. The folder request must not activate
+    // it again after the operator has moved on, nor reorder two quick clicks.
+    const tab = openTab(fallback, route, true, sourceSession, source?.uid || "");
+    resolveWorkspace(tab);
+  }
+
+  function workspaceInSourceFrame(tab) {
+    const frame = tab && frameOf.get(tab.uid);
+    if (!frame) return "";
+    try {
+      const handed =
+        new URL(frame.contentWindow.location.href).searchParams.get(
+          "desktop_workspace",
+        ) || "";
+      if (handed) return handed;
+      const chip = frame.contentDocument.querySelector(
+        '[data-testid="composer-workspace-chip"]',
+      );
+      return chip?.getAttribute("title") || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function resolveWorkspace(tab) {
+    void workspaceOf(tab).then((cwd) => {
+      if (!tabs.includes(tab)) return;
+      tab.workspace = cwd || tab.workspace;
+      tab.workspacePending = false;
+      save();
+      render();
+    });
+  }
+
+  async function workspaceOf(tab) {
+    const session = tab.workspaceSource || "";
+    if (!session) return "";
+    const source = tabs.find((t) => t.uid === tab.workspaceSourceUid);
+    if (tab.workspaceSourceUid && !source) return "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const sourceFetch = await workspaceFetch(source, controller.signal);
+      const res = await sourceFetch("/coddy/workspace/context", {
+        credentials: "same-origin",
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "X-Coddy-Session-ID": session,
+        },
+      });
+      if (res.ok) {
+        const body = await res.json();
+        if (body && typeof body.path === "string") return body.path;
+      }
+    } catch {
+      /* the source tab's folder, or the last picked one, is the fallback */
+    } finally {
+      clearTimeout(timeout);
+    }
+    return "";
+  }
+
+  async function workspaceFetch(source, signal) {
+    for (;;) {
+      const win = source && frameOf.get(source.uid)?.contentWindow;
+      if (win?.__coddyFetchShimmed) return win.fetch.bind(win);
+      if (!source || signal.aborted) return fetch;
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 50);
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+    }
   }
 
   // Where the next new chat starts, for a tab asked for with a folder: a row
@@ -797,19 +991,27 @@
   // rather than quietly opening chats in the wrong folder.
   const WORKSPACE_COOKIE = "coddy_workspace_dir";
 
-  function rememberWorkspace(cwd) {
-    let dirs = {};
+  function workspaceDirs() {
     const raw = readCookie(WORKSPACE_COOKIE);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          dirs = parsed;
-        }
-      } catch {
-        /* an unreadable cookie is replaced by this one */
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
       }
+    } catch {
+      /* an unreadable cookie is replaced by the next pick */
     }
+    return {};
+  }
+
+  function rememberedWorkspace() {
+    const cwd = workspaceDirs().local;
+    return typeof cwd === "string" ? cwd : "";
+  }
+
+  function rememberWorkspace(cwd) {
+    const dirs = workspaceDirs();
     dirs.local = cwd;
     const year = 365 * 24 * 60 * 60;
     document.cookie =
@@ -841,7 +1043,9 @@
     tabs.splice(index, 1);
     // The window keeps a tab: closing the last chat would leave a blank frame
     // with no way back. Closing a tab never closes the window around it.
-    if (!tabs.length) tabs.push({ uid: uid(), session: null });
+    if (!tabs.length) {
+      tabs.push({ uid: uid(), session: null, route: "#/", workspace: "" });
+    }
     if (activeUid === tabUid) {
       activeUid = tabs[Math.min(index, tabs.length - 1)].uid;
     }
@@ -1201,6 +1405,9 @@
   applyThemeFallback();
   load();
   render();
+  for (const tab of tabs) {
+    if (tab.workspacePending) resolveWorkspace(tab);
+  }
   refreshSessions();
   readWindowSupport();
   readSettings();
@@ -1230,8 +1437,26 @@
   // A click that lands in another application, or in a chat that takes the
   // focus with it, closes the menu as well.
   window.addEventListener("blur", closeMenu);
+  window.addEventListener("message", (e) => {
+    if (e.origin !== location.origin) return;
+    const data = e.data;
+    if (
+      !data ||
+      data.channel !== "coddy.desktop" ||
+      data.type !== "workspace" ||
+      typeof data.path !== "string"
+    ) {
+      return;
+    }
+    const tab = tabs.find(
+      (t) => frameOf.get(t.uid)?.contentWindow === e.source,
+    );
+    if (!tab || tab.session) return;
+    tab.workspace = data.path;
+    save();
+  });
 
-  newTabButton.addEventListener("click", openTab);
+  newTabButton.addEventListener("click", () => openTab());
   scrollLeft.addEventListener("click", () => scrollStrip(-1));
   scrollRight.addEventListener("click", () => scrollStrip(1));
   strip.addEventListener("scroll", syncScrollButtons, { passive: true });

@@ -6,6 +6,9 @@ Feature: Opening Coddy as a desktop window
   button ends the run unless a visible tray keeps it alive; starting the app
   again while a window is open returns to that window instead of serving a
   second time.
+  A middle click on a chat in History, on New chat or on a rail screen opens
+  that route in another tab of the same window. A new chat starts in the
+  folder of the chat the operator was reading.
 
   Scenario: The window opens on a port the desktop writes down
     Given a machine where Coddy has never opened a desktop window
