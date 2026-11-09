@@ -18,6 +18,7 @@ import (
 // responsesDirectRequest is the Responses create shape a configured model
 // answers: the supported subset plus the coddy extensions the profile shares.
 type responsesDirectRequest struct {
+	ServiceTier string                         `json:"service_tier,omitempty"`
 	Model       string                         `json:"model"`
 	Input       json.RawMessage                `json:"input"`
 	Stream      bool                           `json:"stream"`
@@ -44,7 +45,7 @@ var responsesAllowedFields = map[string]bool{
 	"attachments": true, "inline_files": true,
 	"instructions": true, "tools": true, "tool_choice": true,
 	"max_output_tokens": true, "temperature": true, "top_p": true,
-	"reasoning": true, "store": true,
+	"reasoning": true, "store": true, "service_tier": true,
 }
 
 // validateResponsesDirectFields walks the raw request object and refuses every
@@ -495,6 +496,7 @@ func responsesGenerationOptions(cfg *config.Config, model string, req *responses
 		effort = &level
 	}
 	chat := chatCompletionRequest{
+		ServiceTier:         req.ServiceTier,
 		MaxCompletionTokens: req.MaxOutputTokens,
 		Temperature:         req.Temperature,
 		ReasoningEffort:     effort,

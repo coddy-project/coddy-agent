@@ -17,6 +17,8 @@ const DefaultContextWindowTokens = 128000
 // and api_model_id is sent to the LLM API (may contain additional slashes).
 type ModelEntry struct {
 	Model        string             `yaml:"model"`
+	Protocol     string             `yaml:"protocol,omitempty"`
+	ServiceTier  string             `yaml:"service_tier,omitempty"`
 	KimiMetadata *KimiModelMetadata `yaml:"kimi_metadata,omitempty"`
 	MaxTokens    int                `yaml:"max_tokens"`
 	Temperature  float64            `yaml:"temperature"`
@@ -81,11 +83,18 @@ func SplitModelRef(model string) (providerName, apiModel string, err error) {
 // Normalize trims string fields in place.
 func (m *ModelEntry) Normalize() {
 	m.Model = strings.TrimSpace(m.Model)
+	m.Protocol = strings.TrimSpace(m.Protocol)
 	m.Toolset = strings.TrimSpace(m.Toolset)
 }
 
 // Validate checks a single model entry after Normalize (provider existence checked separately).
 func (m *ModelEntry) Validate() error {
+	if m.Protocol != "" && m.Protocol != "chat" && m.Protocol != "responses" {
+		return fmt.Errorf("models[%s]: protocol must be chat or responses", m.Model)
+	}
+	if !ValidServiceTier(m.ServiceTier) {
+		return fmt.Errorf("models[%s]: invalid service_tier %q", m.Model, m.ServiceTier)
+	}
 	_, _, err := SplitModelRef(m.Model)
 	return err
 }

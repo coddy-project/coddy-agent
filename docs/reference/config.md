@@ -84,6 +84,8 @@ Named model entries the agent and UI can select.
 |-----|------|---------|-------------|
 | `models` | list of objects |  | Named model entries the agent and UI can select. |
 | `models[].model` | string |  | "provider_name/api_model_id": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes). |
+| `models[].service_tier` | string, one of `""`, `default`, `auto`, `priority`, `fast`, `ultrafast`, `flex` |  | Default service tier. Empty preserves provider behavior; default requests Standard. An explicit chat selection takes precedence. |
+| `models[].protocol` | string, one of `""`, `chat`, `responses` |  | OpenAI-compatible protocol. Omit for model detection; chat forces Chat Completions and responses forces Responses. |
 | `models[].kimi_metadata` | object or null |  | Kimi catalog protocol bound to this model reference, provider mode and region. |
 | `models[].kimi_metadata.model` | string |  | Full provider/model reference listed in the catalog. |
 | `models[].kimi_metadata.protocol` | string, one of `kimi`, `anthropic`, `openai_responses` |  | Protocol reported for this model. |

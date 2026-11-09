@@ -419,6 +419,7 @@ type ModelInfo = {
   multimodal?: boolean;
   reasoningLevels?: string[];
   reasoningDefault?: string;
+  serviceTiers?: string[];
   /** The toolsets[] preset the model names (models[].toolset). */
   toolset?: string;
 };
@@ -1731,6 +1732,7 @@ export function App() {
     turnEpoch: providerUsageTurnEpoch,
   });
   const [llmReasoning, setLlmReasoning] = useState("");
+  const [serviceTier, setServiceTier] = useState("");
   /**
    * The opened session's own model and reasoning, as its settings snapshot
    * names them, with the levels the snapshot says it may hold. Held until the
@@ -3134,6 +3136,7 @@ export function App() {
           multimodal?: boolean;
           reasoning_levels?: string[];
           reasoning_default?: string;
+          service_tiers?: string[];
           toolset?: string;
         }>;
       }>("/v1/models");
@@ -3152,6 +3155,7 @@ export function App() {
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
           reasoningDefault: (d.reasoning_default || "").trim(),
+          serviceTiers: d.service_tiers ?? [],
           toolset: (d.toolset || "").trim(),
         }))
         .filter((d) => d.id);
@@ -3162,6 +3166,7 @@ export function App() {
           multimodal: d.multimodal,
           reasoningLevels: d.reasoningLevels,
           reasoningDefault: d.reasoningDefault,
+          serviceTiers: d.serviceTiers,
         };
         if (d.maxContextTokens !== undefined) {
           m.maxContextTokens = d.maxContextTokens;
@@ -3535,8 +3540,15 @@ export function App() {
   // Handlers are read through a ref so the subscription below can mount once: it must
   // survive re-renders, and the callbacks it needs are redefined on every one of them.
   serverEventHandlersRef.current = {
-    sessionSettings: (event: SessionSettingsEvent) =>
-      applySessionSettings(event.settings),
+    sessionSettings: (event: SessionSettingsEvent) => {
+      applySessionSettings(event.settings);
+      if (
+        event.notice &&
+        event.sessionId === viewedSessionIdRef.current.trim()
+      ) {
+        void loadMessages(event.sessionId, { freshLoad: true });
+      }
+    },
     // A goal set in a console, paused in another tab or checked by the
     // supervisor shows here too, not only in the tab reading the turn.
     sessionGoal: (update: SessionGoalUpdate) => applySessionGoal(update),
@@ -4397,6 +4409,7 @@ export function App() {
    * creates the session with whatever the selectors show.
    */
   function resetNewChatSettings() {
+    setServiceTier("");
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -5862,6 +5875,7 @@ export function App() {
       meta.lang = locale;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
+      if (serviceTier) meta.service_tier = serviceTier;
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
       // A toolset picked on the start screen goes with the messages of the
@@ -6530,6 +6544,7 @@ export function App() {
       return;
     }
     settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setServiceTier(snap.selectedServiceTier ?? "");
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
@@ -8362,6 +8377,19 @@ export function App() {
                   llmModels: llmModelIds,
                   llmModel,
                   onLlmModelChange,
+                  serviceTierControl: {
+                    value: serviceTier,
+                    choices:
+                      modelInfos.find((row) => row.id === llmModel)
+                        ?.serviceTiers ?? [],
+                    onChange: (tier: string) => {
+                      setServiceTier(tier);
+                      if (sessionId.trim())
+                        void patchSessionSettings(sessionId.trim(), {
+                          selectedServiceTier: tier,
+                        });
+                    },
+                  },
                   llmModelMultimodal,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0

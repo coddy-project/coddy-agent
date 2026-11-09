@@ -411,6 +411,8 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 			ContextWindow int    `json:"context_window"`
 			Catalog       *struct {
 				ContextWindow int  `json:"context_window"`
+				InputLimit    int  `json:"input_limit"`
+				OutputLimit   int  `json:"output_limit"`
 				MaxTokens     int  `json:"max_tokens"`
 				Multimodal    bool `json:"multimodal"`
 			} `json:"catalog"`
@@ -427,7 +429,7 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
 		if m.Catalog != nil {
-			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal}
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal, InputLimit: m.Catalog.InputLimit, OutputLimit: m.Catalog.OutputLimit}
 		}
 	}
 	return nil

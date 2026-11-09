@@ -299,6 +299,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
+	window = a.inputBudgetFor(chain[0].modelID, window)
 	// The summaries already written are what the new one continues: the
 	// summarizer reads them so it does not repeat them, and never retells them.
 	// They are reference only and take at most half of a pass: the chain is
@@ -646,7 +647,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 			used = measured
 		}
 	}
-	if used*100 < comp.EffectiveThresholdPercent()*window {
+	if used < min(comp.EffectiveThresholdPercent()*window/100, a.inputBudgetFor(a.state.EffectiveModelID(a.cfg), window)) {
 		return false
 	}
 	res, err := a.CompactSession(ctx, CompactOptions{})
@@ -760,7 +761,7 @@ func (a *Agent) compactionChain(override, reasoning string) ([]compactionCandida
 			in := a.llmProviderInput(rm)
 			// The level asked for goes to every model of the chain that
 			// offers it; a fallback that does not runs at its own.
-			if reasoning != "" && offersReasoning(a.cfg, modelID, reasoning) {
+			if reasoning != "" && containsString(reasoningChoices(a.cfg, a.state, modelID), reasoning) {
 				in.ReasoningEffort = reasoning
 			}
 			var provider llm.Provider
@@ -951,22 +952,22 @@ func CompactionReasoning(cfg *config.Config, st SessionState, override, level st
 	if model == "" && st != nil {
 		model = st.EffectiveModelID(cfg)
 	}
-	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))
+	choices := reasoningChoices(cfg, st, model)
 	if len(choices) == 0 {
 		return "", fmt.Errorf("model %q offers no reasoning levels", model)
 	}
-	if !offersReasoning(cfg, model, level) {
+	if !containsString(choices, level) {
 		return "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, model, strings.Join(choices, ", "))
 	}
 	return level, nil
 }
 
-// offersReasoning reports whether model offers level.
-func offersReasoning(cfg *config.Config, model, level string) bool {
-	for _, c := range cfg.ReasoningChoicesFor(cfg.FindModelEntry(model)) {
-		if c == level {
-			return true
-		}
+// reasoningChoices uses the session's cached provider capabilities when present.
+func reasoningChoices(cfg *config.Config, st SessionState, model string) []string {
+	if state, ok := st.(interface {
+		ReasoningChoices(*config.Config, string) []string
+	}); ok {
+		return state.ReasoningChoices(cfg, model)
 	}
-	return false
+	return cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))
 }

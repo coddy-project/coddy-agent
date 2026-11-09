@@ -67,7 +67,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeClientToolError(w, err)
 		return
 	}
-	opts, err := responsesGenerationOptions(cfg, req.Model, &req)
+	opts, err := responsesGenerationOptions(s.directCapabilityConfig(r.Context(), cfg, req.Model), req.Model, &req)
 	if err != nil {
 		writeOpenAIValidationError(w, err.Error(), responsesOptionParam(err))
 		return
@@ -113,6 +113,13 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 	ctx, cancel := context.WithCancel(r.Context())
 	st.SetCancel(cancel)
 	defer cancel()
+	var tierStream *responsesStream
+	opts.ServiceTierNotice = func(text string) {
+		if tierStream != nil {
+			tierStream.event("response.service_tier_notice", map[string]any{"message": text, "requested_service_tier": req.ServiceTier, "service_tier": "default"})
+		}
+		st.AppendUILogNotice(session.CountUserTurns(st.GetMessages()), text)
+	}
 	provider, err := s.directYAMLProvider(ctx, st, req.Model, opts)
 	if err != nil {
 		writeErrorReply(w, err)
@@ -122,6 +129,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 	if req.Stream {
 		writeSSEHeaders(w)
 		stream := newResponsesStream(w, cancel)
+		tierStream = stream
 		stream.event("response.created", map[string]any{"response": responsesObject(id, req.Model, createdAt, "in_progress", []any{}, nil, &req, nil, nil)})
 		stream.event("response.in_progress", map[string]any{"response": responsesObject(id, req.Model, createdAt, "in_progress", []any{}, nil, &req, nil, nil)})
 		stop := stream.keepalive(ctx)
@@ -142,7 +150,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 			errorObject = replyForError(callErr).body["error"]
 			s.log.Error("responses stream", "error", callErr)
 		}
-		stream.event("response."+status, map[string]any{"response": responsesObject(id, req.Model, createdAt, status, output, responsesUsage(response), &req, errorObject, incomplete)})
+		stream.event("response."+status, map[string]any{"response": responsesTierFields(responsesObject(id, req.Model, createdAt, status, output, responsesUsage(response), &req, errorObject, incomplete), response)})
 		return
 	}
 	response, err := provider.Complete(ctx, messages, tools)
@@ -158,13 +166,13 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 	st.AddMessage(directAssistantMessage(response, req.Model))
 	status, incomplete := responsesStatus(response)
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(responsesObject(id, req.Model, createdAt, status, responsesOutputItems(response), responsesUsage(response), &req, nil, incomplete)); err != nil {
+	if err := json.NewEncoder(w).Encode(responsesTierFields(responsesObject(id, req.Model, createdAt, status, responsesOutputItems(response), responsesUsage(response), &req, nil, incomplete), response)); err != nil {
 		s.log.Debug("write Responses answer", "error", err)
 	}
 }
 
 func responsesOptionParam(err error) string {
-	for _, field := range []string{"temperature", "top_p", "reasoning"} {
+	for _, field := range []string{"service_tier", "temperature", "top_p", "reasoning"} {
 		if strings.Contains(err.Error(), field) {
 			return field
 		}

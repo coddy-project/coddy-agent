@@ -191,6 +191,8 @@
             "description": "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes).",
             "pattern": "^[^/]+/.+$"
           },
+          "service_tier": {"type":"string","enum":["","default","auto","priority","fast","ultrafast","flex"],"description":"Default service tier. Empty preserves provider behavior; default requests Standard. An explicit chat selection takes precedence."},
+          "protocol": {"type":"string","enum":["","chat","responses"],"description":"OpenAI-compatible protocol. Omit for model detection; chat forces Chat Completions and responses forces Responses."},
           "kimi_metadata": {
             "type": ["object", "null"],
             "description": "Kimi catalog protocol bound to this model reference, provider mode and region.",

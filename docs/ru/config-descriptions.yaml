@@ -900,3 +900,11 @@ supervisor.max_chain_sessions:
 providers[].user_agent:
   en: "Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); coddy sends Coddy/<running version>. Applies to completions and model listing. Ignored for other provider types."
   ru: "Имя клиента для провайдеров типов openai и anthropic. Пустое значение (по умолчанию), openai и anthropic сохраняют имя SDK текущего протокола (OpenAI/Go или Anthropic/Go); coddy передаёт Coddy/<running version>. Настройка действует для запросов к модели и списка моделей. Другие типы провайдеров её игнорируют."
+
+models[].protocol:
+  en: "OpenAI-compatible protocol. Omit for model detection; chat forces Chat Completions and responses forces Responses."
+  ru: "Протокол OpenAI-совместимого провайдера. Без ключа определяется по модели; chat выбирает Chat Completions, responses выбирает Responses."
+
+models[].service_tier:
+  en: "Default service tier. Empty preserves provider behavior; default requests Standard. An explicit chat selection takes precedence."
+  ru: "Уровень обслуживания по умолчанию. Пустое значение сохраняет поведение провайдера; default явно выбирает стандартный уровень. Явный выбор чата имеет приоритет."

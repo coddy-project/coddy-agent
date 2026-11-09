@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /** One model entry as the provider lists it. */
 export interface FetchedModel {
+  reasoning_levels?: string[];
   id: string;
   kimi_protocol?: string;
   kimi_source?: {
@@ -117,6 +118,7 @@ type ModelsResponse = {
   ok?: boolean;
   error?: string;
   models?: {
+    reasoning_levels?: string[];
     id?: string;
     kimi_protocol?: string;
     kimi_image_input?: boolean;
@@ -152,6 +154,11 @@ function normalize(
     }
     seen.add(m.id);
     const item: FetchedModel = { id: m.id };
+    if (
+      Array.isArray(m.reasoning_levels) &&
+      m.reasoning_levels.every((v) => typeof v === "string")
+    )
+      item.reasoning_levels = m.reasoning_levels;
     if (source) {
       item.kimi_source = source;
       if (m.kimi_protocol) item.kimi_protocol = m.kimi_protocol;

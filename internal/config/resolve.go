@@ -15,6 +15,8 @@ type ResolvedLLM struct {
 	Region       string
 	KimiIdentity string
 	Model        string
+	Protocol     string
+	ServiceTier  string
 	KimiMetadata *KimiModelMetadata
 	APIKey       string
 	BaseURL      string
@@ -258,6 +260,8 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Region:       prov.Region,
 		KimiIdentity: prov.KimiIdentity,
 		Model:        entry.APIModel(),
+		Protocol:     entry.Protocol,
+		ServiceTier:  entry.ServiceTier,
 		KimiMetadata: entry.KimiMetadata,
 		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
@@ -361,6 +365,12 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		prov := c.FindProvider(pn)
 		if prov == nil {
 			return fmt.Errorf("models[%s]: unknown provider %q", c.Models[i].Model, pn)
+		}
+		if c.Models[i].Protocol != "" && prov.Type != "openai" {
+			return fmt.Errorf("models[%s]: protocol is only supported by openai providers", c.Models[i].Model)
+		}
+		if c.Models[i].ServiceTier != "" && prov.Type != "openai" && prov.Type != "codex" {
+			return fmt.Errorf("models[%s]: service_tier is only supported by openai and codex providers", c.Models[i].Model)
 		}
 		// The Codex backend serves the Responses API over SSE only, so it cannot honor
 		// the documented meaning of stream: false (one blocking request). Refuse the

@@ -444,7 +444,10 @@ type TurnOverride struct {
 // configuration would give back after a restart, and what is changed for the
 // running and the next turns.
 type SessionSettings struct {
-	SessionID string `json:"sessionId"`
+	ServiceTier         string   `json:"serviceTier,omitempty"`
+	SelectedServiceTier string   `json:"selectedServiceTier,omitempty"`
+	ServiceTierChoices  []string `json:"serviceTierChoices,omitempty"`
+	SessionID           string   `json:"sessionId"`
 	// Version orders snapshots of one session that reach a client down more
 	// than one connection; a client keeps the highest it has seen.
 	Version   uint64 `json:"version"`

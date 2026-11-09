@@ -39,6 +39,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 		"instructions": map[string]any{"type": "string", "nullable": true},
 		"metadata":     metadata,
 		"tools":        array(ref("OpenAIResponsesFunctionTool")), "tool_choice": enum("auto", "none"),
+		"service_tier":      map[string]any{"type": "string", "description": "Direct request tier, overriding the model default; default requests Standard."},
 		"max_output_tokens": map[string]any{"type": "integer", "minimum": 1, "nullable": true},
 		"temperature":       map[string]any{"type": "number", "minimum": 0, "maximum": 2, "nullable": true},
 		"top_p":             map[string]any{"type": "number", "minimum": 0, "maximum": 1, "nullable": true},
@@ -64,6 +65,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 	schemas["OpenAIResponsesUsage"] = usage
 	directResponse := map[string]any{"type": "object", "properties": map[string]any{
 		"id": map[string]any{"type": "string", "pattern": "^resp_"}, "object": enum("response"), "created_at": map[string]any{"type": "integer", "format": "int64"},
+		"requested_service_tier": str(), "actual_service_tier": str(), "service_tier": str(),
 		"status": enum("in_progress", "completed", "incomplete", "failed"), "model": str(), "output": array(ref("OpenAIResponsesOutputItem")), "usage": ref("OpenAIResponsesUsage"),
 		"error": map[string]any{"type": "object", "nullable": true, "additionalProperties": true}, "incomplete_details": map[string]any{"type": "object", "nullable": true, "properties": map[string]any{"reason": enum("max_output_tokens")}},
 		"metadata": metadata, "store": map[string]any{"type": "boolean", "enum": []bool{false}}, "background": map[string]any{"type": "boolean", "enum": []bool{false}},
@@ -78,8 +80,8 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 	profileResponse["required"] = []string{"id", "object", "status", "model", "output"}
 	schemas["CoddyResponsesCreateResponse"] = profileResponse
 	schemas["ResponsesCreateResponse"] = union(ref("OpenAIResponsesCreateResponse"), ref("CoddyResponsesCreateResponse"))
-	eventNames := []string{"response.created", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.done", "response.content_part.done", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done", "response.reasoning_summary_part.done", "response.function_call_arguments.delta", "response.function_call_arguments.done", "response.output_item.done", "response.completed", "response.incomplete", "response.failed"}
-	schemas["OpenAIResponsesStreamEvent"] = map[string]any{"type": "object", "properties": map[string]any{"type": enum(eventNames...), "sequence_number": map[string]any{"type": "integer", "minimum": 0}, "response": ref("OpenAIResponsesCreateResponse"), "output_index": map[string]any{"type": "integer"}, "item_id": str(), "item": ref("OpenAIResponsesOutputItem"), "content_index": map[string]any{"type": "integer"}, "summary_index": map[string]any{"type": "integer"}, "delta": str(), "text": str(), "arguments": str(), "name": str(), "part": union(outputPart, summaryPart)}, "required": []string{"type", "sequence_number"}}
+	eventNames := []string{"response.service_tier_notice", "response.created", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.done", "response.content_part.done", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done", "response.reasoning_summary_part.done", "response.function_call_arguments.delta", "response.function_call_arguments.done", "response.output_item.done", "response.completed", "response.incomplete", "response.failed"}
+	schemas["OpenAIResponsesStreamEvent"] = map[string]any{"type": "object", "properties": map[string]any{"type": enum(eventNames...), "sequence_number": map[string]any{"type": "integer", "minimum": 0}, "response": ref("OpenAIResponsesCreateResponse"), "output_index": map[string]any{"type": "integer"}, "item_id": str(), "item": ref("OpenAIResponsesOutputItem"), "content_index": map[string]any{"type": "integer"}, "summary_index": map[string]any{"type": "integer"}, "message": str(), "requested_service_tier": str(), "service_tier": str(), "delta": str(), "text": str(), "arguments": str(), "name": str(), "part": union(outputPart, summaryPart)}, "required": []string{"type", "sequence_number"}}
 	paths := doc["paths"].(map[string]interface{})
 	post := paths["/v1/responses"].(map[string]interface{})["post"].(map[string]interface{})
 	post["description"] = "Configured direct models use the OpenAI Responses subset: string or typed item-array input, client function tools, caller-owned history, typed output and provider usage. They emit response.* SSE, cancel on disconnect and do not store response ids. The remaining session/profile behavior below applies to agent, plan and ask. " + post["description"].(string)

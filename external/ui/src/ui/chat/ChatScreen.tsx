@@ -1,3 +1,4 @@
+import type { ServiceTierControl } from "./ServiceTierPicker";
 import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
@@ -123,6 +124,7 @@ export function ChatScreen(props: {
   llmReasoningLevels?: string[];
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   llmReasoning?: string;
+  serviceTierControl?: ServiceTierControl | undefined;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
   /** The session's permission mode chip and the settings armed for the next
@@ -988,6 +990,7 @@ export function ChatScreen(props: {
                   ? {
                       llmModels: props.llmModels,
                       llmModel: props.llmModel,
+                      serviceTierControl: props.serviceTierControl,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
                       ...(props.llmReasoningLevelsByModel !== undefined
@@ -1239,6 +1242,7 @@ export function ChatScreen(props: {
                     ? {
                         llmModels: props.llmModels,
                         llmModel: props.llmModel,
+                        serviceTierControl: props.serviceTierControl,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
                         ...(props.llmReasoningLevelsByModel !== undefined

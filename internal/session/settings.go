@@ -14,7 +14,8 @@ import (
 // SettingsChange is one change of a session's settings, whichever surface
 // asked for it. A nil field is left alone.
 type SettingsChange struct {
-	Model *string
+	Model       *string
+	ServiceTier *string
 	// Reasoning is a level the model offers, "off" where its provider can
 	// turn thinking off, or "default" (or "") for the model's default level.
 	Reasoning      *string
@@ -46,7 +47,7 @@ const (
 
 // Empty reports whether the change names no setting at all.
 func (c SettingsChange) Empty() bool {
-	return c.Model == nil && c.Reasoning == nil && c.Toolset == nil && c.Mode == nil && c.PermissionMode == nil
+	return c.ServiceTier == nil && c.Model == nil && c.Reasoning == nil && c.Toolset == nil && c.Mode == nil && c.PermissionMode == nil
 }
 
 // ByAgent reports whether the agent made the change itself rather than the
@@ -126,8 +127,11 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 	// What a new session would start in: the mode chosen last (#512).
 	out.ConfiguredPermissionMode = m.DefaultPermissionMode()
 	if cfg != nil {
+		out.ServiceTier, _ = st.ServiceTierFor(cfg, out.Model)
+		out.SelectedServiceTier = st.GetSelectedServiceTier()
+		out.ServiceTierChoices = st.ServiceTiers(cfg, out.Model)
 		out.Reasoning = st.SessionReasoning(cfg)
-		out.ReasoningChoices = cfg.ReasoningChoicesFor(cfg.FindModelEntry(out.Model))
+		out.ReasoningChoices = st.ReasoningChoices(cfg, out.Model)
 		// No presets, no choice: a surface then shows no toolset selector.
 		if names := cfg.ToolsetNames(); len(names) > 0 {
 			out.Toolset = st.SessionToolset(cfg)
@@ -209,7 +213,7 @@ func (m *Manager) ApplySessionSettings(ctx context.Context, sessionID string, ch
 }
 
 // applySessionSettings is ApplySessionSettings returning the notice too.
-func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, string, error) {
+func (m *Manager) applySessionSettings(ctx context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, string, error) {
 	st := m.getSession(strings.TrimSpace(sessionID))
 	if st == nil {
 		return acp.SessionSettings{}, "", fmt.Errorf("session not found: %s", sessionID)
@@ -221,6 +225,9 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 	}
 	if ch.Empty() {
 		return m.settingsSnapshot(sessionID, st), "", nil
+	}
+	if ch.Model != nil {
+		m.AwaitContextWindows(ctx, m.activeCfg(), []string{strings.TrimSpace(*ch.Model)}, ContextWindowWait)
 	}
 	values, err := m.validateSettingsChange(st, ch)
 	if err != nil {
@@ -243,7 +250,7 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 // still answers a prompt of commands only (TakeSettingsCommands), which an
 // editor or a chat has no selector to show.
 func noteSettingsChange(st *State, ch SettingsChange, notice string) string {
-	if !ch.ByAgent() {
+	if !ch.ByAgent() && !strings.Contains(notice, "Service tier reset") {
 		return ""
 	}
 	st.appendSettingsNotice(CountUserTurns(st.GetMessages()), notice, ch.Source)
@@ -271,6 +278,19 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 		out[SettingModel] = v
 		model = v
 	}
+	if ch.ServiceTier != nil {
+		if ch.Turns > 0 {
+			return nil, fmt.Errorf("service tier is a session setting")
+		}
+		v := strings.TrimSpace(*ch.ServiceTier)
+		if model == "" {
+			model = st.SessionModelID(cfg)
+		}
+		if cfg == nil || !config.ValidServiceTier(v) || !st.ServiceTierSupported(cfg, model, v) {
+			return nil, fmt.Errorf("service_tier %q is not supported by model %q", v, model)
+		}
+		out[SettingServiceTier] = v
+	}
 	if ch.Reasoning != nil {
 		v := strings.ToLower(strings.TrimSpace(*ch.Reasoning))
 		if v == "" {
@@ -286,7 +306,7 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 		var choices []string
 		var ent *config.ModelEntry
 		if cfg != nil {
-			ent = cfg.FindModelEntry(model)
+			ent = st.ReasoningModel(cfg, model)
 			choices = cfg.ReasoningChoicesFor(ent)
 		}
 		if len(choices) == 0 {
@@ -351,19 +371,26 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		return settingsNotice(values, names, turnsScope(ch.Turns))
 	}
 	modeChanged := false
+	tierReset := false
 	for _, name := range names {
 		v := values[name]
 		switch name {
 		case SettingModel:
 			st.SetSelectedModelID(v)
+			if !ch.ByAgent() && ch.ServiceTier == nil && cfg != nil && !st.ServiceTierSupported(cfg, v, st.GetSelectedServiceTier()) {
+				st.SetSelectedServiceTier("")
+				tierReset = true
+			}
 			// A level the new model does not offer falls back to its default,
 			// in the snapshot for everyone to see, instead of lingering unused.
 			if _, named := values[SettingReasoning]; !named && cfg != nil {
 				sel := strings.TrimSpace(st.GetSelectedReasoning())
-				if sel != "" && !containsLevel(cfg.ReasoningChoicesFor(cfg.FindModelEntry(v)), sel) {
+				if sel != "" && !containsLevel(st.ReasoningChoices(cfg, v), sel) {
 					st.SetSelectedReasoning("")
 				}
 			}
+		case SettingServiceTier:
+			st.SetSelectedServiceTier(v)
 		case SettingReasoning:
 			if v == config.ReasoningDefault {
 				v = ""
@@ -393,7 +420,11 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		}
 	}
 	m.sendConfigOptionUpdate(sessionID, st)
-	return settingsNotice(values, names, "for this session")
+	notice := settingsNotice(values, names, "for this session")
+	if tierReset {
+		notice += "; Service tier reset: the new model does not support the selection; using the model default."
+	}
+	return notice
 }
 
 // turnsScope names a number of turns the way a notice says it.
@@ -472,7 +503,7 @@ func (s *State) SessionReasoning(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	ent := cfg.FindModelEntry(s.SessionModelID(cfg))
+	ent := s.ReasoningModel(cfg, s.SessionModelID(cfg))
 	if ent == nil {
 		return ""
 	}
@@ -685,7 +716,7 @@ func (m *Manager) ApplyTurnSettings(_ context.Context, sessionID string, ch Sett
 	if model, ok := values[SettingModel]; ok && cfg != nil {
 		if _, named := values[SettingReasoning]; !named {
 			if lv := st.TurnSetting(SettingReasoning); lv != "" && lv != config.ReasoningDefault &&
-				!containsLevel(cfg.ReasoningChoicesFor(cfg.FindModelEntry(model)), lv) {
+				!containsLevel(st.ReasoningChoices(cfg, model), lv) {
 				st.SetTurnSetting(SettingReasoning, "")
 			}
 		}

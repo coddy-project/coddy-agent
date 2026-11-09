@@ -36,7 +36,8 @@ Every reader resolves the window the same way - the trigger, the `usage_update` 
 
 1. the model entry's `max_context_tokens`;
 2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio), `max_input_tokens` (Anthropic), `max_context_tokens` (another Coddy's `GET /v1/models`) or `context_window` (the Codex catalog, where it is the window Codex itself works with, 272000 for every model it serves today; the larger `max_context_window` next to it is only the ceiling Codex lets its own `model_context_window` setting raise that to, and Coddy does not read it). The listing is read for `neuraldeep`, `devin`, `codex` and `anthropic` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, whose listing carries no window. It is read when a turn starts, when the model list is served and when a session switches to the model, with a turn waiting at most three seconds for a listing that has never answered - the step after a switch in the middle of a turn waits the same way before it measures - and it is trusted for an hour; a failed read is retried after five minutes, or at the next read once the row signs in or out from Settings;
-3. 128000.
+3. the embedded model catalog for API providers, keeping total context separate from input and output limits;
+4. 128000.
 
 Set `max_context_tokens` when the provider reports no window, or a larger one than the deployment actually serves (a local server started with a smaller context).
 
@@ -242,3 +243,5 @@ The field table with types and validation is in the [config.yaml reference](../r
   - `examples/httpserver/http_e2e_compact_auto.py` boots its own `coddy serve` with a model that has no `max_context_tokens`, checks that the web UI's window, the stream's `usage_update` and the trigger agree, and that the session compacts without `/compact`;
   - `examples/httpserver/http_e2e_compact_clients.py` plays three clients of one session - the sender, a second tab on the composer stream, an idle viewer on the stats - and checks that all of them read the context usage fall after `/compact`, after `POST .../compact` (announced on `GET /coddy/events`) and after an automatic compaction;
   - `examples/cli/cli_e2e_compact.py` drives the console in a pty and checks that the footer's context percentage falls after `/compact` and stays down on the next turn.
+
+Input budgeting reserves the output cap actually configured for the request, including reasoning tokens. An omitted cap does not reserve the catalog maximum. An explicit context override is not narrowed by generic catalog input metadata. Codex uses its reported working window as the usable budget, without subtracting the API catalog output limit again.

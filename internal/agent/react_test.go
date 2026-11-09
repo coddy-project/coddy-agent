@@ -2030,6 +2030,7 @@ func TestMaybeAutoCompactThresholdBoundary(t *testing.T) {
 			provider := &compactCannedProvider{t: t, summary: "auto summary"}
 			ag := compactTestAgent(t, st, comp, provider)
 			ag.cfg.Models[0].MaxContextTokens = tc.maxContext
+			ag.cfg.Models[0].MaxTokens = 1
 			st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: tc.est})
 
 			got := ag.maybeAutoCompact(context.Background())

@@ -962,6 +962,7 @@
             "x-coddy-property-order": [
               "model",
               "protocol",
+              "service_tier",
               "mode",
               "region"
             ]
@@ -988,6 +989,11 @@
             "title": "Multimodal",
             "type": "boolean"
           },
+          "protocol": {
+            "description": "OpenAI-compatible endpoint: empty for automatic detection, chat or responses.",
+            "title": "Protocol",
+            "type": "string"
+          },
           "reasoning_default": {
             "description": "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
             "title": "Default reasoning level",
@@ -1000,6 +1006,11 @@
             },
             "title": "Reasoning levels",
             "type": "array"
+          },
+          "service_tier": {
+            "description": "Empty follows the provider; default requests Standard, priority Fast, ultrafast Ultra on supported models.",
+            "title": "Service tier",
+            "type": "string"
           },
           "stream": {
             "default": true,
@@ -1025,6 +1036,8 @@
         "type": "object",
         "x-coddy-property-order": [
           "model",
+          "protocol",
+          "service_tier",
           "kimi_metadata",
           "max_tokens",
           "temperature",

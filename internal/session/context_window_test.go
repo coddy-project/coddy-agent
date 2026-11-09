@@ -170,7 +170,7 @@ func TestContextWindowAsksOnlyProvidersThatReportWindows(t *testing.T) {
 	if n := listing.calls.Load(); n != 0 {
 		t.Fatalf("listing read %d times for providers that report no windows, want 0", n)
 	}
-	if tokens, source := m.ContextWindow(cfg, "oai/gpt-4o"); tokens != config.DefaultContextWindowTokens || source != ContextWindowDefault {
+	if tokens, source := m.ContextWindow(cfg, "oai/gpt-4o"); tokens != config.DefaultContextWindowTokens || source != ContextWindowFromCatalog {
 		t.Errorf("oai/gpt-4o: ContextWindow = %d/%q, want the default", tokens, source)
 	}
 
@@ -599,5 +599,22 @@ func TestSwitchingModelReadsItsWindowAtOnce(t *testing.T) {
 	}
 	if tokens, source := m.ContextWindow(cfg, nd); tokens != 131072 || source != ContextWindowFromProvider {
 		t.Fatalf("the model armed for the next turn: %d/%q, want the provider's 131072", tokens, source)
+	}
+}
+
+func TestCatalogContextPrecedence(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{{Name: "api", Type: "openai", APIBase: "https://deployment.example/v1"}}, Models: []config.ModelEntry{{Model: "api/gpt-6-astra"}}}
+	if n, source := resolveContextWindow(cfg, cfg.Models[0].Model, nil); n != 1050000 || source != ContextWindowFromCatalog {
+		t.Fatalf("catalog=%d/%s", n, source)
+	}
+	listing := &windowListing{windows: map[string]int{"gpt-6-astra": 200000}}
+	mgr := newWindowTestManager(t, cfg, listing, nil)
+	mgr.AwaitContextWindows(context.Background(), cfg, []string{cfg.Models[0].Model}, time.Second)
+	if n, source := mgr.ContextWindow(cfg, cfg.Models[0].Model); n != 200000 || source != ContextWindowFromProvider {
+		t.Fatalf("deployment=%d/%s", n, source)
+	}
+	cfg.Models[0].MaxContextTokens = 64000
+	if n, source := mgr.ContextWindow(cfg, cfg.Models[0].Model); n != 64000 || source != ContextWindowFromConfig {
+		t.Fatalf("explicit=%d/%s", n, source)
 	}
 }

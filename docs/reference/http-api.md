@@ -688,3 +688,11 @@ before authentication and whatever credential it carries: a sandboxed page sends
 neither a bearer it read from a file nor a relay's substituted credential may let it drive the
 server. A client that sends `Origin: null` by itself (a `file://` page) is refused the same way; one
 that sends no `Origin` is not affected.
+
+## Service tier
+
+Direct requests to `/v1/chat/completions` and `/v1/responses` accept `service_tier` independently of reasoning. `default` requests Standard explicitly; omission uses the configured model default. The accepted wire names are `default`, `auto`, `priority`, `fast`, `ultrafast` and `flex`; availability depends on the deployment.
+
+Profile turns use `metadata.service_tier`. `PATCH /coddy/sessions/{id}` accepts `selectedServiceTier`; an empty string clears the override. Settings snapshots carry `selectedServiceTier`, effective `serviceTier` and `serviceTierChoices`. `/v1/models` includes `service_tiers` and `service_tier_default`. The saved assistant message distinguishes `requested_service_tier` from the provider-reported `actual_service_tier`; an absent provider report is not invented.
+
+Direct Responses replies expose `requested_service_tier`, `actual_service_tier`, and the standard `service_tier` field for the actual tier. Unknown actual tiers are omitted. Streaming tier fallback emits `response.service_tier_notice` with a message before the Standard attempt; terminal events carry the separate requested and actual values, including incomplete answers.

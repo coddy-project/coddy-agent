@@ -21,7 +21,7 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"openai/gpt-5-mini", []string{"minimal", "low", "medium", "high"}},
 		{"openai/gpt-5.6-terra", []string{"minimal", "low", "medium", "high"}},
 		// The Codex catalog now serves a gpt-6 family; it reasons like gpt-5.
-		{"codex/gpt-6-astra", []string{"minimal", "low", "medium", "high"}},
+		{"codex/gpt-6-astra", []string{"low", "medium", "high", "xhigh", "max"}},
 		{"openai/o3", []string{"low", "medium", "high"}},
 		{"openai/o4-mini", []string{"low", "medium", "high"}},
 		{"openai/o1", []string{"low", "medium", "high"}},
@@ -117,7 +117,7 @@ func TestReasoningLevelsForCodexProvider(t *testing.T) {
 	}{
 		{"codex/gpt-5.5", []string{"none", "low", "medium", "high"}, "codex"},
 		{"openai/gpt-5", []string{"minimal", "low", "medium", "high"}, "openai"},
-		{"codex/gpt-5.4", []string{"none", "high"}, "codex"},
+		{"codex/gpt-5.4", []string{"minimal", "high"}, "codex"},
 	}
 	for _, c := range cases {
 		ent := cfg.FindModelEntry(c.model)
@@ -130,8 +130,8 @@ func TestReasoningLevelsForCodexProvider(t *testing.T) {
 	}
 	// An explicit "minimal" default follows the same remap, so it stays selectable.
 	ent := cfg.FindModelEntry("codex/gpt-5.4")
-	if got := cfg.DefaultReasoningLevelFor(ent); got != "none" {
-		t.Errorf("codex default = %q, want none", got)
+	if got := cfg.DefaultReasoningLevelFor(ent); got != "minimal" {
+		t.Errorf("codex default = %q, want minimal", got)
 	}
 	openaiEnt := cfg.FindModelEntry("openai/gpt-5")
 	if got := cfg.ReasoningLevelsFor(openaiEnt); got[0] != config.ReasoningMinimal {
@@ -183,7 +183,7 @@ func TestReasoningLevelsForProviderType(t *testing.T) {
 		{"codex remaps minimal", config.ModelEntry{Model: "any/gpt-5.5"}, "codex", []string{"none", "low", "medium", "high"}},
 		{"openai keeps minimal", config.ModelEntry{Model: "any/gpt-5.5"}, "openai", []string{"minimal", "low", "medium", "high"}},
 		{"empty type keeps minimal", config.ModelEntry{Model: "any/gpt-5.5"}, "", []string{"minimal", "low", "medium", "high"}},
-		{"codex explicit override remaps too", config.ModelEntry{Model: "any/gpt-5.4", ReasoningLevels: &[]string{"minimal", "high"}}, "codex", []string{"none", "high"}},
+		{"codex explicit override remaps too", config.ModelEntry{Model: "any/gpt-5.4", ReasoningLevels: &[]string{"minimal", "high"}}, "codex", []string{"minimal", "high"}},
 		{"codex non-reasoning stays empty", config.ModelEntry{Model: "any/gpt-4o"}, "codex", nil},
 		{"explicit opt-out stays empty", config.ModelEntry{Model: "any/gpt-5", ReasoningLevels: &[]string{}}, "codex", nil},
 	}

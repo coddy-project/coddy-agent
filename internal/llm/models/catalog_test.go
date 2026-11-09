@@ -42,23 +42,23 @@ func TestCompact(t *testing.T) {
 		"{",
 		// The vendor's numbers win over a gateway's; the answer keeps to the
 		// fifth of a shared window above the compaction threshold.
-		`"claude-sonnet-4-5":[200000,40000,1],`,
+		`"claude-sonnet-4-5":[200000,40000,1,0,64000],`,
 		// A model with an input budget: the window is that budget and the
 		// answer has its whole output limit.
-		`"gpt-5":[272000,128000,0],`,
+		`"gpt-5":[400000,128000,0,272000,128000],`,
 		// An input limit as large as the window is no budget of its own: the
 		// answer shares the window and keeps to its fifth.
-		`"input-is-window":[8192,1638,0],`,
+		`"input-is-window":[8192,1638,0,8192,26214],`,
 		// Only gateways: the pair with the smallest window, and whether it
 		// reads images from that same entry.
-		`"kimi-k2":[128000,16384,1],`,
+		`"kimi-k2":[128000,16384,1,0,16384],`,
 		// No output limit: no max_tokens to offer.
-		`"no-output":[32000,0,0],`,
+		`"no-output":[32000,0,0,0,0],`,
 		// The smaller window wins with its own max_tokens: never the window
 		// of one provider and the max_tokens of another.
-		`"split":[8192,0,0],`,
+		`"split":[8192,0,0,0,0],`,
 		// One window: the smaller max_tokens.
-		`"tie":[64000,4000,0]`,
+		`"tie":[64000,4000,0,0,4000]`,
 		// gemini-2.5-pro is left out: Coddy has no Google provider.
 		"}",
 		"",

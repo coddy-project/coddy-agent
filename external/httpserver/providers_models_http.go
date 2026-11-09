@@ -236,6 +236,8 @@ type providerModel struct {
 
 type catalogLimits struct {
 	ContextWindow int  `json:"context_window"`
+	InputLimit    int  `json:"input_limit,omitempty"`
+	OutputLimit   int  `json:"output_limit,omitempty"`
 	MaxTokens     int  `json:"max_tokens,omitempty"`
 	Multimodal    bool `json:"multimodal,omitempty"`
 }
@@ -245,7 +247,7 @@ func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
 	for i, m := range listed {
 		out[i].ModelEntry = m
 		if limits, ok := models.Lookup(m.ID); ok && (m.ContextWindow == 0 || m.ContextWindow == limits.ContextWindow) {
-			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens, Multimodal: limits.Multimodal}
+			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens, Multimodal: limits.Multimodal, InputLimit: limits.InputLimit, OutputLimit: limits.OutputLimit}
 		}
 	}
 	return out

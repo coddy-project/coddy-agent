@@ -92,15 +92,7 @@ func (a *Agent) contextWindow() (tokens int, source string) {
 	if cw, ok := a.state.(contextWindowState); ok {
 		return cw.ContextWindow(a.cfg)
 	}
-	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	switch {
-	case ent == nil:
-		return 0, ""
-	case ent.MaxContextTokens > 0:
-		return ent.MaxContextTokens, session.ContextWindowFromConfig
-	default:
-		return config.DefaultContextWindowTokens, session.ContextWindowDefault
-	}
+	return session.ResolveContextWindow(a.cfg, a.state.EffectiveModelID(a.cfg))
 }
 
 // contextWindowFor is the window of an arbitrary configured model, resolved the
@@ -113,15 +105,7 @@ func (a *Agent) contextWindowFor(modelRef string) (tokens int, source string) {
 	if cw, ok := a.state.(contextWindowState); ok {
 		return cw.ContextWindowFor(a.cfg, modelRef)
 	}
-	ent := a.cfg.FindModelEntry(modelRef)
-	switch {
-	case ent == nil:
-		return 0, ""
-	case ent.MaxContextTokens > 0:
-		return ent.MaxContextTokens, session.ContextWindowFromConfig
-	default:
-		return config.DefaultContextWindowTokens, session.ContextWindowDefault
-	}
+	return session.ResolveContextWindow(a.cfg, modelRef)
 }
 
 // refreshConversationContextUsage keeps the non-conversation categories from

@@ -48,7 +48,7 @@ func validateChatParameters(raw json.RawMessage, profile bool) (llm.RequestOptio
 					}
 				}
 			}
-		case "max_tokens", "max_completion_tokens", "temperature", "reasoning_effort", "tools", "tool_choice", "top_p":
+		case "service_tier", "max_tokens", "max_completion_tokens", "temperature", "reasoning_effort", "tools", "tool_choice", "top_p":
 			if profile {
 				return opts, unsupportedChatParameter(key)
 			}

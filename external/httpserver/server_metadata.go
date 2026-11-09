@@ -91,6 +91,17 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 		}
 		model = id
 	}
+	if v, ok := m["service_tier"]; ok {
+		var tier string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &tier); err != nil {
+				return err
+			}
+		}
+		if tier != st.GetSelectedServiceTier() {
+			ch.ServiceTier = &tier
+		}
+	}
 	// Reasoning is resolved after any model change so it validates against the new model.
 	if v, ok := m["reasoning"]; ok {
 		level := ""
@@ -100,7 +111,7 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 			}
 		}
 		level = strings.TrimSpace(level)
-		if level != "" && (cfg == nil || !reasoningLevelOffered(cfg, cfg.FindModelEntry(model), level)) {
+		if level != "" && (cfg == nil || !reasoningLevelOffered(cfg, st.ReasoningModel(cfg, model), level)) {
 			return ErrUnknownReasoningLevel
 		}
 		if level != strings.TrimSpace(st.GetSelectedReasoning()) {
@@ -133,7 +144,7 @@ func applySessionReasoning(cfg *config.Config, st *session.State, level string) 
 	if level == "" {
 		return nil
 	}
-	if cfg == nil || !reasoningLevelOffered(cfg, cfg.FindModelEntry(st.SessionModelID(cfg)), level) {
+	if cfg == nil || !reasoningLevelOffered(cfg, st.ReasoningModel(cfg, st.SessionModelID(cfg)), level) {
 		return ErrUnknownReasoningLevel
 	}
 	return nil
