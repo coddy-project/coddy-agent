@@ -17,7 +17,6 @@ Coddy - агент общего назначения в одном статич�
 - [Homebrew](getting-started/homebrew.md) - Cask и формула, какой репозиторий Homebrew что принимает, заявка в homebrew/core.
 - [Android (Termux)](getting-started/android.md) - Сборка для Termux на Android, почему архив для Linux там не запускается и что Coddy подстраивает на устройстве.
 - [Устранение неполадок](getting-started/troubleshooting.md) - Что проверить, если бинарника нет в PATH, конфигурация не загружается, провайдер отвергает ключ, порт занят или нужного интерфейса нет в сборке.
-- [История изменений](getting-started/changelog.md) - Описания каждого опубликованного релиза, сгенерированные из GitHub Releases.
 
 ## Интерфейсы
 

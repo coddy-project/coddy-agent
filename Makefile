@@ -1,4 +1,4 @@
-.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -275,8 +275,6 @@ models-catalog-check:
 # docs/nav.yaml, the embedded config schema and the --help output of a full-tag
 # binary. docs-check regenerates into memory and fails on drift, on a page missing
 # from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
-# docs-changelog additionally refreshes docs/getting-started/changelog.md from the
-# GitHub Releases (needs gh and network).
 docs:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
 	go run ./cmd/docsgen -write -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
@@ -318,10 +316,6 @@ site-docs-check:
 # accepts one when the English change needs no translation.
 docs-stamp:
 	go run ./cmd/docsgen -stamp $(if $(filter 1 true yes,$(UNCHANGED)),-unchanged) $(PAGES)
-
-docs-changelog:
-	$(MAKE) build TAGS="$(FULL_TAGS)"
-	go run ./cmd/docsgen -changelog -write -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
 
 # The skills Coddy carries inside its binary (internal/skills/bundled). Those
 # that live in their own repositories are vendored rather than fetched at

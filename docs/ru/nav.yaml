@@ -106,12 +106,6 @@ pages:
     en:
       title: "Troubleshooting"
       summary: "What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build."
-  getting-started/changelog.md:
-    title: "История изменений"
-    summary: "Описания каждого опубликованного релиза, сгенерированные из GitHub Releases."
-    en:
-      title: "Changelog"
-      summary: "Release notes of every published version, generated from GitHub Releases."
   surfaces/console.md:
     title: "Консоль (TUI)"
     summary: "coddy без аргументов в терминале, раскладка экрана, клавиши, слэш-команды, локальная оболочка, режим печати и удалённый режим."

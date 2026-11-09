@@ -233,19 +233,6 @@ func TestRussianConfigReferenceUsesTheTranslation(t *testing.T) {
 	}
 }
 
-// The Russian changelog is derived from the English one, offline: a Russian
-// title and introduction, the release notes as published.
-func TestRussianChangelogKeepsTheReleaseNotes(t *testing.T) {
-	en := "# Changelog\n\nRelease notes of every published version.\n\n## v1.2.0 - 2026-10-01\n\nFixed — a thing.\n\n[Release page](https://example/1).\n"
-	ru := RussianChangelog(en)
-	if !strings.HasPrefix(ru, "# История изменений\n\n") {
-		t.Fatalf("title:\n%s", ru)
-	}
-	if !strings.HasSuffix(ru, "## v1.2.0 - 2026-10-01\n\nFixed — a thing.\n\n[Release page](https://example/1).\n") {
-		t.Fatalf("release notes not kept as published:\n%s", ru)
-	}
-}
-
 func TestRussianHubLinksRootPagesFromItsFolder(t *testing.T) {
 	root := translatedTree(t)
 	nav, err := LoadNav(root)

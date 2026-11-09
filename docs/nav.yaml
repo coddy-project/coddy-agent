@@ -37,9 +37,6 @@ groups:
       - path: getting-started/troubleshooting.md
         title: Troubleshooting
         summary: What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.
-      - path: getting-started/changelog.md
-        title: Changelog
-        summary: Release notes of every published version, generated from GitHub Releases.
   - id: surfaces
     title: Surfaces
     summary: The same agent and the same sessions from a terminal, a browser, an editor or a messenger.

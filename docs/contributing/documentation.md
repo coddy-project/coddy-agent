@@ -6,7 +6,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 
 | Folder | What lives there | Page type |
 |--------|------------------|-----------|
-| `docs/getting-started/` | Install, configure, update, troubleshoot, the changelog | Guides, read once in order |
+| `docs/getting-started/` | Install, configure, update, troubleshoot | Guides, read once in order |
 | `docs/surfaces/` | One page per way of talking to the agent: console, web UI, editors, Telegram | Surface pages |
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
 | `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export, the built-in documentation | Feature pages |
@@ -50,7 +50,7 @@ The paired workflow rule carries the same contract as step 10. Cursor and Claude
 
 ## Translations
 
-The documentation is translated into Russian. `docs/ru/<group>/<page>.md` is the translation of `docs/<group>/<page>.md`, under the same name and path, and `docs/ru/README.md` translates the hub. `docs/ru/nav.yaml` holds the translated title and summary of every group and page, and `docs/ru/config-descriptions.yaml` the translated descriptions of the configuration schema that the Russian field tables print; each entry of both keeps the English text it translates under `en:`. The changelog is generated in both languages (the release notes stay as published). The design records, the assets and the pages the map keeps at the root of the repository are not translated: a Russian page embeds the same screenshots. Every surface shows the language it knows the reader uses ([Built-in documentation](../features/built-in-docs.md#languages)), so a translation that lags behind its English page is a bug somebody reads.
+The documentation is translated into Russian. `docs/ru/<group>/<page>.md` is the translation of `docs/<group>/<page>.md`, under the same name and path, and `docs/ru/README.md` translates the hub. `docs/ru/nav.yaml` holds the translated title and summary of every group and page, and `docs/ru/config-descriptions.yaml` the translated descriptions of the configuration schema that the Russian field tables print; each entry of both keeps the English text it translates under `en:`. The design records, the assets and the pages the map keeps at the root of the repository are not translated: a Russian page embeds the same screenshots. Every surface shows the language it knows the reader uses ([Built-in documentation](../features/built-in-docs.md#languages)), so a translation that lags behind its English page is a bug somebody reads.
 
 A change to an English page carries the same change into its translation, in the same pull request:
 
@@ -120,16 +120,13 @@ GitHub renders an inline player only for a file uploaded as a GitHub attachment:
 | `docs/reference/config.md` | `docsgen:config` | `internal/config/config.schema.json` descriptions and the loader's defaults (`config.DocDefaults`) |
 | `docs/reference/cli.md` | `docsgen:cli` | `coddy --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
-| `docs/getting-started/changelog.md` | whole file | the GitHub Releases, only with `make docs-changelog` |
 | `docs/ru/README.md`, `docs/ru/reference/config.md`, `docs/ru/reference/cli.md` | the same blocks | `docs/ru/nav.yaml`, the schema with `docs/ru/config-descriptions.yaml`, the same `--help` screens |
-| `docs/ru/getting-started/changelog.md` | whole file | the English changelog, a Russian title and introduction over the release notes |
 | the links of every page under `docs/ru/` | targets only | the English page's links made right for the translation's folder |
 
 ```bash
 make docs            # regenerate everything (builds the full-tag binary first, which needs Node for the ui tag)
 make docs-fast       # everything but the CLI reference, no binary and no Node needed
 make docs-check      # regenerate into memory and fail on drift, missing pages, broken links, unused assets
-make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh)
 make docs-stamp PAGES="docs/ru/features/mcp.md"  # record that a translation follows its English page
 ```
 

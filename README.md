@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>A general-purpose agent in one static Go binary.</strong><br />
-  A console TUI, an ACP server for editors, an OpenAI-compatible API with an embedded web UI, a Telegram gateway, a cron scheduler, a swarm relay for fleets of nodes and a remote mode, all over the same sessions.<br />
+  A desktop app, a console TUI, an ACP server for editors, an OpenAI-compatible API with an embedded web UI, a Telegram gateway, a cron scheduler, a swarm relay for fleets of nodes and a remote mode, all over the same sessions.<br />
   ReAct loop, filesystem and shell tools, MCP, rules, skills, subagents, hooks, background tasks, long-term memory, context compaction and project trust for what arrives with a checkout.
 </p>
 
@@ -22,7 +22,7 @@
 
 ![Console turn with a tool call](docs/assets/screenshot-console-chat.png)
 
-Coddy is a **harness**: the same agent core is reachable from a terminal through the console TUI, from an editor over the [Agent Client Protocol](https://agentclientprotocol.com/), from a browser or any OpenAI client over HTTP, from Telegram through the messenger gateway, and from cron through the scheduler. Every surface shares the sessions under `~/.coddy`, so a conversation started in a chat is live in the browser and can be continued in either. It runs in `scratch` and distroless images with a read-only root filesystem, needs no runtime, and is built for fleets of containers as much as for one laptop.
+Coddy is a **harness**: the same agent core is reachable from the desktop app with `coddy desktop`, from a terminal through the console TUI, from an editor over the [Agent Client Protocol](https://agentclientprotocol.com/), from a browser or any OpenAI client over HTTP, from Telegram through the messenger gateway, and from cron through the scheduler. Every surface shares the sessions under `~/.coddy`, so a conversation started in a chat is live in the browser and can be continued in either. It runs in `scratch` and distroless images with a read-only root filesystem, needs no runtime, and is built for fleets of containers as much as for one laptop.
 
 ## Install
 
@@ -116,12 +116,12 @@ Project trust is one decision for MCP servers, hooks and subagents that arrive w
 | Install and run it for the first time | [Quickstart](docs/getting-started/quickstart.md), [Install](docs/getting-started/install.md) |
 | Read this documentation offline, from the app, the console or the shell | [Built-in documentation](docs/features/built-in-docs.md) |
 | Give it a model or check a config file | [Configuration](docs/getting-started/configuration.md), [config.yaml reference](docs/reference/config.md) |
-| Use it from a terminal, a browser, an editor or Telegram | [Console](docs/surfaces/console.md), [Web UI](docs/surfaces/web-ui.md), [Editors](docs/surfaces/editors.md), [Telegram gateway](docs/surfaces/gateway.md) |
+| Use it from the desktop app, a terminal, a browser, an editor or Telegram | [Desktop](docs/surfaces/desktop.md), [Console](docs/surfaces/console.md), [Web UI](docs/surfaces/web-ui.md), [Editors](docs/surfaces/editors.md), [Telegram gateway](docs/surfaces/gateway.md) |
 | Run it as a service or reach it from elsewhere | [coddy serve](docs/operate/serve.md), [Remote mode](docs/operate/remote.md), [Swarm](docs/operate/swarm.md), [Scheduler](docs/operate/scheduler.md) |
 | Bound what it may execute | [Security and trust](docs/operate/security.md), [Operating modes](docs/features/modes.md) |
 | Teach it your project | [Rules](docs/features/rules.md), [Skills](docs/features/skills.md), [Subagents](docs/features/subagents.md), [Hooks](docs/features/hooks.md), [MCP servers](docs/features/mcp.md) |
 | Look something up | [CLI reference](docs/reference/cli.md), [Environment variables](docs/reference/environment-variables.md), [Slash commands](docs/reference/slash-commands.md), [Tools](docs/reference/tools.md), [HTTP API](docs/reference/http-api.md), [ACP protocol](docs/reference/acp-protocol.md) |
-| Fix something | [Troubleshooting](docs/getting-started/troubleshooting.md), [Changelog](docs/getting-started/changelog.md) |
+| Fix something | [Troubleshooting](docs/getting-started/troubleshooting.md), [Releases](https://github.com/coddy-project/coddy-agent/releases) |
 | Combine features for a task | [Tutorials](docs/tutorials/coddy-in-ci.md), the swarm ones included: [a relay and its nodes](docs/tutorials/swarm-relay-and-nodes.md), [a chain of relays](docs/tutorials/swarm-multi-hop.md), [working with remote nodes](docs/tutorials/swarm-remote-nodes.md), [Android phones as nodes](docs/tutorials/swarm-android-nodes.md) |
 | Change Coddy itself | [Contributing](CONTRIBUTING.md), [Architecture](docs/contributing/architecture.md), [AGENTS.md](AGENTS.md), [DESIGN.md](DESIGN.md) |
 
