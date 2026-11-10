@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
 // ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
@@ -375,12 +377,17 @@ type HTTPServerJSON struct {
 // write-only: reading the config never returns them, and writing the config
 // back without them keeps what is already on disk.
 type HTTPLoginJSON struct {
-	Enabled         *bool  `json:"enable,omitempty"`
-	Mode            string `json:"mode,omitempty"`
-	User            string `json:"user,omitempty"`
-	PasswordHash    string `json:"password_hash,omitempty"`
-	TOTPSecret      string `json:"totp_secret,omitempty"`
-	SessionTTLHours int    `json:"session_ttl_hours,omitempty"`
+	BackupCodes           *webauth.BackupState `json:"backup_codes,omitempty"`
+	Password              string               `json:"password,omitempty"`
+	TOTPConfigured        bool                 `json:"totp_configured"`
+	BackupCodesConfigured bool                 `json:"backup_codes_configured"`
+	BackupCodesCount      int                  `json:"backup_codes_count"`
+	Enabled               *bool                `json:"enable,omitempty"`
+	Mode                  string               `json:"mode,omitempty"`
+	User                  string               `json:"user,omitempty"`
+	PasswordHash          string               `json:"password_hash,omitempty"`
+	TOTPSecret            string               `json:"totp_secret,omitempty"`
+	SessionTTLHours       int                  `json:"session_ttl_hours,omitempty"`
 }
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
@@ -647,9 +654,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		// AuthToken is intentionally redacted; report only whether one is configured.
 		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
 		Login: HTTPLoginJSON{
-			Enabled: cloneBoolPtr(c.HTTPServer.Login.Enabled),
-			Mode:    c.HTTPServer.Login.Mode,
-			User:    c.HTTPServer.Login.User,
+			Enabled:               cloneBoolPtr(c.HTTPServer.Login.Enabled),
+			Mode:                  c.HTTPServer.Login.Mode,
+			User:                  c.HTTPServer.Login.User,
+			TOTPConfigured:        c.HTTPServer.Login.HasTOTP(),
+			BackupCodesConfigured: c.HTTPServer.Login.BackupCodes.Generation != "",
+			BackupCodesCount:      len(c.HTTPServer.Login.BackupCodes.Hashes),
 			// PasswordHash and TOTPSecret are redacted for the same reason
 			// the token is.
 			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,
@@ -1095,6 +1105,13 @@ func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config)
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)
+	if j.HTTPServer.Login.Password != "" {
+		hash, err := webauth.HashPassword(j.HTTPServer.Login.Password)
+		if err != nil {
+			return nil, fmt.Errorf("hash login password: %w", err)
+		}
+		cfg.HTTPServer.Login.PasswordHash = hash
+	}
 	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
@@ -1124,6 +1141,7 @@ func preserveRedactedSecrets(next, current *Config) {
 	if strings.TrimSpace(next.HTTPServer.Login.TOTPSecret) == "" && strings.TrimSpace(current.HTTPServer.Login.TOTPSecret) != "" {
 		next.HTTPServer.Login.TOTPSecret = current.HTTPServer.Login.TOTPSecret
 	}
+	next.HTTPServer.Login.BackupCodes = webauth.BackupState{Generation: current.HTTPServer.Login.BackupCodes.Generation, Hashes: append([]string(nil), current.HTTPServer.Login.BackupCodes.Hashes...)}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
 	if strings.TrimSpace(next.Browser.Token) == "" {
 		next.Browser.Token = current.Browser.Token

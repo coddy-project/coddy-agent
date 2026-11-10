@@ -1312,6 +1312,15 @@
               "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Written by `coddy serve set-totp`, which shows it as a QR code; empty means the password alone signs in, and `coddy serve set-totp --disable` empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
               "default": ""
             },
+            "backup_codes": {
+              "type": "object",
+              "description": "Generation and hashes of the recovery codes for the web account.",
+              "additionalProperties": false,
+              "properties": {
+                "generation": {"type": "string", "description": "Identifier of the current recovery-code set."},
+                "hashes": {"type": "array", "description": "Hashes of unused recovery codes.", "items": {"type": "string"}}
+              }
+            },
             "session_ttl_hours": {
               "type": "integer",
               "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",

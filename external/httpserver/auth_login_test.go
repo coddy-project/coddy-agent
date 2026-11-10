@@ -903,7 +903,7 @@ func TestLoginThrottleFollowsTheClientBehindAProxy(t *testing.T) {
 	}
 	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
 	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
-	if d := srv.loginThrottle.Delay("203.0.113.30"); d <= 0 {
+	if d := srv.loginThrottle.Delay("10.0.0.2"); d <= 0 {
 		t.Fatal("a client behind a proxy was never throttled")
 	}
 	// A different client through the same proxy is a different row.

@@ -61,7 +61,8 @@ type loginAccount struct {
 	source string
 	// totpSecret is the base32 secret of the one-time codes asked for after
 	// the password; empty means the password alone signs in.
-	totpSecret string
+	totpSecret       string
+	backupGeneration string
 	// ttl is how long a session lives; zero means the cookie is dropped when the
 	// browser closes, and the server falls back to webauth.DefaultSessionTTL for
 	// the record it keeps, which it cannot otherwise ever let go of.
@@ -73,7 +74,7 @@ type loginAccount struct {
 // one, which is what ends the sessions the old account opened - with nothing to
 // invalidate and no plaintext held anywhere.
 func (a loginAccount) fingerprint() string {
-	return webauth.AccountFingerprint(a.user, a.hash, a.totpSecret)
+	return webauth.AccountFingerprint(a.user, a.hash, a.totpSecret, a.backupGeneration)
 }
 
 // loginPolicy is the sign-in form as it stands for one request.
@@ -134,11 +135,11 @@ func (s *Server) loginPolicyNow() loginPolicy {
 	switch {
 	case s.envLoginUser != "" && s.envLoginHash != "":
 		return loginPolicy{enabled: true, account: loginAccount{
-			user: s.envLoginUser, hash: s.envLoginHash, totpSecret: totp, source: loginSourceEnv, ttl: ttl,
+			user: s.envLoginUser, hash: s.envLoginHash, totpSecret: totp, backupGeneration: cfgLogin.BackupCodes.Generation, source: loginSourceEnv, ttl: ttl,
 		}}
 	case cfgLogin.HasAccount():
 		return loginPolicy{enabled: true, account: loginAccount{
-			user: cfgLogin.User, hash: cfgLogin.PasswordHash, totpSecret: totp, source: loginSourceConfig, ttl: ttl,
+			user: cfgLogin.User, hash: cfgLogin.PasswordHash, totpSecret: totp, backupGeneration: cfgLogin.BackupCodes.Generation, source: loginSourceConfig, ttl: ttl,
 		}}
 	case cfgLogin.IsExplicitlyEnabled():
 		return loginPolicy{enabled: true, broken: true}
@@ -147,6 +148,10 @@ func (s *Server) loginPolicyNow() loginPolicy {
 }
 
 func (s *Server) registerAuthRoutes() {
+	s.mux.HandleFunc("POST /coddy/auth/totp/setup", s.enrollmentSetup)
+	s.mux.HandleFunc("POST /coddy/auth/totp/enable", s.enrollmentChange)
+	s.mux.HandleFunc("POST /coddy/auth/totp/disable", s.enrollmentChange)
+	s.mux.HandleFunc("POST /coddy/auth/backup-codes/regenerate", s.enrollmentChange)
 	s.mux.HandleFunc("POST /coddy/auth/login", s.coddyAuthLoginPost)
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)

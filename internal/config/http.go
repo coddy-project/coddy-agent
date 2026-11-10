@@ -87,7 +87,8 @@ type HTTPLoginConfig struct {
 	// password alone signs in. It is a key, not a hash - a code can only be
 	// checked against the secret itself - so GET /coddy/config never returns it
 	// and a save from the settings screen preserves it, like the password hash.
-	TOTPSecret string `yaml:"totp_secret"`
+	TOTPSecret  string              `yaml:"totp_secret"`
+	BackupCodes webauth.BackupState `yaml:"backup_codes,omitempty"`
 	// SessionTTLHours is how long a browser stays signed in. Zero means the
 	// cookie is dropped when the browser closes; the server still bounds the
 	// session it holds (webauth.DefaultSessionTTL), because it cannot see a

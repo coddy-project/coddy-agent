@@ -320,3 +320,115 @@ func TestHTTPLoginTOTPSecretRedactedAndPreserved(t *testing.T) {
 		t.Fatalf("totp_secret not preserved across a redacted save: %q", next.HTTPServer.Login.TOTPSecret)
 	}
 }
+
+func TestHTTPLoginSettingsPasswordIsHashed(t *testing.T) {
+	old := loginHash(t, "old")
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(old)+"\"\n")
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o"},` +
+		`"httpserver":{"login":{"user":"operator","password":"new password"}}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := webauth.VerifyPassword(next.HTTPServer.Login.PasswordHash, "new password")
+	if err != nil || !ok {
+		t.Fatalf("new password was not hashed: ok=%v err=%v", ok, err)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(next))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "new password") {
+		t.Fatal("password appeared in settings response")
+	}
+}
+
+func TestHTTPLoginBackupConfigRedactedAndPreserved(t *testing.T) {
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    backup_codes:\n      generation: abc123\n      hashes: [deadbeef]\n")
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cur))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "deadbeef") || !strings.Contains(string(raw), `"backup_codes_configured":true`) || !strings.Contains(string(raw), `"backup_codes_count":1`) {
+		t.Fatalf("bad backup metadata: %s", raw)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(raw, cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yaml, err := config.MarshalConfigYAMLForFile(next, cur.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(yaml), "deadbeef") || !strings.Contains(string(yaml), "abc123") {
+		t.Fatal("backup state lost")
+	}
+	read, err := config.ReadConfigPath(cur.Paths, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted, err := json.Marshal(read.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(redacted), "deadbeef") {
+		t.Fatal("general config reader exposed backup hashes")
+	}
+}
+
+func TestHTTPLoginEmptySettingsPasswordPreservesHash(t *testing.T) {
+	hash := loginHash(t, "old")
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(hash)+"\"\n")
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cur))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	login := doc["httpserver"].(map[string]interface{})["login"].(map[string]interface{})
+	login["password"] = ""
+	raw, err = json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(raw, cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.HTTPServer.Login.PasswordHash != hash {
+		t.Fatal("empty password changed hash")
+	}
+}
+
+func TestHTTPLoginSettingsSchema(t *testing.T) {
+	b, err := config.UISchemaJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	props := doc["properties"].(map[string]interface{})
+	h, ok := props["httpserver"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing account settings")
+	}
+	hp := h["properties"].(map[string]interface{})
+	if _, ok := hp["host"]; ok {
+		t.Fatal("listener exposed")
+	}
+	l, ok := hp["login"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing login settings")
+	}
+	p := l["properties"].(map[string]interface{})
+	password, ok := p["password"].(map[string]interface{})
+	if !ok || password["writeOnly"] != true {
+		t.Fatal("password is not write-only")
+	}
+}
