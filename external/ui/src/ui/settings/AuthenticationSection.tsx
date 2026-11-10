@@ -1,4 +1,15 @@
-import { useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  enrollmentSnapshot,
+  subscribeEnrollment,
+  verifyEnrollment,
+} from "./authEnrollmentStore";
 import { useT } from "../i18n/I18nProvider";
 import { SwitchField } from "./SwitchField";
 import { SecretInput } from "./SecretInput";
@@ -23,9 +34,17 @@ export function AuthenticationSection({ value, onChange }: Props) {
   const [secret, setSecret] = useState("");
   const [qr, setQr] = useState("");
   const [code, setCode] = useState("");
-  const [codes, setCodes] = useState<string[]>([]);
+  const {
+    codes,
+    busy,
+    error: verifyError,
+  } = useSyncExternalStore(
+    subscribeEnrollment,
+    enrollmentSnapshot,
+    enrollmentSnapshot,
+  );
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+
   const setupSequence = useRef(0);
   const setup = async (input?: string) => {
     const sequence = ++setupSequence.current;
@@ -50,38 +69,36 @@ export function AuthenticationSection({ value, onChange }: Props) {
         setError(t("settings.auth.setupError"));
     }
   };
-  const verify = async () => {
+  const verify = () => {
     if (!/^\d{6}$/.test(code) || !secret || !qr || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch("/coddy/auth/totp/enable", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret, code }),
-      });
-      if (!response.ok) throw new Error("verify");
-      const result = (await response.json()) as { codes: string[] };
-      setCodes(result.codes);
-      setEnrolling(false);
-      onChange({
-        ...value,
-        login: {
-          ...login,
-          totp_configured: true,
-          backup_codes_configured: true,
-          backup_codes_count: result.codes.length,
-        },
-      });
-    } catch {
-      setError(t("settings.auth.verifyError"));
-    } finally {
-      setBusy(false);
-    }
+    setupSequence.current++;
+    void verifyEnrollment(secret, code);
   };
   const login = (
     value.login && typeof value.login === "object" ? value.login : {}
   ) as Record<string, unknown>;
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
+  useEffect(() => {
+    if (codes.length === 0) return;
+    setEnrolling(false);
+    const current = latest.current;
+    const account = (current.value.login ?? {}) as Record<string, unknown>;
+    if (
+      account.totp_configured === true &&
+      account.backup_codes_count === codes.length
+    )
+      return;
+    current.onChange({
+      ...current.value,
+      login: {
+        ...account,
+        totp_configured: true,
+        backup_codes_configured: true,
+        backup_codes_count: codes.length,
+      },
+    });
+  }, [codes]);
   const update = (key: string, v: unknown) =>
     onChange({ ...value, login: { ...login, [key]: v } });
   return (
@@ -185,6 +202,7 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 <SecretInput
                   id={`${id}-secret`}
                   value={secret}
+                  disabled={busy}
                   autoComplete="off"
                   onChange={(event) => {
                     const next = event.target.value;
@@ -202,6 +220,7 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 <input
                   id={`${id}-code`}
                   className="settings-input"
+                  disabled={busy}
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   maxLength={6}
@@ -222,9 +241,9 @@ export function AuthenticationSection({ value, onChange }: Props) {
             </div>
           </div>
         )}
-        {error && (
+        {(error || verifyError) && (
           <p className="settings-error" role="alert">
-            {error}
+            {error || t("settings.auth.verifyError")}
           </p>
         )}
         {codes.length > 0 && (
