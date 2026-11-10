@@ -121,7 +121,7 @@ export const messagesRu: Record<string, string> = {
   "auth.signIn.title": "Вход",
   "auth.signIn.user": "Пользователь",
   "auth.signIn.password": "Пароль",
-  "auth.signIn.remember": "Не выходить из системы в течение 24 часов",
+  "auth.signIn.remember": "Не выходить из системы",
   "auth.signIn.submit": "Войти",
   "auth.signIn.working": "Вход\u2026",
   "auth.signIn.invalid": "Неверный пользователь или пароль.",
