@@ -121,7 +121,12 @@ func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {
 		if c == nil {
 			return errors.New("configuration unavailable")
 		}
-		store := webauth.NewBackupStore(c.HTTPServer.Login.BackupCodes)
+		ledger, err := loadBackupLedger(c.Paths.Home)
+		if err != nil {
+			return err
+		}
+		oldState := c.HTTPServer.Login.BackupCodes
+		store := webauth.NewBackupStore(oldState)
 		if !store.Consume(code) {
 			return nil
 		}
@@ -149,6 +154,29 @@ func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {
 		}
 		if loaded.HTTPServer.Login.TOTPSecret != next.HTTPServer.Login.TOTPSecret || !reflect.DeepEqual(loaded.HTTPServer.Login.BackupCodes, next.HTTPServer.Login.BackupCodes) {
 			return errors.New("rendered authentication differs from requested state")
+		}
+		remaining := make(map[string]int)
+		for _, h := range next.HTTPServer.Login.BackupCodes.Hashes {
+			remaining[h]++
+		}
+		var usedHash string
+		for _, h := range oldState.Hashes {
+			if remaining[h] > 0 {
+				remaining[h]--
+			} else {
+				usedHash = h
+				break
+			}
+		}
+		if usedHash == "" {
+			return errors.New("consumed backup hash not found")
+		}
+		recorded, err := recordBackupConsumption(c.Paths.Home, oldState.Generation, usedHash, ledger)
+		if err != nil {
+			return err
+		}
+		if !recorded {
+			return nil
 		}
 		if err = config.BackupCurrent(path); err != nil {
 			return err
