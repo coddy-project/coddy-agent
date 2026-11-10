@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"image/png"
 	"io"
 	"net/http"
@@ -284,5 +285,93 @@ func TestLoginSettingsPasswordValidateAndPut(t *testing.T) {
 	}
 	if bytes.Contains(raw, []byte("new secret")) || bytes.Contains(raw, []byte(srv.activeCfg().HTTPServer.Login.PasswordHash)) {
 		t.Fatal("password or hash returned")
+	}
+}
+
+func TestEnrollmentInstallFailureRestoresOriginalFile(t *testing.T) {
+	srv := newLoginServer(t, configuredLogin(t))
+	c := srv.activeCfg()
+	c.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "k"}}
+	c.Paths.ConfigPath = filepath.Join(t.TempDir(), "config.yaml")
+	original, err := config.MarshalConfigYAMLForFile(c, c.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.Paths.ConfigPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	srv.mgr.SetConfigAdjuster(func(*config.Config) error { return errors.New("injected install failure") })
+	secret, err := webauth.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := webauth.TOTPCode(secret, srv.authNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/coddy/auth/totp/enable", strings.NewReader(`{"secret":"`+secret+`","code":"`+code+`"}`))
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"codes"`) {
+		t.Fatal("failed installation returned codes")
+	}
+	after, err := os.ReadFile(c.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, original) {
+		t.Error("install failure changed configuration file")
+	}
+	if srv.activeCfg().HTTPServer.Login.TOTPSecret != "" || srv.activeCfg().HTTPServer.Login.BackupCodes.Generation != "" {
+		t.Error("install failure changed live authentication")
+	}
+}
+
+func TestEnrollmentRejectsInvalidRenderedYAMLWithoutRecovery(t *testing.T) {
+	t.Setenv("CODDY_ENROLLMENT_MISSING_MODEL", "")
+	srv := newLoginServer(t, configuredLogin(t))
+	c := srv.activeCfg()
+	c.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "k"}}
+	c.Paths.ConfigPath = filepath.Join(t.TempDir(), "config.yaml")
+	backup, err := config.MarshalConfigYAMLForFile(c, c.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteBackup(c.Paths.ConfigPath, backup); err != nil {
+		t.Fatal(err)
+	}
+	c.Agent.Model = "openai/$CODDY_ENROLLMENT_MISSING_MODEL"
+	c.Models[0].Model = c.Agent.Model
+	cookie := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	secret, err := webauth.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := webauth.TOTPCode(secret, srv.authNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/coddy/auth/totp/enable", strings.NewReader(`{"secret":"`+secret+`","code":"`+code+`"}`))
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("invalid rendered config returned status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"codes"`) {
+		t.Error("invalid rendered config returned backup codes")
+	}
+	if _, err := os.Stat(c.Paths.ConfigPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("originally absent config changed: %v", err)
+	}
+	if srv.activeCfg().HTTPServer.Login.TOTPSecret != "" || srv.activeCfg().HTTPServer.Login.BackupCodes.Generation != "" {
+		t.Error("live auth changed")
 	}
 }

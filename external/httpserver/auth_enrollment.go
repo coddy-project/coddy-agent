@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
@@ -162,9 +163,21 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		path := c.Paths.ConfigPath
+		original, readErr := os.ReadFile(path)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return readErr
+		}
 		data, err := config.MarshalConfigYAMLForEdit(&next, c, c, path)
 		if err != nil {
 			return err
+		}
+		loaded, err := config.ParseConfigYAML(data, c.Paths)
+		if err != nil {
+			return err
+		}
+		if loaded.HTTPServer.Login.TOTPSecret != next.HTTPServer.Login.TOTPSecret ||
+			!reflect.DeepEqual(loaded.HTTPServer.Login.BackupCodes, next.HTTPServer.Login.BackupCodes) {
+			return errors.New("rendered authentication differs from requested state")
 		}
 		if err = config.BackupCurrent(path); err != nil {
 			return err
@@ -172,17 +185,16 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 		if err = config.AtomicWriteConfigYAML(path, data); err != nil {
 			return err
 		}
-		loaded, err := config.LoadWithPaths(c.Paths)
-		if err == nil {
-			err = s.mgr.InstallConfig(loaded)
-		}
+		err = s.mgr.InstallConfig(loaded)
 		if err != nil {
-			if old, e := os.ReadFile(config.BackupPath(path)); e == nil {
-				if e = config.AtomicWriteConfigYAML(path, old); e != nil {
-					s.log.Error("authentication config rollback failed")
-				}
+			var rollbackErr error
+			if errors.Is(readErr, os.ErrNotExist) {
+				rollbackErr = os.Remove(path)
 			} else {
-				s.log.Error("authentication config backup could not be read")
+				rollbackErr = config.AtomicWriteConfigYAML(path, original)
+			}
+			if rollbackErr != nil {
+				s.log.Error("authentication config rollback failed", "error", rollbackErr)
 			}
 			return err
 		}
