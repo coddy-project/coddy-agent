@@ -51,7 +51,11 @@ func GenerateBackupCodes(count int) (BackupState, []string, error) {
 }
 
 func backupHash(code string) string {
-	sum := sha256.Sum256([]byte(strings.ToUpper(code)))
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.Join(strings.Fields(code), ""), "-", ""))
+	if len(normalized) == 16 {
+		normalized = normalized[:8] + "-" + normalized[8:]
+	}
+	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])
 }
 

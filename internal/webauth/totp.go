@@ -115,10 +115,9 @@ func TOTPCode(secret string, t time.Time) (string, error) {
 	return hotp(key, totpStep(t)), nil
 }
 
-// NormalizeTOTPCode drops the spaces an app or a person puts in the middle of
-// a code ("123 456").
+// NormalizeTOTPCode removes whitespace and dashes used to group a code.
 func NormalizeTOTPCode(code string) string {
-	return strings.Join(strings.Fields(code), "")
+	return strings.ReplaceAll(strings.Join(strings.Fields(code), ""), "-", "")
 }
 
 // VerifyTOTP checks code against secret around now and returns the step it
@@ -147,14 +146,15 @@ func VerifyTOTP(secret, code string, now time.Time) (int64, bool) {
 // TOTPKeyURI is the otpauth link an app reads off the QR code: the issuer and
 // the account name it shows, the secret, the parameters spelled out for the
 // apps that do not assume them, and the picture for the apps that take one.
+// It returns an empty string if the secret is invalid.
 func TOTPKeyURI(account, secret string) string {
 	label := url.PathEscape(TOTPIssuer) + ":" + url.PathEscape(account)
 	q := url.Values{}
-	canonical := NormalizeTOTPSecret(secret)
-	if key, err := decodeTOTPSecret(secret); err == nil {
-		canonical = totpEncoding.EncodeToString(key)
+	key, err := decodeTOTPSecret(secret)
+	if err != nil {
+		return ""
 	}
-	q.Set("secret", canonical)
+	q.Set("secret", totpEncoding.EncodeToString(key))
 	q.Set("issuer", TOTPIssuer)
 	q.Set("algorithm", "SHA1")
 	q.Set("digits", fmt.Sprint(TOTPDigits))

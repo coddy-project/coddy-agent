@@ -85,3 +85,56 @@ func TestBackupConsumeConcurrent(t *testing.T) {
 		t.Fatal("reused code")
 	}
 }
+
+func TestBackupCodeGrouping(t *testing.T) {
+	for _, grouping := range []struct {
+		name   string
+		format func(string) string
+	}{
+		{"omitted dash", func(s string) string { return strings.ReplaceAll(s, "-", "") }},
+		{"whitespace", func(s string) string { return " \t" + s[:4] + " \n" + s[4:] + "\t" }},
+	} {
+		t.Run(grouping.name, func(t *testing.T) {
+			state, codes, err := GenerateBackupCodes(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := NewBackupStore(state)
+			if !store.Consume(grouping.format(codes[0])) {
+				t.Fatal("grouped code refused")
+			}
+			if store.Consume(codes[0]) {
+				t.Fatal("code reused")
+			}
+		})
+	}
+}
+
+func TestBackupSnapshotRoundTrip(t *testing.T) {
+	state, codes, err := GenerateBackupCodes(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewBackupStore(state)
+	if !store.Consume(codes[0]) {
+		t.Fatal("initial consumption failed")
+	}
+	data, err := json.Marshal(store.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored BackupState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	reopened := NewBackupStore(restored)
+	if reopened.Consume(codes[0]) {
+		t.Fatal("consumed code accepted after restore")
+	}
+	if !reopened.Consume(codes[1]) {
+		t.Fatal("remaining code refused after restore")
+	}
+	if restored.Generation != state.Generation {
+		t.Fatal("generation changed after restore")
+	}
+}

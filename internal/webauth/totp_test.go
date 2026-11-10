@@ -186,3 +186,34 @@ func TestBase16TOTP(t *testing.T) {
 		t.Fatal("short hex accepted")
 	}
 }
+
+func TestTOTPKeyURIRejectsInvalidSecrets(t *testing.T) {
+	for _, secret := range []string{"", "invalid!", "GEZDGNBV"} {
+		if uri := TOTPKeyURI("operator", secret); uri != "" {
+			t.Errorf("invalid secret %q produced URI %q", secret, uri)
+		}
+	}
+}
+
+func TestTOTPBase32PrecedesAmbiguousBase16(t *testing.T) {
+	const secret = "ABCDEF234562ABCD"
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := TOTPCode(secret, time.Unix(59, 0))
+	if err != nil || got != hotp(key, totpStep(time.Unix(59, 0))) {
+		t.Fatalf("not decoded as base32: %q, %v", got, err)
+	}
+}
+
+func TestTOTPDashGroupedCode(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	code, err := TOTPCode(rfcSecret, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := VerifyTOTP(rfcSecret, " \t"+code[:3]+"- "+code[3:]+"\n", now); !ok {
+		t.Fatal("dash-grouped code refused")
+	}
+}
