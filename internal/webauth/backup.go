@@ -16,10 +16,13 @@ type BackupState struct {
 	Hashes     []string `json:"hashes" yaml:"hashes"`
 }
 
+// MaxBackupCodes bounds the number of codes generated in one set.
+const MaxBackupCodes = 64
+
 // GenerateBackupCodes returns a fresh set and the only plaintext copy of its codes.
 func GenerateBackupCodes(count int) (BackupState, []string, error) {
-	if count <= 0 {
-		return BackupState{}, nil, fmt.Errorf("backup code count must be positive")
+	if count <= 0 || count > MaxBackupCodes {
+		return BackupState{}, nil, fmt.Errorf("backup code count must be between 1 and %d", MaxBackupCodes)
 	}
 	var generation [16]byte
 	if _, err := rand.Read(generation[:]); err != nil {

@@ -138,3 +138,12 @@ func TestBackupSnapshotRoundTrip(t *testing.T) {
 		t.Fatal("generation changed after restore")
 	}
 }
+
+func TestBackupCountLimit(t *testing.T) {
+	if _, _, err := GenerateBackupCodes(65); err == nil {
+		t.Fatal("excessive count accepted")
+	}
+	if _, codes, err := GenerateBackupCodes(64); err != nil || len(codes) != 64 {
+		t.Fatalf("maximum count: got %d, %v", len(codes), err)
+	}
+}
