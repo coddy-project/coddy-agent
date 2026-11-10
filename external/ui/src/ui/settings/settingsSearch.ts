@@ -374,17 +374,19 @@ function rowLabel(row: unknown, field: string): string {
 
 /**
  * What the index reads from the document: the trimmed row names of the two
- * lists and a provider's type. The index is rebuilt when this changes only.
+ * lists, a provider's type and whether the backup codes block is shown. The
+ * index is rebuilt when this changes only.
  */
 export function settingsIndexRowsKey(doc: PlainObject): string {
-  return JSON.stringify(
-    Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
+  return JSON.stringify({
+    rows: Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
       asArray(doc[key]).map((row) => [
         rowLabel(row, field),
         key === "providers" ? text(asObject(row)["type"]) : "",
       ]),
     ),
-  );
+    backupCodes: backupCodesShown(doc),
+  });
 }
 
 type Form = {

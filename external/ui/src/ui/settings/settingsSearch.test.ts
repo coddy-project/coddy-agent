@@ -726,6 +726,29 @@ test("the rows key changes with the names and types of the rows and with nothing
   expect(settingsIndexRowsKey({})).toBe(settingsIndexRowsKey({ agent: {} }));
 });
 
+test("the rows key follows TOTP visibility but not account keystrokes", () => {
+  const doc = {
+    httpserver: {
+      login: { enable: true, totp_configured: false, user: "operator" },
+    },
+  };
+  const disabled = settingsIndexRowsKey(doc);
+
+  doc.httpserver.login.totp_configured = true;
+  const enabled = settingsIndexRowsKey(doc);
+  expect(enabled).not.toBe(disabled);
+
+  doc.httpserver.login.totp_configured = false;
+  expect(settingsIndexRowsKey(doc)).not.toBe(enabled);
+
+  doc.httpserver.login.totp_configured = true;
+  const beforeTyping = settingsIndexRowsKey(doc);
+  doc.httpserver.login.user = "renamed";
+  expect(settingsIndexRowsKey(doc)).toBe(beforeTyping);
+  (doc.httpserver.login as Record<string, unknown>)["password"] = "secret";
+  expect(settingsIndexRowsKey(doc)).toBe(beforeTyping);
+});
+
 test("values are never indexed: a key, a token or a URL of the document finds nothing", () => {
   const index = indexOf(AGENT_SCHEMA);
   const relay = indexOf(RELAY_SCHEMA);
