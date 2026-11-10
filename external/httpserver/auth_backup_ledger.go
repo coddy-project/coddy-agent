@@ -19,7 +19,8 @@ import (
 // The ledger lives at <Coddy home>/webauth-backup-consumed.json, outside the
 // config and its recovery copies. It maps each generation to consumed SHA-256
 // hashes. Old generations cannot be pruned safely: an old config backup may
-// restore any of them. Call only under config.WithConfigFileLock.
+// restore any of them. Call only under config.WithConfigFileLock and the
+// adjacent webauth-backup-consumed.json.lock cross-process lock.
 func loadBackupLedger(home string) (map[string][]string, error) {
 	if strings.TrimSpace(home) == "" {
 		return nil, errors.New("backup ledger home is empty")

@@ -9,11 +9,13 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
@@ -121,6 +123,14 @@ func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {
 		if c == nil {
 			return errors.New("configuration unavailable")
 		}
+		if !platform.FileLockingAvailable || c.Paths.Home == "" {
+			return errors.New("backup ledger locking unavailable")
+		}
+		unlock, err := platform.LockFile(filepath.Join(c.Paths.Home, "webauth-backup-consumed.json.lock"))
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		ledger, err := loadBackupLedger(c.Paths.Home)
 		if err != nil {
 			return err

@@ -127,3 +127,62 @@ func TestBackupLedgerDirectorySyncFailureDeniesSession(t *testing.T) {
 		t.Fatalf("directory sync failure: %d", got)
 	}
 }
+
+func TestBackupLedgerOverlappingOwners(t *testing.T) {
+	if !platform.FileLockingAvailable {
+		t.Skip("platform has no cross-process file locks")
+	}
+	s, stale, codes := backupLedgerFixture(t)
+	lockPath := filepath.Join(stale.Paths.Home, "webauth-backup-consumed.json.lock")
+	release, err := platform.LockFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := challengeStart(t, s)
+	done := make(chan int, 1)
+	go func() { done <- challengeVerify(s, challenge, codes[1]).Code }()
+	select {
+	case status := <-done:
+		release()
+		t.Fatalf("verification bypassed the other ledger owner's lock: %d", status)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// The other owner consumed the first code after the second request started.
+	ledger, err := loadBackupLedger(stale.Paths.Home)
+	if err != nil {
+		release()
+		t.Fatal(err)
+	}
+	ok, err := recordBackupConsumption(stale.Paths.Home, stale.HTTPServer.Login.BackupCodes.Generation, stale.HTTPServer.Login.BackupCodes.Hashes[0], ledger)
+	if err != nil || !ok {
+		release()
+		t.Fatalf("first owner: %v %v", ok, err)
+	}
+	release()
+	select {
+	case status := <-done:
+		if status != http.StatusOK {
+			t.Fatalf("second owner: %d", status)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("second owner did not finish")
+	}
+	if err := s.mgr.InstallConfig(stale); err != nil {
+		t.Fatal(err)
+	}
+	for i, code := range codes {
+		if status := backupAttempt(t, s, code); status != http.StatusUnauthorized {
+			t.Fatalf("code %d resurrected after stale config: %d", i, status)
+		}
+	}
+}
+
+func TestBackupLedgerLockFailureDeniesSession(t *testing.T) {
+	s, stale, codes := backupLedgerFixture(t)
+	if err := os.Mkdir(filepath.Join(stale.Paths.Home, "webauth-backup-consumed.json.lock"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if status := backupAttempt(t, s, codes[0]); status != http.StatusInternalServerError {
+		t.Fatalf("lock error: %d", status)
+	}
+}
