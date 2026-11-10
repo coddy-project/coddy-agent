@@ -1309,7 +1309,7 @@
             },
             "totp_secret": {
               "type": "string",
-              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Written by `coddy serve set-totp`, which shows it as a QR code; empty means the password alone signs in, and `coddy serve set-totp --disable` empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrolled in the web UI under Settings, Authentication, which shows it as a QR code; empty means the password alone signs in, and removing the key in Settings empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
               "default": ""
             },
             "backup_codes": {

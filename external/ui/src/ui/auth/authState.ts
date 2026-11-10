@@ -21,7 +21,7 @@ export type AuthState = {
   user: string;
   /**
    * The form also asks for a one-time code from an authenticator app
-   * (`coddy serve set-totp`); empty when the password alone signs in.
+   * (enrolled in Settings, Authentication); empty when the password alone signs in.
    */
   secondFactor: "" | "totp";
   /**

@@ -563,9 +563,9 @@ tools:
 #     enable: true
 #     user: "pasha"
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
-#     # One-time codes from an authenticator app after the password (TOTP). Written by
-#     # `coddy serve set-totp`, which shows a QR code and writes the key once the app
-#     # confirms it; `coddy serve set-totp --disable` removes it. Never returned by GET /coddy/config.
+#     # One-time codes from an authenticator app after the password (TOTP). Enrolled in the
+#     # web UI under Settings, Authentication, which shows a QR code and writes the key once
+#     # the app confirms it; removing the key in Settings empties it. Never returned by GET /coddy/config.
 #     totp_secret: "..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token

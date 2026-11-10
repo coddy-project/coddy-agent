@@ -92,13 +92,7 @@ Signing in sets an `HttpOnly`, `SameSite=Strict` cookie that opens the same rout
 
 ### One-time codes
 
-A password can leak; the six digits of an authenticator app on the operator's phone change every 30 seconds. `coddy serve set-totp` adds them to the form as a second factor:
-
-```bash
-coddy serve set-totp
-```
-
-The command prints a QR code and the same key as text, an authenticator app - Google Authenticator, FreeOTP, Aegis, a password manager - adds the account under the name **Coddy**, and the command asks for the code the app now shows. Only when it matches is the key written into `config.yaml`, as `httpserver.login.totp_secret`, so a scan that went wrong locks nobody out of the form. From then on the form asks for the code after the password, and every browser signed in before signs in again.
+A password can leak; the six digits of an authenticator app on the operator's phone change every 30 seconds. The web UI adds them to the form as a second factor. In **Settings**, **Authentication** it shows a QR code and the same key as text, an authenticator app - Google Authenticator, FreeOTP, Aegis, a password manager - adds the account under the name **Coddy**, and the page asks for the code the app now shows. Only when it matches is the key written into `config.yaml`, as `httpserver.login.totp_secret`, so a scan that went wrong locks nobody out of the form. From then on the form asks for the code after the password, and every browser signed in before signs in again.
 
 ![The sign-in form with the field for the code of an authenticator app](../assets/remote/sign-in-totp-dark-1280.png)
 
@@ -107,7 +101,7 @@ The command prints a QR code and the same key as text, an authenticator app - Go
 - **A code works once.** It is taken with one step of clock drift either way, and the same code - or an older one - opens no second session. When every code is refused, the phone's clock is off.
 - **A wrong code is a wrong password.** The form answers both with the same message and the same throttle, so a refusal never confirms the password.
 - **The form only.** A bearer token (`auth_token`, `--auth-token`, `CODDY_HTTP_TOKEN`) is a credential of its own and is not asked for a code, and neither are the Telegram bot's Mini App and the side panel of Coddy for Browser, which sign in with credentials of their own. The key guards an account from `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` as much as one from the file.
-- **A lost phone.** On the machine, `coddy serve set-totp --disable` removes the key, and the password alone signs in again; running `coddy serve set-totp` once more issues a new key, and the old entry in the app stops working. There are no recovery codes: the way back is a shell on the server.
+- **A lost phone.** In **Settings**, **Authentication** the key is removed with one control, and the password alone signs in again; enrolling it once more issues a new key, and the old entry in the app stops working. There are no recovery codes: without the phone and without a way to sign in, the way back is to clear `httpserver.login.totp_secret` from `config.yaml` on the server.
 - **The logo in the app.** The QR code names Coddy's icon, and FreeOTP shows it. Google Authenticator, Microsoft Authenticator and most others choose their icons themselves and show the name **Coddy** without it.
 - **The key is a secret.** A code can only be checked against the key itself, so it is stored as it is and `config.yaml` becomes as sensitive as the key: keep the file readable by its owner alone. `GET /coddy/config` never returns the key, and a save from the settings screen keeps it.
 

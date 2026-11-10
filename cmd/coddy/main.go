@@ -232,9 +232,6 @@ func printUsage(w io.Writer) {
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  %[1]s serve set-totp [--disable] [--config PATH] [--home DIR] (turn on one-time
-        codes at the web UI sign-in: shows a QR code for an authenticator app
-        and writes the key once the app confirms it; --disable turns them off)
   %[1]s sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list

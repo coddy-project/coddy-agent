@@ -83,7 +83,8 @@ type HTTPLoginConfig struct {
 	// GET /coddy/config, and a save from the settings screen preserves it.
 	PasswordHash string `yaml:"password_hash"`
 	// TOTPSecret turns on one-time codes as a second factor: the base32 secret
-	// an authenticator app was given by `coddy serve set-totp`. Empty means the
+	// an authenticator app was given through the web UI's Settings →
+	// Authentication enrollment. Empty means the
 	// password alone signs in. It is a key, not a hash - a code can only be
 	// checked against the secret itself - so GET /coddy/config never returns it
 	// and a save from the settings screen preserves it, like the password hash.
@@ -131,7 +132,7 @@ func (l *HTTPLoginConfig) Validate() error {
 	if l.TOTPSecret != "" {
 		if err := webauth.ValidateTOTPSecret(l.TOTPSecret); err != nil {
 			return fmt.Errorf("httpserver.login.totp_secret is not a usable secret (%v); "+
-				"write it with `coddy serve set-totp`", err)
+				"enroll the key in the web UI under Settings, Authentication", err)
 		}
 	}
 	return nil

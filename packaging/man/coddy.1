@@ -178,21 +178,6 @@ and
 typically in
 .IR ~/.coddy/.env .
 .TP
-.B "serve set-totp"
-Turn on one\-time codes at the web UI sign\-in: print a QR code that an
-authenticator app (Google Authenticator, FreeOTP, Aegis) scans, and the key as
-text, ask for the code the app then shows, and only when it matches write the key
-into
-.I config.yaml
-as
-.BR httpserver.login.totp_secret .
-From then on the sign\-in form asks for the six\-digit code after the password.
-An account must exist first
-.RB ( "serve set\-password" ).
-.B \-\-disable
-removes the key, so the password alone signs in again: the way back in for an
-operator who lost the phone. Bearer token clients are never asked for a code.
-.TP
 .BI "sessions list"
 List stored sessions, the runs of one\-shot mode included:
 .BI \-\-cwd " DIR" ,

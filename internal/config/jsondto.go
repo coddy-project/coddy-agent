@@ -1137,9 +1137,9 @@ func preserveRedactedSecrets(next, current *Config) {
 	if strings.TrimSpace(next.HTTPServer.Login.PasswordHash) == "" && strings.TrimSpace(current.HTTPServer.Login.PasswordHash) != "" {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
 	}
-	// The one-time code secret is write-only too, and only `coddy serve
-	// set-totp` turns it off: a settings save that dropped it would quietly
-	// take the second factor away from the account.
+	// The one-time code secret is write-only too, and only the web UI's
+	// Settings, Authentication enrollment turns it off: a settings save that
+	// dropped it would quietly take the second factor away from the account.
 	if strings.TrimSpace(next.HTTPServer.Login.TOTPSecret) == "" && strings.TrimSpace(current.HTTPServer.Login.TOTPSecret) != "" {
 		next.HTTPServer.Login.TOTPSecret = current.HTTPServer.Login.TOTPSecret
 	}

@@ -1644,7 +1644,7 @@ func openAPISpec() map[string]interface{} {
 						"**login_required** is true when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
 						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
 						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. " +
-						"**second_factor** is `totp` when the form also asks for a one-time code from an authenticator app (`httpserver.login.totp_secret`, written by `coddy serve set-totp`). See https://coddy.dev/docs/operate/remote.",
+						"**second_factor** is `totp` when the form also asks for a one-time code from an authenticator app (`httpserver.login.totp_secret`, enrolled in the web UI under Settings, Authentication). See https://coddy.dev/docs/operate/remote.",
 					"operationId": "getAuthState",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{

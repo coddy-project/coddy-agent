@@ -128,14 +128,14 @@ process ends them. Rotating the password or renaming the account ends every sess
 the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
 oldest first.
 
-With `httpserver.login.totp_secret` set (`coddy serve set-totp` writes it once an authenticator app
-has confirmed the key), the form asks for a one-time code as well: RFC 6238, six digits, a 30-second
+With `httpserver.login.totp_secret` set (enrolled in the web UI under **Settings**, **Authentication**
+once an authenticator app has confirmed the key), the form asks for a one-time code as well: RFC 6238, six digits, a 30-second
 step, SHA-1, one step of clock drift either way. A code opens one session; the same code or an older
 one is refused afterwards. A missing, wrong or reused code gets the same `401` and the same body as a
 wrong password - with `second_factor: "totp"` in it - and counts against the same throttle, and the
 code is not looked at when the password is wrong, so a refusal never confirms the password and a
 mistyped password does not spend a code. Turning codes on, rotating the key or turning them off
-(`coddy serve set-totp --disable`) ends every session the account opened before. Bearer tokens, the
+in **Settings**, **Authentication** ends every session the account opened before. Bearer tokens, the
 Telegram Mini App and the browser side panel are not asked for a code. Guide:
 [Remote mode](../operate/remote.md#one-time-codes).
 

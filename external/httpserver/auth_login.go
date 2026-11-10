@@ -129,8 +129,9 @@ func (s *Server) loginPolicyNow() loginPolicy {
 	}
 	ttl := cfgLogin.SessionTTL()
 	// The one-time code secret belongs to the server's form, not to where the
-	// password came from: `coddy serve set-totp` writes it into the file, and
-	// it guards an account from the environment as much as one from the file.
+	// password came from: the web UI's Settings, Authentication enrollment
+	// writes it, and it guards an account from the environment as much as one
+	// from the file.
 	totp := cfgLogin.TOTPSecret
 	switch {
 	case s.envLoginUser != "" && s.envLoginHash != "":
