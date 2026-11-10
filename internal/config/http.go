@@ -104,12 +104,17 @@ type HTTPLoginConfig struct {
 	SessionTTLHours int `yaml:"session_ttl_hours"`
 }
 
+const DefaultLoginSessionTTLHours = 24
+
 // Normalize trims the login fields.
 func (l *HTTPLoginConfig) Normalize() {
 	l.Mode = strings.ToLower(strings.TrimSpace(l.Mode))
 	l.User = strings.TrimSpace(l.User)
 	l.PasswordHash = strings.TrimSpace(l.PasswordHash)
 	l.TOTPSecret = webauth.NormalizeTOTPSecret(l.TOTPSecret)
+	if l.SessionTTLHours == 0 {
+		l.SessionTTLHours = DefaultLoginSessionTTLHours
+	}
 }
 
 // Validate reports the login settings a server could not honour.
@@ -172,8 +177,11 @@ func (l *HTTPLoginConfig) IsExplicitlyEnabled() bool {
 // closes", which is what the cookie then says too - the server still applies
 // webauth.DefaultSessionTTL to its own record of it.
 func (l *HTTPLoginConfig) SessionTTL() time.Duration {
-	if l.SessionTTLHours <= 0 {
+	if l.SessionTTLHours < 0 {
 		return 0
+	}
+	if l.SessionTTLHours == 0 {
+		return DefaultLoginSessionTTLHours * time.Hour
 	}
 	return time.Duration(l.SessionTTLHours) * time.Hour
 }

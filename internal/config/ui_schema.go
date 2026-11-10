@@ -970,7 +970,7 @@ func UISchemaMap() map[string]interface{} {
 			"enable":            boolProp("Enable sign-in", "Require a web sign-in."),
 			"user":              strProp("User", "The account name."),
 			"password":          password,
-			"session_ttl_hours": intProp("Session duration", "Session duration in hours; zero keeps a browser session."),
+			"session_ttl_hours": intProp("Session duration", "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie."),
 		}, []string{"enable", "user", "password", "session_ttl_hours"}, nil),
 	}, []string{"login"}, nil)
 	rootOrder := []string{

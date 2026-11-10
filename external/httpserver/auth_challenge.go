@@ -26,13 +26,14 @@ const maxChallenges = 4096
 type challengeEntry struct {
 	fingerprint string
 	expires     time.Time
+	ttl         time.Duration
 }
 type challengeStore struct {
 	mu      sync.Mutex
 	entries map[string]challengeEntry
 }
 
-func (c *challengeStore) issue(fingerprint string, now time.Time) (string, error) {
+func (c *challengeStore) issue(fingerprint string, ttl time.Duration, now time.Time) (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
@@ -51,15 +52,15 @@ func (c *challengeStore) issue(fingerprint string, now time.Time) (string, error
 	if len(c.entries) >= maxChallenges {
 		return "", errors.New("too many pending challenges")
 	}
-	c.entries[token] = challengeEntry{fingerprint, now.Add(challengeTTL)}
+	c.entries[token] = challengeEntry{fingerprint: fingerprint, expires: now.Add(challengeTTL), ttl: ttl}
 	return token, nil
 }
-func (c *challengeStore) take(token string, now time.Time) (string, bool) {
+func (c *challengeStore) take(token string, now time.Time) (challengeEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[token]
 	delete(c.entries, token)
-	return entry.fingerprint, ok && now.Before(entry.expires)
+	return entry, ok && now.Before(entry.expires)
 }
 func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request) {
 	if !isSameOriginRequest(r) {
@@ -82,16 +83,16 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	fp, ok := s.challenges.take(req.Challenge, s.authNow())
+	entry, ok := s.challenges.take(req.Challenge, s.authNow())
 	pol := s.loginPolicyNow()
-	if !ok || !pol.enabled || pol.broken || pol.account.totpSecret == "" || fp != pol.account.fingerprint() {
+	if !ok || !pol.enabled || pol.broken || pol.account.totpSecret == "" || entry.fingerprint != pol.account.fingerprint() {
 		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
 		return
 	}
 	valid := s.verifySecondFactor(pol.account, req.Code)
 	if !valid {
 		var err error
-		valid, err = s.consumeLoginBackup(fp, req.Code)
+		valid, err = s.consumeLoginBackup(entry.fingerprint, req.Code)
 		if err != nil {
 			s.log.Error("backup code persistence failed", "error", err)
 			writeJSON(w, 500, map[string]interface{}{"error": "could not update authentication"})
@@ -104,12 +105,14 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 	}
 	// Recheck after verification so a rotation cannot yield a usable old session.
 	pol = s.loginPolicyNow()
-	if !pol.enabled || pol.broken || pol.account.fingerprint() != fp {
+	if !pol.enabled || pol.broken || pol.account.fingerprint() != entry.fingerprint {
 		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
 		return
 	}
 	s.loginThrottle.Reset(client)
-	s.issueLoginSession(w, r, pol.account, client)
+	account := pol.account
+	account.ttl = entry.ttl
+	s.issueLoginSession(w, r, account, client)
 }
 
 func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {

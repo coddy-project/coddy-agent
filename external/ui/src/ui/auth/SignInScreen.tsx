@@ -29,6 +29,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     : wordmarkDark;
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
   const [backup, setBackup] = useState(false);
@@ -74,7 +75,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     setNotKept(false);
     const res = verifying
       ? await verifySignIn(challenge, code)
-      : await signIn(user, password);
+      : await signIn(user, password, remember);
     if (res.ok) {
       if (res.challenge) {
         setPassword("");
@@ -259,6 +260,16 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={busy}
                   />
+                </label>
+
+                <label className="auth-remember">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    disabled={busy}
+                    onChange={(event) => setRemember(event.target.checked)}
+                  />
+                  <span>{t("auth.signIn.remember")}</span>
                 </label>
               </>
             )}

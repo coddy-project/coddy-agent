@@ -182,6 +182,81 @@ func TestEnrollmentLifecycle(t *testing.T) {
 	}
 }
 
+func TestEnrollmentRefreshesOnlyTheCurrentSession(t *testing.T) {
+	srv := newLoginServer(t, configuredLogin(t))
+	c := srv.activeCfg()
+	c.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "k"}}
+	c.Paths.ConfigPath = filepath.Join(t.TempDir(), "config.yaml")
+	raw, err := config.MarshalConfigYAMLForFile(c, c.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.Paths.ConfigPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	other := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	post := func(path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		return w
+	}
+	code, err := webauth.TOTPCode("JBSWY3DPEHPK3PXP", srv.authNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := current
+	if setup := post("/coddy/auth/totp/setup", `{}`, current); setup.Code != http.StatusOK {
+		t.Fatalf("setup: %d %s", setup.Code, setup.Body.String())
+	}
+	enabled := post("/coddy/auth/totp/enable", `{"secret":"JBSWY3DPEHPK3PXP","code":"`+code+`"}`, current)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body.String())
+	}
+	current = sessionCookieOf(t, enabled)
+	if current == nil || current.Value == initial.Value {
+		t.Fatal("enable did not issue a refreshed cookie")
+	}
+	for name, want := range map[string]bool{"initial": false, "refreshed": true, "other": false} {
+		cookie := initial
+		switch name {
+		case "refreshed":
+			cookie = current
+		case "other":
+			cookie = other
+		}
+		r := httptest.NewRequest(http.MethodGet, "/coddy/auth/me", nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		var state struct {
+			Authenticated bool `json:"authenticated"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+			t.Fatal(err)
+		}
+		if state.Authenticated != want {
+			t.Fatalf("%s session after enable: authenticated %v, want %v: %s", name, state.Authenticated, want, w.Body.String())
+		}
+	}
+	previous := current
+	regenerated := post("/coddy/auth/backup-codes/regenerate", `{}`, current)
+	current = sessionCookieOf(t, regenerated)
+	if current == nil || current.Value == previous.Value {
+		t.Fatal("regenerate did not refresh the current session")
+	}
+	previous = current
+	disabled := post("/coddy/auth/totp/disable", `{}`, current)
+	current = sessionCookieOf(t, disabled)
+	if current == nil || current.Value == previous.Value {
+		t.Fatal("disable did not refresh the current session")
+	}
+}
+
 func TestBackupGenerationFingerprint(t *testing.T) {
 	state, codes, err := webauth.GenerateBackupCodes(2)
 	if err != nil {

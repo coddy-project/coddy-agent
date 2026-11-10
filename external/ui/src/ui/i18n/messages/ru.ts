@@ -16,6 +16,10 @@ export const messagesRu: Record<string, string> = {
   "settings.auth.copy": "Копировать",
   "settings.auth.download": "Скачать",
   "settings.auth.regenerate": "Создать заново",
+  "settings.auth.editSecret": "Изменить секрет",
+  "settings.auth.copyCodes": "Копировать резервные коды",
+  "settings.auth.downloadCodes": "Скачать резервные коды",
+  "settings.auth.regenerateCodes": "Создать новые резервные коды",
   "settings.auth.disableError":
     "Не удалось отключить приложение-аутентификатор.",
   "settings.auth.regenerateError": "Не удалось создать новые резервные коды.",
@@ -117,6 +121,7 @@ export const messagesRu: Record<string, string> = {
   "auth.signIn.title": "Вход",
   "auth.signIn.user": "Пользователь",
   "auth.signIn.password": "Пароль",
+  "auth.signIn.remember": "Не выходить из системы в течение 24 часов",
   "auth.signIn.submit": "Войти",
   "auth.signIn.working": "Вход\u2026",
   "auth.signIn.invalid": "Неверный пользователь или пароль.",

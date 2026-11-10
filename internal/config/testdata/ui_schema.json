@@ -672,7 +672,7 @@
               "writeOnly": true
             },
             "session_ttl_hours": {
-              "description": "Session duration in hours; zero keeps a browser session.",
+              "description": "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie.",
               "title": "Session duration",
               "type": "integer"
             },

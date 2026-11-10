@@ -68,8 +68,8 @@ func TestHTTPLoginAbsentMeansOff(t *testing.T) {
 	if l.HasAccount() || l.IsExplicitlyEnabled() || l.IsExplicitlyDisabled() {
 		t.Fatalf("an untouched config reports a login: %+v", l)
 	}
-	if got := l.SessionTTL(); got != 0 {
-		t.Fatalf("session TTL without a value = %v, want 0 (browser session)", got)
+	if got := l.SessionTTL(); got != 24*time.Hour {
+		t.Fatalf("session TTL without a value = %v, want 24h", got)
 	}
 }
 

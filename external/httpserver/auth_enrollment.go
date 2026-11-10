@@ -199,6 +199,11 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
+		// Preserve only the browser that performed the change. Its old session
+		// and every other session keep the previous fingerprint and are refused.
+		if err = s.refreshEnrollmentSession(w, r); err != nil {
+			return err
+		}
 		generation = loaded.HTTPServer.Login.BackupCodes.Generation
 		return nil
 	})
@@ -220,6 +225,16 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]interface{}{"ok": true})
+}
+
+func (s *Server) refreshEnrollmentSession(w http.ResponseWriter, r *http.Request) error {
+	account := s.loginPolicyNow().account
+	token, _, err := s.sessions.Issue(account.user, account.fingerprint(), account.ttl)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, sessionCookie(r, token, account.ttl))
+	return nil
 }
 
 var errEnrollmentNotEnabled = errors.New("TOTP not enabled")

@@ -315,6 +315,7 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		User     string `json:"user"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBodyBytes))
 	if err != nil {
@@ -351,7 +352,11 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pol.account.totpSecret != "" {
-		challenge, err := s.challenges.issue(pol.account.fingerprint(), s.authNow())
+		ttl := pol.account.ttl
+		if !req.Remember {
+			ttl = 0
+		}
+		challenge, err := s.challenges.issue(pol.account.fingerprint(), ttl, s.authNow())
 		if err != nil {
 			writeJSON(w, 500, map[string]interface{}{"error": "could not open a challenge"})
 			return
@@ -361,7 +366,11 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginThrottle.Reset(client)
-	s.issueLoginSession(w, r, pol.account, client)
+	account := pol.account
+	if !req.Remember {
+		account.ttl = 0
+	}
+	s.issueLoginSession(w, r, account, client)
 }
 
 func (s *Server) issueLoginSession(w http.ResponseWriter, r *http.Request, account loginAccount, client string) {

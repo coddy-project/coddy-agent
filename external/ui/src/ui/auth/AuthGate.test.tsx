@@ -199,6 +199,30 @@ describe("SignInScreen", () => {
     expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
   });
 
+  it("asks for a 24-hour cookie only when remember me is checked", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByLabelText("Keep me signed in for 24 hours"));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() =>
+      expect(seen.find((s) => s.url === "/coddy/auth/login")?.body).toBe(
+        JSON.stringify({
+          user: "operator",
+          password: "correct-horse",
+          remember: true,
+        }),
+      ),
+    );
+  });
+
   // A page embedded in another site (Telegram Web runs a Mini App in an
   // iframe) gets the cookie of a sign-in the server accepted, and the browser
   // does not send it back. A reload would only bring the form back with no

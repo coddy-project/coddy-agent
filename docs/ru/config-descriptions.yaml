@@ -588,8 +588,8 @@ httpserver.login.backup_codes.hashes:
   en: "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored."
   ru: "SHA-256-хеши неиспользованных резервных кодов. Использованный хеш удаляется из набора и записывается в отдельный журнал, чтобы код нельзя было использовать повторно после восстановления старой конфигурации."
 httpserver.login.session_ttl_hours:
-  en: "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session."
-  ru: "Сколько времени действует вход в браузере. 0 означает, что cookie удаляется при закрытии браузера; сервер всё равно сам завершает сессию через 30 дней, потому что запись, которую он хранит вечно, уже не сессия."
+  en: "How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked."
+  ru: "Сколько времени действует вход в браузере. По умолчанию 24 часа. Галка \"Не выходить из системы\" включает постоянную cookie на этот срок, а без неё используется сессионная cookie."
 httpserver.public_docs:
   en: "When auth is enabled, keep /docs and /openapi.* reachable without a token."
   ru: "Если аутентификация включена, оставлять /docs и /openapi.* доступными без токена."

@@ -76,6 +76,11 @@ test("keeps a malformed session duration numeric instead of storing NaN", () => 
   ).toBe(0);
 });
 
+test("defaults the persistent session duration to 24 hours", () => {
+  render(<Form />);
+  expect(screen.getByLabelText("Session duration (hours)")).toHaveValue(24);
+});
+
 test("puts the password help behind its field hint", () => {
   render(<Form />);
   expect(screen.getByRole("button", { name: "About Password" })).toBeTruthy();
@@ -281,7 +286,7 @@ test("verification merges metadata with account edits made in flight", async () 
     target: { value: "new-password" },
   });
   fireEvent.change(screen.getByLabelText("Session duration (hours)"), {
-    target: { value: "24" },
+    target: { value: "48" },
   });
   fireEvent.click(
     screen.getByRole("switch", { name: "Enable authentication" }),
@@ -293,10 +298,68 @@ test("verification merges metadata with account edits made in flight", async () 
   ).toMatchObject({
     user: "new-user",
     password: "new-password",
-    session_ttl_hours: 24,
+    session_ttl_hours: 48,
     enable: false,
     totp_configured: true,
   });
+});
+
+test("reopens secret enrollment after TOTP is enabled and uses icon actions", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url.endsWith("/setup")
+          ? {
+              secret: "JBSWY3DPEHPK3PXP",
+              uri: "otpauth://totp/test",
+              qr_png: "data:image/png;base64,YQ==",
+            }
+          : { codes: ["FIRST-CODE"], backup_codes_generation: "generation-1" },
+    })),
+  );
+  render(<Form />);
+  fireEvent.click(
+    screen.getByRole("switch", { name: "Require one-time code" }),
+  );
+  fireEvent.change(await screen.findByLabelText("Code from the app"), {
+    target: { value: "123456" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  await screen.findByText("FIRST-CODE");
+  expect(screen.getByText("Login", { selector: "label" })).toHaveClass(
+    "settings-label",
+  );
+  expect(
+    screen.getByText("Session duration (hours)", { selector: "label" }),
+  ).toHaveClass("settings-label");
+  for (const name of [
+    "Copy backup codes",
+    "Download backup codes",
+    "Regenerate backup codes",
+  ]) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toHaveAttribute("title", name);
+    expect(button).toHaveClass("settings-btn-icon");
+    expect(button.textContent).toBe("");
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Edit secret" }));
+  const qr = document.querySelector(".auth-enrollment-qr");
+  const verify = screen.getByRole("button", { name: "Verify and enable" });
+  expect(qr?.parentElement).toContain(verify);
+  const codes = document.querySelector(".auth-enrollment-codes");
+  const actions = document.querySelector(".auth-backup-actions");
+  expect(
+    codes!.compareDocumentPosition(actions!) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    await screen.findByRole("img", { name: "Authenticator QR code" }),
+  ).toBeTruthy();
+  expect(screen.getByText("Secret", { selector: "label" })).toHaveClass(
+    "settings-label",
+  );
+  expect(screen.getByRole("button", { name: "Remove TOTP" })).toBeTruthy();
 });
 
 test("locks secret and code during verification", async () => {
@@ -389,11 +452,15 @@ function ConfiguredForm() {
 test.each([true, false])(
   "disable confirmation handles success=%s",
   async (ok) => {
-    const fetchMock = vi.fn(async () => ({ ok }));
+    const fetchMock = vi.fn(async () => ({
+      ok,
+      json: async () => ({ qr_png: "data:image/png;base64,YQ==" }),
+    }));
     vi.stubGlobal("fetch", fetchMock);
     render(<ConfiguredForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit secret" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove TOTP" }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Disable" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -430,7 +497,7 @@ test.each([true, false])(
     const fieldset = screen.getByRole("group", { name: "Authenticator app" });
     expect(within(fieldset).getByText(/5 unused/)).toBeTruthy();
     fireEvent.click(
-      within(fieldset).getByRole("button", { name: "Regenerate" }),
+      within(fieldset).getByRole("button", { name: "Regenerate backup codes" }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
@@ -470,12 +537,16 @@ test("copies and downloads the displayed codes", async () => {
     })),
   );
   render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("COPY-CODE");
-  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  fireEvent.click(screen.getByRole("button", { name: "Copy backup codes" }));
   await waitFor(() => expect(copy).toHaveBeenCalledWith("COPY-CODE"));
-  fireEvent.click(screen.getByRole("button", { name: "Download" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Download backup codes" }),
+  );
   expect(create).toHaveBeenCalled();
   expect(click).toHaveBeenCalled();
   click.mockRestore();
@@ -491,10 +562,14 @@ test("failed regeneration preserves the codes already shown", async () => {
     .mockResolvedValueOnce({ ok: false });
   vi.stubGlobal("fetch", fetchMock);
   render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("KEPT-CODE");
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Could not regenerate",
@@ -512,7 +587,9 @@ test("reopening with consumed codes trusts fresh metadata rather than retained r
     })),
   );
   const first = render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("PRIVATE");
   first.unmount();
@@ -552,10 +629,14 @@ test("download failure reports an error and revokes its object URL", async () =>
       throw new Error("download failed");
     });
   render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("PRIVATE");
-  fireEvent.click(screen.getByRole("button", { name: "Download" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Download backup codes" }),
+  );
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(revoke).toHaveBeenCalledWith("blob:temporary");
   click.mockRestore();
@@ -573,7 +654,9 @@ test("reopening with a different generation hides codes even when the count is u
     })),
   );
   const first = render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("OLD-CODE");
   first.unmount();
@@ -609,7 +692,9 @@ test("reopening after an external disable does not restore stale metadata or cod
     })),
   );
   const first = render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   await screen.findByText("PRIVATE");
   first.unmount();
@@ -643,7 +728,9 @@ test("a pending result cannot overwrite fresher server metadata after navigation
     vi.fn(() => pending.promise),
   );
   const first = render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   first.unmount();
   pending.resolve({
@@ -810,7 +897,9 @@ test("a result arriving after reopening cannot replace fresh server metadata", a
     vi.fn(() => pending.promise),
   );
   const first = render(<ConfiguredForm />);
-  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Regenerate backup codes" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
   first.unmount();
   const onChange = vi.fn();

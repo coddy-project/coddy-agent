@@ -23,6 +23,7 @@ import { SwitchField } from "./SwitchField";
 import { FieldLabel } from "./FieldHint";
 import { SecretInput } from "./SecretInput";
 import { totpPeriodLeft } from "./totpPeriod";
+import { IconCopy, IconDownload, IconSync } from "./icons";
 import { fieldAnchor } from "./SchemaForm";
 import { landmarkAnchor } from "./settingsSections";
 
@@ -246,57 +247,59 @@ export function AuthenticationSection({ value, onChange }: Props) {
         {value.login_source === "env" && (
           <p className="settings-muted">{t("settings.auth.environment")}</p>
         )}
-        <div
-          className="settings-row"
-          data-settings-anchor={fieldAnchor("httpserver.login", "user")}
-        >
-          <label htmlFor={`${id}-user`}>
-            {t(AUTHENTICATION_FIELD_TEXTS.user!)}
-          </label>
-          <input
-            id={`${id}-user`}
-            className="settings-input"
-            value={String(login.user ?? "")}
-            onChange={(e) => update("user", e.target.value)}
-          />
-        </div>
-        <div
-          className="settings-row"
-          data-settings-anchor={fieldAnchor("httpserver.login", "password")}
-        >
-          <FieldLabel
-            label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
-            description={t("settings.auth.passwordHint")}
-          />
-          <SecretInput
-            id={`${id}-password`}
-            aria-label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
-            value={String(login.password ?? "")}
-            onChange={(e) => update("password", e.target.value)}
-            autoComplete="new-password"
-          />
-        </div>
-        <div
-          className="settings-row"
-          data-settings-anchor={fieldAnchor(
-            "httpserver.login",
-            "session_ttl_hours",
-          )}
-        >
-          <label htmlFor={`${id}-ttl`}>
-            {t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
-          </label>
-          <input
-            id={`${id}-ttl`}
-            className="settings-input"
-            type="number"
-            min="0"
-            value={String(login.session_ttl_hours ?? 0)}
-            onChange={(e) => {
-              const hours = Number(e.target.value);
-              update("session_ttl_hours", Number.isFinite(hours) ? hours : 0);
-            }}
-          />
+        <div className="auth-account-fields">
+          <div
+            className="settings-row"
+            data-settings-anchor={fieldAnchor("httpserver.login", "user")}
+          >
+            <label className="settings-label" htmlFor={`${id}-user`}>
+              {t(AUTHENTICATION_FIELD_TEXTS.user!)}
+            </label>
+            <input
+              id={`${id}-user`}
+              className="settings-input"
+              value={String(login.user ?? "")}
+              onChange={(e) => update("user", e.target.value)}
+            />
+          </div>
+          <div
+            className="settings-row"
+            data-settings-anchor={fieldAnchor("httpserver.login", "password")}
+          >
+            <FieldLabel
+              label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
+              description={t("settings.auth.passwordHint")}
+            />
+            <SecretInput
+              id={`${id}-password`}
+              aria-label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
+              value={String(login.password ?? "")}
+              onChange={(e) => update("password", e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <div
+            className="settings-row"
+            data-settings-anchor={fieldAnchor(
+              "httpserver.login",
+              "session_ttl_hours",
+            )}
+          >
+            <label className="settings-label" htmlFor={`${id}-ttl`}>
+              {t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
+            </label>
+            <input
+              id={`${id}-ttl`}
+              className="settings-input"
+              type="number"
+              min="0"
+              value={String(login.session_ttl_hours ?? 24)}
+              onChange={(e) => {
+                const hours = Number(e.target.value);
+                update("session_ttl_hours", Number.isFinite(hours) ? hours : 0);
+              }}
+            />
+          </div>
         </div>
       </fieldset>
       <fieldset
@@ -321,30 +324,54 @@ export function AuthenticationSection({ value, onChange }: Props) {
         {login.totp_configured === true && (
           <button
             type="button"
-            className="settings-btn"
-            disabled={busy}
-            onClick={() => void change("disable")}
+            className="settings-btn auth-edit-secret"
+            onClick={() => {
+              setEnrolling(true);
+              if (!qr) void setup();
+            }}
           >
-            {t("settings.auth.removeTotp")}
+            {t("settings.auth.editSecret")}
           </button>
         )}
         {enrolling && (
           <div className="auth-enrollment-grid">
             {qr && (
-              <img
-                className="auth-enrollment-qr"
-                src={qr}
-                alt={t("settings.auth.qr")}
-              />
+              <div className="auth-enrollment-qr-column">
+                <img
+                  className="auth-enrollment-qr"
+                  src={qr}
+                  alt={t("settings.auth.qr")}
+                />
+                <div className="auth-enrollment-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-primary"
+                    disabled={!/^\d{6}$/.test(code) || !qr || busy}
+                    onClick={() => void verify()}
+                  >
+                    {t("settings.auth.verify")}
+                  </button>
+                </div>
+              </div>
+            )}
+            {login.totp_configured === true && (
+              <button
+                type="button"
+                className="settings-btn settings-btn-danger auth-remove-totp"
+                disabled={busy}
+                onClick={() => void change("disable")}
+              >
+                {t("settings.auth.removeTotp")}
+              </button>
             )}
             <div className="auth-enrollment-fields">
               <div className="settings-row">
-                <label htmlFor={`${id}-secret`}>
+                <label className="settings-label" htmlFor={`${id}-secret`}>
                   {t("settings.auth.secret")}
                 </label>
                 <SecretInput
                   id={`${id}-secret`}
-                  value={secret}
+                  value={secret ?? ""}
                   disabled={busy}
                   autoComplete="off"
                   onChange={(event) => {
@@ -359,7 +386,9 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 />
               </div>
               <div className="settings-row">
-                <label htmlFor={`${id}-code`}>{t("settings.auth.code")}</label>
+                <label className="settings-label" htmlFor={`${id}-code`}>
+                  {t("settings.auth.code")}
+                </label>
                 <input
                   id={`${id}-code`}
                   className="settings-input"
@@ -384,14 +413,6 @@ export function AuthenticationSection({ value, onChange }: Props) {
                   />
                 </span>
               </div>
-              <button
-                type="button"
-                className="settings-btn settings-btn-primary"
-                disabled={!/^\d{6}$/.test(code) || !qr || busy}
-                onClick={() => void verify()}
-              >
-                {t("settings.auth.verify")}
-              </button>
             </div>
           </div>
         )}
@@ -420,10 +441,19 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 Number(login.backup_codes_count ?? 0),
               )}
             </div>
+            {shownCodes.length > 0 && (
+              <div className="auth-enrollment-codes">
+                {shownCodes.map((item) => (
+                  <code key={item}>{item}</code>
+                ))}
+              </div>
+            )}
             <div className="auth-backup-actions">
               <button
                 type="button"
-                className="settings-btn"
+                className="settings-btn-icon"
+                title={t("settings.auth.copyCodes")}
+                aria-label={t("settings.auth.copyCodes")}
                 disabled={shownCodes.length === 0}
                 onClick={() =>
                   void copyText(shownCodes.join("\n")).then((ok) => {
@@ -431,33 +461,30 @@ export function AuthenticationSection({ value, onChange }: Props) {
                   })
                 }
               >
-                {t("settings.auth.copy")}
+                <IconCopy />
               </button>
               <button
                 type="button"
-                className="settings-btn"
+                className="settings-btn-icon"
+                title={t("settings.auth.downloadCodes")}
+                aria-label={t("settings.auth.downloadCodes")}
                 disabled={shownCodes.length === 0}
                 onClick={download}
               >
-                {t("settings.auth.download")}
+                <IconDownload />
               </button>
               <button
                 type="button"
-                className="settings-btn"
+                className="settings-btn-icon"
+                title={t("settings.auth.regenerateCodes")}
+                aria-label={t("settings.auth.regenerateCodes")}
                 disabled={busy}
                 onClick={() => void change("regenerate")}
               >
-                {t("settings.auth.regenerate")}
+                <IconSync />
               </button>
             </div>
           </fieldset>
-        )}
-        {shownCodes.length > 0 && (
-          <div className="auth-enrollment-codes">
-            {shownCodes.map((item) => (
-              <code key={item}>{item}</code>
-            ))}
-          </div>
         )}
       </fieldset>
     </div>

@@ -266,8 +266,13 @@ export type SignInResult = {
 export async function signIn(
   user: string,
   password: string,
+  remember = false,
 ): Promise<SignInResult> {
-  return postSignIn("/coddy/auth/login", { user, password });
+  return postSignIn("/coddy/auth/login", {
+    user,
+    password,
+    ...(remember ? { remember: true } : {}),
+  });
 }
 
 /** verifySignIn spends a password challenge on a TOTP or backup code. */
@@ -280,7 +285,7 @@ export async function verifySignIn(
 
 async function postSignIn(
   path: string,
-  payload: Record<string, string>,
+  payload: Record<string, string | boolean>,
 ): Promise<SignInResult> {
   let res: Response;
   try {

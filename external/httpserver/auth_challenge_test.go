@@ -48,6 +48,27 @@ func TestChallengeVerificationAndSingleUse(t *testing.T) {
 		t.Fatalf("reused challenge: %d", w.Code)
 	}
 }
+
+func TestChallengeRememberMeControlsPersistentCookie(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	s := newTOTPLoginServer(t, now)
+	body, _ := json.Marshal(map[string]any{
+		"user": loginTestUser, "password": loginTestPassword, "remember": true,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/coddy/auth/login", strings.NewReader(string(body)))
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	var answer map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &answer); err != nil {
+		t.Fatal(err)
+	}
+	verified := challengeVerify(s, answer["challenge"], codeAt(t, now))
+	cookie := sessionCookieOf(t, verified)
+	if cookie.MaxAge != 24*60*60 {
+		t.Fatalf("MaxAge = %d, want 86400", cookie.MaxAge)
+	}
+}
 func TestChallengeWrongCodeConsumesChallenge(t *testing.T) {
 	now := time.Unix(1800000000, 0)
 	s := newTOTPLoginServer(t, now)

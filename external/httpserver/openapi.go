@@ -1686,7 +1686,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/auth/login": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Sign a browser in with the configured account",
-					"description": "Public: it is the way through the gate, and it takes the password only. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
+					"description": "Public: it is the way through the gate, and it takes the password only. Optional `remember: true` requests the persistent cookie of `session_ttl_hours` (24 by default); omitted or false uses a browser-session cookie. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`). " +
 						"When `httpserver.login.totp_secret` is set, a correct password signs nobody in yet: the answer is `second_factor: \"totp\"` with a `challenge` instead of a session, no cookie is set, and the challenge opens `POST /coddy/auth/login/verify` for one attempt within three minutes. " +
 						"A wrong password and an unknown user get the same **401** and the same body (with `second_factor: \"totp\"` when codes are on); repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
 						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
@@ -1701,6 +1701,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"user":     map[string]string{"type": "string"},
 										"password": map[string]string{"type": "string", "format": "password"},
+										"remember": map[string]interface{}{"type": "boolean", "default": false},
 									},
 									"required": []string{"user", "password"},
 								},
@@ -1925,7 +1926,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/auth/totp/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Turn one-time codes on after a verified code",
-					"description": "Finishes the enrollment `POST /coddy/auth/totp/setup` opened: the `code` the authenticator app shows for `secret` has to match before anything is written, so a scan that went wrong locks nobody out. On success `httpserver.login.totp_secret` and a fresh set of ten backup codes are written into `config.yaml` and every session the account opened before ends on its next request. " +
+					"description": "Finishes the enrollment `POST /coddy/auth/totp/setup` opened: the `code` the authenticator app shows for `secret` has to match before anything is written, so a scan that went wrong locks nobody out. On success `httpserver.login.totp_secret` and a fresh set of ten backup codes are written into `config.yaml` and the current browser receives a refreshed session and every other session the account opened before ends on its next request. " +
 						"The answer's `codes` are the plaintext backup codes (`XXXXXXXX-XXXXXXXX`), shown once - the config keeps their SHA-256 hashes, and `backup_codes_generation` is the opaque id of the set. Same session-cookie and same-origin rules as the rest of the enrollment, `Cache-Control: no-store`. **400** for an invalid body, secret or code, **401** for no live session (a session that ended while the config lock was held included), **403** cross-site, **500** when the write could not be applied.",
 					"operationId": "authTotpEnable",
 					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
@@ -1970,7 +1971,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/auth/totp/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Turn one-time codes off",
-					"description": "Clears `httpserver.login.totp_secret` and the backup-code set from `config.yaml`; the password alone signs in afterwards and every session the account opened ends on its next request. Same session-cookie and same-origin rules as the rest of the enrollment. **401** for no live session, **403** cross-site, **500** when the write could not be applied.",
+					"description": "Clears `httpserver.login.totp_secret` and the backup-code set from `config.yaml`; the password alone signs in afterwards, the current browser receives a refreshed session, and every other session the account opened ends on its next request. Same session-cookie and same-origin rules as the rest of the enrollment. **401** for no live session, **403** cross-site, **500** when the write could not be applied.",
 					"operationId": "authTotpDisable",
 					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
 					"responses": map[string]interface{}{

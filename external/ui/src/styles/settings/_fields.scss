@@ -76,11 +76,6 @@
   place-items: center;
 }
 
-.settings-secret-input {
-  display: flex;
-  min-width: 0;
-}
-
 /* The list forms' way back (< LLM providers): a quiet link, the app's chevron
    pointing left and the list's name, level with the fields below. */
 .settings-back-link {
@@ -512,6 +507,83 @@
   gap: 8px;
 }
 
+.settings-authentication {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-account-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-account-fields
+  > [data-settings-anchor="httpserver.login:session_ttl_hours"] {
+  grid-column: 1 / -1;
+}
+
+.auth-account-fields > .settings-row,
+.auth-enrollment-fields > .settings-row {
+  min-width: 0;
+}
+
+.settings-secret-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-secret-input > .settings-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 40px;
+}
+
+.settings-secret-input > .settings-btn-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.settings-secret-input > .settings-btn-icon:hover,
+.settings-secret-input > .settings-btn-icon:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.auth-enrollment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auth-edit-secret {
+  margin-top: 12px;
+}
+
+.auth-backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auth-backup-actions > .settings-btn-icon {
+  flex: 0 0 40px;
+}
+
 .auth-enrollment-grid {
   display: grid;
   grid-template-columns: 184px minmax(0, 1fr);
@@ -525,10 +597,23 @@
   background: white;
   border-radius: 10px;
 }
+
+.auth-enrollment-qr-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.auth-enrollment-qr-column > .auth-enrollment-actions {
+  margin-top: 0;
+}
+
 .auth-enrollment-fields {
   min-width: 0;
   display: grid;
-  gap: 12px;
+  gap: 4px;
 }
 .auth-enrollment-codes {
   display: grid;
@@ -537,6 +622,10 @@
   margin-top: 12px;
 }
 @media (max-width: 599px) {
+  .auth-account-fields {
+    grid-template-columns: 1fr;
+  }
+
   .auth-enrollment-grid {
     grid-template-columns: minmax(0, 1fr);
   }
