@@ -191,7 +191,7 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(readErr, os.ErrNotExist) {
 				rollbackErr = os.Remove(path)
 			} else {
-				rollbackErr = config.AtomicWriteConfigYAML(path, original)
+				rollbackErr = config.AtomicWriteFile(path, original, 0o600)
 			}
 			if rollbackErr != nil {
 				s.log.Error("authentication config rollback failed", "error", rollbackErr)

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -297,6 +298,7 @@ func TestEnrollmentInstallFailureRestoresOriginalFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	original = append([]byte("# CRLF\r\n# LF\n# CR\r"), original...)
 	if err := os.WriteFile(c.Paths.ConfigPath, original, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -327,6 +329,15 @@ func TestEnrollmentInstallFailureRestoresOriginalFile(t *testing.T) {
 	}
 	if !bytes.Equal(after, original) {
 		t.Error("install failure changed configuration file")
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(c.Paths.ConfigPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("restored configuration mode = %o, want 600", info.Mode().Perm())
+		}
 	}
 	if srv.activeCfg().HTTPServer.Login.TOTPSecret != "" || srv.activeCfg().HTTPServer.Login.BackupCodes.Generation != "" {
 		t.Error("install failure changed live authentication")
