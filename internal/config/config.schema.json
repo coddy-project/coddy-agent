@@ -1334,16 +1334,16 @@
             },
             "totp_secret": {
               "type": "string",
-              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrolled in the web UI under Settings, Authentication, which shows it as a QR code; empty means the password alone signs in, and removing the key in Settings empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrollment accepts Base32 or Base16 and stores canonical Base32. Written in the web UI under Settings, Authentication, which shows a QR code and saves the key only after code verification; empty means the password alone signs in, and removing the key there empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
               "default": ""
             },
             "backup_codes": {
               "type": "object",
-              "description": "Generation and hashes of the recovery codes for the web account.",
+              "description": "Opaque generation identifier and SHA-256 hashes of the recovery codes for the web account. Plaintext codes are shown only when issued, and GET /coddy/config never returns their hashes.",
               "additionalProperties": false,
               "properties": {
                 "generation": {"type": "string", "description": "Identifier of the current recovery-code set."},
-                "hashes": {"type": "array", "description": "Hashes of unused recovery codes.", "items": {"type": "string"}}
+                "hashes": {"type": "array", "description": "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored.", "items": {"type": "string"}}
               }
             },
             "session_ttl_hours": {

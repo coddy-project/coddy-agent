@@ -592,6 +592,13 @@ tools:
 #     # web UI under Settings, Authentication, which shows a QR code and writes the key once
 #     # the app confirms it; removing the key in Settings empties it. Never returned by GET /coddy/config.
 #     totp_secret: "..."
+#     # Backup codes for a lost authenticator, kept as a generation id plus one hash per unused
+#     # code; the plaintext is shown once when the set is issued or regenerated in the same
+#     # Settings fieldset. Written and rotated there too, never by hand; also hidden from
+#     # GET /coddy/config, which reports only backup_codes_configured/count/generation.
+#     backup_codes:
+#       generation: "..."
+#       hashes: ["..."]
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about

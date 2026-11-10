@@ -493,7 +493,7 @@ httpserver:
 
 A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here and survives a save from the settings screen as a reference; to keep a credential out of the document entirely, use `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` instead.
 
-The web UI adds a one-time code from an authenticator app to the form: in **Settings**, **Authentication** it shows a QR code and writes `totp_secret` once the app has confirmed the key, and removing the key there deletes it ([One-time codes](../operate/remote.md#one-time-codes)).
+The web UI adds a one-time code from an authenticator app after the password: in **Settings**, **Authentication** it shows a QR code and writes `totp_secret` once the app has confirmed the key, the same fieldset issues the ten backup codes (`backup_codes` keeps their hashes and a generation id) and regenerates them, and removing the key deletes both. The sign-in then takes the code on a second step, and a backup code stands in for a lost phone ([One-time codes](../operate/remote.md#one-time-codes)).
 
 The account can also come from the environment alone - `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `coddy --remote`, `coddy acp --remote`, a swarm relay and every script still present the bearer token. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
 

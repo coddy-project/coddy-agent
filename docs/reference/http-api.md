@@ -95,16 +95,32 @@ the environment carry an account the environment wins, and an explicit `login.en
 file switches the form off with the variables still set. There is no `--login-password` flag: a
 password on a command line is visible in `ps`.
 
-Three routes serve the form, and all three are reachable without a credential, because they are the
+Six routes serve the form, and they are reachable without a credential, because they are the
 way through the gate:
 
 | Route | What it does |
 |---|---|
 | **`GET /coddy/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser; `second_factor: "totp"` when the form also asks for a one-time code. The SPA calls it on boot to choose between the sign-in screen and the app. |
-| **`POST /coddy/auth/login`** | `{user, password}`, plus `code` when one-time codes are on. On success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
+| **`POST /coddy/auth/login`** | `{user, password}` only. Without one-time codes, success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. With `httpserver.login.totp_secret` set, a correct password answers **`200`** with `{"second_factor": "totp", "challenge": "..."}` and **no cookie**: the challenge is the ticket for the next call. |
+| **`POST /coddy/auth/login/verify`** | `{challenge, code}`: the second step, reached only after `POST /coddy/auth/login` has accepted a password on an account with codes on. The challenge is a random token, good for one attempt within three minutes and bound to the account it was issued for - an unknown, expired or spent one is `401`, and so is a fingerprint of the account that changed meanwhile (a password rotated, codes turned off or re-enrolled). `code` is the six-digit TOTP of the authenticator app or one backup code (`XXXXXXXX-XXXXXXXX`); on success the same session cookie lands as at the first step. A wrong or reused code is `401` with the same body as a wrong password, and the call is counted against the same throttle. |
 | **`POST /coddy/auth/telegram`** | `{init_data}`: the launch data of the web UI opened as the Telegram bot's Mini App. The signature is checked against the bot's token (launch data at most an hour old, each launch once). `${CODDY_HOME}/telegram-launches.json` records accepted launches across restarts. Reusing accepted launch data returns 401. A replay record storage failure returns 500 without issuing a session or cookie. A failure before the record is replaced does not mark the launch as used, so retry with the same launch data after fixing storage. If directory synchronization fails after replacement, the launch may already be marked used and remains protected against replay in memory; if a retry returns 401, open the Mini App again. Only a user in `gateways.telegram.admins` is signed in, with an HttpOnly, `SameSite=Strict` `coddy_tg_session_<host digest>` cookie that opens what the form's cookie opens, also behind a token-only gate, and ends when the token changes, the bot is disabled or the person stops being an admin. 403 for anybody else. `GET /coddy/auth/me` says `telegram_login: true` when the route is available. |
 | **`POST /coddy/auth/browser`** | `{ticket}`: the one-time ticket the side panel of [Coddy for Browser](../features/browser.md) got over its socket (`panel/open`) and loaded the web UI with. Good for one sign-in within a minute and bound to the extension key it was issued for; on success an HttpOnly, `SameSite=Strict` `coddy_browser_session_<host digest>` cookie that opens what the form's cookie opens, also behind a token-only gate, and ends when `browser.token` changes or `browser.enable` is turned off. 401 for an unknown, used or expired ticket. `GET /coddy/auth/me` says `browser_login: true` while the extension's endpoint is on. |
 | **`POST /coddy/auth/logout`** | Drops the session on the server and expires the cookie (the Mini App's too). Idempotent. |
+
+Four more routes manage one-time codes, and they are the only surface that may: there is no CLI
+for it. Each one needs the session cookie **and** the same-origin check - a bearer token does
+not reach them, so a second factor can only be set up from a browser already signed in:
+
+| Route | What it does |
+|---|---|
+| **`POST /coddy/auth/totp/setup`** | `{secret?}` → `{secret, uri, qr_png}`. Without a body it generates a 160-bit secret; a supplied one is accepted in base32 or base16 (a string that decodes as both is read as base32) and canonicalized to base32. `uri` is `otpauth://totp/Coddy:<user>?...` (issuer `Coddy`, SHA-1, 6 digits, 30-second period) and `qr_png` is a `data:image/png;base64,...` QR of it. Stores nothing - the key lands in `config.yaml` only through `enable` with a code that verifies. |
+| **`POST /coddy/auth/totp/enable`** | `{secret, code}` → `{codes, backup_codes_generation}`. The code the app shows for `secret` must match; then `totp_secret` and a fresh set of ten backup codes are written into `config.yaml`, and every session the account opened before ends on its next request. `codes` is the plaintext set, returned once - the file keeps the SHA-256 hashes, `backup_codes_generation` the opaque id of the set. |
+| **`POST /coddy/auth/totp/disable`** | → `{ok: true}`. Clears `totp_secret` and the backup codes; the password alone signs in afterwards, and existing sessions end on their next request. |
+| **`POST /coddy/auth/backup-codes/regenerate`** | → `{codes, backup_codes_generation}`: ten new codes, the old set dead, `400` while codes are not on. |
+
+All four answer `Cache-Control: no-store`; `401` for no live session (one that ended while the
+config lock was held included), `403` for a cross-site request, `400` for an unreadable body,
+secret or code, `500` when the config write could not be applied.
 
 Once signed in, the cookie opens every `/v1/*` and `/coddy/*` route, the SSE streams included - a
 same-origin `EventSource` sends cookies, so no `?access_token=` is needed. The cookie is
@@ -131,19 +147,27 @@ the next request, with nothing to invalidate by hand. The store is bounded at 51
 oldest first.
 
 With `httpserver.login.totp_secret` set (enrolled in the web UI under **Settings**, **Authentication**
-once an authenticator app has confirmed the key), the form asks for a one-time code as well: RFC 6238, six digits, a 30-second
-step, SHA-1, one step of clock drift either way. A code opens one session; the same code or an older
-one is refused afterwards. A missing, wrong or reused code gets the same `401` and the same body as a
-wrong password - with `second_factor: "totp"` in it - and counts against the same throttle, and the
-code is not looked at when the password is wrong, so a refusal never confirms the password and a
-mistyped password does not spend a code. Turning codes on, rotating the key or turning them off
-in **Settings**, **Authentication** ends every session the account opened before. Bearer tokens, the
-Telegram Mini App and the browser side panel are not asked for a code. Guide:
-[Remote mode](../operate/remote.md#one-time-codes).
+once an authenticator app has confirmed the key), the form takes two calls: the password at
+**`POST /coddy/auth/login`**, then the code at **`POST /coddy/auth/login/verify`** against the
+challenge the first call handed out. The code is RFC 6238, six digits, a 30-second step, SHA-1, one
+step of clock drift either way, and it opens one session; the same code - or an older one - is
+refused afterwards. A missing, wrong or reused code gets the same `401` and the same body as a wrong
+password and counts against the same throttle, and a backup code stands in for the app: the ten
+`XXXXXXXX-XXXXXXXX` codes the enrollment and the **Backup codes** block of the same fieldset issue,
+each spent once. The config keeps their SHA-256 hashes under `httpserver.login.backup_codes` (the
+generation id and the still-live hashes); the plaintext set is shown once, at issue. A consumption
+ledger at `${CODDY_HOME}/webauth-backup-consumed.json` (locked through its `.lock` sibling) records
+the spent hashes per generation, so a backup `config.yaml` restored by hand cannot bring a spent
+code back, and two processes sharing the home cannot spend one twice. Turning codes on, rotating the
+key, regenerating the backup set or turning codes off in **Settings**, **Authentication** ends every
+session the account opened before. Bearer tokens, the Telegram Mini App and the browser side panel
+are not asked for a code. Guide: [Remote mode](../operate/remote.md#one-time-codes).
 
-`GET /coddy/config` never returns `password_hash` or `totp_secret`; it reports `httpserver.login_configured` and
-`httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
-hash and the key the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+`GET /coddy/config` never returns `password_hash`, `totp_secret` or a backup code; it reports
+`httpserver.login_configured` and `httpserver.login_source` (`config` or `env`),
+`httpserver.login.totp_configured`, `backup_codes_configured`, `backup_codes_count` and
+`backup_codes_generation`, and a save from the settings screen preserves the hash, the key and the
+code set the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
 bearer token is set - so a server closed with a password and no token reports
 `auth_configured: false` next to `login_configured: true`; ask `GET /coddy/auth/me` when the
 question is "does this server want a credential at all". The document keeps describing the file, so an account that
