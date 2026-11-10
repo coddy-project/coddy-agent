@@ -77,6 +77,50 @@ function expectFound(
   }
 }
 
+test("the authenticator and backup codes blocks are searchable in both languages", () => {
+  const index = indexOf(AGENT_SCHEMA);
+  expect(only(index, landmarkAnchor("httpserver", "account")).names).toEqual([
+    "Account",
+  ]);
+  expect(
+    only(index, landmarkAnchor("httpserver", "authenticator")),
+  ).toMatchObject({
+    kind: "landmark",
+    section: "httpserver",
+    names: ["Authenticator app"],
+  });
+  expect(entriesAt(index, landmarkAnchor("httpserver", "backupCodes"))).toEqual(
+    [],
+  );
+
+  const configured = indexOf(AGENT_SCHEMA, {
+    httpserver: { login: { enable: true, totp_configured: true } },
+  });
+  expect(
+    only(configured, landmarkAnchor("httpserver", "backupCodes")),
+  ).toMatchObject({
+    kind: "landmark",
+    section: "httpserver",
+    names: ["Backup codes"],
+  });
+  expectFound(configured, ["authenticator"], ["Authenticator app"]);
+  expectFound(configured, ["backup codes"], ["Backup codes"]);
+
+  setLocale("ru");
+  const russian = indexOf(AGENT_SCHEMA, {
+    httpserver: { login: { enable: true, totp_configured: true } },
+  });
+  expect(only(russian, landmarkAnchor("httpserver", "account")).names).toEqual([
+    "Учётная запись",
+  ]);
+  expect(
+    only(russian, landmarkAnchor("httpserver", "authenticator")).names,
+  ).toEqual(["Приложение-аутентификатор"]);
+  expect(
+    only(russian, landmarkAnchor("httpserver", "backupCodes")).names,
+  ).toEqual(["Резервные коды"]);
+});
+
 function indexOf(
   schema: JsonSchema,
   doc: SettingsDoc = configFromSchema(schema),

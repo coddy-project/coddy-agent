@@ -76,6 +76,11 @@
   place-items: center;
 }
 
+.settings-secret-input {
+  display: flex;
+  min-width: 0;
+}
+
 /* The list forms' way back (< LLM providers): a quiet link, the app's chevron
    pointing left and the list's name, level with the fields below. */
 .settings-back-link {
@@ -564,9 +569,16 @@
 }
 
 .auth-backup-block {
-  margin-top: 16px;
-  padding-top: 14px;
+  min-inline-size: 0;
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border: 0;
   border-top: 1px solid var(--coddy-glass-panel-border);
+}
+.auth-backup-block > legend {
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
 }
 .auth-backup-actions {
   display: flex;

@@ -20,6 +20,7 @@ import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { motionIsReduced, subscribeUiSimple } from "../theme/uiSimple";
 import { SwitchField } from "./SwitchField";
+import { FieldLabel } from "./FieldHint";
 import { SecretInput } from "./SecretInput";
 import { totpPeriodLeft } from "./totpPeriod";
 import { fieldAnchor } from "./SchemaForm";
@@ -263,17 +264,18 @@ export function AuthenticationSection({ value, onChange }: Props) {
           className="settings-row"
           data-settings-anchor={fieldAnchor("httpserver.login", "password")}
         >
-          <label htmlFor={`${id}-password`}>
-            {t(AUTHENTICATION_FIELD_TEXTS.password!)}
-          </label>
+          <FieldLabel
+            label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
+            description={t("settings.auth.passwordHint")}
+          />
           <SecretInput
             id={`${id}-password`}
+            aria-label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
             value={String(login.password ?? "")}
             onChange={(e) => update("password", e.target.value)}
             autoComplete="new-password"
           />
         </div>
-        <p className="settings-muted">{t("settings.auth.passwordHint")}</p>
         <div
           className="settings-row"
           data-settings-anchor={fieldAnchor(
@@ -290,13 +292,17 @@ export function AuthenticationSection({ value, onChange }: Props) {
             type="number"
             min="0"
             value={String(login.session_ttl_hours ?? 0)}
-            onChange={(e) =>
-              update("session_ttl_hours", Number(e.target.value))
-            }
+            onChange={(e) => {
+              const hours = Number(e.target.value);
+              update("session_ttl_hours", Number.isFinite(hours) ? hours : 0);
+            }}
           />
         </div>
       </fieldset>
-      <fieldset className="settings-fieldset auth-enrollment">
+      <fieldset
+        className="settings-fieldset auth-enrollment"
+        data-settings-anchor={landmarkAnchor("httpserver", "authenticator")}
+      >
         <legend>{t("settings.auth.authenticator")}</legend>
         <SwitchField
           checked={enrolling || login.totp_configured === true}
@@ -403,9 +409,12 @@ export function AuthenticationSection({ value, onChange }: Props) {
           </p>
         )}
         {login.totp_configured === true && (
-          <div className="auth-backup-block">
+          <fieldset
+            className="auth-backup-block"
+            data-settings-anchor={landmarkAnchor("httpserver", "backupCodes")}
+          >
+            <legend>{t("settings.auth.backupCodes")}</legend>
             <div>
-              {t("settings.auth.backupCodes")} ·{" "}
               {tp(
                 "settings.auth.unused",
                 Number(login.backup_codes_count ?? 0),
@@ -441,7 +450,7 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 {t("settings.auth.regenerate")}
               </button>
             </div>
-          </div>
+          </fieldset>
         )}
         {shownCodes.length > 0 && (
           <div className="auth-enrollment-codes">

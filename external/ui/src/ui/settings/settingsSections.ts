@@ -318,6 +318,9 @@ export type DrawnText = { label?: string; desc?: string };
 
 export const SETTINGS_TEXTS = {
   authAccount: { label: "settings.auth.account" },
+  authPassword: { desc: "settings.auth.passwordHint" },
+  authAuthenticator: { label: "settings.auth.authenticator" },
+  authBackupCodes: { label: "settings.auth.backupCodes" },
   proxyIgnoreSystem: {
     label: "settings.providerProxy.ignoreSystem",
     desc: "settings.providerProxy.ignoreSystemDesc",

@@ -20,10 +20,12 @@ afterEach(() => {
   resetEnrollment();
 });
 
-function Form() {
-  const [value, setValue] = useState<Record<string, unknown>>({
-    login: { enable: true, user: "operator" },
-  });
+function Form({ initial }: { initial?: Record<string, unknown> }) {
+  const [value, setValue] = useState<Record<string, unknown>>(
+    initial ?? {
+      login: { enable: true, user: "operator" },
+    },
+  );
   return (
     <>
       <ConfirmProvider>
@@ -33,6 +35,74 @@ function Form() {
     </>
   );
 }
+
+test("draws searchable authenticator and backup codes landmarks", () => {
+  render(
+    <Form
+      initial={{
+        login: {
+          enable: true,
+          user: "operator",
+          totp_configured: true,
+          backup_codes_count: 2,
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("group", { name: "Authenticator app" }),
+  ).toHaveAttribute(
+    "data-settings-anchor",
+    "landmark:httpserver:authenticator",
+  );
+  expect(screen.getByRole("group", { name: "Backup codes" })).toHaveAttribute(
+    "data-settings-anchor",
+    "landmark:httpserver:backupCodes",
+  );
+});
+
+test("keeps a malformed session duration numeric instead of storing NaN", () => {
+  render(<Form />);
+  const input = screen.getByLabelText("Session duration (hours)");
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get: () => "not-a-number",
+    set: () => {},
+  });
+  fireEvent.change(input);
+  expect(
+    JSON.parse(screen.getByTestId("document").textContent!).login
+      .session_ttl_hours,
+  ).toBe(0);
+});
+
+test("puts the password help behind its field hint", () => {
+  render(<Form />);
+  expect(screen.getByRole("button", { name: "About Password" })).toBeTruthy();
+});
+
+test("styles the secret input without inline layout and exposes the eye state", () => {
+  render(<Form />);
+  const password = screen.getByLabelText("Password");
+  expect(password.parentElement).toHaveClass("settings-secret-input");
+  expect(password.parentElement).not.toHaveAttribute("style");
+
+  const toggle = screen.getByRole("button", { name: "Show password" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(toggle.querySelector("svg")).toHaveAttribute(
+    "stroke-linecap",
+    "round",
+  );
+  expect(toggle.querySelector("svg")).toHaveAttribute(
+    "stroke-linejoin",
+    "round",
+  );
+  fireEvent.click(toggle);
+  expect(screen.getByRole("button", { name: "Hide password" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
 
 test("edits account settings without replacing the stored password with an empty value", () => {
   render(<Form />);

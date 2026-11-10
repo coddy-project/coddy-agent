@@ -295,7 +295,7 @@ export type SettingsLandmark = {
   keyPath?: string;
   place: "before" | "after";
   /** The block's own predicate: false where the tab does not draw it. */
-  shown?: () => boolean;
+  shown?: (doc: PlainObject) => boolean;
   /** Present for a block of a list's row form; says whether this row draws it. */
   row?: (row: Record<string, unknown>) => boolean;
 };
@@ -313,6 +313,10 @@ function landmark(
 
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("httpserver", "account", "authAccount", "before"),
+  landmark("httpserver", "authenticator", "authAuthenticator", "before"),
+  landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
+    shown: backupCodesShown,
+  }),
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
   landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
@@ -349,6 +353,10 @@ function asObject(v: unknown): PlainObject {
   return v !== null && typeof v === "object" && !Array.isArray(v)
     ? (v as PlainObject)
     : {};
+}
+
+function backupCodesShown(doc: PlainObject): boolean {
+  return asObject(asObject(doc.httpserver).login).totp_configured === true;
 }
 
 function asArray(v: unknown): unknown[] {
@@ -423,6 +431,10 @@ function walkField(frame: FieldFrame): void {
       ? [texts.primary]
       : [texts.primary, texts.second];
   const anchor = fieldAnchor(form.domain, path);
+  const passwordHint =
+    form.domain === "httpserver.login" && path === "password"
+      ? translate(SETTINGS_TEXTS.authPassword.desc!)
+      : undefined;
   walk.out.push(
     makeSearchEntry({
       kind: box === null && isBlockField(schema) ? "block" : "field",
@@ -432,9 +444,10 @@ function walkField(frame: FieldFrame): void {
       list,
       fallbackAnchor: list,
       names,
-      descriptions: [texts.primaryDesc, texts.secondDesc].filter(
-        (d): d is string => !!d,
-      ),
+      descriptions: [
+        texts.primaryDesc ?? passwordHint,
+        texts.secondDesc,
+      ].filter((d): d is string => !!d),
       where,
       keyPath,
     }),
@@ -545,9 +558,10 @@ function landmarkEntries(
   section: SectionDescriptor,
   landmarks: readonly SettingsLandmark[],
   row: string | null,
+  doc: PlainObject,
 ): void {
   for (const l of landmarks) {
-    if (l.shown !== undefined && !l.shown()) {
+    if (l.shown !== undefined && !l.shown(doc)) {
       continue;
     }
     const text: DrawnText = SETTINGS_TEXTS[l.heading];
@@ -718,7 +732,7 @@ export function buildSettingsSearchIndex(input: {
     const blocks = (place: "before" | "after") =>
       landmarks.filter((l) => l.row === undefined && l.place === place);
 
-    landmarkEntries(out, section, blocks("before"), null);
+    landmarkEntries(out, section, blocks("before"), null, input.doc);
     for (const { form, value } of generated.forms) {
       walkForm({ out, section, form, row: null }, value, tab);
     }
@@ -745,9 +759,10 @@ export function buildSettingsSearchIndex(input: {
         section,
         landmarks.filter((l) => l.row?.(row) === true),
         label,
+        input.doc,
       );
     }
-    landmarkEntries(out, section, blocks("after"), null);
+    landmarkEntries(out, section, blocks("after"), null, input.doc);
   }
   return out;
 }

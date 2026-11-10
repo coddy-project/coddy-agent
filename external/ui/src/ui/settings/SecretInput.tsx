@@ -6,7 +6,7 @@ export function SecretInput(props: InputHTMLAttributes<HTMLInputElement>) {
   const [visible, setVisible] = useState(false);
   const { t } = useT();
   return (
-    <div style={{ display: "flex", minWidth: 0 }}>
+    <div className="settings-secret-input">
       <input
         {...props}
         className={props.className ?? "settings-input"}
@@ -18,6 +18,7 @@ export function SecretInput(props: InputHTMLAttributes<HTMLInputElement>) {
         aria-label={t(
           visible ? "settings.auth.hidePassword" : "settings.auth.showPassword",
         )}
+        aria-pressed={visible}
         onClick={() => setVisible(!visible)}
       >
         <IconEye off={visible} />
