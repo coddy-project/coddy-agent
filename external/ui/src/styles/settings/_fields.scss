@@ -540,7 +540,7 @@
 .settings-secret-input > .settings-input {
   width: 100%;
   min-width: 0;
-  padding-right: 40px;
+  padding-right: 104px;
 }
 
 .settings-secret-input > .settings-btn-icon {
@@ -560,6 +560,14 @@
 .settings-secret-input > .settings-btn-icon:focus-visible {
   background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--text);
+}
+
+.settings-secret-input > .settings-secret-copy {
+  right: 36px;
+}
+
+.settings-secret-input > .settings-secret-refresh {
+  right: 68px;
 }
 
 .auth-enrollment-actions {
@@ -613,7 +621,7 @@
 .auth-enrollment-fields {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 .auth-enrollment-codes {
   display: grid;

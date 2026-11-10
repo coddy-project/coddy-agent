@@ -17,6 +17,8 @@ export const messagesEn: Record<string, string> = {
   "settings.auth.download": "Download",
   "settings.auth.regenerate": "Regenerate",
   "settings.auth.editSecret": "Edit secret",
+  "settings.auth.copySecret": "Copy secret key",
+  "settings.auth.refreshSecret": "Refresh secret key",
   "settings.auth.copyCodes": "Copy backup codes",
   "settings.auth.downloadCodes": "Download backup codes",
   "settings.auth.regenerateCodes": "Regenerate backup codes",

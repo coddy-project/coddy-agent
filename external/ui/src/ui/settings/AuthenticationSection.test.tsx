@@ -359,6 +359,15 @@ test("reopens secret enrollment after TOTP is enabled and uses icon actions", as
   expect(screen.getByText("Secret", { selector: "label" })).toHaveClass(
     "settings-label",
   );
+  expect(screen.getByLabelText("Secret")).toHaveAttribute("readonly");
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  fireEvent.click(screen.getByRole("button", { name: "Copy secret key" }));
+  expect(writeText).toHaveBeenCalledWith("JBSWY3DPEHPK3PXP");
+  const callsBefore = vi.mocked(fetch).mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh secret key" }));
+  expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(callsBefore);
+  expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body).toBe("{}");
   expect(screen.getByRole("button", { name: "Remove TOTP" })).toBeTruthy();
 });
 
@@ -878,7 +887,7 @@ describe("the authenticator code period", () => {
     try {
       startEnrollment();
       expect(screen.getByTestId("auth-period").textContent).toContain(
-        "Новый код через 25 секунд",
+        "Новый код через 25 с",
       );
     } finally {
       vi.useRealTimers();
