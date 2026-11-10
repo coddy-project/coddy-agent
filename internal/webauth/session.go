@@ -197,7 +197,11 @@ func CredentialFingerprint(user, hash string) string {
 // off ends the sessions the account opened before, the way a new password
 // does. With no secret it is CredentialFingerprint itself, so a server that
 // never used codes keeps every session across the upgrade.
-func AccountFingerprint(user, hash, totpSecret string) string {
+func AccountFingerprint(user, hash, totpSecret string, backupGeneration ...string) string {
+	if len(backupGeneration) > 0 && backupGeneration[0] != "" {
+		base := AccountFingerprint(user, hash, totpSecret)
+		return CredentialFingerprint(base, "backup\x00"+backupGeneration[0])
+	}
 	totpSecret = NormalizeTOTPSecret(totpSecret)
 	if totpSecret == "" {
 		return CredentialFingerprint(user, hash)

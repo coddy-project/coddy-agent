@@ -13,6 +13,7 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -68,9 +69,13 @@ func NormalizeTOTPSecret(secret string) string {
 
 // decodeTOTPSecret reads a secret into the HMAC key.
 func decodeTOTPSecret(secret string) ([]byte, error) {
-	key, err := totpEncoding.DecodeString(NormalizeTOTPSecret(secret))
+	normalized := NormalizeTOTPSecret(secret)
+	key, err := totpEncoding.DecodeString(normalized)
 	if err != nil {
-		return nil, errors.New("not a base32 string")
+		key, err = hex.DecodeString(normalized)
+		if err != nil {
+			return nil, errors.New("not a base32 or base16 string")
+		}
 	}
 	if len(key) < minTOTPSecretBytes {
 		return nil, fmt.Errorf("shorter than %d bits", minTOTPSecretBytes*8)
@@ -145,7 +150,11 @@ func VerifyTOTP(secret, code string, now time.Time) (int64, bool) {
 func TOTPKeyURI(account, secret string) string {
 	label := url.PathEscape(TOTPIssuer) + ":" + url.PathEscape(account)
 	q := url.Values{}
-	q.Set("secret", NormalizeTOTPSecret(secret))
+	canonical := NormalizeTOTPSecret(secret)
+	if key, err := decodeTOTPSecret(secret); err == nil {
+		canonical = totpEncoding.EncodeToString(key)
+	}
+	q.Set("secret", canonical)
 	q.Set("issuer", TOTPIssuer)
 	q.Set("algorithm", "SHA1")
 	q.Set("digits", fmt.Sprint(TOTPDigits))

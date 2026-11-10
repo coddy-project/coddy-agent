@@ -156,3 +156,33 @@ func TestAccountFingerprintFollowsTheSecondFactor(t *testing.T) {
 		t.Fatal("a rotated secret kept the fingerprint")
 	}
 }
+
+func TestBase16TOTP(t *testing.T) {
+	const secret = "3132333435363738393031323334353637383930"
+	if err := ValidateTOTPSecret(secret); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		unix int64
+		want string
+	}{{59, "287082"}, {1111111109, "081804"}, {1111111111, "050471"}, {1234567890, "005924"}, {2000000000, "279037"}, {20000000000, "353130"}} {
+		got, err := TOTPCode(secret, time.Unix(tc.unix, 0))
+		if err != nil || got != tc.want {
+			t.Errorf("%d: got %q, %v; want %s", tc.unix, got, err, tc.want)
+		}
+	}
+	grouped := "3132 3334-3536 3738 3930 3132 3334 3536 3738 3930"
+	if got, err := TOTPCode(grouped, time.Unix(59, 0)); err != nil || got != "287082" {
+		t.Fatalf("grouped hex: %q %v", got, err)
+	}
+	u, err := url.Parse(TOTPKeyURI("operator", grouped))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("secret"); got != rfcSecret {
+		t.Errorf("URI secret %q, want %q", got, rfcSecret)
+	}
+	if err := ValidateTOTPSecret("010203040506070809"); err == nil {
+		t.Fatal("short hex accepted")
+	}
+}
