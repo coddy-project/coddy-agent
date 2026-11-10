@@ -9,6 +9,8 @@ package httpserver
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -29,18 +31,52 @@ func (s *loginFeatureState) serverWithAccountAndCodes(user, password string) err
 	return nil
 }
 
+func (s *loginFeatureState) backupCodesAvailable() error {
+	state, codes, err := webauth.GenerateBackupCodes(2)
+	if err != nil {
+		return err
+	}
+	next := *s.srv.activeCfg()
+	next.HTTPServer.Login.BackupCodes = state
+	next.Paths.ConfigPath = filepath.Join(s.root, "config.yaml")
+	next.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "k"}}
+	data, err := config.MarshalConfigYAMLForFile(&next, next.Paths.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(next.Paths.ConfigPath, data, 0600); err != nil {
+		return err
+	}
+	if err = s.mgr.InstallConfig(&next); err != nil {
+		return err
+	}
+	s.backupCode = codes[0]
+	return nil
+}
+func (s *loginFeatureState) verifyBackupCode() error {
+	challenge, _ := s.body["challenge"].(string)
+	return s.browse(http.MethodPost, "/coddy/auth/login/verify", map[string]string{"challenge": challenge, "code": s.backupCode})
+}
+
 func (s *loginFeatureState) operatorTurnsCodesOn() error {
 	s.replaceConfig(func(c *config.Config) { c.HTTPServer.Login.TOTPSecret = loginTestTOTPSecret })
 	return nil
 }
 
-func (s *loginFeatureState) signInWithCurrentCode(user, password string) error {
+func (s *loginFeatureState) pendingChallenge() error {
+	if s.status != http.StatusOK || s.body["second_factor"] != "totp" || s.body["challenge"] == nil {
+		return errStatus("missing challenge", s.status, s.rawBody)
+	}
+	return nil
+}
+
+func (s *loginFeatureState) verifyCurrentCode() error {
+	challenge, _ := s.body["challenge"].(string)
 	code, err := webauth.TOTPCode(loginTestTOTPSecret, time.Now())
 	if err != nil {
 		return err
 	}
-	return s.browse(http.MethodPost, "/coddy/auth/login",
-		map[string]string{"user": user, "password": password, "code": code})
+	return s.browse(http.MethodPost, "/coddy/auth/login/verify", map[string]string{"challenge": challenge, "code": code})
 }
 
 func (s *loginFeatureState) answerSaysCodeRequired() error {
@@ -54,8 +90,11 @@ func (s *loginFeatureState) answerSaysCodeRequired() error {
 // sign-in harness.
 func registerLoginTOTPSteps(sc *godog.ScenarioContext, s *loginFeatureState) {
 	sc.Step(`^a coddy HTTP server with the account "([^"]+)", password "([^"]+)" and one-time codes$`, s.serverWithAccountAndCodes)
+	sc.Step(`^backup codes are available$`, s.backupCodesAvailable)
+	sc.Step(`^the browser verifies a backup code$`, s.verifyBackupCode)
 	sc.Step(`^the operator turns one-time codes on$`, s.operatorTurnsCodesOn)
-	sc.Step(`^the browser signs in as "([^"]+)" with password "([^"]+)" and the current code$`, s.signInWithCurrentCode)
+	sc.Step(`^the answer contains a pending challenge without a session$`, s.pendingChallenge)
+	sc.Step(`^the browser verifies the current code$`, s.verifyCurrentCode)
 	sc.Step(`^the answer says a one-time code is required$`, s.answerSaysCodeRequired)
 }
 

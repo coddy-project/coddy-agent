@@ -44,9 +44,10 @@ type loginFeatureState struct {
 	cfg      *config.Config
 
 	// browser carries the cookie jar, client is the plain one an API client uses.
-	browser *http.Client
-	client  *http.Client
-	bearer  string
+	browser    *http.Client
+	client     *http.Client
+	bearer     string
+	backupCode string
 
 	sessionID string
 

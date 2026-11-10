@@ -43,6 +43,11 @@ func totpLoginAttempt(t *testing.T, srv *Server, user, password, code string) *h
 	r.RemoteAddr = "127.0.0.1:5555"
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, r)
+	if srv.loginPolicyNow().account.totpSecret != "" && rec.Code == http.StatusOK {
+		var result map[string]string
+		_ = json.Unmarshal(rec.Body.Bytes(), &result)
+		return challengeVerify(srv, result["challenge"], code)
+	}
 	return rec
 }
 
@@ -79,7 +84,7 @@ func TestTOTPLoginRefusals(t *testing.T) {
 			// is confirmed by the wording.
 			var body map[string]interface{}
 			_ = json.Unmarshal(rec.Body.Bytes(), &body)
-			if body["error"] != "invalid credentials" || body["second_factor"] != secondFactorTOTP {
+			if body["error"] != "invalid credentials" {
 				t.Fatalf("refusal body = %s", rec.Body.String())
 			}
 			if len(rec.Result().Cookies()) != 0 {

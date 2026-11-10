@@ -153,6 +153,7 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /coddy/auth/totp/disable", s.enrollmentChange)
 	s.mux.HandleFunc("POST /coddy/auth/backup-codes/regenerate", s.enrollmentChange)
 	s.mux.HandleFunc("POST /coddy/auth/login", s.coddyAuthLoginPost)
+	s.mux.HandleFunc("POST /coddy/auth/login/verify", s.coddyAuthLoginVerifyPost)
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)
 	s.mux.HandleFunc("POST /coddy/auth/telegram", s.coddyAuthTelegramPost)
@@ -166,7 +167,7 @@ func (s *Server) registerAuthRoutes() {
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
+	case "POST /coddy/auth/login", "POST /coddy/auth/login/verify", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
 		return true
 	}
 	return false
@@ -307,7 +308,6 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		User     string `json:"user"`
 		Password string `json:"password"`
-		Code     string `json:"code"`
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBodyBytes))
 	if err != nil {
@@ -333,12 +333,9 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !s.verifyLogin(pol.account, req.User, req.Password) || !s.verifySecondFactor(pol.account, req.Code) {
+	if !s.verifyLogin(pol.account, req.User, req.Password) {
 		s.log.Warn("web sign-in refused", "user", req.User, "remote", client)
-		// The same answer whether the user exists or not, and whether the
-		// password or the code was wrong: a form that says "no such user" is a
-		// list of the users that do exist, and one that says "wrong code" has
-		// confirmed the password.
+		// The same answer whether the user exists or the password is wrong.
 		refusal := map[string]interface{}{"error": "invalid credentials"}
 		if pol.account.totpSecret != "" {
 			refusal["second_factor"] = secondFactorTOTP
@@ -346,16 +343,29 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, refusal)
 		return
 	}
+	if pol.account.totpSecret != "" {
+		challenge, err := s.challenges.issue(pol.account.fingerprint(), s.authNow())
+		if err != nil {
+			writeJSON(w, 500, map[string]interface{}{"error": "could not open a challenge"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]interface{}{"second_factor": secondFactorTOTP, "challenge": challenge})
+		return
+	}
 	s.loginThrottle.Reset(client)
+	s.issueLoginSession(w, r, pol.account, client)
+}
 
-	token, sess, err := s.sessions.Issue(pol.account.user, pol.account.fingerprint(), pol.account.ttl)
+func (s *Server) issueLoginSession(w http.ResponseWriter, r *http.Request, account loginAccount, client string) {
+	token, sess, err := s.sessions.Issue(account.user, account.fingerprint(), account.ttl)
 	if err != nil {
 		s.log.Error("web sign-in could not open a session", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})
 		return
 	}
-	http.SetCookie(w, sessionCookie(r, token, pol.account.ttl))
-	s.log.Info("web sign-in", "user", pol.account.user, "remote", client)
+	http.SetCookie(w, sessionCookie(r, token, account.ttl))
+	s.log.Info("web sign-in", "user", account.user, "remote", client)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":         true,
 		"user":       sess.User,
