@@ -1,5 +1,13 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "composer.serviceTierReset":
+    "Эта модель не поддерживает выбранный уровень обслуживания. Используется настройка модели по умолчанию.",
+  "composer.serviceTier": "Уровень обслуживания",
+  "composer.serviceTierDefault": "По настройкам модели",
+  "composer.serviceTierStandard": "Стандартный",
+  "composer.serviceTierFast": "Быстрый",
+  "composer.serviceTierUltra": "Ультра",
+
   "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
   "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
   "settings.userAgent.coddy": "Coddy/version",

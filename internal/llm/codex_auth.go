@@ -575,7 +575,15 @@ func ApplyCodexLoginToConfig(ctx context.Context, cfg *config.Config, name, auth
 		}
 		// max_tokens is deliberately absent: the Codex backend rejects
 		// max_output_tokens, so the entry carries only the selector.
-		entry, _ := json.Marshal(map[string]any{"model": ref})
+		row := map[string]any{"model": ref}
+		if m.SupportedReasoningLevels != nil {
+			levels := make([]string, 0, len(*m.SupportedReasoningLevels))
+			for _, level := range *m.SupportedReasoningLevels {
+				levels = append(levels, level.Effort)
+			}
+			row["reasoning_levels"] = levels
+		}
+		entry, _ := json.Marshal(row)
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("models[model=%s]", ref), Value: string(entry)})
 		added = append(added, "model "+ref)
 	}

@@ -186,3 +186,17 @@ func responsesObject(id, model string, createdAt int64, status string, output []
 		"background":           false,
 	}
 }
+
+func responsesTierFields(object map[string]any, response *llm.Response) map[string]any {
+	if response == nil {
+		return object
+	}
+	if response.RequestedServiceTier != "" {
+		object["requested_service_tier"] = response.RequestedServiceTier
+	}
+	if response.ActualServiceTier != "" {
+		object["service_tier"] = response.ActualServiceTier
+		object["actual_service_tier"] = response.ActualServiceTier
+	}
+	return object
+}

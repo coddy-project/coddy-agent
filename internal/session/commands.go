@@ -123,7 +123,7 @@ func (c Command) Choices(cfg *config.Config, st *State) []string {
 		if cfg == nil || st == nil {
 			return nil
 		}
-		choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(st.EffectiveModelID(cfg)))
+		choices := st.ReasoningChoices(cfg, st.EffectiveModelID(cfg))
 		if c.Name == "think" {
 			// Off is /nothink's business.
 			out := make([]string, 0, len(choices))

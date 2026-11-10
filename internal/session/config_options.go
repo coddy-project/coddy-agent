@@ -54,7 +54,7 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		}
 		out = append(out, modelOpt)
 
-		if ent := cfg.FindModelEntry(current); ent != nil {
+		if ent := state.ReasoningModel(cfg, current); ent != nil {
 			levels := cfg.ReasoningChoicesFor(ent)
 			if len(levels) > 0 {
 				reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))

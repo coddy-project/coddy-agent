@@ -137,6 +137,8 @@ function seedLogicalModel(
   delete row.reasoning_levels;
   delete row.kimi_metadata;
   row.model = id;
+  if (listing?.reasoning_levels !== undefined)
+    row.reasoning_levels = [...listing.reasoning_levels];
   if (kimiMetadata && itemSchema?.properties?.kimi_metadata) {
     row.kimi_metadata = kimiMetadata;
   }

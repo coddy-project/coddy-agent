@@ -399,6 +399,7 @@ type SessionMeta struct {
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
 	SelectedModelID       string   `json:"selectedModelId,omitempty"`
 	SelectedReasoning     string   `json:"selectedReasoning,omitempty"`
+	SelectedServiceTier   string   `json:"selectedServiceTier,omitempty"`
 	SelectedToolset       string   `json:"selectedToolset,omitempty"`
 	AgentMemory           string   `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
@@ -1257,6 +1258,7 @@ func (f *FileStore) Save(state *State) error {
 		AdditionalDirectories: state.AdditionalDirectoriesForPersist(),
 		SelectedModelID:       state.GetSelectedModelID(),
 		SelectedReasoning:     state.GetSelectedReasoning(),
+		SelectedServiceTier:   state.GetSelectedServiceTier(),
 		SelectedToolset:       state.GetSelectedToolset(),
 		HookContext:           state.GetHookContext(),
 		AgentMemory:           state.GetAgentMemory(),

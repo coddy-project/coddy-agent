@@ -19,8 +19,10 @@ import (
 
 // ModelEntry is one model advertised by a provider's model-listing endpoint.
 type ModelEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	ReasoningLevels *[]string `json:"reasoning_levels,omitempty"`
+	ServiceTiers    *[]string `json:"service_tiers,omitempty"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name,omitempty"`
 	// ContextWindow is the context window the listing reports for the model,
 	// 0 when it reports none. Served as context_window on the provider models
 	// route; the session manager also reads it for models whose
@@ -375,6 +377,12 @@ func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL stri
 // codexModelCacheEntry is one row of the Codex model catalog, as served by the
 // backend and cached by the Codex CLI.
 type codexModelCacheEntry struct {
+	ServiceTiers *[]struct {
+		ID string `json:"id"`
+	} `json:"service_tiers"`
+	SupportedReasoningLevels *[]struct {
+		Effort string `json:"effort"`
+	} `json:"supported_reasoning_levels"`
 	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
 	// Visibility is "list" for the models Codex offers in its own picker;
@@ -438,10 +446,28 @@ func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
 	visible := visibleCodexModels(models)
 	out := make([]ModelEntry, 0, len(visible))
 	for _, m := range visible {
+		var tiers *[]string
+		if m.ServiceTiers != nil {
+			values := make([]string, 0, len(*m.ServiceTiers))
+			for _, tier := range *m.ServiceTiers {
+				values = append(values, tier.ID)
+			}
+			tiers = &values
+		}
+		var levels *[]string
+		if m.SupportedReasoningLevels != nil {
+			v := make([]string, 0, len(*m.SupportedReasoningLevels))
+			for _, level := range *m.SupportedReasoningLevels {
+				v = append(v, level.Effort)
+			}
+			levels = &v
+		}
 		out = append(out, ModelEntry{
-			ID:            m.Slug,
-			Name:          strings.TrimSpace(m.DisplayName),
-			ContextWindow: positiveTokenCount(m.ContextWindow),
+			ReasoningLevels: levels,
+			ServiceTiers:    tiers,
+			ID:              m.Slug,
+			Name:            strings.TrimSpace(m.DisplayName),
+			ContextWindow:   positiveTokenCount(m.ContextWindow),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })

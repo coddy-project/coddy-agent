@@ -32,6 +32,13 @@ func directACPRefusal(cfg *config.Config, model string) error {
 // caller's business. opts are the request's own generation options, applied to
 // the provider built for this one call.
 func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
+	opts.ServiceTierNotice = func(text string) {
+		if s.mgr != nil && s.mgr.SessionByID(sessionID) != nil {
+			s.mgr.PublishServiceTierNotice(sessionID, text)
+		} else {
+			st.AppendUILogNotice(session.CountUserTurns(st.GetMessages()), text)
+		}
+	}
 	provider, err := s.directYAMLProvider(ctx, st, yamlSel, opts)
 	if err != nil {
 		return nil, err
@@ -124,14 +131,16 @@ func (s *Server) directYAMLProvider(ctx context.Context, st *session.State, yaml
 // the caller sends next has its call to answer.
 func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 	return llm.Message{
-		Role:               llm.RoleAssistant,
-		Content:            strings.TrimSpace(resp.Content),
-		Reasoning:          resp.Reasoning,
-		ReasoningSignature: resp.ReasoningSignature,
-		ReasoningTokens:    resp.ReasoningTokens,
-		ToolCalls:          resp.ToolCalls,
-		Model:              yamlSel,
-		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
+		Role:                 llm.RoleAssistant,
+		RequestedServiceTier: resp.RequestedServiceTier,
+		ActualServiceTier:    resp.ActualServiceTier,
+		Content:              strings.TrimSpace(resp.Content),
+		Reasoning:            resp.Reasoning,
+		ReasoningSignature:   resp.ReasoningSignature,
+		ReasoningTokens:      resp.ReasoningTokens,
+		ToolCalls:            resp.ToolCalls,
+		Model:                yamlSel,
+		CreatedAt:            time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -141,8 +150,8 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // names, so a request may carry both only when they agree. reasoning_effort
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
-func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
-	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+func (s *Server) directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
+	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature, ServiceTier: req.ServiceTier}
 	if len(topP) > 0 {
 		opts.TopP = topP[0]
 	}
@@ -161,6 +170,15 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 			if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
 				providerType = prov.Type
 			}
+		}
+	}
+	if req.ServiceTier != "" && cfg != nil {
+		supported := cfg.ServiceTierSupported(ent, req.ServiceTier)
+		if s.mgr != nil {
+			supported = s.mgr.ServiceTierSupported(cfg, model, req.ServiceTier)
+		}
+		if !supported {
+			return llm.RequestOptions{}, fmt.Errorf("service_tier %q is not supported by model %q", req.ServiceTier, model)
 		}
 	}
 	level := ""
@@ -206,11 +224,46 @@ func (s *Server) contextWindowFor(cfg *config.Config, modelRef string) int {
 	var tokens int
 	if s.mgr != nil {
 		tokens, _ = s.mgr.ContextWindow(cfg, strings.TrimSpace(modelRef))
-	} else if ent := cfg.FindModelEntry(strings.TrimSpace(modelRef)); ent != nil {
-		tokens = ent.MaxContextTokens
+	} else {
+		tokens, _ = session.ResolveContextWindow(cfg, strings.TrimSpace(modelRef))
 	}
 	if tokens <= 0 {
 		return config.DefaultContextWindowTokens
 	}
 	return tokens
+}
+
+// directCapabilityConfig warms only the Codex capability catalog before validation.
+// Explicit reasoning lists need no discovery; other providers keep their existing
+// admission path and must not receive unrelated model-list requests here.
+func (s *Server) directCapabilityConfig(ctx context.Context, cfg *config.Config, model string) *config.Config {
+	if cfg == nil || s.mgr == nil {
+		return cfg
+	}
+	configured := cfg.FindModelEntry(model)
+	if configured != nil && configured.ReasoningLevels == nil && ctx.Err() == nil {
+		if provider := cfg.FindProvider(configured.ProviderName()); provider != nil && provider.Type == "codex" {
+			s.mgr.AwaitContextWindows(ctx, cfg, []string{model}, session.ContextWindowWait)
+		}
+	}
+	entry := s.mgr.ReasoningModel(cfg, model)
+	if entry == nil {
+		return cfg
+	}
+	copy := *cfg
+	copy.Models = append([]config.ModelEntry(nil), cfg.Models...)
+	for i := range copy.Models {
+		if copy.Models[i].Model == model {
+			copy.Models[i] = *entry
+			break
+		}
+	}
+	return &copy
+}
+
+func (s *Server) serviceTiersFor(cfg *config.Config, model string) []string {
+	if s.mgr != nil {
+		return s.mgr.ServiceTiers(cfg, model)
+	}
+	return cfg.ServiceTiersFor(cfg.FindModelEntry(model))
 }

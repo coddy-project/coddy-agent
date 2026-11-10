@@ -1551,16 +1551,18 @@ func (a *Agent) runReActLoop(
 					}
 					reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
 					assistantMsg := llm.Message{
-						Role:                llm.RoleAssistant,
-						Content:             response.Content,
-						Reasoning:           reasonStore,
-						ReasoningSignature:  reasonSig,
-						ToolCalls:           response.ToolCalls,
-						ReasoningDurationMs: reasoningMs,
-						ReasoningTokens:     response.ReasoningTokens,
-						Model:               transport.model,
-						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
-						AgentTools:          agentToolsKept,
+						Role:                 llm.RoleAssistant,
+						Content:              response.Content,
+						Reasoning:            reasonStore,
+						ReasoningSignature:   reasonSig,
+						ToolCalls:            response.ToolCalls,
+						ReasoningDurationMs:  reasoningMs,
+						ReasoningTokens:      response.ReasoningTokens,
+						RequestedServiceTier: response.RequestedServiceTier,
+						ActualServiceTier:    response.ActualServiceTier,
+						Model:                transport.model,
+						CreatedAt:            time.Now().UTC().Format(time.RFC3339),
+						AgentTools:           agentToolsKept,
 					}
 					messages = append(messages, assistantMsg)
 					a.state.AddMessage(assistantMsg)
@@ -1748,17 +1750,19 @@ func (a *Agent) runReActLoop(
 		// Append assistant message to history.
 		reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
 		assistantMsg := llm.Message{
-			Role:                llm.RoleAssistant,
-			Content:             response.Content,
-			Reasoning:           reasonStore,
-			ReasoningSignature:  reasonSig,
-			ToolCalls:           response.ToolCalls,
-			ReasoningDurationMs: reasoningMs,
-			ReasoningTokens:     response.ReasoningTokens,
-			Truncated:           stopsPartway(response, cutCall),
-			Model:               transport.model,
-			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
-			AgentTools:          agentTools.stored(),
+			Role:                 llm.RoleAssistant,
+			Content:              response.Content,
+			Reasoning:            reasonStore,
+			ReasoningSignature:   reasonSig,
+			ToolCalls:            response.ToolCalls,
+			ReasoningDurationMs:  reasoningMs,
+			ReasoningTokens:      response.ReasoningTokens,
+			RequestedServiceTier: response.RequestedServiceTier,
+			ActualServiceTier:    response.ActualServiceTier,
+			Truncated:            stopsPartway(response, cutCall),
+			Model:                transport.model,
+			CreatedAt:            time.Now().UTC().Format(time.RFC3339),
+			AgentTools:           agentTools.stored(),
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
@@ -3161,7 +3165,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		provider:  provider,
 		streaming: rm.Stream,
 		model:     modelID,
-		key:       modelID + "|" + reasoning,
+		key:       modelID + "|" + reasoning + "|" + in.ServiceTier,
 		rev:       rev,
 		agent:     rm.ProviderType == "acp",
 	}, nil
@@ -3248,7 +3252,14 @@ func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.E
 // transportKey names what a model request is built for: the model and the
 // reasoning level. The transport is rebuilt only when it changes.
 func (a *Agent) transportKey() string {
-	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg)
+	model := a.state.EffectiveModelID(a.cfg)
+	tier := ""
+	if st, ok := a.state.(serviceTierState); ok {
+		tier, _ = st.ServiceTierFor(a.cfg, model)
+	} else if ent := a.cfg.FindModelEntry(model); ent != nil {
+		tier = ent.ServiceTier
+	}
+	return model + "|" + a.state.EffectiveReasoning(a.cfg) + "|" + tier
 }
 
 // childProviderInput applies what a system child's spec says about its
@@ -3337,6 +3348,8 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Region:        rm.Region,
 		KimiIdentity:  rm.KimiIdentity,
 		Model:         rm.Model,
+		Protocol:      rm.Protocol,
+		ServiceTier:   rm.ServiceTier,
 		KimiMetadata:  rm.KimiMetadata,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
@@ -3354,6 +3367,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		// it. The session id is that stable value.
 		SessionID: a.state.GetID(),
 	}
+	a.applyServiceTier(&in, rm.ProviderName+"/"+rm.Model)
 	// What the provider's model listing says the model takes, read on the
 	// manager's cache: an OpenRouter-style aggregator gets the reasoning level
 	// in the form its listing names (issue #258).

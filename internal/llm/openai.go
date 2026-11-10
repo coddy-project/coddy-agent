@@ -419,6 +419,7 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	msg := choice.Message
 
 	r := &Response{
+		ActualServiceTier: gjson.Get(resp.RawJSON(), "service_tier").String(),
 		UsageKnown:        openAIUsageKnown(resp.RawJSON()),
 		UsageIncomplete:   !openAIUsageKnown(resp.RawJSON()),
 		Content:           msg.Content,

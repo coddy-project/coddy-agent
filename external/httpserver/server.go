@@ -385,6 +385,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		Mode:              rm.Mode,
 		Region:            rm.Region,
 		Model:             rm.Model,
+		Protocol:          rm.Protocol,
+		ServiceTier:       rm.ServiceTier,
 		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
@@ -419,6 +421,8 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		Mode:              rm.Mode,
 		Region:            rm.Region,
 		Model:             rm.Model,
+		Protocol:          rm.Protocol,
+		ServiceTier:       rm.ServiceTier,
 		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
@@ -459,15 +463,17 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	// 404 the HEAD the fallback's Allow header advertises; the body net/http
 	// discards for HEAD is the same work a GET costs.
 	type modelObj struct {
-		ID               string   `json:"id"`
-		Object           string   `json:"object"`
-		Created          int64    `json:"created"`
-		OwnedBy          string   `json:"owned_by"`
-		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
-		ContextLength    int      `json:"context_length,omitempty"`
-		Multimodal       bool     `json:"multimodal,omitempty"`
-		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-		ReasoningDefault string   `json:"reasoning_default,omitempty"`
+		ID                 string   `json:"id"`
+		Object             string   `json:"object"`
+		Created            int64    `json:"created"`
+		OwnedBy            string   `json:"owned_by"`
+		MaxContextTokens   int      `json:"max_context_tokens,omitempty"`
+		ContextLength      int      `json:"context_length,omitempty"`
+		Multimodal         bool     `json:"multimodal,omitempty"`
+		ReasoningLevels    []string `json:"reasoning_levels,omitempty"`
+		ReasoningDefault   string   `json:"reasoning_default,omitempty"`
+		ServiceTiers       []string `json:"service_tiers,omitempty"`
+		ServiceTierDefault string   `json:"service_tier_default,omitempty"`
 		// Default marks the row a session that selected no model runs on,
 		// so a client (the remote console) shows the model that will run.
 		Default bool `json:"default,omitempty"`
@@ -532,19 +538,24 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			window := s.contextWindowFor(cfg, mid)
+			if s.mgr != nil {
+				ent = s.mgr.ReasoningModel(cfg, mid)
+			}
 			out.Data = append(out.Data, modelObj{
-				ID:               mid,
-				Object:           "model",
-				Created:          0,
-				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: window,
-				ContextLength:    window,
-				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
-				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
-				Default:          defaultModel != "" && mid == defaultModel,
-				Toolset:          ent.Toolset,
-				Limits:           limits,
+				ID:                 mid,
+				Object:             "model",
+				Created:            0,
+				OwnedBy:            ent.ProviderName(),
+				MaxContextTokens:   window,
+				ContextLength:      window,
+				Multimodal:         ent.Multimodal,
+				ReasoningLevels:    cfg.ReasoningChoicesFor(ent),
+				ReasoningDefault:   cfg.DefaultReasoningLevelFor(ent),
+				ServiceTiers:       s.serviceTiersFor(cfg, mid),
+				ServiceTierDefault: ent.ServiceTier,
+				Default:            defaultModel != "" && mid == defaultModel,
+				Toolset:            ent.Toolset,
+				Limits:             limits,
 			})
 		}
 	}
@@ -553,9 +564,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type chatCompletionRequest struct {
-	Model    string          `json:"model"`
-	Messages []openAIMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
+	ServiceTier string          `json:"service_tier,omitempty"`
+	Model       string          `json:"model"`
+	Messages    []openAIMessage `json:"messages"`
+	Stream      bool            `json:"stream"`
 	// MaxTokens and MaxCompletionTokens are one output cap under OpenAI's
 	// older and newer names, and Temperature replaces the model's own: a
 	// direct model sends them for this request, a profile turn runs on its
@@ -718,7 +730,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		// Refused here for the same reason: an option the provider cannot
 		// send as asked must not cost a session, nor reach the provider.
-		genOpts, err = directRequestOptions(s.activeCfg(), model, req, parsedOpts.TopP)
+		genOpts, err = s.directRequestOptions(s.directCapabilityConfig(r.Context(), s.activeCfg(), model), model, req, parsedOpts.TopP)
 		if err != nil {
 			if parsedOpts.TopP != nil && strings.HasPrefix(err.Error(), "top_p ") {
 				writeOpenAIValidationError(w, err.Error(), "top_p")
@@ -945,6 +957,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
+	if directRes != nil {
+		if directRes.RequestedServiceTier != "" {
+			meta["requested_service_tier"] = directRes.RequestedServiceTier
+		}
+		if directRes.ActualServiceTier != "" {
+			meta["actual_service_tier"] = directRes.ActualServiceTier
+		}
+	}
 	if genOpts.ReasoningEffort != "" {
 		// The level the provider was asked for, the model's default included,
 		// so a caller comparing model and level pairs can tell which ran.

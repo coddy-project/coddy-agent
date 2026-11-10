@@ -1067,6 +1067,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
 	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
+	st.RestoreServiceTierWithoutPersist(snap.Meta.SelectedServiceTier)
 	if snap.Meta.Goal != nil {
 		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
 	}

@@ -492,6 +492,10 @@ func retryDelayForError(err error, attempt int, base, maxDelay time.Duration) ti
 }
 
 func isRetryableLLMError(err error) bool {
+	var tierErr *tierFallbackError
+	if errors.As(err, &tierErr) {
+		return false
+	}
 	if err == nil {
 		return false
 	}

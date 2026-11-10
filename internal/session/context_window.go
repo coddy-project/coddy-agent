@@ -25,6 +25,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/models"
 )
 
 const (
@@ -49,7 +50,8 @@ const (
 	// ContextWindowFromProvider is the window the provider's model listing reports.
 	ContextWindowFromProvider = "provider"
 	// ContextWindowDefault is config.DefaultContextWindowTokens.
-	ContextWindowDefault = "default"
+	ContextWindowDefault     = "default"
+	ContextWindowFromCatalog = "catalog"
 )
 
 // providerContextWindows reads the provider-reported windows a manager has
@@ -79,6 +81,8 @@ type contextWindowEntry struct {
 	// params maps the API model id to the request parameters the listing says
 	// it takes (supported_parameters); a model the listing names none for is
 	// absent.
+	tiers     map[string][]string
+	reasoning map[string][]string
 	params    map[string][]string
 	fetchedAt time.Time
 	failedAt  time.Time
@@ -113,6 +117,11 @@ func resolveContextWindow(cfg *config.Config, modelRef string, reported provider
 	if reported != nil {
 		if n, ok := reported.reportedContextWindow(cfg, ent); ok {
 			return n, ContextWindowFromProvider
+		}
+	}
+	if prov := cfg.FindProvider(ent.ProviderName()); prov != nil && (prov.Type == "openai" || prov.Type == "anthropic" || prov.Type == "opencode") {
+		if limits, ok := models.Lookup(ent.APIModel()); ok {
+			return limits.ContextWindow, ContextWindowFromCatalog
 		}
 	}
 	return config.DefaultContextWindowTokens, ContextWindowDefault
@@ -251,7 +260,7 @@ func (m *Manager) ModelParameters(cfg *config.Config, providerName, apiModel str
 // explicit api_base publishes (an OpenRouter-style aggregator) and which
 // matter only to a model that has reasoning levels to send.
 func listingWanted(cfg *config.Config, ent *config.ModelEntry, prov *config.ProviderConfig) bool {
-	if ent.MaxContextTokens <= 0 {
+	if ent.MaxContextTokens <= 0 || prov.Type == "codex" {
 		return true
 	}
 	return strings.TrimSpace(prov.Type) == "openai" && len(cfg.ReasoningLevelsFor(ent)) > 0
@@ -381,7 +390,15 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		}
 		windows := make(map[string]int, len(models))
 		params := make(map[string][]string)
+		reasoning := make(map[string][]string)
+		tiers := make(map[string][]string)
 		for _, model := range models {
+			if model.ServiceTiers != nil {
+				tiers[model.ID] = append([]string{}, (*model.ServiceTiers)...)
+			}
+			if model.ReasoningLevels != nil {
+				reasoning[model.ID] = append([]string{}, (*model.ReasoningLevels)...)
+			}
 			if model.ContextWindow > 0 {
 				windows[model.ID] = model.ContextWindow
 			}
@@ -391,6 +408,8 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		}
 		e.windows = windows
 		e.params = params
+		e.reasoning = reasoning
+		e.tiers = tiers
 		e.fetchedAt = w.nowLocked()
 		e.failedAt = time.Time{}
 		m.log.Debug("provider context windows read", "provider", prov.Name, "models", len(windows))
@@ -428,6 +447,7 @@ func (m *Manager) ForgetContextWindows(providerName string) {
 			continue
 		}
 		e.gen++
+		e.reasoning, e.tiers = nil, nil
 		if strings.HasPrefix(key, "kimi|") {
 			e.windows, e.params = nil, nil
 		}
@@ -493,4 +513,10 @@ func (m *Manager) inflightContextWindowFetches() []chan struct{} {
 		out = append(out, ch)
 	}
 	return out
+}
+
+// ResolveContextWindow applies the same config/catalog/default order when no
+// manager owns a provider-listing cache (custom agent states and bare servers).
+func ResolveContextWindow(cfg *config.Config, modelRef string) (int, string) {
+	return resolveContextWindow(cfg, modelRef, nil)
 }

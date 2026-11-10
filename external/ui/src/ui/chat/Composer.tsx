@@ -1,3 +1,4 @@
+import { serviceTierLabel, type ServiceTierControl } from "./ServiceTierPicker";
 import { composerAutoFocusAllowed } from "./composerFocus";
 import {
   lazy,
@@ -475,6 +476,7 @@ export function Composer(props: {
   llmReasoningLevels?: string[];
   /** Selected reasoning level (`metadata.reasoning`). */
   llmReasoning?: string;
+  serviceTierControl?: ServiceTierControl | undefined;
   onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
@@ -599,7 +601,13 @@ export function Composer(props: {
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const toolsetChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
-    "mode" | "llm" | "reasoning" | "permission" | "toolset" | null
+    | "mode"
+    | "llm"
+    | "reasoning"
+    | "permission"
+    | "toolset"
+    | "serviceTier"
+    | null
   >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -2419,7 +2427,13 @@ export function Composer(props: {
   useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning" | "permission" | "toolset",
+    type:
+      | "mode"
+      | "llm"
+      | "reasoning"
+      | "permission"
+      | "toolset"
+      | "serviceTier",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -3763,6 +3777,22 @@ export function Composer(props: {
                 </div>
               ) : null}
 
+              {props.serviceTierControl?.choices.length ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    className="composer-tab mode-btn"
+                    aria-label={t("composer.serviceTier")}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "serviceTier"}
+                    onClick={(event) =>
+                      toggleMenu("serviceTier", event.currentTarget)
+                    }
+                  >
+                    {serviceTierLabel(props.serviceTierControl.value, t)}
+                  </button>
+                </div>
+              ) : null}
               {showReasoning ? (
                 <div className="mode">
                   <button
@@ -4129,6 +4159,22 @@ export function Composer(props: {
                     </div>
                   </>
                 ) : null}
+                {menuOpen === "serviceTier" && props.serviceTierControl
+                  ? ["", ...props.serviceTierControl.choices].map((tier) => (
+                      <button
+                        key={tier}
+                        type="button"
+                        role="menuitem"
+                        className={`mode-item ${tier === props.serviceTierControl?.value ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.serviceTierControl?.onChange(tier);
+                          closeMenu();
+                        }}
+                      >
+                        {serviceTierLabel(tier, t)}
+                      </button>
+                    ))
+                  : null}
                 {menuOpen === "reasoning"
                   ? reasoningLevels.map((lv) => (
                       <button

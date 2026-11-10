@@ -9,6 +9,8 @@ const (
 	ReasoningLow     = "low"
 	ReasoningMedium  = "medium"
 	ReasoningHigh    = "high"
+	ReasoningXHigh   = "xhigh"
+	ReasoningMax     = "max"
 	// ReasoningNone is the lowest tier of the Codex backend, which serves gpt-5*
 	// ids but rejects the "minimal" name for the same idea.
 	ReasoningNone = "none"
@@ -86,7 +88,7 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 		return nil
 	}
 	levels := ent.ResolvedReasoningLevels()
-	if len(levels) == 0 || providerType != "codex" {
+	if len(levels) == 0 || providerType != "codex" || ent.ReasoningLevels != nil {
 		return levels
 	}
 	return remapMinimalToNone(levels)
@@ -149,7 +151,7 @@ func (c *Config) DefaultReasoningLevelFor(ent *ModelEntry) string {
 		return ""
 	}
 	def := ent.DefaultReasoningLevel()
-	if def == "" || c == nil || !c.providerTypeFor(ent) {
+	if def == "" || c == nil || ent.ReasoningLevels != nil || !c.providerTypeFor(ent) {
 		return def
 	}
 	if def == ReasoningMinimal {
@@ -193,6 +195,10 @@ func detectReasoningLevels(apiModel string) []string {
 		id = id[i+1:]
 	}
 	switch {
+	case openAIFamily(id, "gpt-6-astra", "gpt-6.1-sol"):
+		return []string{ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningXHigh, ReasoningMax}
+	case openAIFamily(id, "gpt-6-luna"):
+		return []string{ReasoningNone, ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningXHigh, ReasoningMax}
 	case strings.HasPrefix(id, "gpt-5"), strings.HasPrefix(id, "gpt-6"):
 		return append([]string(nil), reasoningWithMinimal...)
 	case isOpenAIOSeries(id), strings.HasPrefix(id, "gpt-oss"):

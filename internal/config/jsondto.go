@@ -125,6 +125,8 @@ type ProviderJSON struct {
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
 	Model            string             `json:"model"`
+	Protocol         string             `json:"protocol,omitempty"`
+	ServiceTier      string             `json:"service_tier,omitempty"`
 	KimiMetadata     *KimiModelMetadata `json:"kimi_metadata,omitempty"`
 	MaxTokens        int                `json:"max_tokens"`
 	Temperature      float64            `json:"temperature"`

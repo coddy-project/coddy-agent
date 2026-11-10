@@ -471,6 +471,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	defer func() { _ = raw.Body.Close() }()
 
 	var fullContent string
+	var actualTier string
 	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
@@ -555,6 +556,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			break
 		}
 
+		if tier := gjson.GetBytes(payload, "service_tier").String(); tier != "" {
+			actualTier = tier
+		}
 		var chunk openai.ChatCompletionChunk
 		if err := json.Unmarshal(payload, &chunk); err != nil {
 			// A non-empty data frame that is not JSON means the stream is
@@ -670,6 +674,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// contract.
 			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
+					ActualServiceTier: actualTier,
 					Content:           fullContent,
 					Reasoning:         reasoningBuf.String(),
 					UsageKnown:        usageKnown,
@@ -694,6 +699,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					}
 				}
 				return &Response{
+					ActualServiceTier: actualTier,
 					Content:           fullContent,
 					ToolCalls:         toolCalls,
 					StopReason:        sr,
@@ -724,6 +730,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	return &Response{
+		ActualServiceTier: actualTier,
 		Content:           fullContent,
 		ToolCalls:         toolCalls,
 		StopReason:        stopReason,

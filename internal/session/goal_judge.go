@@ -290,6 +290,7 @@ func goalJudgeProviderInput(cfg *config.Config, st *State, rm *config.ResolvedLL
 	// the row's proxy, its transport choice and the retries of agent.*.
 	base := llm.ProviderInput{
 		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+		Protocol: rm.Protocol, ServiceTier: rm.ServiceTier,
 		Mode: rm.Mode, Region: rm.Region, KimiIdentity: rm.KimiIdentity, KimiMetadata: rm.KimiMetadata,
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		UserAgent: rm.UserAgent,

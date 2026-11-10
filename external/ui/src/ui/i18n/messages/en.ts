@@ -2,6 +2,14 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "composer.serviceTierReset":
+    "The selected service tier is not supported by this model. Using the model default.",
+  "composer.serviceTier": "Service tier",
+  "composer.serviceTierDefault": "Model default",
+  "composer.serviceTierStandard": "Standard",
+  "composer.serviceTierFast": "Fast",
+  "composer.serviceTierUltra": "Ultra",
+
   "settings.userAgent.openai": "OpenAI/Go (default)",
   "settings.userAgent.anthropic": "Anthropic/Go (default)",
   "settings.userAgent.coddy": "Coddy/version",

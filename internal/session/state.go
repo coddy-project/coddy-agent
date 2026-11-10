@@ -71,7 +71,8 @@ type State struct {
 	SelectedToolset string
 	// SelectedReasoning overrides the reasoning level for LLM calls when non-empty.
 	// Resolved against the effective model's levels by EffectiveReasoning.
-	SelectedReasoning string
+	SelectedReasoning   string
+	SelectedServiceTier string
 
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
@@ -1169,7 +1170,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	ent := cfg.FindModelEntry(s.EffectiveModelID(cfg))
+	ent := s.ReasoningModel(cfg, s.EffectiveModelID(cfg))
 	if ent == nil {
 		return ""
 	}

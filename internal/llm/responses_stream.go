@@ -138,6 +138,7 @@ func responsesAssistantOutputMessage(text string) responses.ResponseInputItemUni
 // own event decoder; the caller closes it.
 func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], onChunk func(StreamChunk), label string, encodeReasoning func([]json.RawMessage) string) (*Response, error) {
 	var fullContent, reasoning string
+	var actualTier string
 	var toolCalls []ToolCall
 	streamingCalls := make(map[string]ToolCall)
 	var reasoningItems []json.RawMessage
@@ -226,9 +227,11 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 				}
 			}
 		case "response.completed":
+			actualTier = string(ev.Response.ServiceTier)
 			terminal = ev.Type
 			usage(ev.Response.Usage)
 		case "response.incomplete":
+			actualTier = string(ev.Response.ServiceTier)
 			// The backend ended the response on purpose, short of a whole
 			// answer. What it wrote is real and stays; the reason is reported
 			// instead of passing the answer off as an end_turn.
@@ -267,6 +270,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 			return nil
 		}
 		return &Response{
+			ActualServiceTier:  actualTier,
 			Content:            fullContent,
 			Reasoning:          reasoning,
 			ReasoningSignature: encodeReasoning(reasoningItems),
@@ -281,6 +285,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		err = codexRequestError(err)
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
 			return &Response{
+				ActualServiceTier:  actualTier,
 				Content:            fullContent,
 				Reasoning:          reasoning,
 				ReasoningSignature: encodeReasoning(reasoningItems),
@@ -333,6 +338,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		stopReason = codexStopReason(toolCalls)
 	}
 	return &Response{
+		ActualServiceTier:  actualTier,
 		Content:            fullContent,
 		Reasoning:          reasoning,
 		ReasoningSignature: encodeReasoning(reasoningItems),

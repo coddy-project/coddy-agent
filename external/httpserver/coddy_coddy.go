@@ -1934,6 +1934,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["selectedServiceTier"] = st.GetSelectedServiceTier()
 		out["mode"] = string(st.GetMode())
 		// The whole snapshot, versioned: what the composer mirrors and what
 		// it names in metadata.settingsVersion when it sends.
@@ -1988,10 +1989,11 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		// pinned title of its own, so a name the operator or the model wrote
 		// during that first turn is not overwritten seconds later by an answer
 		// that was already in flight.
-		TitleIfUnpinned   bool    `json:"titleIfUnpinned"`
-		MarkActivityRead  bool    `json:"markActivityRead"`
-		SelectedModelID   *string `json:"selectedModelId"`
-		SelectedReasoning *string `json:"selectedReasoning"`
+		TitleIfUnpinned     bool    `json:"titleIfUnpinned"`
+		MarkActivityRead    bool    `json:"markActivityRead"`
+		SelectedModelID     *string `json:"selectedModelId"`
+		SelectedReasoning   *string `json:"selectedReasoning"`
+		SelectedServiceTier *string `json:"selectedServiceTier"`
 		// SelectedToolset is a toolsets[] preset by name, or "default".
 		SelectedToolset *string `json:"selectedToolset"`
 		// Mode and PermissionMode are the operating mode and the permission
@@ -2046,6 +2048,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Reasoning = &level
 	}
+	change.ServiceTier = body.SelectedServiceTier
 	change.Toolset = body.SelectedToolset
 	change.Mode = body.Mode
 	change.PermissionMode = body.PermissionMode

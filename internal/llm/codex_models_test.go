@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,5 +143,25 @@ func TestRankedCodexModelsOfferOnlyWhatCodexLists(t *testing.T) {
 	}
 	if want := []string{"gpt-6-astra", "gpt-legacy"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("ranked = %v, want %v", got, want)
+	}
+}
+
+// Codex catalog snapshots advertise Fast as priority, independently of the
+// API-key model's Ultra capability. Empty and absent lists remain distinct.
+func TestCodexCatalogCarriesTierAndReasoningCapabilities(t *testing.T) {
+	var rows []codexModelCacheEntry
+	raw := `[{"slug":"gpt-6-astra","service_tiers":[{"id":"priority","name":"Fast"}],"supported_reasoning_levels":[{"effort":"low"},{"effort":"xhigh"},{"effort":"max"}]},{"slug":"limited","service_tiers":[],"supported_reasoning_levels":[]},{"slug":"legacy"}]`
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		t.Fatal(err)
+	}
+	got := normalizeCodexModels(rows)
+	if got[0].ServiceTiers == nil || len(*got[0].ServiceTiers) != 1 || (*got[0].ServiceTiers)[0] != "priority" {
+		t.Fatalf("tiers=%+v", got[0])
+	}
+	if got[0].ReasoningLevels == nil || len(*got[0].ReasoningLevels) != 3 {
+		t.Fatal("reasoning capabilities lost")
+	}
+	if got[1].ServiceTiers != nil || got[2].ServiceTiers == nil || len(*got[2].ServiceTiers) != 0 {
+		t.Fatal("empty/absent tiers collapsed")
 	}
 }

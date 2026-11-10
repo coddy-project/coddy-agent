@@ -152,6 +152,7 @@ func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, ins
 		instructions = withInTurnSummaryInstructions(instructions)
 	}
 	sumWindow, _ := a.contextWindowFor(chain[0].modelID)
+	sumWindow = a.inputBudgetFor(chain[0].modelID, sumWindow)
 	budget := compactionInputBudget(sumWindow, session.EstimateContextTokens(instructions))
 	summary, modelID, _, err := a.foldCompactionHead(ctx, chain, "", rows, instructions, budget, progress)
 	if err != nil {

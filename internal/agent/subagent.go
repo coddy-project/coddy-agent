@@ -967,7 +967,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	// its model's default. The call's must be one the model offers; the
 	// definition's is dropped with a warning when it is not.
 	reasoning := ""
-	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))
+	choices := reasoningChoices(cfg, a.state, model)
 	switch {
 	case req.Reasoning != "":
 		if req.Reasoning != config.ReasoningDefault {
@@ -1090,23 +1090,24 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		modelNote += note
 	}
 	spec := session.SubagentSpec{
-		ID:                childID,
-		ParentSessionID:   parentID,
-		Name:              def.Name,
-		CWD:               childCWD,
-		Mode:              childMode,
-		PermissionMode:    childPerm,
-		SelectedModelID:   model,
-		SelectedReasoning: reasoning,
-		Title:             label,
-		Role:              def.Role,
-		Tools:             effective,
-		Spawns:            childSpawns,
-		Depth:             childDepth,
-		MaxTurns:          def.MaxTurns,
-		ConnectMCP:        connectMCP,
-		ClientMCPServers:  a.parentSessionMCPDeclarations(),
-		Resume:            resumed != nil,
+		ID:                  childID,
+		ParentSessionID:     parentID,
+		Name:                def.Name,
+		CWD:                 childCWD,
+		Mode:                childMode,
+		PermissionMode:      childPerm,
+		SelectedModelID:     model,
+		SelectedReasoning:   reasoning,
+		SelectedServiceTier: a.selectedServiceTier(),
+		Title:               label,
+		Role:                def.Role,
+		Tools:               effective,
+		Spawns:              childSpawns,
+		Depth:               childDepth,
+		MaxTurns:            def.MaxTurns,
+		ConnectMCP:          connectMCP,
+		ClientMCPServers:    a.parentSessionMCPDeclarations(),
+		Resume:              resumed != nil,
 	}
 	if memChild {
 		// The memory package rewrites the spec into a run of the memory

@@ -11,6 +11,7 @@ import (
 // The settings a session keeps and a command changes.
 const (
 	SettingModel          = "model"
+	SettingServiceTier    = "service_tier"
 	SettingReasoning      = "reasoning"
 	SettingToolset        = "toolset"
 	SettingMode           = "mode"
@@ -19,7 +20,7 @@ const (
 
 // settingOrder is the order settings are listed in, whatever order a change
 // named them in.
-var settingOrder = []string{SettingModel, SettingReasoning, SettingToolset, SettingMode, SettingPermissionMode}
+var settingOrder = []string{SettingModel, SettingServiceTier, SettingReasoning, SettingToolset, SettingMode, SettingPermissionMode}
 
 // MaxOverrideTurns bounds --count: an override is a detour, and one that
 // outlives a working day is a session setting the operator forgot about.
