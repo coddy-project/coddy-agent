@@ -1,7 +1,12 @@
 import { environmentKey, getEnv, onEnvironmentSwitch } from "../env/remoteEnv";
 
-type State = { busy: boolean; codes: string[]; error: boolean };
-const empty: State = { busy: false, codes: [], error: false };
+type State = {
+  busy: boolean;
+  codes: string[];
+  error: false | "verify" | "disable" | "regenerate";
+  configured: boolean | null;
+};
+const empty: State = { busy: false, codes: [], error: false, configured: null };
 const states = new Map<string, State>();
 const activeKey = () => environmentKey(getEnv());
 let generation = 0;
@@ -44,9 +49,46 @@ export async function verifyEnrollment(
     if (!response.ok) throw new Error("verify");
     const result = (await response.json()) as { codes: string[] };
     if (current === generation)
-      setState(key, { busy: false, error: false, codes: result.codes });
+      setState(key, {
+        busy: false,
+        error: false,
+        codes: result.codes,
+        configured: true,
+      });
   } catch {
     if (current === generation)
-      setState(key, { ...state, busy: false, error: true });
+      setState(key, { ...state, busy: false, error: "verify" });
+  }
+}
+
+export async function changeEnrollment(
+  operation: "disable" | "regenerate",
+): Promise<void> {
+  const key = activeKey();
+  const state = states.get(key) ?? empty;
+  if (state.busy) return;
+  const current = generation;
+  setState(key, { ...state, busy: true, error: false });
+  try {
+    const path =
+      operation === "disable"
+        ? "/coddy/auth/totp/disable"
+        : "/coddy/auth/backup-codes/regenerate";
+    const response = await fetch(path, { method: "POST" });
+    if (!response.ok) throw new Error("enrollment change");
+    const codes =
+      operation === "regenerate"
+        ? ((await response.json()) as { codes: string[] }).codes
+        : [];
+    if (current === generation)
+      setState(key, {
+        busy: false,
+        error: false,
+        codes,
+        configured: operation !== "disable",
+      });
+  } catch {
+    if (current === generation)
+      setState(key, { ...state, busy: false, error: operation });
   }
 }

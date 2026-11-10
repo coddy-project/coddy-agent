@@ -528,3 +528,15 @@
     margin: auto;
   }
 }
+
+.auth-backup-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--coddy-glass-panel-border);
+}
+.auth-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

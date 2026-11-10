@@ -5,6 +5,8 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ConfirmProvider } from "../components/useConfirm";
@@ -23,7 +25,9 @@ function Form() {
   });
   return (
     <>
-      <AuthenticationSection value={value} onChange={setValue} />
+      <ConfirmProvider>
+        <AuthenticationSection value={value} onChange={setValue} />
+      </ConfirmProvider>
       <output data-testid="document">{JSON.stringify(value)}</output>
     </>
   );
@@ -143,7 +147,11 @@ function NavigableForm() {
   return (
     <>
       <button onClick={() => setVisible(!visible)}>Navigate</button>
-      {visible && <AuthenticationSection value={value} onChange={setValue} />}
+      {visible && (
+        <ConfirmProvider>
+          <AuthenticationSection value={value} onChange={setValue} />
+        </ConfirmProvider>
+      )}
       <output data-testid="document">{JSON.stringify(value)}</output>
     </>
   );
@@ -289,4 +297,139 @@ test("an older setup response cannot replace the secret being verified", async (
   expect(screen.getByLabelText("Secret")).toHaveValue("BBBB");
   verify.resolve({ ok: true, json: async () => ({ codes: ["RACE-CODE"] }) });
   expect(await screen.findByText("RACE-CODE")).toBeTruthy();
+});
+
+function ConfiguredForm() {
+  const [value, setValue] = useState<Record<string, unknown>>({
+    login: {
+      enable: true,
+      user: "operator",
+      totp_configured: true,
+      backup_codes_configured: true,
+      backup_codes_count: 5,
+    },
+  });
+  return (
+    <ConfirmProvider>
+      <AuthenticationSection value={value} onChange={setValue} />
+      <output data-testid="document">{JSON.stringify(value)}</output>
+    </ConfirmProvider>
+  );
+}
+
+test.each([true, false])(
+  "disable confirmation handles success=%s",
+  async (ok) => {
+    const fetchMock = vi.fn(async () => ({ ok }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ConfiguredForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove TOTP" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/coddy/auth/totp/disable",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    if (ok)
+      await waitFor(() =>
+        expect(
+          JSON.parse(screen.getByTestId("document").textContent!).login
+            .totp_configured,
+        ).toBe(false),
+      );
+    else {
+      await screen.findByRole("alert");
+      expect(
+        JSON.parse(screen.getByTestId("document").textContent!).login
+          .totp_configured,
+      ).toBe(true);
+    }
+  },
+);
+
+test.each([true, false])(
+  "backup regeneration is confirmed and handles success=%s",
+  async (ok) => {
+    const fetchMock = vi.fn(async () => ({
+      ok,
+      json: async () => ({ codes: ["NEW-CODE"] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ConfiguredForm />);
+    const fieldset = screen.getByRole("group", { name: "Authenticator app" });
+    expect(within(fieldset).getByText(/5 unused/)).toBeTruthy();
+    fireEvent.click(
+      within(fieldset).getByRole("button", { name: "Regenerate" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/coddy/auth/backup-codes/regenerate",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    if (ok) {
+      expect(await screen.findByText("NEW-CODE")).toBeTruthy();
+      expect(screen.getByText(/1 unused/)).toBeTruthy();
+    } else {
+      await screen.findByRole("alert");
+      expect(screen.getByText(/5 unused/)).toBeTruthy();
+    }
+  },
+);
+
+test("copies and downloads the displayed codes", async () => {
+  const copy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: copy },
+  });
+  const create = vi.fn(() => "blob:codes");
+  const revoke = vi.fn();
+  vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: revoke });
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ codes: ["COPY-CODE"] }),
+    })),
+  );
+  render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("COPY-CODE");
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  await waitFor(() => expect(copy).toHaveBeenCalledWith("COPY-CODE"));
+  fireEvent.click(screen.getByRole("button", { name: "Download" }));
+  expect(create).toHaveBeenCalled();
+  expect(click).toHaveBeenCalled();
+  click.mockRestore();
+});
+
+test("failed regeneration preserves the codes already shown", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ codes: ["KEPT-CODE"] }),
+    })
+    .mockResolvedValueOnce({ ok: false });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("KEPT-CODE");
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not regenerate",
+  );
+  expect(screen.getByText("KEPT-CODE")).toBeTruthy();
+  expect(screen.getByText(/1 unused/)).toBeTruthy();
 });
