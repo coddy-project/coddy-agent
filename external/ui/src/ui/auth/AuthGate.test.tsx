@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -173,6 +174,29 @@ describe("SignInScreen", () => {
     expect(post?.body).toBe(
       JSON.stringify({ user: "operator", password: "correct-horse" }),
     );
+  });
+
+  it("issues only one login request for a rapid double submit", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    hang = true;
+    const form = document.querySelector("form")!;
+
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+
+    expect(seen.filter((s) => s.url === "/coddy/auth/login")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
   });
 
   // A page embedded in another site (Telegram Web runs a Mini App in an
@@ -442,14 +466,79 @@ describe("SignInScreen", () => {
     await screen.findByLabelText("One-time code");
 
     fireEvent.click(screen.getByRole("button", { name: "Back to login" }));
-    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toHaveValue("");
     expect(screen.queryByLabelText("One-time code")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "fresh-password" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByLabelText("One-time code")).toBeInTheDocument();
     expect(seen.filter((s) => s.url === "/coddy/auth/login")).toHaveLength(2);
     expect(
       seen.filter((s) => s.url === "/coddy/auth/login/verify"),
     ).toHaveLength(0);
+  });
+
+  it("keeps a challenge after status 0 so the reader can retry intentionally", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    let offline = true;
+    let signedIn = false;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      if (url === "/coddy/auth/login/verify") {
+        if (offline) throw new Error("network down");
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: signedIn,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.change(await screen.findByLabelText("One-time code"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The server did not answer",
+    );
+    expect(screen.getByLabelText("One-time code")).toHaveValue("");
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(
+      seen.filter((s) => s.url === "/coddy/auth/login/verify"),
+    ).toHaveLength(1);
+
+    offline = false;
+    fireEvent.change(screen.getByLabelText("One-time code"), {
+      target: { value: "654321" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const attempts = seen.filter((s) => s.url === "/coddy/auth/login/verify");
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.body).toBe(
+      JSON.stringify({ challenge: "challenge-1", code: "654321" }),
+    );
   });
 
   it("shrinks the authenticator period with its seconds label", async () => {

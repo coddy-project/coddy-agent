@@ -176,3 +176,39 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The TOTP period countdown: a muted seconds label, then a thin track the
+   accent fill shrinks across. Owned here because the sign-in screen's second
+   step draws it; the enrollment fields of Settings (styles/settings/_fields)
+   share these rules. */
+.auth-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auth-period-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.auth-period-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  overflow: hidden;
+}
+.auth-period-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-period-fill {
+    transition: none;
+  }
+}

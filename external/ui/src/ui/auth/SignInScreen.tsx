@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { LIGHT_THEMES } from "../theme/themeCookie";
 import { readAppliedUiTheme } from "../theme/uiTheme";
@@ -33,6 +33,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
   const [code, setCode] = useState("");
   const [backup, setBackup] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   // The server took the password, but the session it set did not come back.
   const [notKept, setNotKept] = useState(false);
@@ -64,9 +65,10 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (busy) {
+    if (busyRef.current) {
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setError("");
     setNotKept(false);
@@ -75,9 +77,11 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       : await signIn(user, password);
     if (res.ok) {
       if (res.challenge) {
+        setPassword("");
         setChallenge(res.challenge);
         setCode("");
         setBackup(false);
+        busyRef.current = false;
         setBusy(false);
         return;
       }
@@ -88,6 +92,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       // why.
       const after = snapshotAuth();
       if (after.loginRequired && !after.authenticated) {
+        busyRef.current = false;
         setBusy(false);
         setPassword("");
         setChallenge("");
@@ -105,6 +110,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       }
       return;
     }
+    busyRef.current = false;
     setBusy(false);
     setCode("");
     // A completed verify attempt consumes its challenge, successfully or not.
