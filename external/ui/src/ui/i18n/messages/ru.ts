@@ -2,6 +2,15 @@
 export const messagesRu: Record<string, string> = {
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
+  "settings.auth.authenticator": "Приложение-аутентификатор",
+  "settings.auth.requireCode": "Требовать одноразовый код",
+  "settings.auth.qr": "QR-код для приложения-аутентификатора",
+  "settings.auth.secret": "Секретный ключ",
+  "settings.auth.code": "Код из приложения",
+  "settings.auth.verify": "Проверить и включить",
+  "settings.auth.setupError":
+    "Не удалось подготовить настройку аутентификатора.",
+  "settings.auth.verifyError": "Не удалось проверить код. Попробуйте ещё раз.",
   "settings.auth.enable": "Включить аутентификацию",
   "settings.auth.account": "Учётная запись",
   "settings.auth.login": "Логин",
