@@ -60,6 +60,20 @@
   color: var(--text);
 }
 
+.auth-step {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.auth-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
 .auth-field {
   display: flex;
   flex-direction: column;
@@ -95,6 +109,10 @@
   opacity: 0.6;
 }
 
+.auth-code-input {
+  letter-spacing: 0.12em;
+}
+
 .auth-error {
   margin: 0;
   font-size: 0.85rem;
@@ -128,6 +146,33 @@
 }
 
 .auth-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-alt {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.auth-text-button {
+  padding: 4px 0;
+  border: 0;
+  color: var(--muted);
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.auth-text-button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.auth-text-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

@@ -113,9 +113,24 @@ export const messagesRu: Record<string, string> = {
   "auth.signIn.submit": "Войти",
   "auth.signIn.working": "Вход\u2026",
   "auth.signIn.invalid": "Неверный пользователь или пароль.",
-  "auth.signIn.code": "Код из приложения-аутентификатора",
-  "auth.signIn.invalidWithCode":
-    "Неверный пользователь, пароль или код. Код действует один раз: дождитесь следующего.",
+  "auth.signIn.secondStep": "Шаг 2 из 2",
+  "auth.signIn.verifyTitle": "Двухэтапная проверка",
+  "auth.signIn.verifyCopy":
+    "Введите шестизначный код из приложения-аутентификатора. Пароль уже проверен.",
+  "auth.signIn.code": "Одноразовый код",
+  "auth.signIn.backupCode": "Резервный код",
+  "auth.signIn.backupCopy":
+    "Введите неиспользованный резервный код. Пароль уже проверен.",
+  "auth.signIn.verifySubmit": "Подтвердить и войти",
+  "auth.signIn.back": "Вернуться ко входу",
+  "auth.signIn.useBackup": "Использовать резервный код",
+  "auth.signIn.useAuthenticator": "Использовать код аутентификатора",
+  "auth.signIn.invalidCode":
+    "Код не принят. Введите пароль, чтобы повторить попытку.",
+  "auth.signIn.period.one": "Текущий код истекает через {count} секунду",
+  "auth.signIn.period.few": "Текущий код истекает через {count} секунды",
+  "auth.signIn.period.many": "Текущий код истекает через {count} секунд",
+  "auth.signIn.period.other": "Текущий код истекает через {count} секунды",
   "auth.signIn.unreachable": "Сервер не ответил. Он ещё работает?",
   "auth.signIn.noAccount":
     "Вход включён, но учётная запись не настроена. Выполните `coddy serve set-password` на сервере.",

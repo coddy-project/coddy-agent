@@ -250,34 +250,65 @@ async function askAuthMe(): Promise<{
   };
 }
 
-export type SignInResult = { ok: boolean; status: number; error?: string };
+export type SignInResult = {
+  ok: boolean;
+  status: number;
+  error?: string;
+  /** Password accepted; this one-time challenge must be verified next. */
+  challenge?: string;
+};
 
 /**
- * signIn posts the form. The cookie, when there is one, is set by the server.
- * `code` is the one-time code of the authenticator app, sent only when the
- * server asks for one.
+ * signIn posts the password. A TOTP answer carries a challenge and no session;
+ * verifySignIn completes that separate step. The cookie, when there is one, is
+ * set by the server.
  */
 export async function signIn(
   user: string,
   password: string,
-  code?: string,
+): Promise<SignInResult> {
+  return postSignIn("/coddy/auth/login", { user, password });
+}
+
+/** verifySignIn spends a password challenge on a TOTP or backup code. */
+export async function verifySignIn(
+  challenge: string,
+  code: string,
+): Promise<SignInResult> {
+  return postSignIn("/coddy/auth/login/verify", { challenge, code });
+}
+
+async function postSignIn(
+  path: string,
+  payload: Record<string, string>,
 ): Promise<SignInResult> {
   let res: Response;
   try {
-    res = await localFetch("/coddy/auth/login", {
+    res = await localFetch(path, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify(
-        code === undefined ? { user, password } : { user, password, code },
-      ),
+      body: JSON.stringify(payload),
     });
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : "" };
   }
   if (res.ok) {
+    let body: { second_factor?: string; challenge?: string } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      /* an ordinary session response need not carry a JSON body */
+    }
+    if (
+      body.second_factor === "totp" &&
+      typeof body.challenge === "string" &&
+      body.challenge !== ""
+    ) {
+      return { ok: true, status: res.status, challenge: body.challenge };
+    }
     await refreshAuthState();
     return { ok: true, status: res.status };
   }

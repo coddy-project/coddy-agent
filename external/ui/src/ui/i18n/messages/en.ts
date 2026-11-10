@@ -110,9 +110,22 @@ export const messagesEn: Record<string, string> = {
   "auth.signIn.submit": "Sign in",
   "auth.signIn.working": "Signing in\u2026",
   "auth.signIn.invalid": "Wrong user or password.",
-  "auth.signIn.code": "Code from the authenticator app",
-  "auth.signIn.invalidWithCode":
-    "Wrong user, password or code. A code works once: wait for the next one.",
+  "auth.signIn.secondStep": "Step 2 of 2",
+  "auth.signIn.verifyTitle": "Two-step verification",
+  "auth.signIn.verifyCopy":
+    "Enter the six-digit code from your authenticator app. Your password has already been checked.",
+  "auth.signIn.code": "One-time code",
+  "auth.signIn.backupCode": "Backup code",
+  "auth.signIn.backupCopy":
+    "Enter one of your unused backup codes. Your password has already been checked.",
+  "auth.signIn.verifySubmit": "Verify and sign in",
+  "auth.signIn.back": "Back to login",
+  "auth.signIn.useBackup": "Use a backup code",
+  "auth.signIn.useAuthenticator": "Use an authenticator code",
+  "auth.signIn.invalidCode":
+    "The code was not accepted. Enter your password to try again.",
+  "auth.signIn.period.one": "Current code expires in {count} second",
+  "auth.signIn.period.other": "Current code expires in {count} seconds",
   "auth.signIn.unreachable": "The server did not answer. Is it still running?",
   "auth.signIn.noAccount":
     "Sign-in is switched on but no account is configured. Run `coddy serve set-password` on the server.",

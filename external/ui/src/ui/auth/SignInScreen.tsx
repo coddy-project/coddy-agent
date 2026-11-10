@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { LIGHT_THEMES } from "../theme/themeCookie";
 import { readAppliedUiTheme } from "../theme/uiTheme";
-import { signIn, snapshotAuth } from "./authState";
+import { motionIsReduced, subscribeUiSimple } from "../theme/uiSimple";
+import { totpPeriodLeft } from "../settings/totpPeriod";
+import { signIn, snapshotAuth, verifySignIn } from "./authState";
 // Both wordmarks are small enough that Vite inlines them into the bundle, so
 // the screen paints with no second request - which matters on the one page a
 // browser sees before it has any credential at all.
@@ -18,7 +20,7 @@ import wordmarkLight from "../../assets/coddy-logo-wordmark-light.svg";
  * conversations would suggest otherwise.
  */
 export function SignInScreen(props: { onSignedIn?: () => void }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   // The theme is stamped on the root element before React renders, and the
   // picker that could change it is behind this screen, so reading it once is
   // enough here.
@@ -27,7 +29,9 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     : wordmarkDark;
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
+  const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
+  const [backup, setBackup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // The server took the password, but the session it set did not come back.
@@ -40,9 +44,23 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       ? t("auth.signIn.telegramRetry")
       : "";
   const telegramNotKept = auth.telegramProblem === "not_kept";
-  // The server asks for the six digits of an authenticator app after the
-  // password (`coddy serve set-totp`).
-  const needsCode = auth.secondFactor === "totp";
+  const verifying = challenge !== "";
+
+  const reducedMotion = useSyncExternalStore(
+    subscribeUiSimple,
+    motionIsReduced,
+    () => false,
+  );
+  const [, repaintPeriod] = useState(0);
+  useEffect(() => {
+    if (!verifying || backup) return;
+    const id = window.setInterval(
+      () => repaintPeriod((v) => v + 1),
+      reducedMotion ? 1000 : 250,
+    );
+    return () => window.clearInterval(id);
+  }, [verifying, backup, reducedMotion]);
+  const period = totpPeriodLeft(Date.now());
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -52,18 +70,27 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
     setBusy(true);
     setError("");
     setNotKept(false);
-    const res = needsCode
-      ? await signIn(user, password, code)
+    const res = verifying
+      ? await verifySignIn(challenge, code)
       : await signIn(user, password);
     if (res.ok) {
-      // signIn has asked the server again. A browser that does not send the
-      // cookie back in this frame - a page embedded in another site, such as
-      // Telegram Web running a Mini App in an iframe - is still signed out:
-      // reloading would only bring this form back with no word of why.
+      if (res.challenge) {
+        setChallenge(res.challenge);
+        setCode("");
+        setBackup(false);
+        setBusy(false);
+        return;
+      }
+      // A successful request has asked the server again. A browser that does
+      // not send the cookie back in this frame - a page embedded in another
+      // site, such as Telegram Web running a Mini App in an iframe - is still
+      // signed out: reloading would only bring this form back with no word of
+      // why.
       const after = snapshotAuth();
       if (after.loginRequired && !after.authenticated) {
         setBusy(false);
         setPassword("");
+        setChallenge("");
         setCode("");
         setNotKept(true);
         return;
@@ -79,12 +106,18 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       return;
     }
     setBusy(false);
-    setPassword("");
-    // A code is taken once, so a refused one is never worth sending again.
     setCode("");
+    // A completed verify attempt consumes its challenge, successfully or not.
+    // Only a request that never reached the server may be explicitly retried.
+    if (!verifying || res.status !== 0) {
+      setPassword("");
+    }
+    if (verifying && res.status !== 0) {
+      setChallenge("");
+    }
     if (res.status === 401) {
       setError(
-        needsCode ? t("auth.signIn.invalidWithCode") : t("auth.signIn.invalid"),
+        verifying ? t("auth.signIn.invalidCode") : t("auth.signIn.invalid"),
       );
     } else if (res.status === 0) {
       setError(t("auth.signIn.unreachable"));
@@ -124,7 +157,12 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
           </div>
         ) : (
           <form className="auth-card" onSubmit={submit}>
-            <h1 className="auth-title">{t("auth.signIn.title")}</h1>
+            {verifying ? (
+              <div className="auth-step">{t("auth.signIn.secondStep")}</div>
+            ) : null}
+            <h1 className="auth-title">
+              {t(verifying ? "auth.signIn.verifyTitle" : "auth.signIn.title")}
+            </h1>
             {telegramNote ? (
               <p
                 className="auth-error"
@@ -135,51 +173,89 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
               </p>
             ) : null}
 
-            <label className="auth-field">
-              <span className="auth-label">{t("auth.signIn.user")}</span>
-              <input
-                className="auth-input"
-                type="text"
-                name="username"
-                autoComplete="username"
-                autoFocus
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-                disabled={busy}
-              />
-            </label>
+            {verifying ? (
+              <>
+                <p className="auth-copy">
+                  {t(
+                    backup
+                      ? "auth.signIn.backupCopy"
+                      : "auth.signIn.verifyCopy",
+                  )}
+                </p>
+                <label className="auth-field">
+                  <span className="auth-label">
+                    {t(backup ? "auth.signIn.backupCode" : "auth.signIn.code")}
+                  </span>
+                  <input
+                    className="auth-input auth-code-input"
+                    type="text"
+                    name={backup ? "backup-code" : "one-time-code"}
+                    autoComplete="one-time-code"
+                    inputMode={backup ? "text" : "numeric"}
+                    maxLength={backup ? 32 : 6}
+                    placeholder={backup ? "8F3K-92M Q7X" : "000000"}
+                    autoCapitalize={backup ? "characters" : undefined}
+                    autoCorrect={backup ? "off" : undefined}
+                    spellCheck={backup ? false : undefined}
+                    autoFocus
+                    data-testid="sign-in-code"
+                    value={code}
+                    onChange={(e) =>
+                      setCode(
+                        backup
+                          ? e.target.value
+                          : e.target.value.replace(/\D/g, "").slice(0, 6),
+                      )
+                    }
+                    disabled={busy}
+                  />
+                </label>
+                {!backup ? (
+                  <div className="auth-period" data-testid="sign-in-period">
+                    <span className="auth-period-label">
+                      {tp("auth.signIn.period", period.seconds)}
+                    </span>
+                    <span className="auth-period-track" aria-hidden="true">
+                      <span
+                        className="auth-period-fill"
+                        style={{ width: `${period.fraction * 100}%` }}
+                      />
+                    </span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <label className="auth-field">
+                  <span className="auth-label">{t("auth.signIn.user")}</span>
+                  <input
+                    className="auth-input"
+                    type="text"
+                    name="username"
+                    autoComplete="username"
+                    autoFocus
+                    value={user}
+                    onChange={(e) => setUser(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
 
-            <label className="auth-field">
-              <span className="auth-label">{t("auth.signIn.password")}</span>
-              <input
-                className="auth-input"
-                type="password"
-                name="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={busy}
-              />
-            </label>
-
-            {needsCode ? (
-              <label className="auth-field">
-                <span className="auth-label">{t("auth.signIn.code")}</span>
-                <input
-                  className="auth-input"
-                  type="text"
-                  name="one-time-code"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  maxLength={7}
-                  placeholder="123456"
-                  data-testid="sign-in-code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  disabled={busy}
-                />
-              </label>
-            ) : null}
+                <label className="auth-field">
+                  <span className="auth-label">
+                    {t("auth.signIn.password")}
+                  </span>
+                  <input
+                    className="auth-input"
+                    type="password"
+                    name="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+              </>
+            )}
 
             {error ? (
               <p className="auth-error" role="alert">
@@ -205,13 +281,54 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
               type="submit"
               disabled={
                 busy ||
-                user.trim() === "" ||
-                password === "" ||
-                (needsCode && code.trim() === "")
+                (verifying
+                  ? backup
+                    ? code.trim() === ""
+                    : !/^\d{6}$/.test(code)
+                  : user.trim() === "" || password === "")
               }
             >
-              {busy ? t("auth.signIn.working") : t("auth.signIn.submit")}
+              {busy
+                ? t("auth.signIn.working")
+                : t(
+                    verifying
+                      ? "auth.signIn.verifySubmit"
+                      : "auth.signIn.submit",
+                  )}
             </button>
+            {verifying ? (
+              <div className="auth-alt">
+                <button
+                  className="auth-text-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setChallenge("");
+                    setCode("");
+                    setBackup(false);
+                    setError("");
+                  }}
+                >
+                  {t("auth.signIn.back")}
+                </button>
+                <button
+                  className="auth-text-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setBackup((value) => !value);
+                    setCode("");
+                    setError("");
+                  }}
+                >
+                  {t(
+                    backup
+                      ? "auth.signIn.useAuthenticator"
+                      : "auth.signIn.useBackup",
+                  )}
+                </button>
+              </div>
+            ) : null}
           </form>
         )}
       </div>
