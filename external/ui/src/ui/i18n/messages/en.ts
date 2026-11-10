@@ -27,6 +27,8 @@ export const messagesEn: Record<string, string> = {
   "settings.auth.verify": "Verify and enable",
   "settings.auth.setupError": "Could not prepare authenticator setup.",
   "settings.auth.verifyError": "Could not verify the code. Try again.",
+  "settings.auth.period.one": "New code in {count} second",
+  "settings.auth.period.other": "New code in {count} seconds",
   "settings.auth.enable": "Enable authentication",
   "settings.auth.account": "Account",
   "settings.auth.login": "Login",

@@ -29,6 +29,10 @@ export const messagesRu: Record<string, string> = {
   "settings.auth.setupError":
     "Не удалось подготовить настройку аутентификатора.",
   "settings.auth.verifyError": "Не удалось проверить код. Попробуйте ещё раз.",
+  "settings.auth.period.one": "Новый код через {count} секунду",
+  "settings.auth.period.few": "Новый код через {count} секунды",
+  "settings.auth.period.many": "Новый код через {count} секунд",
+  "settings.auth.period.other": "Новый код через {count} секунды",
   "settings.auth.enable": "Включить аутентификацию",
   "settings.auth.account": "Учётная запись",
   "settings.auth.login": "Логин",

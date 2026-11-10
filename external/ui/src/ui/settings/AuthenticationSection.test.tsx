@@ -8,10 +8,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ConfirmProvider } from "../components/useConfirm";
 import { AuthenticationSection } from "./AuthenticationSection";
 import { resetEnrollment } from "./authEnrollmentStore";
+import { setLocale } from "../i18n/i18n";
 
 afterEach(() => {
   cleanup();
@@ -114,9 +115,7 @@ test("a rejected verification leaves TOTP unconfigured", async () => {
     ),
   );
   render(<Form />);
-  fireEvent.click(
-    screen.getByRole("switch", { name: "Require one-time code" }),
-  );
+  fireEvent.click(screen.getAllByRole("switch")[1]!);
   await screen.findByRole("img", { name: "Authenticator QR code" });
   fireEvent.change(screen.getByLabelText("Code from the app"), {
     target: { value: "123456" },
@@ -262,9 +261,9 @@ test("an older setup response cannot replace the secret being verified", async (
   });
   vi.stubGlobal("fetch", fetchMock);
   render(<Form />);
-  fireEvent.click(
-    screen.getByRole("switch", { name: "Require one-time code" }),
-  );
+  // The second switch is "Require one-time code"; the lookup must not name
+  // it in English, since one test runs the section in Russian.
+  fireEvent.click(screen.getAllByRole("switch")[1]!);
   await screen.findByRole("img", { name: "Authenticator QR code" });
   fireEvent.change(screen.getByLabelText("Secret"), {
     target: { value: "AAAA" },
@@ -605,6 +604,130 @@ test("a pending result cannot overwrite fresher server metadata after navigation
   );
   await waitFor(() => expect(screen.queryByText("STALE-PRIVATE")).toBeNull());
   expect(onChange).not.toHaveBeenCalled();
+});
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+function stubReducedMotion(matches: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: matches && query === REDUCED_MOTION_QUERY,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+function startEnrollment() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        secret: "JBSWY3DPEHPK3PXP",
+        qr_png: "data:image/png;base64,YQ==",
+      }),
+    })),
+  );
+  render(<Form />);
+  // The second switch is "Require one-time code"; the lookup must not name
+  // it in English, since one test runs the section in Russian.
+  fireEvent.click(screen.getAllByRole("switch")[1]!);
+}
+
+function periodFill(): HTMLElement {
+  return document.querySelector<HTMLElement>(".auth-period-fill")!;
+}
+
+describe("the authenticator code period", () => {
+  test("shows the seconds left and shrinks the bar as the wall clock moves", () => {
+    vi.useFakeTimers({ now: 125_000 });
+    try {
+      startEnrollment();
+      const period = screen.getByTestId("auth-period");
+      expect(period.textContent).toContain("New code in 25 seconds");
+      const at25 = parseFloat(periodFill().style.width);
+      expect(at25).toBeGreaterThan(80);
+      expect(at25).toBeLessThanOrEqual(83.4);
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(period.textContent).toContain("New code in 24 seconds");
+      expect(parseFloat(periodFill().style.width)).toBeLessThan(at25);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("reads a fresh period as a full bar and label, never zero", () => {
+    vi.useFakeTimers({ now: 120_000 });
+    try {
+      startEnrollment();
+      expect(screen.getByTestId("auth-period").textContent).toContain(
+        "New code in 30 seconds",
+      );
+      expect(periodFill().style.width).toBe("100%");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("under reduced motion updates once a second instead of continuously", () => {
+    stubReducedMotion(true);
+    vi.useFakeTimers({ now: 125_000 });
+    try {
+      startEnrollment();
+      const period = screen.getByTestId("auth-period");
+      act(() => {
+        vi.advanceTimersByTime(999);
+      });
+      expect(period.textContent).toContain("New code in 25 seconds");
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(period.textContent).toContain("New code in 24 seconds");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("in simplified mode updates discretely too", () => {
+    document.documentElement.dataset.simple = "on";
+    vi.useFakeTimers({ now: 125_000 });
+    try {
+      startEnrollment();
+      const period = screen.getByTestId("auth-period");
+      act(() => {
+        vi.advanceTimersByTime(999);
+      });
+      expect(period.textContent).toContain("New code in 25 seconds");
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(period.textContent).toContain("New code in 24 seconds");
+    } finally {
+      vi.useRealTimers();
+      delete document.documentElement.dataset.simple;
+    }
+  });
+
+  test("names the period in Russian", () => {
+    setLocale("ru");
+    vi.useFakeTimers({ now: 125_000 });
+    try {
+      startEnrollment();
+      expect(screen.getByTestId("auth-period").textContent).toContain(
+        "Новый код через 25 секунд",
+      );
+    } finally {
+      vi.useRealTimers();
+      setLocale("en");
+    }
+  });
 });
 
 test("a result arriving after reopening cannot replace fresh server metadata", async () => {

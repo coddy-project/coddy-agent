@@ -18,8 +18,10 @@ import { useConfirm } from "../components/useConfirm";
 import { environmentKey, getEnv } from "../env/remoteEnv";
 import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
+import { motionIsReduced, subscribeUiSimple } from "../theme/uiSimple";
 import { SwitchField } from "./SwitchField";
 import { SecretInput } from "./SecretInput";
+import { totpPeriodLeft } from "./totpPeriod";
 import { fieldAnchor } from "./SchemaForm";
 import { landmarkAnchor } from "./settingsSections";
 
@@ -208,6 +210,24 @@ export function AuthenticationSection({ value, onChange }: Props) {
   };
   const update = (key: string, v: unknown) =>
     onChange({ ...value, login: { ...login, [key]: v } });
+  // The bar and the label are computed from Date.now() at every paint, so
+  // they can never drift from the period the authenticator app shows; the
+  // timer only asks for a new frame, once a second under reduced motion.
+  const reducedMotion = useSyncExternalStore(
+    subscribeUiSimple,
+    motionIsReduced,
+    () => false,
+  );
+  const [, repaintPeriod] = useState(0);
+  useEffect(() => {
+    if (!enrolling) return;
+    const id = window.setInterval(
+      () => repaintPeriod((v) => v + 1),
+      reducedMotion ? 1000 : 250,
+    );
+    return () => window.clearInterval(id);
+  }, [enrolling, reducedMotion]);
+  const period = totpPeriodLeft(Date.now());
   return (
     <div className="settings-authentication">
       <div data-settings-anchor={fieldAnchor("httpserver.login", "enable")}>
@@ -346,6 +366,17 @@ export function AuthenticationSection({ value, onChange }: Props) {
                     setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
                   }
                 />
+              </div>
+              <div className="auth-period" data-testid="auth-period">
+                <span className="auth-period-label">
+                  {tp("settings.auth.period", period.seconds)}
+                </span>
+                <span className="auth-period-track" aria-hidden="true">
+                  <span
+                    className="auth-period-fill"
+                    style={{ width: `${period.fraction * 100}%` }}
+                  />
+                </span>
               </div>
               <button
                 type="button"
