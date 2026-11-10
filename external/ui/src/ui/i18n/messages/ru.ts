@@ -1,5 +1,18 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "settings.section.httpserver.label": "Аутентификация",
+  "settings.section.httpserver.desc": "Защита входа через браузер",
+  "settings.auth.enable": "Включить аутентификацию",
+  "settings.auth.account": "Учётная запись",
+  "settings.auth.login": "Логин",
+  "settings.auth.password": "Пароль",
+  "settings.auth.passwordHint":
+    "Оставьте пароль пустым, чтобы сохранить текущий.",
+  "settings.auth.ttl": "Длительность сеанса (часы)",
+  "settings.auth.environment":
+    "Учётные данные из переменных окружения имеют приоритет над этими настройками.",
+  "settings.auth.showPassword": "Показать пароль",
+  "settings.auth.hidePassword": "Скрыть пароль",
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.simpleLabel": "Упрощённый режим",

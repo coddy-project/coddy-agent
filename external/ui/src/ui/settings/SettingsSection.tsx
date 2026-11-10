@@ -1,3 +1,4 @@
+import { AuthenticationSection } from "./AuthenticationSection";
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
@@ -626,6 +627,15 @@ export function SettingsSection(props: {
           <SystemSection />
         </Suspense>
       </ChunkBoundary>
+    );
+  }
+
+  if (section.kind === "authentication") {
+    return (
+      <AuthenticationSection
+        value={asObject(doc.httpserver)}
+        onChange={(v) => setKey("httpserver", v)}
+      />
     );
   }
 

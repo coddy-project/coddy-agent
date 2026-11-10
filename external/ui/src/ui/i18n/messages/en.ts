@@ -2,6 +2,19 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "settings.section.httpserver.label": "Authentication",
+  "settings.section.httpserver.desc": "Web sign-in protection",
+  "settings.auth.enable": "Enable authentication",
+  "settings.auth.account": "Account",
+  "settings.auth.login": "Login",
+  "settings.auth.password": "Password",
+  "settings.auth.passwordHint":
+    "Leave the password empty to keep the current one.",
+  "settings.auth.ttl": "Session duration (hours)",
+  "settings.auth.environment":
+    "Environment credentials take precedence over these account settings.",
+  "settings.auth.showPassword": "Show password",
+  "settings.auth.hidePassword": "Hide password",
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.simpleLabel": "Simplified mode",

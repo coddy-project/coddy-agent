@@ -312,6 +312,7 @@ function landmark(
 }
 
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
+  landmark("httpserver", "account", "authAccount", "before"),
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
   landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
