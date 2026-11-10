@@ -598,6 +598,24 @@ function tabForms(
       : null;
   };
   switch (section.kind) {
+    case "authentication": {
+      const schema = props[key]?.properties?.login;
+      return schema
+        ? {
+            forms: [
+              {
+                form: {
+                  domain: "httpserver.login",
+                  keyRoot: "httpserver.login",
+                  schema,
+                  groups: undefined,
+                },
+                value: asObject(asObject(doc[key]).login),
+              },
+            ],
+          }
+        : null;
+    }
     case "object":
       return one(section.id, key, objectSectionGroups(key));
     case "skills":

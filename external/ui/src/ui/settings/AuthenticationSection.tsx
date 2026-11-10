@@ -2,7 +2,15 @@ import { useId } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { SwitchField } from "./SwitchField";
 import { SecretInput } from "./SecretInput";
+import { fieldAnchor } from "./SchemaForm";
 import { landmarkAnchor } from "./settingsSections";
+
+export const AUTHENTICATION_FIELD_TEXTS: Record<string, string> = {
+  enable: "settings.auth.enable",
+  user: "settings.auth.login",
+  password: "settings.auth.password",
+  session_ttl_hours: "settings.auth.ttl",
+};
 
 type Props = {
   value: Record<string, unknown>;
@@ -18,11 +26,13 @@ export function AuthenticationSection({ value, onChange }: Props) {
     onChange({ ...value, login: { ...login, [key]: v } });
   return (
     <div className="settings-authentication">
-      <SwitchField
-        checked={login.enable !== false}
-        onChange={(v) => update("enable", v)}
-        label={t("settings.auth.enable")}
-      />
+      <div data-settings-anchor={fieldAnchor("httpserver.login", "enable")}>
+        <SwitchField
+          checked={login.enable !== false}
+          onChange={(v) => update("enable", v)}
+          label={t(AUTHENTICATION_FIELD_TEXTS.enable!)}
+        />
+      </div>
       <fieldset
         className="settings-fieldset"
         data-settings-anchor={landmarkAnchor("httpserver", "account")}
@@ -31,8 +41,13 @@ export function AuthenticationSection({ value, onChange }: Props) {
         {value.login_source === "env" && (
           <p className="settings-muted">{t("settings.auth.environment")}</p>
         )}
-        <div className="settings-row">
-          <label htmlFor={`${id}-user`}>{t("settings.auth.login")}</label>
+        <div
+          className="settings-row"
+          data-settings-anchor={fieldAnchor("httpserver.login", "user")}
+        >
+          <label htmlFor={`${id}-user`}>
+            {t(AUTHENTICATION_FIELD_TEXTS.user!)}
+          </label>
           <input
             id={`${id}-user`}
             className="settings-input"
@@ -40,9 +55,12 @@ export function AuthenticationSection({ value, onChange }: Props) {
             onChange={(e) => update("user", e.target.value)}
           />
         </div>
-        <div className="settings-row">
+        <div
+          className="settings-row"
+          data-settings-anchor={fieldAnchor("httpserver.login", "password")}
+        >
           <label htmlFor={`${id}-password`}>
-            {t("settings.auth.password")}
+            {t(AUTHENTICATION_FIELD_TEXTS.password!)}
           </label>
           <SecretInput
             id={`${id}-password`}
@@ -52,8 +70,16 @@ export function AuthenticationSection({ value, onChange }: Props) {
           />
         </div>
         <p className="settings-muted">{t("settings.auth.passwordHint")}</p>
-        <div className="settings-row">
-          <label htmlFor={`${id}-ttl`}>{t("settings.auth.ttl")}</label>
+        <div
+          className="settings-row"
+          data-settings-anchor={fieldAnchor(
+            "httpserver.login",
+            "session_ttl_hours",
+          )}
+        >
+          <label htmlFor={`${id}-ttl`}>
+            {t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
+          </label>
           <input
             id={`${id}-ttl`}
             className="settings-input"
