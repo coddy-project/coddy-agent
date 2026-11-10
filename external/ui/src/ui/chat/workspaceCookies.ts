@@ -70,6 +70,55 @@ export function readLastWorkspaceDir(): string {
   return readDirs()[envStorageSuffix()] ?? "";
 }
 
+/**
+ * A new tab of Coddy Desktop hands its start screen a folder in the address.
+ * The handoff belongs to that tab alone, so it wins over the shared cookie
+ * once and then leaves the address before a later folder pick can be undone
+ * by a restart of the tab.
+ */
+export function takeDesktopWorkspaceDir(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const url = new URL(window.location.href);
+  const path = url.searchParams.get("desktop_workspace")?.trim() ?? "";
+  if (!path) {
+    return "";
+  }
+  url.searchParams.delete("desktop_workspace");
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+  return path;
+}
+
+/** Keeps the draft's folder on its own desktop tab, not only in a shared cookie. */
+export function publishWorkspaceToDesktop(path: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const frame = window.frameElement;
+  if (frame?.closest(".frames")) {
+    const url = new URL(window.location.href);
+    if (path) {
+      url.searchParams.set("desktop_workspace", path);
+    } else {
+      url.searchParams.delete("desktop_workspace");
+    }
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }
+  window.parent.postMessage(
+    { channel: "coddy.desktop", type: "workspace", path },
+    window.location.origin,
+  );
+}
+
 /** Remembers the folder picked for a new chat; an empty path forgets it. */
 export function writeLastWorkspaceDir(path: string): void {
   const dirs = readDirs();

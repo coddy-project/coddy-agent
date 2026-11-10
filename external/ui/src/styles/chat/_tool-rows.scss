@@ -222,8 +222,12 @@
   align-items: center;
   flex-wrap: wrap;
   min-width: 0;
-  /* Same inset as .msg-assistant prose; chevron sits in the band to the left */
+  /* Same inset as .msg-assistant prose on either side; the chevron sits in the
+     band to the left. Without the right one a label that wraps ran to the very
+     edge of the column while an answer beside it stopped 14px short, and the
+     transcript read as wider on the right than on the left. */
   padding-left: 14px;
+  padding-right: 14px;
   gap: 0 6px;
 }
 

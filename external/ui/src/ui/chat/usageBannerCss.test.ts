@@ -61,7 +61,11 @@ test("every theme's canvas colour is opaque, so the banner mixed into it is too"
 // --fg and --border are defined by no theme, so a rule naming them draws
 // nothing (the hover plate of the x was invisible in every theme).
 test("the banner names only tokens the themes define", () => {
-  for (const selector of [".usage-banner", ".usage-banner-dismiss:hover"]) {
+  for (const selector of [
+    ".usage-banner",
+    ".usage-banner-dismiss",
+    ".usage-banner-dismiss:hover,\n.usage-banner-dismiss:focus-visible",
+  ]) {
     const block = rule(selector);
     expect(block, selector).not.toMatch(/var\(--fg\)/);
     expect(block, selector).not.toMatch(/var\(--border\)/);
@@ -74,4 +78,21 @@ test("every theme defines the blend base the hover wash is mixed into", () => {
   for (const theme of THEMES) {
     expect(themeBody(theme), theme).toMatch(/--coddy-blend-base:\s*[^;]+;/);
   }
+});
+
+// The dismiss used to be a bare glyph in a 32px box with no display of its
+// own, so the x sat on the text baseline instead of the middle and the
+// control had no frame to read as a button. It is the app's close control
+// now: a small framed square whose ground lifts under the pointer.
+test("the banner's dismiss is the app's framed close control", () => {
+  const body = rule(".usage-banner-dismiss");
+  expect(body).toMatch(/display:\s*inline-flex/);
+  expect(body).toMatch(/align-items:\s*center/);
+  expect(body).toMatch(/justify-content:\s*center/);
+  expect(body).toMatch(/border:\s*1px solid/);
+  expect(body).toMatch(/border-radius:\s*8px/);
+  const hover = rule(
+    ".usage-banner-dismiss:hover,\n.usage-banner-dismiss:focus-visible",
+  );
+  expect(background(hover)).toMatch(/^mix-text\(/);
 });

@@ -98,6 +98,35 @@ func TestProjectRootRefusesALinkedFileOutOfIt(t *testing.T) {
 	}
 }
 
+// The guide at the root of the project memory is a note like the others: when
+// it is a link to a file outside the root, reading it is refused, and a search
+// neither returns it nor reaches the file.
+func TestProjectRootRefusesAGuideThatIsALinkOutOfIt(t *testing.T) {
+	s := newLinkStand(t)
+	symlinkOrSkip(t, s.secret, filepath.Join(s.project, GuideName))
+	st := s.store(t)
+
+	if got, err := st.ReadNote("project", GuideName); !errors.Is(err, ErrOutsideRoot) || strings.Contains(string(got), "OUTSIDE-SECRET") {
+		t.Fatalf("ReadNote through a linked guide = %q, %v; want ErrOutsideRoot", got, err)
+	}
+	for _, scope := range []string{"project", "both"} {
+		hits, _ := st.Search("aws secret access key", scope, 8)
+		noSecretIn(t, "Search "+scope, hits)
+	}
+}
+
+// The bounded read of a note (a guide's) holds the same line: a link out of
+// the project root is ErrOutsideRoot and the file behind it is never opened.
+func TestProjectRootRefusesABoundedReadThroughALinkOutOfIt(t *testing.T) {
+	s := newLinkStand(t)
+	symlinkOrSkip(t, s.secret, filepath.Join(s.project, GuideName))
+	st := s.store(t)
+	head, more, err := st.ReadHead("project:"+GuideName, 4096)
+	if !errors.Is(err, ErrOutsideRoot) || len(head) != 0 || more || strings.Contains(string(head), "OUTSIDE-SECRET") {
+		t.Fatalf("ReadHead through a linked guide = %q, %v, %v; want ErrOutsideRoot", head, more, err)
+	}
+}
+
 // A folder of the project root that is a link to a folder outside it leads
 // nowhere: nothing is read, listed, created, written or deleted behind it.
 func TestProjectRootRefusesALinkedFolderOutOfIt(t *testing.T) {

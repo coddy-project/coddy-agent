@@ -16,6 +16,9 @@
 
 # api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
+  # OpenAI/Anthropic-compatible rows: user_agent: coddy identifies this app.
+  # Omit for the provider SDK identity, or select openai / anthropic explicitly.
+  # coddy sends Coddy/<running version> to completions and model listing.
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"
@@ -75,6 +78,22 @@ providers:
   # - name: codex
   #   type: codex
   #   # usage_limits_panel: false
+
+  # Kimi Code subscription. The default region is global (kimi.ai); use
+  # region: china for kimi.com. A provider proxy applies to sign-in, refresh,
+  # model discovery, usage, and inference.
+  # - name: kimi
+  #   type: kimi
+  #   mode: subscription
+  #   region: global
+  #   # proxy: "http://127.0.0.1:8888"
+  #
+  # Kimi Platform uses an API key and separate endpoints, not the subscription.
+  # - name: kimi-platform
+  #   type: kimi
+  #   mode: platform
+  #   region: global
+  #   api_key: "${KIMI_PLATFORM_API_KEY}"
 
   # Devin (Cognition) account. `coddy providers login devin` signs in through
   # the browser (or reuses `devin auth login` with --devin-cli), stores the
@@ -547,6 +566,12 @@ tools:
 #   # Largest request body POST /v1/chat/completions and POST /v1/responses accept, in bytes.
 #   # 0 (the default) means the built-in 512 MiB; a larger body is refused with 413 request_too_large.
 #   max_body_bytes: 0
+#   # Most tools a client may offer a direct model on the same two endpoints, and the
+#   # largest parameters schema of one of them. 0 (the default) means OpenAI's 128 and
+#   # 256 KiB; past them the request is refused with 400 too_many_tools or
+#   # tool_parameters_too_large. Raise the first for a client whose MCP servers offer more.
+#   max_client_tools: 0
+#   max_client_tool_schema_bytes: 0
 #   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
 #   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
 #   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
@@ -614,11 +639,10 @@ tools:
 #   timeout: "30m"       # per scheduled agent run
 
 # Long-term memory subagent (external/memory; needs the memory build tag). Toggle with memory.enable.
-# Every user turn starts a memory subagent in the background task pool: a child session that searches, reads and
-# saves markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/.coddy/memory (project). Its report reaches
-# the main model in the <turn_context> block after the history, never in the system prompt, so the provider's prompt
-# cache keeps covering the conversation; the main agent never sees the memory_* tools. The run is
-# watched and kept in the Tasks panel like a spawn_agent child (docs/features/memory.md).
+# With the feature on the model sees a bundled "memory" subagent definition and spawns it on demand - a child
+# session that searches, reads and saves markdown under memory.dir (default ${CODDY_HOME}/memory) and
+# <session cwd>/.coddy/memory (project). The main agent never sees the coddy_memory_* tools; the run is an
+# ordinary spawn_agent child and lives in the Tasks panel (docs/features/memory.md).
 # memory.model is the model the memory subagent runs on. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to use the session's model.
 # memory:
@@ -627,9 +651,6 @@ tools:
 #   fallback_models: []  # tried in order when the model above them fails before answering; the session
 #                        # model is the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
-#   wait_seconds: 20     # how long a turn waits for the report before its first model call; 0 never waits
-#   timeout_seconds: 300 # hard limit of one memory run (capped by tools.background.max_timeout_seconds)
-#   keep_runs: 20        # finished memory runs kept per session in the Tasks panel; 0 keeps all
 #   recall_max_turns: 6  # the child's round cap is the larger of the two
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096

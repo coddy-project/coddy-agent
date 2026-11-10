@@ -28,15 +28,22 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"opencode":   {},
 	"codex":      {},
 	"devin":      {},
+	"kimi":       {},
 	"acp":        {},
 }
 
 // ProviderConfig is one entry under YAML key providers.
 type ProviderConfig struct {
-	Name    string `yaml:"name"`
-	Type    string `yaml:"type"`
-	APIBase string `yaml:"api_base"`
-	APIKey  string `yaml:"api_key"`
+	Name         string `yaml:"name"`
+	Type         string `yaml:"type"`
+	Mode         string `yaml:"mode,omitempty"`
+	Region       string `yaml:"region,omitempty"`
+	KimiIdentity string `yaml:"kimi_identity,omitempty"`
+	APIBase      string `yaml:"api_base"`
+	// UserAgent selects the SDK identity (empty, openai, anthropic) or Coddy.
+	// Only OpenAI-compatible and Anthropic-compatible providers use it.
+	UserAgent string `yaml:"user_agent,omitempty"`
+	APIKey    string `yaml:"api_key"`
 	// APIKeyCommand is an optional credential-helper command. When api_key is empty,
 	// the command is run via the shell and its trimmed stdout is used as the key
 	// (akin to git/docker credential helpers or AWS credential_process). This lets a
@@ -206,7 +213,7 @@ func (p *ProviderConfig) TakesAPIKey() bool {
 	case "codex", "acp":
 		return false
 	}
-	return true
+	return p.Type != "kimi" || p.Mode == "platform"
 }
 
 // EffectiveAPIKey returns the key to pass to LLM clients. Resolution order:
@@ -288,7 +295,10 @@ func runAPIKeyCommandContext(parent context.Context, command string) (string, er
 func (p *ProviderConfig) Normalize() {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Type = strings.TrimSpace(p.Type)
+	p.Mode = strings.TrimSpace(p.Mode)
+	p.Region = strings.TrimSpace(p.Region)
 	p.APIBase = strings.TrimSpace(p.APIBase)
+	p.UserAgent = strings.TrimSpace(p.UserAgent)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
 	p.Proxy = normalizeProxySetting(p.Proxy)
@@ -314,6 +324,38 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if _, ok := AllowedLLMProviderTypes[p.Type]; !ok {
 		return fmt.Errorf("providers[%s]: unsupported type %q", p.Name, p.Type)
+	}
+	if p.KimiIdentity != "" && !ValidKimiIdentity(p.KimiIdentity) {
+		return fmt.Errorf("providers[%s].kimi_identity: expected 32 or 64 lowercase hex digits", p.Name)
+	}
+	if p.Type == "kimi" {
+		switch p.Mode {
+		case "", "subscription", "platform":
+		default:
+			return fmt.Errorf("providers[%s].mode: must be subscription or platform", p.Name)
+		}
+		switch p.Region {
+		case "", "global", "china":
+		default:
+			return fmt.Errorf("providers[%s].region: must be global or china", p.Name)
+		}
+		if p.Mode != "platform" {
+			if p.APIBase != "" {
+				return fmt.Errorf("providers[%s].api_base: not allowed for kimi subscription", p.Name)
+			}
+			if p.APIKey != "" {
+				return fmt.Errorf("providers[%s].api_key: not allowed for kimi subscription", p.Name)
+			}
+			if p.APIKeyCommand != "" {
+				return fmt.Errorf("providers[%s].api_key_command: not allowed for kimi subscription", p.Name)
+			}
+		}
+		// A platform row's key is checked at runtime through EffectiveAPIKey
+		// (readiness), like every other provider: loading a config must not
+		// require the key or the credential helper to be present.
+	}
+	if p.UserAgent != "" && p.UserAgent != "openai" && p.UserAgent != "anthropic" && p.UserAgent != "coddy" {
+		return fmt.Errorf("providers[%s]: user_agent must be openai, anthropic or coddy", p.Name)
 	}
 	if err := validateProxySetting(p.Proxy); err != nil {
 		// The message opens with "proxy:", so the path it names is the key

@@ -40,6 +40,12 @@ export const messagesEn: Record<string, string> = {
     "Environment credentials take precedence over these account settings.",
   "settings.auth.showPassword": "Show password",
   "settings.auth.hidePassword": "Hide password",
+  "settings.userAgent.openai": "OpenAI/Go (default)",
+  "settings.userAgent.anthropic": "Anthropic/Go (default)",
+  "settings.userAgent.coddy": "Coddy/version",
+  "settings.schema.providers.user_agent.label": "User-Agent",
+  "settings.schema.providers.user_agent.desc":
+    "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.simpleLabel": "Simplified mode",
@@ -50,13 +56,14 @@ export const messagesEn: Record<string, string> = {
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",
   "appearance.toggleLabel": "Appearance",
-  "appearance.theme.dark": "Dark",
+  "appearance.theme.dark": "Coddy",
   "appearance.theme.light": "Light",
   "appearance.theme.midnight": "Midnight",
   "appearance.theme.solarizedDark": "Solarized Dark",
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.theme.neuraldeep": "NeuralDeep",
   "appearance.notificationsLabel": "Notifications",
   "appearance.notifications.toggle": "System notifications",
   "appearance.notifications.hint":
@@ -349,6 +356,31 @@ export const messagesEn: Record<string, string> = {
   "settings.section.metrics.label": "Metrics",
   "settings.section.browser.label": "Browser",
   "settings.section.browser.desc": "Coddy for Browser, its key and who uses it",
+  "browserSetup.step.install": "Install the extension",
+  "browserSetup.step.key": "Take the address and the key",
+  "browserSetup.step.paste":
+    "Open the extension's options and paste them there",
+  "browserSetup.store.chrome": "Chrome Web Store",
+  "browserSetup.store.firefox": "Firefox Add-ons",
+  "browserSetup.addressLabel": "Server address",
+  "browserSetup.show": "Show the key",
+  "browserSetup.hide": "Hide the key",
+  "browserSetup.copy": "Copy",
+  "browserSetup.copied": "Copied",
+  "browserSetup.generate": "Generate",
+  "browserSetup.regenerate": "Generate a new one",
+  "browserSetup.keyEmpty": "No key yet",
+  "browserSetup.keyKept": "The server holds a key",
+  "browserSetup.stateOff":
+    "The section is switched off: turn it on to accept a browser.",
+  "browserSetup.stateNoKey": "Generate a key and save the settings.",
+  "browserSetup.stateUnsaved": "Save the settings, then paste the key.",
+  "browserSetup.stateWaiting": "Waiting for the extension\u2026",
+  "browserSetup.connected.one":
+    "{count} browser is connected, everything is ready.",
+  "browserSetup.connected.other":
+    "{count} browsers are connected, everything is ready.",
+  "browserSetup.unnamed": "Unnamed browser",
   "settings.schema.browser.enable.label": "Enabled",
   "settings.schema.browser.enable.desc":
     "Offer the browser tool to the chats, and accept the extension when a key is set.",
@@ -356,7 +388,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.browser.token.desc":
     "At least 32 characters, entered in the extension. Leave empty to keep the current key.",
   "settings.schema.browser.serve_remote.label":
-    "Serve to other Coddy processes",
+    "Open these browsers to other Coddy processes",
   "settings.schema.browser.serve_remote.desc":
     "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
   "settings.schema.browser.remotes.label": "Browsers of other servers",
@@ -372,6 +404,9 @@ export const messagesEn: Record<string, string> = {
   "settings.group.agent.timeouts": "Stream timeouts",
   "settings.group.agent.loop": "Loop guard",
   "settings.group.agent.limits": "Usage limits",
+  "settings.group.browser.shared": "Sharing browsers between Coddy processes",
+  "settings.group.browser.sharedDesc":
+    "The browsers this server opens to other Coddy processes, and the browsers of other servers its own chats may use.",
   "settings.group.hooks.main": "Hook settings",
   "settings.group.hooks.mainDesc":
     "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
@@ -831,15 +866,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.dir.desc":
     "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
   "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
-  "settings.schema.memory.wait_seconds.label": "Wait for the report (seconds)",
-  "settings.schema.memory.wait_seconds.desc":
-    "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
-  "settings.schema.memory.timeout_seconds.label": "Run timeout (seconds)",
-  "settings.schema.memory.timeout_seconds.desc":
-    "Hard limit of one memory run, capped by the background task pool's maximum (default 300).",
-  "settings.schema.memory.keep_runs.label": "Runs kept per session",
-  "settings.schema.memory.keep_runs.desc":
-    "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).",
   "settings.schema.memory.recall_max_turns.label": "Recall max turns",
   "settings.schema.memory.recall_max_turns.desc":
     "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.",
@@ -1077,6 +1103,118 @@ export const messagesEn: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Toggle options",
 
+  "onboarding.title": "Choose a provider",
+  "onboarding.lead":
+    "Connect a model provider to start chatting. You can change this later in Settings.",
+  "onboarding.close": "Close onboarding",
+  "onboarding.provider.openai.description": "GPT models and the OpenAI API",
+  "onboarding.provider.anthropic.description": "Claude models",
+  "onboarding.provider.compatible.description":
+    "Ollama, LM Studio, DeepSeek, Groq or any endpoint of your own",
+  "onboarding.provider.acp.description":
+    "An agent of your own on this machine: Claude Code, Codex, Gemini",
+  "onboarding.provider.kimi.description":
+    "Kimi Code subscription or Platform API key",
+  "onboarding.kimi.existingKey":
+    "The existing Kimi provider has an API key or key command. Keep Kimi Platform, or change its credentials in Settings before choosing Kimi Code. Nothing was saved.",
+  "kimiAuth.unsaved":
+    "Sign-in is not saved yet. Save the provider settings to keep it.",
+  "kimiAuth.rowChanged": "The provider changed during sign-in. Start again.",
+  "kimiAuth.saveRequired":
+    "Sign-in confirmed. Save the provider settings to use it.",
+  "kimiAuth.invalidPoll":
+    "The sign-in response was incomplete or contradictory. Start again.",
+  "kimiAuth.statusAfterSaveFailed":
+    "The provider was saved, but its sign-in could not be confirmed.",
+  "kimiAuth.removePlatformCredentials":
+    "Clear the existing API key and key command before saving Kimi Code. They are not removed automatically.",
+  "onboarding.retryConfig": "Retry loading configuration",
+  "onboarding.retryKimiStatus": "Retry sign-in status",
+  "onboarding.savedChangesRemain":
+    "The previous selection was saved. Your newer changes are not saved yet.",
+  "kimiAuth.signIn": "Sign in with Kimi",
+  "kimiAuth.connected": "Signed in with Coddy",
+  "kimiAuth.cli": "Using Kimi CLI credentials",
+  "kimiAuth.cliSignOutHint":
+    "CLI credentials are managed by Kimi CLI; sign out there.",
+  "kimiAuth.open": "Open verification page",
+  "kimiAuth.cancel": "Cancel",
+  "kimiAuth.signOut": "Sign out",
+  "kimiAuth.failed": "Kimi sign-in failed",
+  "kimiAuth.invalidResponse":
+    "The sign-in response contained an invalid verification URL.",
+  "onboarding.kimi.variant": "Kimi service",
+  "onboarding.kimi.loginUnavailable":
+    "Subscription sign-in is not available in this build.",
+  "onboarding.provider.neuraldeep.description":
+    "API key or account sign-in on either hub",
+  "onboarding.provider.codex.description":
+    "Your ChatGPT subscription through OAuth",
+  "onboarding.provider.opencode.description":
+    "OpenCode Go or Console with account sign-in",
+  "onboarding.provider.devin.description": "Devin models with browser sign-in",
+  "onboarding.apiKey": "API key",
+  "onboarding.showKey": "Show",
+  "onboarding.hideKey": "Hide",
+  "onboarding.apiBase": "API base URL",
+  "onboarding.command": "Command",
+  "onboarding.commandHint":
+    "The program that speaks ACP on this machine, with its arguments. It signs itself in; Coddy stores no key for it.",
+  "onboarding.commandRequired":
+    "Enter the command to run before testing or saving this agent.",
+  "onboarding.apiBaseRequired":
+    "Enter the API base URL before testing or saving this provider.",
+  "onboarding.proxy": "Proxy URL",
+  "onboarding.proxyHint":
+    "Model discovery, sign-in and chat requests use this route.",
+  "onboarding.validationFailed": "The configuration is invalid.",
+  "onboarding.saveFailed": "Could not save the configuration ({status}).",
+  "onboarding.saveFailedGeneric": "Could not save the configuration.",
+  "onboarding.save": "Save and continue",
+  "onboarding.restart": "Restart onboarding",
+  "onboarding.restartHint":
+    "Choose a provider again and replay the guided tour.",
+
+  "devinAuth.error.signInFailed": "Devin sign in failed.",
+  "devinAuth.error.incompleteResponse":
+    "Devin returned incomplete sign-in instructions.",
+  "devinAuth.fieldLabel": "Devin account",
+  "devinAuth.description":
+    "Sign in through the browser and paste the callback address when the browser cannot reach Coddy. Tokens stay on the Coddy server. Save the provider settings to use this row for chats.",
+  "devinAuth.connected": "Signed in to Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "The explicit API key takes priority over this login.",
+  "devinAuth.openSignInPage": "Open sign-in page",
+  "devinAuth.waiting": "Waiting for Devin…",
+  "devinAuth.signOut": "Sign Out",
+  "devinAuth.signIn": "Sign In with Devin",
+  "devinAuth.pasteLabel": "Remote browser? Paste the full callback address",
+  "devinAuth.pasteSubmit": "Complete sign-in",
+
+  "tour.stepCounter": "Step {current} of {total}",
+  "tour.skip": "Skip tour",
+  "tour.back": "Back",
+  "tour.next": "Next",
+  "tour.done": "Done",
+  "tour.step.newChat.title": "New chat",
+  "tour.step.newChat.body":
+    "Start a conversation here. Each one keeps its own history, workspace and model.",
+  "tour.step.settings.title": "Settings",
+  "tour.step.settings.body":
+    "Manage providers, models, tools and the rest of Coddy here.",
+  "tour.step.project.title": "Workspace",
+  "tour.step.project.body": "Choose the folder and branch the agent works in.",
+  "tour.step.history.title": "History",
+  "tour.step.history.body": "Open earlier conversations or start a new chat.",
+  "tour.step.model.title": "Model",
+  "tour.step.model.body": "Pick the configured model for this chat.",
+  "tour.step.input.title": "Message",
+  "tour.step.input.body":
+    "Write a request here. Use @ to mention files and / for commands.",
+  "tour.step.send.title": "Send",
+  "tour.step.send.body":
+    "Send the message and watch the agent work in the transcript.",
+
   "codexAuth.error.signInFailed": "ChatGPT sign in failed.",
   "codexAuth.error.incompleteResponse":
     "The OAuth server returned an incomplete sign-in response.",
@@ -1099,15 +1237,15 @@ export const messagesEn: Record<string, string> = {
 
   "neuralDeepApiBase.description":
     "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. The model list below is fetched with the row as it stands in the form.",
-  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
-  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru - Russia",
+  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech - international mirror",
   "neuralDeepApiBase.unknown":
     "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
 
   "openCodeApiBase.description":
     "OpenCode serves one API key from two gateways: the Go subscription and pay-as-you-go Console. Pick the one your key is for; the model list below is fetched with the row as it stands in the form. Enter the key in the API key field above, or run `coddy providers login opencode`.",
-  "openCodeApiBase.optionGo": "Go — subscription (inference/go/v1)",
-  "openCodeApiBase.optionConsole": "Console — pay as you go (inference/v1)",
+  "openCodeApiBase.optionGo": "Go - subscription (inference/go/v1)",
+  "openCodeApiBase.optionConsole": "Console - pay as you go (inference/v1)",
   "openCodeApiBase.unresolved": "Not an OpenCode gateway — pick one",
   "openCodeApiBase.unknown":
     "The saved api_base {value} is not an OpenCode gateway, so requests go to {fallback}. Pick a gateway to replace it.",
@@ -1730,7 +1868,8 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoningLevel": "Reasoning level",
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
   "composer.contextUsage": "Context usage",
-  "composer.contextTipIdle": "No context usage yet",
+  "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
+  "composer.contextTipIdle": "Context is empty",
   "composer.contextTipUsed": "{percent}% context used",
   "composer.contextTipInput": "Input {count}",
   "composer.contextTipOutput": "Output {count}",
@@ -2149,7 +2288,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.status.orphaned": "Orphaned",
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "agent",
-  "tasks.tag.memory": "memory",
   "tasks.tag.server": "server",
   "tasks.openServer": "Open in a new tab",
   "tasks.untitledAgentRun": "Subagent run",

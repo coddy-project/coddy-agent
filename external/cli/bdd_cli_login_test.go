@@ -9,7 +9,9 @@ package cli
 // registerCLILoginSteps.
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,12 +19,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/acptest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -32,9 +36,12 @@ const loginBDDUserCode = "WXYZ-2345"
 // loginStand is the stand-in hub of a /login scenario and the environment it
 // replaced, put back by stop.
 type loginStand struct {
-	hub     *httptest.Server
-	env     map[string]*string
-	restore func()
+	hub            *httptest.Server
+	env            map[string]*string
+	restore        func()
+	kimiHits       chan string
+	kimiCredential string
+	kimiOriginal   string
 }
 
 func (l *loginStand) stop() {
@@ -68,15 +75,242 @@ func (l *loginStand) setenv(name, value string) error {
 }
 
 func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
+	sc.Step(`^a synthetic Kimi CLI login and a stand-in discovery proxy$`, s.standInKimiCLI)
+	sc.Step(`^a coddy console app with a Kimi provider using the stand-in proxy$`, s.buildKimiCLIApp)
+	sc.Step(`^Kimi discovery reached the proxy without changing the CLI credential$`, s.kimiDiscoveryReachedProxy)
 	sc.Step(`^a coddy console app with no model provider configured$`, s.buildFreshApp)
 	sc.Step(`^a stand-in NeuralDeep hub whose tier serves the models "([^"]*)" and "([^"]*)"$`, s.standInLoginHub)
 	sc.Step(`^the screen shows the hub's verification page and the code "([^"]*)"$`, s.screenShowsVerificationPage)
 	sc.Step(`^config\.yaml lists the provider "([^"]*)" with the models "([^"]*)" and "([^"]*)"$`, s.configListsProviderAndModels)
+	sc.Step(`^config\.yaml lists the provider "([^"]*)" with the model "([^"]*)"$`, s.configListsProviderAndModel)
 	sc.Step(`^the screen no longer shows "([^"]*)"$`, s.footerNoLongerShows)
 	sc.Step(`^the model selector offers "([^"]*)"$`, s.modelSelectorOffers)
 	sc.Step(`^the slash menu offers "([^"]*)"$`, s.slashMenuOffers)
 	sc.Step(`^a coddy console app on the example config with OPENAI_API_KEY unset$`, s.buildExampleConfigApp)
 	sc.Step(`^config\.yaml names "([^"]*)" as agent\.model$`, s.configNamesAgentModel)
+	sc.Step(`^the provider picker lists "([^"]*)" in that order$`, s.providerPickerListsInOrder)
+	sc.Step(`^the operator confirms the highlighted row$`, s.operatorConfirmsHighlightedRow)
+	sc.Step(`^the operator picks "([^"]*)" in the provider picker$`, s.operatorPicksProvider)
+	sc.Step(`^the operator picks "([^"]*)" from the list$`, s.operatorPicksFromTheList)
+	sc.Step(`^a stand-in OpenAI-compatible server that lists the model "([^"]*)"$`, s.standInCompatibleServer)
+	sc.Step(`^a stand-in Codex backend that lists the model "([^"]*)" to a machine already signed in$`, s.standInSignedInCodex)
+	sc.Step(`^a stand-in ACP agent that lists the model "([^"]*)"$`, s.standInACPAgent)
+	sc.Step(`^the operator answers with the stand-in agent's command$`, s.operatorAnswersWithStandInCommand)
+	sc.Step(`^config\.yaml gives the provider "([^"]*)" no key and no API base$`, s.configGivesProviderNoCredential)
+	sc.Step(`^config\.yaml runs the provider "([^"]*)" as a command$`, s.configRunsProviderAsCommand)
+	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
+	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
+}
+
+// providerPickerListsInOrder reads the picker's rows off the frame: every
+// label of the comma-separated list, in that order, on the screen. The order
+// is the contract the console shares with the web UI's cards.
+func (s *cliTUIState) providerPickerListsInOrder(list string) error {
+	want := strings.Split(list, ", ")
+	deadline := time.Now().Add(within(5 * time.Second))
+	var last string
+	for time.Now().Before(deadline) {
+		last = s.screenText()
+		at, ok := -1, true
+		for _, label := range want {
+			// A row's label opens its line, after the selection arrow, and
+			// its description follows two spaces later: "OpenAI" must not
+			// match "OpenAI-compatible", and "ACP agent" is one label of two
+			// words, not two fields.
+			found := -1
+			for i, line := range strings.Split(last, "\n") {
+				if i <= at {
+					continue
+				}
+				row := strings.TrimPrefix(strings.TrimSpace(line), "→ ")
+				if name, _, _ := strings.Cut(row, "  "); strings.TrimSpace(name) == label {
+					found = i
+					break
+				}
+			}
+			if found < 0 {
+				ok = false
+				break
+			}
+			at = found
+		}
+		if ok {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the picker does not list %q in that order; last frame:\n%s", list, last)
+}
+
+func (s *cliTUIState) operatorConfirmsHighlightedRow() error {
+	s.press("\r")
+	return nil
+}
+
+// operatorPicksProvider types the label as the selector's filter and takes
+// the one row left.
+func (s *cliTUIState) operatorPicksProvider(label string) error {
+	if err := s.waitScreen("Set up a model provider", 5*time.Second); err != nil {
+		return err
+	}
+	s.typeText(label)
+	s.press("\r")
+	return nil
+}
+
+// operatorPicksFromTheList types the row's name as the selector's filter and
+// takes the one row left.
+func (s *cliTUIState) operatorPicksFromTheList(label string) error {
+	s.typeText(label)
+	s.press("\r")
+	return nil
+}
+
+// operatorAnswers types one line into the open value prompt and sends it.
+func (s *cliTUIState) operatorAnswers(text string) error {
+	s.typeText(text)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) operatorAnswersWithStandInAddress() error {
+	if s.compatibleServer == nil {
+		return fmt.Errorf("no stand-in OpenAI-compatible server in this scenario")
+	}
+	// The prompt is prefilled with nothing for this preset, so the typed
+	// address is the whole answer.
+	return s.operatorAnswers(s.compatibleServer.URL + "/v1")
+}
+
+// standInCompatibleServer serves the one endpoint the setup of a key
+// provider reads, GET /v1/models, so nothing leaves the machine.
+func (s *cliTUIState) standInCompatibleServer(model string) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+			{"id": model, "context_window": 32768},
+		}})
+	})
+	s.compatibleServer = httptest.NewServer(mux)
+	return nil
+}
+
+// standInSignedInCodex stands in for a machine the Codex CLI has already
+// signed in on: a CODEX_HOME of its own holding an auth.json with a token
+// that has not expired, and a backend serving the model catalog that token
+// buys. Nothing writes a Coddy credential, so the picker reaching the models
+// proves it used the machine-wide login.
+func (s *cliTUIState) standInSignedInCodex(model string) error {
+	stand := &loginStand{env: map[string]*string{}}
+	s.loginStand = stand
+	home := s.t.TempDir()
+	// An access token the provider reads but never verifies: it only parses
+	// the payload for exp, and an expired one would send it refreshing.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload, err := json.Marshal(map[string]any{
+		"exp":                time.Now().Add(time.Hour).Unix(),
+		"chatgpt_account_id": "acct-stand-in",
+	})
+	if err != nil {
+		return err
+	}
+	token := header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+	auth, err := json.Marshal(map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens": map[string]string{
+			"access_token": token, "refresh_token": "rt-stand-in", "account_id": "acct-stand-in",
+		},
+		"last_refresh": time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), auth, 0o600); err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /models", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{
+			{"slug": model, "display_name": model, "visibility": "list", "context_window": 272000},
+		}})
+	})
+	stand.hub = httptest.NewServer(mux)
+	for name, value := range map[string]string{
+		"CODEX_HOME":        home,
+		llm.EnvCodexBaseURL: stand.hub.URL,
+	} {
+		if err := stand.setenv(name, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// standInACPAgent is the scripted agent of internal/llm/acptest, this test
+// binary started again (TestHelperACPAgent), so the ACP path runs a real
+// program over a real stdio connection and nothing leaves the machine.
+func (s *cliTUIState) standInACPAgent(model string) error {
+	command, args := acptest.Command(s.t, acptest.Script{Models: []string{model}})
+	s.acpCommand = strings.TrimSpace(command + " " + strings.Join(args, " "))
+	return nil
+}
+
+func (s *cliTUIState) operatorAnswersWithStandInCommand() error {
+	if s.acpCommand == "" {
+		return fmt.Errorf("no stand-in ACP agent in this scenario")
+	}
+	return s.operatorAnswers(s.acpCommand)
+}
+
+// configGivesProviderNoCredential holds the shape of a row that signs itself
+// in: an ACP agent or a Codex this machine already signed in to carries
+// neither a key nor an endpoint, since the setup wrote none.
+func (s *cliTUIState) configGivesProviderNoCredential(provider string) error {
+	cfg, err := config.LoadWithPaths(s.cfg.Paths)
+	if err != nil {
+		return err
+	}
+	row := cfg.FindProvider(provider)
+	switch {
+	case row == nil:
+		return fmt.Errorf("config.yaml lists no provider %q", provider)
+	case strings.TrimSpace(row.APIKey) != "" || strings.TrimSpace(row.APIKeyCommand) != "":
+		return fmt.Errorf("provider %q carries a credential: %+v", provider, row)
+	case strings.TrimSpace(row.APIBase) != "":
+		return fmt.Errorf("provider %q carries an api_base %q", provider, row.APIBase)
+	}
+	return nil
+}
+
+// configRunsProviderAsCommand is the other half of an ACP row: the program
+// this machine starts is what the row is.
+func (s *cliTUIState) configRunsProviderAsCommand(provider string) error {
+	cfg, err := config.LoadWithPaths(s.cfg.Paths)
+	if err != nil {
+		return err
+	}
+	row := cfg.FindProvider(provider)
+	if row == nil || row.ACP == nil || strings.TrimSpace(row.ACP.Command) == "" {
+		return fmt.Errorf("provider %q names no command to run", provider)
+	}
+	return nil
+}
+
+// configListsProviderAndModel is configListsProviderAndModels for a setup
+// that wrote one model.
+func (s *cliTUIState) configListsProviderAndModel(provider, model string) error {
+	deadline := time.Now().Add(within(5 * time.Second))
+	for {
+		cfg, err := config.LoadWithPaths(s.cfg.Paths)
+		if err == nil && cfg.FindProvider(provider) != nil && cfg.FindModelEntry(model) != nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("config.yaml does not list provider %q with model %q (%v)", provider, model, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // exampleConfig is the part of config.example.yaml that decides a fresh
@@ -293,4 +527,68 @@ func (s *cliTUIState) slashMenuOffers(name string) error {
 		time.Sleep(15 * time.Millisecond)
 	}
 	return fmt.Errorf("the slash menu offers no %q; last frame:\n%s", name, s.screenText())
+}
+
+// TestHelperACPAgent turns this test binary into the scripted ACP agent when
+// acptest.Command started it; the ordinary run skips it.
+func TestHelperACPAgent(t *testing.T) {
+	if !acptest.Main(flag.Args()) {
+		t.Skip("helper process")
+	}
+}
+
+func (s *cliTUIState) standInKimiCLI() error {
+	stand := &loginStand{env: map[string]*string{}, kimiHits: make(chan string, 4)}
+	s.loginStand = stand
+	home := s.t.TempDir()
+	if err := stand.setenv("KIMI_CODE_HOME", home); err != nil {
+		return err
+	}
+	dir := filepath.Join(home, "credentials")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	stand.kimiCredential = filepath.Join(dir, "kimi-code-env-0e4f99c69cc27850.json")
+	stand.kimiOriginal = fmt.Sprintf(`{"access_token":"synthetic-cli-token","expires_at":%d}`, time.Now().Add(time.Hour).Unix())
+	if err := os.WriteFile(stand.kimiCredential, []byte(stand.kimiOriginal), 0600); err != nil {
+		return err
+	}
+	stand.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stand.kimiHits <- r.Method + " " + r.Host
+		http.Error(w, "offline test proxy", http.StatusBadGateway)
+	}))
+	return nil
+}
+
+func (s *cliTUIState) buildKimiCLIApp() error {
+	cfg, err := s.freshConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "kimi", Type: "kimi", Proxy: s.loginStand.hub.URL}}
+	return s.buildAppOver(cfg)
+}
+
+func (s *cliTUIState) kimiDiscoveryReachedProxy() error {
+	select {
+	case hit := <-s.loginStand.kimiHits:
+		if hit != "CONNECT api.kimi.ai:443" {
+			return fmt.Errorf("unexpected Kimi request %q", hit)
+		}
+	case <-time.After(within(5 * time.Second)):
+		return fmt.Errorf("Kimi discovery did not reach proxy")
+	}
+	b, err := os.ReadFile(s.loginStand.kimiCredential)
+	if err != nil {
+		return err
+	}
+	if string(b) != s.loginStand.kimiOriginal {
+		return fmt.Errorf("CLI credential changed")
+	}
+	select {
+	case hit := <-s.loginStand.kimiHits:
+		return fmt.Errorf("unexpected second request %q", hit)
+	default:
+	}
+	return nil
 }

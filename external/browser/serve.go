@@ -4,6 +4,7 @@ package browser
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -20,7 +21,8 @@ func Mount(mux *http.ServeMux, opts MountOptions) Mounted {
 	srv := NewServer(Default(), opts.Key, log)
 	mux.Handle(ConnectPattern, srv)
 	mux.Handle(FilesPattern, srv)
-	api := &API{Hub: Default(), Allow: opts.ServeRemote, Log: log}
+	keySet := func() bool { return opts.Key != nil && strings.TrimSpace(opts.Key()) != "" }
+	api := &API{Hub: Default(), Allow: opts.ServeRemote, KeySet: keySet, Log: log}
 	api.Register(mux)
 	Default().setServing(true)
 	detach := func() {}

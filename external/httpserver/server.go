@@ -70,6 +70,14 @@ type Server struct {
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
 
+	// desktopWindow is what the tab shell of a desktop window drives
+	// (httpserver.Options.DesktopWindow). Nil everywhere else.
+	desktopWindow any
+
+	// noAuth serves without any credential, whatever the configuration says
+	// (httpserver.Options.NoAuth). Set once, before the server serves.
+	noAuth bool
+
 	// unbuiltSections are the settings sections the form leaves out
 	// (Options.UnbuiltSections).
 	unbuiltSections []string
@@ -151,6 +159,7 @@ type Server struct {
 	codexAuthLogins      map[string]*codexAuthLoginAttempt
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 	opencodeAuthLogins   map[string]*codexAuthLoginAttempt
+	devinAuthLogins      map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	// bgWG counts background goroutines owned by this server (codex auth login
@@ -190,12 +199,7 @@ func (s *Server) Drain() {
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
-	// A memory run stopped mid-persist loses its note: running memory runs get
-	// the drain grace before the pool is closed.
-	if n := agent.MemoryRunsInFlight(); n > 0 {
-		s.log.Info("waiting for memory runs before draining the task pool", "runs", n, "grace", agent.MemoryDrainGrace)
-		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
-	}
+	s.cancelDevinAuthLogins("")
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more.
@@ -227,6 +231,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		opencodeAuthLogins:   make(map[string]*codexAuthLoginAttempt),
+		devinAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
@@ -296,6 +301,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
+	s.registerOnboardingRoutes()
 	s.registerWallpaperRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
@@ -379,9 +385,13 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
+		UserAgent:         rm.UserAgent,
 		ProxyURL:          rm.ProxyURL,
 		AuthPath:          rm.AuthPath,
 		NoCLILogin:        rm.NoCLILogin,
@@ -409,9 +419,13 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 	in := llm.ProviderInput{
 		Name:              rm.ProviderName,
 		Type:              rm.ProviderType,
+		Mode:              rm.Mode,
+		Region:            rm.Region,
 		Model:             rm.Model,
+		KimiMetadata:      rm.KimiMetadata,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
+		UserAgent:         rm.UserAgent,
 		ProxyURL:          rm.ProxyURL,
 		AuthPath:          rm.AuthPath,
 		NoCLILogin:        rm.NoCLILogin,
@@ -434,11 +448,13 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler: CORS wraps the open-server guard wraps the auth gate
-// wraps the route mux. CORS and the auth gate are no-ops unless configured; the guard applies only
-// while no credential is configured (open_server_guard.go).
+// Handler returns the root HTTP handler: the gzip of JSON answers wraps the OpenAI error
+// normalizer wraps CORS wraps the open-server guard wraps the auth gate wraps the route mux.
+// CORS and the auth gate are no-ops unless configured; the guard applies only while no
+// credential is configured (open_server_guard.go). The gzip stays outermost because the
+// normalizer reads an error body as JSON and rewrites it.
 func (s *Server) Handler() http.Handler {
-	return s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux))))
+	return gzipJSON(s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -461,6 +477,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		// Toolset is the toolsets[] preset the model names (models[].toolset):
 		// what a new chat on it is offered until it picks another.
 		Toolset string `json:"toolset,omitempty"`
+		// Limits is what a request on this row may carry, so a client sizes
+		// one before it sends it instead of losing a turn to a 400.
+		Limits modelLimits `json:"limits"`
 	}
 	out := struct {
 		Object string     `json:"object"`
@@ -489,6 +508,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if cfg != nil {
 		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
 	}
+	limits := modelLimitsOf(clientToolLimitsOf(cfg))
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
@@ -497,6 +517,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: profileWindow,
 			ContextLength:    profileWindow,
+			// A profile runs coddy's own tools and refuses the client's, so
+			// the two tool bounds say nothing about it; its images are bounded
+			// like any other row's.
+			Limits: limits.withoutClientTools(),
 		})
 	}
 	if cfg != nil {
@@ -523,6 +547,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
 				Toolset:          ent.Toolset,
+				Limits:           limits,
 			})
 		}
 	}
@@ -609,14 +634,11 @@ func (c openAIToolCall) argumentsJSON() (string, error) {
 	return string(raw), nil
 }
 
-// Bounds on what a client may hand a direct model. OpenAI itself takes up to
-// 128 tools; a schema or a picture past these sizes is not a request coddy
-// should carry to a provider or keep under the session's assets.
-const (
-	maxClientTools           = 128
-	maxClientToolSchemaBytes = 256 << 10
-	maxImagePartsPerMessage  = 16
-)
+// Bounds on the pictures a client may hand a direct model: past these a
+// request is not one coddy should carry to a provider or keep under the
+// session's assets. The bounds on its tools are configurable
+// (client_tool_limits.go).
+const maxImagePartsPerMessage = 16
 
 // maxImagePartBytes bounds one image_url payload.
 const maxImagePartBytes = 20 << 20
@@ -692,9 +714,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var clientTools []llm.ToolDefinition
 	var genOpts llm.RequestOptions
 	if !httpModelIsCoddyProfile(model) {
-		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(s.activeCfg()))
 		if err != nil {
-			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
+			writeClientToolError(w, err)
 			return
 		}
 		// Refused here for the same reason: an option the provider cannot
@@ -715,7 +737,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
+	resolve := s.resolveDirectSession
+	if httpModelIsCoddyProfile(model) {
+		resolve = s.resolveSession
+	}
+	st, sessionID, createdNew, err := resolve(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
@@ -1026,6 +1052,23 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 	return st, newID, true, nil
 }
 
+// resolveDirectSession is resolveSession for a call to a direct model. The
+// header still names a session the call is kept in. Without it the call is
+// stateless (issue #585): a provider-style client sends one request per model
+// step and brings the whole conversation each time, so a stored session would
+// only cost it time and disk. Nothing names the state to the client, since
+// nothing is left to continue.
+func (s *Server) resolveDirectSession(ctx context.Context, r *http.Request) (*session.State, string, bool, error) {
+	if strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID")) != "" {
+		return s.resolveSession(ctx, r)
+	}
+	if _, ok := session.ParseRequestedOrigin(r.Header.Get(session.OriginHeader)); !ok {
+		return nil, "", false, errInvalidOriginHeader
+	}
+	st := s.mgr.NewEphemeralState()
+	return st, st.GetID(), false, nil
+}
+
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 	out := make([]llm.Message, 0, len(messages))
 	for _, m := range messages {
@@ -1151,8 +1194,8 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 // withholds them, once they have been read - a broken tool list is refused
 // whatever the choice, so a client learns about it before it switches the
 // tools on. Unsupported choices are rejected before this function is called.
-func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
-	tools, err := parseOpenAITools(rawTools)
+func openAIToolsToLLM(rawTools, rawChoice json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
+	tools, err := parseOpenAITools(rawTools, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,7 +1209,7 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 }
 
 // parseOpenAITools reads an OpenAI tools array into the providers' definitions.
-func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
+func parseOpenAITools(rawTools json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
 	trimmed := bytes.TrimSpace(rawTools)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -1182,8 +1225,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 	if err := json.Unmarshal(trimmed, &tools); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
-	if len(tools) > maxClientTools {
-		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	if len(tools) > limits.tools {
+		return nil, tooManyClientTools(len(tools), limits.tools)
 	}
 	out := make([]llm.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
@@ -1194,8 +1237,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 		if name == "" {
 			return nil, fmt.Errorf("tool without a function name")
 		}
-		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
-			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
+		if len(t.Function.Parameters) > limits.schemaBytes {
+			return nil, clientToolParametersTooLarge(name, len(t.Function.Parameters), limits.schemaBytes)
 		}
 		// A function's parameters are a JSON Schema object; anything else is
 		// refused rather than decoded into an arbitrary value.

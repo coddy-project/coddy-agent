@@ -262,12 +262,12 @@ func newOpenCodeProvider(p ProviderInput, hc *http.Client) (Provider, error) {
 	case opencodeGoogle:
 		return &opencodeGoogleProvider{input: p, client: client, base: strings.TrimSuffix(base, "/v1") + "/google/v1beta"}, nil
 	case opencodeMessages:
-		ap := newAnthropicProvider(p.Model, key, opencodeAnthropicBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		ap := newAnthropicProvider(p.Model, key, opencodeAnthropicBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort, "")
 		ap.tempSet = p.TemperatureSet
 		ap.blocking = p.DisableStream
 		return ap, nil
 	default:
-		op := newOpenAIProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort, "")
 		op.tempSet = p.TemperatureSet
 		return op, nil
 	}

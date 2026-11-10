@@ -18,6 +18,7 @@ afterEach(() => {
 
 type StubModel = {
   id: string;
+  kimi_protocol?: string;
   name?: string;
   context_window?: number;
   catalog?: {
@@ -78,6 +79,7 @@ test("opening a provider row fetches the list with the row as the form holds it"
     api_base: "http://stub/v1",
     api_key: "sk-unsaved",
     api_key_command: "",
+    user_agent: "",
     proxy: "",
   });
   // A listed answer needs no words: no status line under the legend.
@@ -492,4 +494,118 @@ test("the list is contained: the box may shrink, the id ellipsizes, the toggle n
   expect(item).toMatch(/align-self:\s*flex-start/);
   expect(item).toMatch(/max-width:\s*calc\(100% \+ 6px\)/);
   expect(item).toMatch(/margin-left:\s*-6px/);
+});
+
+test("a Kimi catalog row carries its protocol and identity when added", async () => {
+  stubModels([{ id: "m1", kimi_protocol: "kimi" }]);
+  const onAddModel = vi.fn();
+  render(
+    <ProviderModelList
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "platform",
+        region: "china",
+      }}
+      existingModels={[]}
+      onAddModel={onAddModel}
+      onRemoveModel={noop}
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+  expect(onAddModel).toHaveBeenCalledWith(
+    "kimi/m1",
+    undefined,
+    undefined,
+    undefined,
+    { model: "kimi/m1", protocol: "kimi", mode: "platform", region: "china" },
+    expect.objectContaining({
+      id: "m1",
+      kimi_source: expect.objectContaining({ identity: "" }),
+    }),
+  );
+});
+
+test("Kimi catalog metadata is not reused after mode changes", async () => {
+  stubModels([{ id: "m1", kimi_protocol: "kimi" }]);
+  const add = vi.fn();
+  const { rerender } = render(
+    <ProviderModelList
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "global",
+      }}
+      existingModels={[]}
+      onAddModel={add}
+      onRemoveModel={noop}
+    />,
+  );
+  await screen.findByTestId("provider-model-toggle-m1");
+  rerender(
+    <ProviderModelList
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "platform",
+        region: "global",
+      }}
+      existingModels={[]}
+      onAddModel={add}
+      onRemoveModel={noop}
+    />,
+  );
+  fireEvent.click(toggle("m1"));
+  expect(add).toHaveBeenCalledWith("kimi/m1", undefined, undefined, undefined);
+});
+
+test("a late Kimi catalog response retains the requested mode and region", async () => {
+  let complete!: (value: unknown) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    ),
+  );
+  const add = vi.fn();
+  const { rerender } = render(
+    <ProviderModelList
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "global",
+      }}
+      existingModels={[]}
+      onAddModel={add}
+      onRemoveModel={noop}
+    />,
+  );
+  await waitFor(() => expect(complete).toBeDefined());
+  rerender(
+    <ProviderModelList
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "platform",
+        region: "china",
+      }}
+      existingModels={[]}
+      onAddModel={add}
+      onRemoveModel={noop}
+    />,
+  );
+  complete({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      models: [{ id: "m1", kimi_protocol: "kimi" }],
+    }),
+  });
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+  expect(add).toHaveBeenCalledWith("kimi/m1", undefined, undefined, undefined);
 });

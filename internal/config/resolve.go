@@ -11,9 +11,14 @@ import (
 type ResolvedLLM struct {
 	ProviderName string
 	ProviderType string
+	Mode         string
+	Region       string
+	KimiIdentity string
 	Model        string
+	KimiMetadata *KimiModelMetadata
 	APIKey       string
 	BaseURL      string
+	UserAgent    string
 	// ProxyURL is providers[].proxy as written: a keyword (inherit, none) or
 	// a proxy URL; see ParseProxySetting.
 	ProxyURL string
@@ -68,7 +73,7 @@ func (c *Config) FindProvider(name string) *ProviderConfig {
 // alsoRow counts a row the settings form holds but has not saved yet, or a
 // saved row it is switching to providerType. "" means no row may use it.
 func (c *Config) CLILoginRow(providerType, alsoRow string) string {
-	if providerType != "codex" && providerType != "devin" {
+	if providerType != "codex" && providerType != "devin" && providerType != "kimi" {
 		return ""
 	}
 	seen := map[string]bool{}
@@ -226,14 +231,39 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 	if prov == nil {
 		return nil, fmt.Errorf("model %q: provider %q not found", ref, provName)
 	}
+	if prov.Type == "kimi" {
+		meta := entry.KimiMetadata
+		mode, region := prov.Mode, prov.Region
+		if mode == "" {
+			mode = "subscription"
+		}
+		if region == "" {
+			region = "global"
+		}
+		if meta != nil && (meta.Model != entry.Model || meta.Mode != mode || meta.Region != region) {
+			return nil, fmt.Errorf("model %q: Kimi catalog metadata missing or does not match model, mode or region; add it from the current catalog", ref)
+		}
+		if meta != nil {
+			switch meta.Protocol {
+			case "kimi", "anthropic", "openai_responses":
+			default:
+				return nil, fmt.Errorf("model %q: unsupported Kimi protocol %q", ref, meta.Protocol)
+			}
+		}
+	}
 	return &ResolvedLLM{
 		ProviderName: prov.Name,
 		ProviderType: prov.Type,
+		Mode:         prov.Mode,
+		Region:       prov.Region,
+		KimiIdentity: prov.KimiIdentity,
 		Model:        entry.APIModel(),
+		KimiMetadata: entry.KimiMetadata,
 		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
+		UserAgent:    prov.UserAgent,
 		ProxyURL:     prov.Proxy,
-		AuthPath:     ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		AuthPath:     ProviderConfigAuthPath(c.Paths.Home, *prov),
 		NoCLILogin:   !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		MaxTokens:    entry.MaxTokens,
 		Temperature:  entry.Temperature,
@@ -298,6 +328,7 @@ func (c *Config) LogUnsentModelSettings(log *slog.Logger) {
 
 // ValidateModelsProvidersAndAgent checks providers, models, and agent.model references.
 func (c *Config) ValidateModelsProvidersAndAgent() error {
+	seenIdentity := make(map[string]struct{})
 	seenProv := make(map[string]struct{}, len(c.Providers))
 	for i := range c.Providers {
 		c.Providers[i].Normalize()
@@ -308,6 +339,12 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 			return fmt.Errorf("providers: duplicate name %q", c.Providers[i].Name)
 		}
 		seenProv[c.Providers[i].Name] = struct{}{}
+		if id := c.Providers[i].KimiIdentity; id != "" {
+			if _, ok := seenIdentity[id]; ok {
+				return fmt.Errorf("providers: duplicate kimi_identity %q", id)
+			}
+			seenIdentity[id] = struct{}{}
+		}
 	}
 
 	seenModel := make(map[string]struct{}, len(c.Models))

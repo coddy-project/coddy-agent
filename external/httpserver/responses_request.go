@@ -401,22 +401,22 @@ func responsesArgumentsText(raw json.RawMessage) (string, error) {
 // responsesToolsToLLM reads the flat function tools of a Responses request.
 // tool_choice "none" withholds them once read; other values but "auto" are
 // refused, as is any tool type but "function".
-func responsesToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
-	tools, err := parseResponsesTools(rawTools)
+func responsesToolsToLLM(rawTools, rawChoice json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
+	tools, err := parseResponsesTools(rawTools, limits)
 	if err != nil {
 		return nil, err
 	}
 	if choice := bytes.TrimSpace(rawChoice); len(choice) > 0 && !bytes.Equal(choice, []byte("null")) {
 		var s string
 		if err := json.Unmarshal(choice, &s); err != nil {
-			return nil, errors.New("tool_choice must be \"auto\" or \"none\"")
+			return nil, badToolChoice("tool_choice must be \"auto\" or \"none\"")
 		}
 		switch strings.TrimSpace(s) {
 		case "none":
 			return nil, nil
 		case "auto":
 		default:
-			return nil, fmt.Errorf("tool_choice %q is not supported", s)
+			return nil, badToolChoice(fmt.Sprintf("tool_choice %q is not supported", s))
 		}
 	}
 	return tools, nil
@@ -426,7 +426,7 @@ func responsesToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinit
 // "description":..., "parameters":{...}}. Any other type or key, and a strict
 // flag the server cannot enforce (llm.ToolDefinition carries none), is
 // refused.
-func parseResponsesTools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
+func parseResponsesTools(rawTools json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
 	trimmed := bytes.TrimSpace(rawTools)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -435,8 +435,8 @@ func parseResponsesTools(rawTools json.RawMessage) ([]llm.ToolDefinition, error)
 	if err := json.Unmarshal(trimmed, &rawList); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
-	if len(rawList) > maxClientTools {
-		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	if len(rawList) > limits.tools {
+		return nil, tooManyClientTools(len(rawList), limits.tools)
 	}
 	out := make([]llm.ToolDefinition, 0, len(rawList))
 	for i, rawTool := range rawList {
@@ -468,8 +468,8 @@ func parseResponsesTools(rawTools json.RawMessage) ([]llm.ToolDefinition, error)
 		if t.Strict != nil && *t.Strict {
 			return nil, fmt.Errorf("tool %q: strict tools are not supported", name)
 		}
-		if len(t.Parameters) > maxClientToolSchemaBytes {
-			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
+		if len(t.Parameters) > limits.schemaBytes {
+			return nil, clientToolParametersTooLarge(name, len(t.Parameters), limits.schemaBytes)
 		}
 		var schema map[string]interface{}
 		if params := bytes.TrimSpace(t.Parameters); len(params) > 0 && !bytes.Equal(params, []byte("null")) {

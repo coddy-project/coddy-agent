@@ -12,6 +12,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
 func TestParseGoalVerdict(t *testing.T) {
@@ -59,6 +60,7 @@ func judgeServer(t *testing.T, answers ...string) (*httptest.Server, *[]map[stri
 			return
 		}
 		mu.Lock()
+		body["_user_agent"] = r.Header.Get("User-Agent")
 		requests = append(requests, body)
 		answer := answers[min(n, len(answers)-1)]
 		n++
@@ -95,6 +97,18 @@ func TestJudgeChecksTheGoalWithoutTools(t *testing.T) {
 	user := msgs[1].(map[string]interface{})["content"].(string)
 	if len(msgs) != 2 || !strings.Contains(user, "<goal_objective>\nship the fix") || !strings.Contains(user, "<evidence>") {
 		t.Fatalf("check request = %v", msgs)
+	}
+}
+
+func TestJudgeUsesTheProviderUserAgent(t *testing.T) {
+	srv, requests := judgeServer(t, `{"verdict":"met"}`)
+	cfg := judgeConfig(srv.URL)
+	cfg.Providers[0].UserAgent = "coddy"
+	if _, err := judgeSessionGoal(context.Background(), cfg, &State{ID: "s", Mode: ModeAgent}, GoalCheckRequest{Objective: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*requests)[0]["_user_agent"]; got != "Coddy/"+version.Get() {
+		t.Fatalf("User-Agent = %v, want Coddy/%s", got, version.Get())
 	}
 }
 

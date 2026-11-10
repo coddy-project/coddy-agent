@@ -85,7 +85,10 @@ def main() -> int:
             "messages": [
                 {
                     "role": "user",
-                    "content": f"Remember this exact string for later and confirm by replying with it exactly: {fruit}",
+                    "content": (
+                        f"Remember this exact string for later: {fruit}. Delegate the save to the memory "
+                        "subagent (spawn_agent, agent \"memory\"), then confirm by replying with the string exactly."
+                    ),
                 }
             ],
         },
@@ -118,7 +121,7 @@ def main() -> int:
         print("expected fruit to be persisted in memory markdown", file=sys.stderr)
         return 1
 
-    # The run is a system agent task of the session, named memory, with the
+    # The run is an ordinary agent task of the session, named memory, with the
     # child session that holds its transcript.
     coddy_base = base[: -len("/v1")] if base.endswith("/v1") else base
     code, tasks, _ = http_json("GET", f"{coddy_base}/coddy/sessions/{sid}/background-tasks", None, {})
@@ -128,7 +131,7 @@ def main() -> int:
     runs = [
         row
         for row in tasks.get("data") or []
-        if row.get("kind") == "agent" and (row.get("agent") or {}).get("name") == "memory" and (row.get("agent") or {}).get("system") is True
+        if row.get("kind") == "agent" and (row.get("agent") or {}).get("name") == "memory"
     ]
     if not runs:
         print(f"expected a memory run among the background tasks, got {tasks}", file=sys.stderr)

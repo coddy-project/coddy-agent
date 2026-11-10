@@ -96,6 +96,29 @@ func TestSingleLineChangeRewritesOnlyChangedRange(t *testing.T) {
 	}
 }
 
+func TestOffscreenOnlyChangeDoesNotRedraw(t *testing.T) {
+	term := newFakeTerminal(40, 2)
+	s := NewMainScreen(term)
+	spinner := NewText("frame-1", 0, 0, nil)
+	s.Root.AddChild(spinner)
+	s.Root.AddChild(NewText("line-1\nline-2\nline-3\nline-4\nline-5", 0, 0, nil))
+	s.Root.AddChild(&markerComponent{})
+	s.RenderNow()
+	term.reset()
+	s.RenderNow()
+	unchangedOutput := term.all()
+	term.reset()
+
+	for i := 2; i <= 20; i++ {
+		spinner.SetText("frame-" + strconv.Itoa(i))
+		s.RenderNow()
+	}
+
+	if out := term.all(); out != strings.Repeat(unchangedOutput, 19) {
+		t.Fatalf("an offscreen-only animation must not redraw the viewport: %q", out)
+	}
+}
+
 func TestWidthChangeForcesFullClearRedraw(t *testing.T) {
 	term := newFakeTerminal(40, 10)
 	s := NewMainScreen(term)

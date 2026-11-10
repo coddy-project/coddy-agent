@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
@@ -30,8 +31,11 @@ type openAIProvider struct {
 	modelParams []string
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent string) *openAIProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0)}
+	if userAgent == "coddy" {
+		opts = append(opts, option.WithHeader("User-Agent", "Coddy/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}

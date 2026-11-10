@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { setEnv } from "../env/remoteEnv";
 import {
   CODDY_WORKSPACE_DIR_COOKIE,
   CODDY_WORKTREE_COOKIE,
   readLastWorkspaceDir,
   readWorktreePref,
+  publishWorkspaceToDesktop,
+  takeDesktopWorkspaceDir,
   writeLastWorkspaceDir,
   writeWorktreePref,
 } from "./workspaceCookies";
@@ -66,4 +68,45 @@ test("a cookie that is not ours to read is ignored", () => {
   expect(readLastWorkspaceDir()).toBe("");
   writeLastWorkspaceDir("/x");
   expect(readLastWorkspaceDir()).toBe("/x");
+});
+
+test("a desktop workspace handoff is read once and removed from the address", () => {
+  history.replaceState(
+    null,
+    "",
+    "/?desktop_workspace=%2Fsrv%2Ffrom%20desktop&lang=en#/",
+  );
+  expect(takeDesktopWorkspaceDir()).toBe("/srv/from desktop");
+  expect(window.location.search).toBe("?lang=en");
+  expect(window.location.hash).toBe("#/");
+  expect(takeDesktopWorkspaceDir()).toBe("");
+});
+
+test("a desktop draft replaces and clears its workspace handoff", () => {
+  const frames = document.createElement("div");
+  frames.className = "frames";
+  const frame = document.createElement("iframe");
+  frames.append(frame);
+  document.body.append(frames);
+  Object.defineProperty(window, "frameElement", {
+    configurable: true,
+    value: frame,
+  });
+  const posted = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+  try {
+    history.replaceState(null, "", "/?lang=en#/");
+    publishWorkspaceToDesktop("/srv/one");
+    expect(
+      new URLSearchParams(window.location.search).get("desktop_workspace"),
+    ).toBe("/srv/one");
+    publishWorkspaceToDesktop("");
+    expect(window.location.search).toBe("?lang=en");
+    expect(posted).toHaveBeenLastCalledWith(
+      { channel: "coddy.desktop", type: "workspace", path: "" },
+      window.location.origin,
+    );
+  } finally {
+    Reflect.deleteProperty(window, "frameElement");
+    frames.remove();
+  }
 });

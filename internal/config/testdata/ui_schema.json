@@ -132,7 +132,7 @@
         },
         "serve_remote": {
           "description": "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat.",
-          "title": "Serve to other Coddy processes",
+          "title": "Open these browsers to other Coddy processes",
           "type": "boolean"
         },
         "token": {
@@ -864,7 +864,7 @@
           "type": "string"
         },
         "enable": {
-          "description": "Runs the memory subagent on every user turn (memory build tag).",
+          "description": "Expose the bundled memory subagent to the model through spawn_agent (memory build tag).",
           "title": "Enabled",
           "type": "boolean"
         },
@@ -876,12 +876,6 @@
           },
           "title": "Fallback memory models",
           "type": "array"
-        },
-        "keep_runs": {
-          "default": 20,
-          "description": "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20).",
-          "title": "Runs kept per session",
-          "type": "integer"
         },
         "max_note_chars": {
           "default": 900,
@@ -911,18 +905,6 @@
           "description": "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two.",
           "title": "Recall max turns",
           "type": "integer"
-        },
-        "timeout_seconds": {
-          "default": 300,
-          "description": "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300).",
-          "title": "Run timeout (seconds)",
-          "type": "integer"
-        },
-        "wait_seconds": {
-          "default": 20,
-          "description": "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
-          "title": "Wait for the report (seconds)",
-          "type": "integer"
         }
       },
       "title": "Memory",
@@ -934,9 +916,6 @@
         "fallback_models",
         "additional_prompt",
         "additional_prompt_max_chars",
-        "wait_seconds",
-        "timeout_seconds",
-        "keep_runs",
         "recall_max_turns",
         "persist_max_turns",
         "copilot_max_tokens",
@@ -998,6 +977,40 @@
             "title": "Allow disabling reasoning",
             "type": "boolean"
           },
+          "kimi_metadata": {
+            "additionalProperties": false,
+            "description": "Protocol and provider settings captured from the model catalog.",
+            "properties": {
+              "mode": {
+                "description": "Provider mode used to list the model.",
+                "title": "Mode",
+                "type": "string"
+              },
+              "model": {
+                "description": "Full provider/model reference.",
+                "title": "Model reference",
+                "type": "string"
+              },
+              "protocol": {
+                "description": "Protocol reported by the catalog.",
+                "title": "Protocol",
+                "type": "string"
+              },
+              "region": {
+                "description": "Provider region used to list the model.",
+                "title": "Region",
+                "type": "string"
+              }
+            },
+            "title": "Kimi catalog metadata",
+            "type": "object",
+            "x-coddy-property-order": [
+              "model",
+              "protocol",
+              "mode",
+              "region"
+            ]
+          },
           "max_context_tokens": {
             "description": "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
             "title": "Context window (tokens)",
@@ -1057,6 +1070,7 @@
         "type": "object",
         "x-coddy-property-order": [
           "model",
+          "kimi_metadata",
           "max_tokens",
           "temperature",
           "max_context_tokens",
@@ -1242,6 +1256,21 @@
             "title": "API key command",
             "type": "string"
           },
+          "kimi_identity": {
+            "description": "Stable random identity of this Kimi provider row.",
+            "title": "Kimi identity",
+            "type": "string"
+          },
+          "mode": {
+            "description": "Kimi credential mode; empty selects subscription.",
+            "enum": [
+              "",
+              "subscription",
+              "platform"
+            ],
+            "title": "Kimi mode",
+            "type": "string"
+          },
           "name": {
             "default": "openai",
             "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
@@ -1252,6 +1281,16 @@
           "proxy": {
             "description": "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly.",
             "title": "Proxy URL",
+            "type": "string"
+          },
+          "region": {
+            "description": "Kimi region; empty selects global.",
+            "enum": [
+              "",
+              "global",
+              "china"
+            ],
+            "title": "Kimi region",
             "type": "string"
           },
           "timeout_ms": {
@@ -1269,6 +1308,7 @@
               "opencode",
               "codex",
               "devin",
+              "kimi",
               "acp"
             ],
             "title": "Provider type",
@@ -1279,6 +1319,18 @@
             "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
+          },
+          "user_agent": {
+            "default": "",
+            "description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+            "enum": [
+              "",
+              "openai",
+              "anthropic",
+              "coddy"
+            ],
+            "title": "User-Agent",
+            "type": "string"
           }
         },
         "required": [
@@ -1289,8 +1341,12 @@
         "x-coddy-property-order": [
           "name",
           "type",
+          "mode",
+          "region",
+          "kimi_identity",
           "acp",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",

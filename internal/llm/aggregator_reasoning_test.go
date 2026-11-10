@@ -128,7 +128,7 @@ func TestOpenAICompleteReadsAggregatorReasoningAndTokens(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			p := newOpenAIProvider("m", "", srv.URL, nil, 0, 0, "")
+			p := newOpenAIProvider("m", "", srv.URL, nil, 0, 0, "", "")
 			resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
 			if err != nil {
 				t.Fatalf("Complete: %v", err)
@@ -184,7 +184,7 @@ func marshalParams(t *testing.T, p *openAIProvider) []byte {
 }
 
 func TestBuildParamsSendsTheReasoningObjectTheListingNames(t *testing.T) {
-	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0.5, "high")
+	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0.5, "high", "")
 	p.modelParams = aggregatorParams
 	b := marshalParams(t, p)
 	if got := gjson.GetBytes(b, "reasoning.effort").String(); got != "high" {
@@ -204,7 +204,7 @@ func TestBuildParamsSendsTheReasoningObjectTheListingNames(t *testing.T) {
 }
 
 func TestBuildParamsTurnsTheReasoningObjectOff(t *testing.T) {
-	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "off")
+	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "off", "")
 	p.modelParams = aggregatorParams
 	b := marshalParams(t, p)
 	if r := gjson.GetBytes(b, "reasoning.enabled"); !r.Exists() || r.Bool() {
@@ -216,7 +216,7 @@ func TestBuildParamsTurnsTheReasoningObjectOff(t *testing.T) {
 }
 
 func TestBuildParamsSendsNoReasoningWithoutALevel(t *testing.T) {
-	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "")
+	p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "", "")
 	p.modelParams = aggregatorParams
 	if b := marshalParams(t, p); gjson.GetBytes(b, "reasoning").Exists() {
 		t.Errorf("no level, no reasoning object: %s", b)
@@ -227,11 +227,11 @@ func TestBuildParamsSendsNoReasoningWithoutALevel(t *testing.T) {
 // qwen/qwen3.8-flash on an aggregator) is still Qwen3: with nothing known about
 // what the server takes, its chat-template switch goes along as before.
 func TestBuildParamsVendorPrefixedQwenKeepsTheTemplateSwitch(t *testing.T) {
-	on := marshalParams(t, newOpenAIProvider("Qwen/Qwen3-32B", "", "", nil, 1024, 0, "high"))
+	on := marshalParams(t, newOpenAIProvider("Qwen/Qwen3-32B", "", "", nil, 1024, 0, "high", ""))
 	if !gjson.GetBytes(on, "chat_template_kwargs.enable_thinking").Bool() || gjson.GetBytes(on, "reasoning_effort").String() != "high" {
 		t.Errorf("Qwen/Qwen3-32B high: %s", on)
 	}
-	off := marshalParams(t, newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "off"))
+	off := marshalParams(t, newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, "off", ""))
 	if r := gjson.GetBytes(off, "chat_template_kwargs.enable_thinking"); !r.Exists() || r.Bool() {
 		t.Errorf("qwen/qwen3.8-flash off must turn the template switch off: %s", off)
 	}
@@ -241,13 +241,13 @@ func TestBuildParamsVendorPrefixedQwenKeepsTheTemplateSwitch(t *testing.T) {
 // switch it does not name is not sent; off then takes the none tier.
 func TestBuildParamsListedEffortWithoutTemplateSwitch(t *testing.T) {
 	params := []string{"max_tokens", "reasoning", "reasoning_effort", "tools"}
-	p := newOpenAIProvider("qwen/qwen3.8-27b", "", "", nil, 1024, 0, "high")
+	p := newOpenAIProvider("qwen/qwen3.8-27b", "", "", nil, 1024, 0, "high", "")
 	p.modelParams = params
 	b := marshalParams(t, p)
 	if gjson.GetBytes(b, "reasoning_effort").String() != "high" || gjson.GetBytes(b, "chat_template_kwargs").Exists() || gjson.GetBytes(b, "reasoning").Exists() {
 		t.Errorf("high: %s", b)
 	}
-	p = newOpenAIProvider("qwen/qwen3.8-27b", "", "", nil, 1024, 0, "off")
+	p = newOpenAIProvider("qwen/qwen3.8-27b", "", "", nil, 1024, 0, "off", "")
 	p.modelParams = params
 	b = marshalParams(t, p)
 	if gjson.GetBytes(b, "reasoning_effort").String() != "none" || gjson.GetBytes(b, "chat_template_kwargs").Exists() {
@@ -337,7 +337,7 @@ func TestBuildParamsReasoningObjectKeepsAListedTemplateSwitch(t *testing.T) {
 		effort string
 		on     bool
 	}{{"high", true}, {"off", false}} {
-		p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, tc.effort)
+		p := newOpenAIProvider("qwen/qwen3.8-flash", "", "", nil, 1024, 0, tc.effort, "")
 		p.modelParams = params
 		b := marshalParams(t, p)
 		r := gjson.GetBytes(b, "chat_template_kwargs.enable_thinking")
@@ -349,7 +349,7 @@ func TestBuildParamsReasoningObjectKeepsAListedTemplateSwitch(t *testing.T) {
 		}
 	}
 	// A model that is not Qwen3 never gets the switch, listed or not.
-	p := newOpenAIProvider("openai/o4-mini", "", "", nil, 1024, 0, "high")
+	p := newOpenAIProvider("openai/o4-mini", "", "", nil, 1024, 0, "high", "")
 	p.modelParams = params
 	if b := marshalParams(t, p); gjson.GetBytes(b, "chat_template_kwargs").Exists() {
 		t.Errorf("o4-mini: %s", b)

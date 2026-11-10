@@ -19,6 +19,12 @@
  * every kind in the summary (the status read answered by the script), since a
  * stand rarely has anything to say.
  *
+ * Last it opens a phone's descriptor and asks where a chosen wallpaper is
+ * painted: mobile WebKit ignores `background-attachment: fixed`, and on the
+ * stacked shell the root's box is the whole document, so a picture painted as
+ * the root's background was sized to a page several screens tall. That one
+ * needs a phone and shows on no desktop window of any engine.
+ *
  * Usage, from external/ui:
  *   npm i --no-save playwright && npx playwright install webkit   # once, ~95 MB
  *   CODDY_URL=http://127.0.0.1:12345 \
@@ -28,6 +34,8 @@
  * CODDY_ENGINE=chromium runs the same checks in Chromium, which is how you tell
  * a WebKit-only regression from a layout bug that hits every engine.
  */
+
+import zlib from "node:zlib";
 
 const URL_BASE = process.env.CODDY_URL || "http://127.0.0.1:12345";
 const FOLDER = process.env.CODDY_FOLDER || "";
@@ -238,7 +246,13 @@ async function systemScenario(browser) {
       ["crowded summary", crowded(live), crowded(live)],
     ]) {
       const at = `${ENGINE} ${width}x${height} System (${variant})`;
-      const page = await browser.newPage({ viewport: { width, height } });
+      const page = await browser.newPage({
+        viewport: { width, height },
+        // The script finds its controls and reads its lines in English; without
+        // this the browser takes the machine's language and every string check
+        // fails on a reader whose locale is not English.
+        locale: "en-US",
+      });
       page.on("pageerror", (err) =>
         check(`${at} no page error`, false, err.message),
       );
@@ -533,10 +547,171 @@ async function systemScenario(browser) {
   }
 }
 
+// --------------------------------------------------------------- Wallpaper
+
+// A chosen wallpaper has to be the viewport, fixed, with the conversation
+// scrolling over it. Mobile WebKit ignores `background-attachment: fixed`, and
+// on the stacked shell the root's box is the whole document, so a picture
+// painted as the root's background was sized by `cover` to a page several
+// screens tall: one magnified fragment of it stood on screen and stretched
+// further as the conversation grew (reported on iOS Safari). A desktop context
+// does not show it - this scenario needs a phone's descriptor, which is why it
+// is here and not in the width loop above.
+
+/** A 400x400 picture whose centre is the only white in it. */
+const PROBE_WALLPAPER = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">' +
+    '<rect width="400" height="400" fill="#102030"/>' +
+    '<rect x="0" y="0" width="200" height="200" fill="#e11d48"/>' +
+    '<rect x="200" y="0" width="200" height="200" fill="#f59e0b"/>' +
+    '<rect x="0" y="200" width="200" height="200" fill="#22c55e"/>' +
+    '<rect x="200" y="200" width="200" height="200" fill="#3b82f6"/>' +
+    '<circle cx="200" cy="200" r="40" fill="#ffffff"/></svg>',
+).toString("base64")}`;
+
+/** The one pixel of a screenshot, as `r,g,b`. PNG, 8 bits, not interlaced. */
+function pixelOf(png) {
+  let at = 8;
+  let colour = 6;
+  const parts = [];
+  while (at < png.length) {
+    const size = png.readUInt32BE(at);
+    const kind = png.toString("ascii", at + 4, at + 8);
+    const body = png.subarray(at + 8, at + 8 + size);
+    if (kind === "IHDR") colour = body[9];
+    if (kind === "IDAT") parts.push(body);
+    at += size + 12;
+  }
+  // One pixel is one scanline, and every filter resolves to the raw bytes when
+  // there is neither a pixel to the left nor a row above.
+  const raw = zlib.inflateSync(Buffer.concat(parts));
+  const channels = colour === 2 ? 3 : 4;
+  const px = raw.subarray(1, 1 + channels);
+  return { r: px[0], g: px[1], b: px[2] };
+}
+
+const near = (px, r, g, b) =>
+  Math.abs(px.r - r) < 24 && Math.abs(px.g - g) < 24 && Math.abs(px.b - b) < 24;
+
+async function pixelAt(page, x, y) {
+  return pixelOf(
+    await page.screenshot({
+      clip: { x, y, width: 1, height: 1 },
+      scale: "css",
+    }),
+  );
+}
+
+async function wallpaperScenario(browser) {
+  const phone = playwright.devices["iPhone 13"];
+  if (!phone) {
+    check("a phone descriptor is available", false);
+    return;
+  }
+  const context = await browser.newContext({ ...phone, locale: "en-US" });
+  const page = await context.newPage();
+  await page.goto(URL_BASE, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+  await page.evaluate((picture) => {
+    const html = document.documentElement;
+    html.dataset.wallpaper = "true";
+    html.style.setProperty("--coddy-wallpaper", `url("${picture}")`);
+    // The dimming is the reader's; this scenario is about where the picture is.
+    html.style.setProperty("--coddy-wallpaper-dim", "0%");
+    // A page several screens tall, which is what a conversation becomes and
+    // what the defect needed: the root's box, and with it a `cover` picture
+    // painted as its background, grows with the document.
+    const tall = document.createElement("div");
+    tall.style.height = "4000px";
+    tall.setAttribute("data-wallpaper-probe-spacer", "");
+    document.body.append(tall);
+    // The app itself is taken out of the way: this scenario reads where the
+    // picture is painted, and the composer and the hero stand over the middle
+    // of the viewport. The spacer keeps the page as tall as it was.
+    document.getElementById("root").style.display = "none";
+  }, PROBE_WALLPAPER);
+  await page.waitForTimeout(400);
+
+  const at = `${ENGINE} ${phone.viewport.width}x${phone.viewport.height} phone`;
+  const layer = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement, "::before");
+    return {
+      position: style.position,
+      width: parseFloat(style.width),
+      height: parseFloat(style.height),
+      viewport: { width: innerWidth, height: innerHeight },
+      document: document.documentElement.scrollHeight,
+    };
+  });
+  check(
+    `${at} the page is several screens tall, as a conversation is`,
+    layer.document > layer.viewport.height * 3,
+    `${layer.document}px over a ${layer.viewport.height}px viewport`,
+  );
+  check(
+    `${at} the wallpaper is painted on a fixed layer`,
+    layer.position === "fixed",
+    `position=${layer.position}`,
+  );
+  check(
+    `${at} that layer is the viewport and not the document`,
+    Math.abs(layer.width - layer.viewport.width) <= 0.5 &&
+      Math.abs(layer.height - layer.viewport.height) <= 0.5,
+    `${layer.width}x${layer.height}, viewport ${layer.viewport.width}x${layer.viewport.height}, document ${layer.document}px tall`,
+  );
+
+  // What the person sees: the picture's centre at the viewport's centre, its
+  // quadrants around it. Sized to the document instead, the centre of the
+  // viewport lands somewhere inside one magnified quadrant.
+  const { width: w, height: h } = layer.viewport;
+  const centre = await pixelAt(page, Math.round(w / 2), Math.round(h / 2));
+  check(
+    `${at} the picture's centre is the viewport's centre`,
+    near(centre, 255, 255, 255),
+    `rgb(${centre.r}, ${centre.g}, ${centre.b})`,
+  );
+  const quadrants = [
+    ["top left", 4, 4, [225, 29, 72]],
+    ["top right", w - 5, 4, [245, 158, 11]],
+    ["bottom left", 4, h - 5, [34, 197, 94]],
+    ["bottom right", w - 5, h - 5, [59, 130, 246]],
+  ];
+  for (const [name, x, y, rgb] of quadrants) {
+    const px = await pixelAt(page, x, y);
+    check(
+      `${at} the ${name} corner shows the picture's ${name} quarter`,
+      near(px, ...rgb),
+      `rgb(${px.r}, ${px.g}, ${px.b})`,
+    );
+  }
+
+  // And it stays where it is while the conversation scrolls over it.
+  const before = await page.evaluate(() => scrollY);
+  await page.evaluate(() => scrollBy(0, 400));
+  await page.waitForTimeout(400);
+  const moved = (await page.evaluate(() => scrollY)) !== before;
+  const after = await pixelAt(page, Math.round(w / 2), Math.round(h / 2));
+  check(
+    `${at} the picture does not move with the page`,
+    moved && near(after, 255, 255, 255),
+    moved
+      ? `rgb(${after.r}, ${after.g}, ${after.b})`
+      : "the page did not scroll",
+  );
+
+  await context.close();
+}
+
 const browser = await launcher.launch();
 try {
   for (const [width, height] of VIEWPORTS) {
-    const page = await browser.newPage({ viewport: { width, height } });
+    const page = await browser.newPage({
+      viewport: { width, height },
+      // The script finds its controls and reads its lines in English; without
+      // this the browser takes the machine's language and every string check
+      // fails on a reader whose locale is not English.
+      locale: "en-US",
+    });
     await page.goto(URL_BASE, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1200);
     await page.click('[data-testid="composer-workspace-chip"]');
@@ -658,6 +833,7 @@ try {
     await page.close();
   }
   await systemScenario(browser);
+  await wallpaperScenario(browser);
 } finally {
   await browser.close();
 }

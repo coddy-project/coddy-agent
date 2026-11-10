@@ -180,13 +180,50 @@ func (s *transportRetryState) cleanup() {
 // no text before it. The resilient wrapper has no status to read, so the
 // decoded error object has to say that the request is worth repeating.
 func (s *transportRetryState) aCodexProviderWhoseUpstreamReportsAnOverloadOnce() error {
+	return s.aCodexProviderWhoseFirstAnswerIs(func(w io.Writer) {
+		sse(w, "error", map[string]any{"error": map[string]any{
+			"type": "service_unavailable_error", "code": "server_is_overloaded", "param": nil,
+			"message": "Our servers are currently overloaded. Please try again later.",
+		}})
+	})
+}
+
+// aCodexProviderWhoseResponseFailsAsOverloadedOnce is the same backend with
+// the overload in the Responses API's own event, response.failed, whose error
+// object rides on the response rather than on the event (issue #602).
+func (s *transportRetryState) aCodexProviderWhoseResponseFailsAsOverloadedOnce() error {
+	return s.aCodexProviderWhoseFirstAnswerIs(func(w io.Writer) {
+		sse(w, "response.failed", map[string]any{"response": map[string]any{
+			"status": "failed",
+			"error": map[string]any{
+				"code":    "server_is_overloaded",
+				"message": "Our servers are currently overloaded. Please try again later.",
+			},
+		}})
+	})
+}
+
+// aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce is the same backend
+// with the overload in the other event the Responses API reports one in: a
+// flat error event whose code is a field of the event itself, which carries no
+// error member for the SDK to intercept (issue #602).
+func (s *transportRetryState) aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce() error {
+	return s.aCodexProviderWhoseFirstAnswerIs(func(w io.Writer) {
+		sse(w, "error", map[string]any{
+			"code": "server_is_overloaded", "param": nil,
+			"message": "Our servers are currently overloaded. Please try again later.",
+		})
+	})
+}
+
+// aCodexProviderWhoseFirstAnswerIs runs the real Codex provider against a
+// backend that answers its first request with first and every later one with
+// a whole answer.
+func (s *transportRetryState) aCodexProviderWhoseFirstAnswerIs(first func(io.Writer)) error {
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if s.requests.Add(1) == 1 {
-			sse(w, "error", map[string]any{"error": map[string]any{
-				"type": "service_unavailable_error", "code": "server_is_overloaded", "param": nil,
-				"message": "Our servers are currently overloaded. Please try again later.",
-			}})
+			first(w)
 			return
 		}
 		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello after retry"})
@@ -269,7 +306,7 @@ func (s *transportRetryState) aProviderWhoseFirstTLSHandshakeStalls() error {
 	// failure stays the very one a stalled network produces.
 	transport.TLSHandshakeTimeout = 200 * time.Millisecond
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
@@ -299,7 +336,7 @@ func (s *transportRetryState) aProviderWhoseUpstreamResetsFirstH2Stream() error 
 	srv.StartTLS()
 	s.server = srv
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, srv.Client(), 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, srv.Client(), 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
@@ -356,7 +393,7 @@ func (s *transportRetryState) aProviderWhoseUpstreamGoesSilentOnFirstConnection(
 	// mechanism, not the wait.
 	enableHTTP2Liveness(transport, 100*time.Millisecond, 100*time.Millisecond)
 
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
+	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "", "")
 	s.provider = WrapResilient(inner, ResilientOptions{
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
@@ -424,6 +461,8 @@ func initializeTransportRetryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an "openai" provider whose upstream resets the first HTTP/2 stream before any output and then streams a completion$`, s.aProviderWhoseUpstreamResetsFirstH2Stream)
 	sc.Step(`^an "openai" provider whose upstream goes silent on the first connection, pings included, and then streams a completion$`, s.aProviderWhoseUpstreamGoesSilentOnFirstConnection)
 	sc.Step(`^a "codex" provider whose upstream reports an in-band overload once before any output and then streams a completion$`, s.aCodexProviderWhoseUpstreamReportsAnOverloadOnce)
+	sc.Step(`^a "codex" provider whose upstream fails the response as overloaded once before any output and then streams a completion$`, s.aCodexProviderWhoseResponseFailsAsOverloadedOnce)
+	sc.Step(`^a "codex" provider whose upstream sends a flat overloaded error event once before any output and then streams a completion$`, s.aCodexProviderWhoseUpstreamSendsAFlatOverloadedErrorOnce)
 	sc.Step(`^(\d+) requests? reached the upstream handler$`, s.requestsReachedTheHandler)
 	sc.Step(`^a streaming completion is requested$`, s.aTransportRetryStreamingCompletionIsRequested)
 	sc.Step(`^the call succeeds with text "([^"]*)" in (\d+) upstream requests$`, s.theCallSucceedsWithTextInRequests)

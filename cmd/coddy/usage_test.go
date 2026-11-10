@@ -19,7 +19,7 @@ import (
 // Adding a command means adding it below, which then fails until the usage
 // text, the man page and the completions carry it too.
 var topLevelCommands = []string{
-	"acp", "cli", "serve", "sessions", "skills", "plugin",
+	"acp", "cli", "serve", "desktop", "sessions", "skills", "plugin",
 	"mcp", "providers", "rules", "agents", "hooks", "docs", "update", "help",
 }
 
@@ -303,5 +303,16 @@ func TestServeRefusesAnUnknownVerb(t *testing.T) {
 func TestUpdateStillAcceptsNoRestart(t *testing.T) {
 	if err := runUpdate([]string{"--no-restart", "--help"}); err != nil {
 		t.Fatalf("coddy update --no-restart: %v", err)
+	}
+}
+
+func TestPackagingKimiLogin(t *testing.T) {
+	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
+	if !strings.Contains(zsh, "type:(neuraldeep opencode codex devin kimi)") {
+		t.Error("zsh provider type completion omits kimi")
+	}
+	man := readRepoFile(t, "../../packaging/man/coddy.1")
+	if !strings.Contains(man, "Kimi login") || !strings.Contains(man, `devin ", " kimi`) {
+		t.Error("man page omits Kimi login or provider type")
 	}
 }

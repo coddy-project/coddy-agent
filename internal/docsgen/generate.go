@@ -42,7 +42,6 @@ const (
 	ConfigRefFile = "docs/reference/config.md"
 	CLIRefFile    = "docs/reference/cli.md"
 	AssetIndex    = "docs/assets/INDEX.md"
-	ChangelogFile = "docs/getting-started/changelog.md"
 )
 
 // Generate renders every generated file into memory and runs the checks.
@@ -81,7 +80,7 @@ func Generate(o Options) (*Result, error) {
 	hub := res.Files[HubFile]
 	res.Files[LLMSFile] = RenderLLMSIndex(nav, hub, o.RawBase)
 
-	// Each translation has its hub, its generated blocks and its changelog,
+	// Each translation has its hub and its generated blocks,
 	// generated from its map and the same sources as the English ones. A
 	// translated file that is missing is left to CheckTranslation.
 	exists := func(rel string) bool {
@@ -103,13 +102,6 @@ func Generate(o Options) (*Result, error) {
 		}
 		if d, err := LoadConfigDescriptions(o.Root, lang); err == nil {
 			descriptions[lang] = d
-		}
-		if exists(ChangelogFile) {
-			en, err := read(ChangelogFile)
-			if err != nil {
-				return nil, err
-			}
-			res.Files[TranslationDir(lang)+strings.TrimPrefix(ChangelogFile, "docs/")] = translatedChangelog(lang, en)
 		}
 	}
 

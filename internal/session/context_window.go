@@ -15,7 +15,9 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -127,7 +129,7 @@ func providerListsContextWindows(p *config.ProviderConfig) bool {
 		return false
 	}
 	switch strings.TrimSpace(p.Type) {
-	case "neuraldeep", "devin", "codex", "anthropic":
+	case "neuraldeep", "devin", "codex", "anthropic", "kimi":
 		return true
 	case "openai":
 		return strings.TrimSpace(p.APIBase) != ""
@@ -136,15 +138,26 @@ func providerListsContextWindows(p *config.ProviderConfig) bool {
 	}
 }
 
-// contextWindowKey names the listing a provider row reads. The credential is
-// not part of it: a model's window does not depend on the account asking.
+// contextWindowKey names the listing a provider row reads. Kimi adds an
+// account-sensitive fingerprint in contextWindowCacheKey.
 func contextWindowKey(p *config.ProviderConfig) string {
 	return strings.Join([]string{
 		strings.TrimSpace(p.Type),
 		strings.TrimSpace(p.Name),
 		strings.TrimRight(strings.TrimSpace(p.APIBase), "/"),
 		strings.TrimSpace(p.Proxy),
+		strings.TrimSpace(p.UserAgent),
 	}, "|")
+}
+
+func contextWindowCacheKey(cfg *config.Config, p *config.ProviderConfig) string {
+	key := contextWindowKey(p)
+	if strings.TrimSpace(p.Type) != "kimi" {
+		return key
+	}
+	fingerprint := providerUsageFingerprint(*p, config.ProviderConfigAuthPath(cfg.Paths.Home, *p), cfg.ProviderMayUseCLILogin(p.Name, p.Type))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s", fingerprint, p.Mode, p.Region, p.APIKey, p.APIKeyCommand, os.Getenv(config.ProviderAPIKeyEnvVarName(p.Name)))))
+	return fmt.Sprintf("%s|%x", key, sum)
 }
 
 // ContextWindowFor resolves the window of an arbitrary configured model on the
@@ -202,7 +215,7 @@ func (m *Manager) reportedContextWindow(cfg *config.Config, ent *config.ModelEnt
 	}
 	m.windows.mu.Lock()
 	defer m.windows.mu.Unlock()
-	e := m.windows.entries[contextWindowKey(prov)]
+	e := m.windows.entries[contextWindowCacheKey(cfg, prov)]
 	if e == nil {
 		return 0, false
 	}
@@ -224,7 +237,7 @@ func (m *Manager) ModelParameters(cfg *config.Config, providerName, apiModel str
 	}
 	m.windows.mu.Lock()
 	defer m.windows.mu.Unlock()
-	e := m.windows.entries[contextWindowKey(prov)]
+	e := m.windows.entries[contextWindowCacheKey(cfg, prov)]
 	if e == nil {
 		return nil
 	}
@@ -265,7 +278,7 @@ func (m *Manager) AwaitContextWindows(ctx context.Context, cfg *config.Config, m
 		if !providerListsContextWindows(prov) || !listingWanted(cfg, ent, prov) {
 			continue
 		}
-		key := contextWindowKey(prov)
+		key := contextWindowCacheKey(cfg, prov)
 		if seen[key] {
 			continue
 		}
@@ -325,19 +338,23 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 	if list == nil {
 		list = llm.ListModels
 	}
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := config.ProviderConfigAuthPath(cfg.Paths.Home, prov)
 	ctx, cancel := context.WithTimeout(context.Background(), contextWindowFetchTimeout)
 	e.cancel = cancel
 	go func() {
 		defer close(done)
 		defer cancel()
 		models, err := list(ctx, llm.ProviderInput{
-			Name:     prov.Name,
-			Type:     prov.Type,
-			APIKey:   prov.EffectiveAPIKeyContext(ctx),
-			BaseURL:  prov.APIBase,
-			ProxyURL: prov.Proxy,
-			AuthPath: authPath,
+			Name:         prov.Name,
+			Type:         prov.Type,
+			Mode:         prov.Mode,
+			Region:       prov.Region,
+			KimiIdentity: prov.KimiIdentity,
+			APIKey:       prov.EffectiveAPIKeyContext(ctx),
+			BaseURL:      prov.APIBase,
+			UserAgent:    prov.UserAgent,
+			ProxyURL:     prov.Proxy,
+			AuthPath:     authPath,
 			// The same account a request of this row would use.
 			NoCLILogin: !cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		})
@@ -348,6 +365,10 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 			// brought describes the previous credential, and the entry may
 			// already run the read of the new one, which this one leaves alone.
 			delete(w.detached, done)
+			return
+		}
+		if strings.TrimSpace(prov.Type) == "kimi" && contextWindowCacheKey(cfg, &prov) != key {
+			e.inflight, e.cancel = nil, nil
 			return
 		}
 		e.inflight = nil
@@ -393,8 +414,8 @@ func (w *contextWindowState) nowLocked() time.Time {
 // one. The credential handlers call it after a login or a logout: a read that
 // failed for want of a sign-in says nothing once the row signs in, and a
 // listing read with another account may lack the models this one is offered.
-// The windows already read keep serving until the next read lands, since a
-// model's window does not depend on the account asking. A read still out asks
+// For Kimi the previous windows are cleared; other providers keep serving the
+// windows already read until the next read lands. A read still out asks
 // with the previous credential: it is called off and let go, so the next
 // reader starts the read of the new credential at once instead of waiting for
 // it, and whatever it brings is dropped.
@@ -402,11 +423,14 @@ func (m *Manager) ForgetContextWindows(providerName string) {
 	w := &m.windows
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, e := range w.entries {
+	for key, e := range w.entries {
 		if e.provider != providerName {
 			continue
 		}
 		e.gen++
+		if strings.HasPrefix(key, "kimi|") {
+			e.windows, e.params = nil, nil
+		}
 		e.fetchedAt = time.Time{}
 		e.failedAt = time.Time{}
 		if e.inflight != nil {

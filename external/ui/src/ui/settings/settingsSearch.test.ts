@@ -195,7 +195,7 @@ test("every word of the query has to occur in the own names, the config key, the
 test("own names and config keys come first with tabs and blocks ahead, then matches needing the surrounding names, then the descriptions", () => {
   const index = [
     entry({ names: ["Dir"], where: ["Memory"] }),
-    entry({ names: ["Wait"], descriptions: ["Waits for a memory run"] }),
+    entry({ names: ["Wait"], descriptions: ["Waits for a memory note"] }),
     entry({ names: ["Memory model"] }),
     entry({ kind: "section", names: ["Memory"], anchor: null }),
     entry({ kind: "group", names: ["Memory runs"], anchor: "group:m:runs" }),

@@ -99,11 +99,13 @@ type SubagentSpec struct {
 	// ClientMCPServers are the parent's ACP client-supplied declarations to
 	// redial; they exist nowhere in the configuration.
 	ClientMCPServers []config.MCPServerConfig
-	// Kind marks a system child (SubagentKindMemory); empty for a spawn_agent
-	// child. A system child gets no skills and no rules catalog: its prompt
-	// renders neither, and the I/O would be spent inside the parent's wait.
+	// Kind marks a child whose session the runtime shapes of its own accord
+	// (SubagentKindMemory, a spawn under the bundled memory definition;
+	// SubagentKindGoalVerifier); empty for an ordinary spawn_agent child.
+	// Such a child gets no skills and no rules catalog: its prompt renders
+	// neither, and the I/O would be spent inside the parent's wait.
 	Kind string
-	// PromptTemplate is the system prompt template source of a system child.
+	// PromptTemplate is the system prompt template source of a Kind child.
 	PromptTemplate string
 	// MaxTokens clamps the child's completion size; 0 keeps the model's bound.
 	MaxTokens int

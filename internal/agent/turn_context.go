@@ -28,21 +28,20 @@ const (
 )
 
 // buildTurnContext renders the block appended after the history on every
-// request of a turn: the wall clock, the live todo checklist, the memory
-// subagent's report for this turn, the background tasks still running and
-// what the surface running the turn adds (the tab of Coddy for Browser's
-// side panel). A
+// request of a turn: the wall clock, the live todo checklist, the background
+// tasks still running and what the surface running the turn adds (the tab of
+// Coddy for Browser's side panel). A
 // rule a tool call activates is not in it: that rides in the call's result,
 // written once, where it is not sent again on every later step
 // (rules_activation.go). A volatile template under prompts.dir prints the clock
 // and the checklist into the system message itself and is re-rendered per
-// step, so its block carries the memory report alone, and nothing at all when
+// step, so its block carries what is left, and nothing at all when
 // there is none; the caller then sends the history alone.
 func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
 		// No template prints these two, so a volatile one gets them here too.
 		var sections []string
-		for _, section := range []string{a.gitWorkspaceSection(), a.memoryTurnContextSection(), a.backgroundTasksSection(), a.surfaceTurnContextSection()} {
+		for _, section := range []string{a.gitWorkspaceSection(), a.backgroundTasksSection(), a.surfaceTurnContextSection()} {
 			if section != "" {
 				sections = append(sections, section)
 			}
@@ -65,13 +64,6 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		if todo := checklistMarkdownFromPlan(a.state.GetPlan()); todo != "" {
 			parts = append(parts, "## Current todo checklist\n\n"+todo)
 		}
-	}
-
-	// The memory subagent's report for this turn (memory_run.go). It rides
-	// here on every step and never in the system message, so a recall that
-	// differs from the previous turn's does not move the cached prefix.
-	if section := a.memoryTurnContextSection(); section != "" {
-		parts = append(parts, section)
 	}
 
 	if section := a.backgroundTasksSection(); section != "" {
@@ -124,9 +116,10 @@ func (a *Agent) gitWorkspaceSection() string {
 // and several steps later has to remember that the task exists - and that a server it
 // started is still up when it writes its summary. Saying it on every request costs a
 // line per task and saves the background_list call that would otherwise be the only
-// way to find out. System tasks (the memory run of the turn) are the runtime's own
-// errands and are left out, as they are from background_list; with background runs
-// switched off there are no tools to act on a task, so nothing is said.
+// way to find out. System tasks (the goal supervisor's own children) are the
+// runtime's own errands and are left out, as they are from background_list;
+// with background runs switched off there are no tools to act on a task, so
+// nothing is said.
 func (a *Agent) backgroundTasksSection() string {
 	if a.cfg == nil || !a.cfg.Tools.Background.ResolvedEnabled() || a.state == nil {
 		return ""

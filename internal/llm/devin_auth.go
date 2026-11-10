@@ -690,6 +690,10 @@ type DevinSignInOptions struct {
 	Paste io.Reader
 	// OnPasteRejected reports a pasted line that completes nothing.
 	OnPasteRejected func(reason string)
+	// BeforeStore runs immediately before the credential is written. It returns
+	// the function that releases the caller's persistence guard, so a surface
+	// can order cancellation and replacement against the write itself.
+	BeforeStore func() (func(), error)
 }
 
 // DevinSignIn runs the PKCE browser sign-in of the Devin CLI: a loopback
@@ -749,7 +753,7 @@ func DevinSignIn(ctx context.Context, proxyOrClient any, authPath string, opts D
 		q := r.URL.Query()
 		if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(state)) != 1 {
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = io.WriteString(w, devinPage("Request rejected", "The state check failed. Go back to the terminal and sign in again."))
+			_, _ = io.WriteString(w, devinPage("Request rejected", "The state check failed. Go back to Coddy and sign in again."))
 			return
 		}
 		if e := q.Get("error"); e != "" {
@@ -768,7 +772,7 @@ func DevinSignIn(ctx context.Context, proxyOrClient any, authPath string, opts D
 			_, _ = io.WriteString(w, devinPage("No code received", "Devin sent no authorization code. Sign in again."))
 			return
 		}
-		_, _ = io.WriteString(w, devinPage("Coddy is signing in to Devin", "You can close this tab and go back to the terminal."))
+		_, _ = io.WriteString(w, devinPage("Coddy is signing in to Devin", "You can close this tab and go back to Coddy."))
 		deliver(outcome{code: code})
 	})
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
@@ -840,6 +844,13 @@ func DevinSignIn(ctx context.Context, proxyOrClient any, authPath string, opts D
 	jwt, err := devinJWTFor(ctx, hc, cred)
 	if err != nil {
 		return DevinAccount{}, fmt.Errorf("devin auth: the new session token does not work: %w", err)
+	}
+	if opts.BeforeStore != nil {
+		done, err := opts.BeforeStore()
+		if err != nil {
+			return DevinAccount{}, err
+		}
+		defer done()
 	}
 	if err := saveDevinAuth(authPath, devinAuthFile{SessionToken: cred.token, APIServerURL: apiServer, Email: jwt.account.Email}); err != nil {
 		return DevinAccount{}, err

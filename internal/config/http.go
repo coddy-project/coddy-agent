@@ -24,6 +24,13 @@ type HTTPServerConfig struct {
 	Port int `yaml:"port"`
 	// MaxBodyBytes bounds OpenAI request bodies; zero uses the default.
 	MaxBodyBytes int64 `yaml:"max_body_bytes,omitempty"`
+	// MaxClientTools bounds the tools a client may offer a direct model on
+	// POST /v1/chat/completions and POST /v1/responses; zero uses the default,
+	// OpenAI's 128.
+	MaxClientTools int `yaml:"max_client_tools,omitempty"`
+	// MaxClientToolSchemaBytes bounds one client tool's parameters schema;
+	// zero uses the default, 256 KiB.
+	MaxClientToolSchemaBytes int `yaml:"max_client_tool_schema_bytes,omitempty"`
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
 	// never echoes it back through GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to
@@ -365,6 +372,12 @@ func (h *HTTPServerConfig) Normalize() {
 func (h *HTTPServerConfig) Validate() error {
 	if h.MaxBodyBytes < 0 {
 		return fmt.Errorf("httpserver.max_body_bytes must not be negative")
+	}
+	if h.MaxClientTools < 0 {
+		return fmt.Errorf("httpserver.max_client_tools must not be negative")
+	}
+	if h.MaxClientToolSchemaBytes < 0 {
+		return fmt.Errorf("httpserver.max_client_tool_schema_bytes must not be negative")
 	}
 	if h.Port < 0 || h.Port > 65535 {
 		return fmt.Errorf("httpserver.port out of range")

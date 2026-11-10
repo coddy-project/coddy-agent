@@ -3,6 +3,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** One model entry as the provider lists it. */
 export interface FetchedModel {
   id: string;
+  kimi_protocol?: string;
+  kimi_source?: {
+    name: string;
+    mode: string;
+    region: string;
+    identity: string;
+  };
+  kimi_image_input?: boolean;
+  kimi_thinking_type?: string;
+  kimi_reasoning_levels?: string[];
+  kimi_default_reasoning?: string;
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
@@ -20,6 +31,7 @@ const REQUEST_FIELDS = [
   "name",
   "type",
   "api_base",
+  "user_agent",
   "api_key",
   "api_key_command",
   "proxy",
@@ -28,7 +40,7 @@ const REQUEST_FIELDS = [
 export type ProviderModelsRequest = Record<
   (typeof REQUEST_FIELDS)[number],
   string
->;
+> & { mode?: string; region?: string; kimi_identity?: string };
 
 function str(v: unknown): string {
   return v === undefined || v === null ? "" : String(v);
@@ -57,10 +69,31 @@ export function providerModelsRequest(
   for (const key of REQUEST_FIELDS) {
     out[key] = str(row[key]);
   }
+  if (str(row.type).trim() === "kimi") {
+    out.mode = str(row.mode);
+    out.region = str(row.region);
+    out.kimi_identity = str(row.kimi_identity);
+  }
   if (!runCommand) {
     out.api_key_command = "";
   }
   return out;
+}
+
+/** Whether Kimi listing data belongs to this exact provider identity. */
+export function kimiSourceMatches(
+  model: FetchedModel,
+  row: ProviderRow,
+): boolean {
+  const source = model.kimi_source;
+  return (
+    !!source &&
+    str(row.type).trim() === "kimi" &&
+    source.name === str(row.name).trim() &&
+    source.mode === (str(row.mode).trim() || "subscription") &&
+    source.region === (str(row.region).trim() || "global") &&
+    source.identity === str(row.kimi_identity).trim()
+  );
 }
 
 /** How long a changed provider id or type must stay still before the list is
@@ -85,6 +118,11 @@ type ModelsResponse = {
   error?: string;
   models?: {
     id?: string;
+    kimi_protocol?: string;
+    kimi_image_input?: boolean;
+    kimi_thinking_type?: string;
+    kimi_reasoning_levels?: string[];
+    kimi_default_reasoning?: string;
     name?: string;
     context_window?: number;
     catalog?: {
@@ -102,7 +140,10 @@ function tokens(v: unknown): number | undefined {
     : undefined;
 }
 
-function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
+function normalize(
+  rows: ModelsResponse["models"],
+  source?: FetchedModel["kimi_source"],
+): FetchedModel[] {
   const seen = new Set<string>();
   const list: FetchedModel[] = [];
   for (const m of rows ?? []) {
@@ -111,6 +152,20 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
     }
     seen.add(m.id);
     const item: FetchedModel = { id: m.id };
+    if (source) {
+      item.kimi_source = source;
+      if (m.kimi_protocol) item.kimi_protocol = m.kimi_protocol;
+      if (typeof m.kimi_image_input === "boolean")
+        item.kimi_image_input = m.kimi_image_input;
+      if (m.kimi_thinking_type) item.kimi_thinking_type = m.kimi_thinking_type;
+      if (
+        Array.isArray(m.kimi_reasoning_levels) &&
+        m.kimi_reasoning_levels.every((v) => typeof v === "string")
+      )
+        item.kimi_reasoning_levels = m.kimi_reasoning_levels;
+      if (m.kimi_default_reasoning)
+        item.kimi_default_reasoning = m.kimi_default_reasoning;
+    }
     if (m.name) {
       item.name = m.name;
     }
@@ -142,8 +197,10 @@ function normalize(rows: ModelsResponse["models"]): FetchedModel[] {
  *
  * Every call takes a ticket; a newer call, `reset` and unmounting invalidate
  * the older ones, and an answer whose ticket is stale resolves to `null` and
- * touches no state. That is what keeps a slow answer for the provider the
- * operator has since switched away from off the list of the one they picked.
+ * touches no state. A failed request resolves to an empty list with the reason
+ * as its `error`, alongside the hook state of the same name. That keeps a slow
+ * answer for the provider the operator has since switched away from off the
+ * list of the one they picked.
  */
 export function useProviderModels() {
   const [loading, setLoading] = useState(false);
@@ -173,7 +230,7 @@ export function useProviderModels() {
     async (
       row: ProviderRow,
       options?: { runCommand?: boolean },
-    ): Promise<FetchedModel[] | null> => {
+    ): Promise<{ models: FetchedModel[]; error: string } | null> => {
       if (!providerRowFetchable(row)) {
         return null;
       }
@@ -185,12 +242,23 @@ export function useProviderModels() {
       let list: FetchedModel[] = [];
       let failure = "";
       try {
+        const request = providerModelsRequest(
+          row,
+          options?.runCommand === true,
+        );
+        const source =
+          str(row.type).trim() === "kimi"
+            ? {
+                name: str(row.name).trim(),
+                mode: request.mode?.trim() || "subscription",
+                region: request.region?.trim() || "global",
+                identity: str(request.kimi_identity).trim(),
+              }
+            : undefined;
         const res = await fetch("/coddy/providers/models", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            providerModelsRequest(row, options?.runCommand === true),
-          ),
+          body: JSON.stringify(request),
         });
         // A proxy or a load balancer in front can answer with an HTML page:
         // the status is the useful part then, not a JSON parse error.
@@ -198,7 +266,7 @@ export function useProviderModels() {
         if (!res.ok || !data.ok) {
           failure = data.error ?? `HTTP ${res.status}`;
         } else {
-          list = normalize(data.models);
+          list = normalize(data.models, source);
         }
       } catch (e) {
         failure = e instanceof Error ? e.message : String(e);
@@ -210,7 +278,7 @@ export function useProviderModels() {
       setError(failure);
       setLoading(false);
       setFetched(true);
-      return list;
+      return { models: list, error: failure };
     },
     [],
   );

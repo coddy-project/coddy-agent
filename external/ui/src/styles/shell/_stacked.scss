@@ -3,10 +3,32 @@
 
 @use "../abstracts" as *;
 
-/* Desktop main padding (shell with side rail) */
+/* Desktop chat column (shell with side rail). The column is the whole height
+   of the window, so the transcript's scroller - and the scrollbar with it -
+   runs from the top kerb to the bottom one instead of stopping 14px short at
+   both ends. The 14px the column used to keep clear its contents keep: the
+   sticky head pads itself by them above the chat header, the docked block by
+   them under the composer's card (the stacked shell pads it the same way), so
+   the header, the card and the rail stand exactly where they did and only the
+   text passing behind them reaches the edge. The block's padding is also what
+   ChatScreen measures for `contentEndAboveBlockEnd`, so a transcript parked at
+   its end keeps its two row gaps over the card. */
 @media (min-width: 1200px) {
   .main {
-    padding: 14px 0;
+    padding: 0;
+  }
+
+  /* The start screen is no scroller and takes no part in this. */
+  .main.is-empty {
+    padding: 24px 0 14px;
+  }
+
+  .chat-scroll-sticky-head {
+    padding-top: 14px;
+  }
+
+  .chat-bottom {
+    padding-bottom: 14px;
   }
 
   :root {
@@ -267,6 +289,14 @@
     z-index: 45;
   }
 
+  /* One band for every drawer of the stacked shell, the Scheduler's dock
+     included (screens/_scheduler.scss keeps the same four insets): 10px from
+     the sides, the top strip plus 6px above, and 14px from the foot or the
+     screen's own bottom inset where there is one, so no drawer ends under a
+     home indicator. History used to stop 30% of the screen above the foot, to
+     leave backdrop for a tap back to the conversation; it reads as a drawer
+     that did not open all the way beside the Scheduler's, and the head's close
+     control and Escape are the ways back from all of them alike. */
   .sessions.drawer,
   .scheduler-jobs.drawer,
   .settings.drawer {
@@ -274,15 +304,6 @@
     right: max(10px, env(safe-area-inset-right, 0px));
     width: auto;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
-    bottom: 14px;
-  }
-}
-
-/* History ends 30% above the foot of the screen: the backdrop under it is where a
-   tap returns to the conversation, and a drawer down to the foot left none. */
-@media (max-width: 1199px) {
-  .sessions.drawer {
-    bottom: 30vh;
-    bottom: 30dvh;
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
   }
 }

@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """ACP long-term memory E2E (uses default coddy binary from `make build`).
 
-Verifies the memory subagent behaves like an internal voice (not main-agent tools):
+Verifies the memory subagent behaves like an internal voice (not main-agent tools). Memory never
+runs on its own: the prompts ask the main model to delegate through spawn_agent with agent "memory",
+and the child's report comes back as the tool result.
 
 - Pre-seeded global markdown is found by the memory subagent (RECALL) and influences the main reply without read_file to that path.
 - A second turn asks, in so many words, to remember a fact stated in the user message (a favorite fruit named by a codeword):
-  the memory subagent (PERSIST) must write it under $CODDY_HOME/memory or <cwd>/.coddy/memory. The fact is in the user text on
-  purpose: the memory subagent works from the user message alone and never sees the assistant's reply, so a fact the
-  assistant invents in its answer is not something PERSIST can be asked to keep (issue #235).
+  the memory subagent must write it under $CODDY_HOME/memory or <cwd>/.coddy/memory. The fact is in the user text on
+  purpose: the memory subagent works from the task it is handed, so a fact the assistant invents in its answer is not
+  something the child can be asked to keep (issue #235).
 - A third question is asked in a fresh session of the same process, where the codeword was never said: the reply can only
   come from the note on disk, so this checks recall through the memory subagent and not the conversation history.
-- Every turn's run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
-- Optional prune step: user text nudges the memory subagent to remove a disposable global note; file must disappear.
+- A delegated run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
+- Optional prune step: user text nudges the model to delegate a delete of a disposable global note; file must disappear.
+- Guide step: a global AGENTS.md names the path of a note that answers a question, the note shares no word with the question
+  (a search for the question's words finds nothing), and a fresh session asks the question: only the guide at the top of the
+  memory subagent's task leads to the note, so the reply carries the note's token and the child's task opens with the guide.
 
 Environment (paths):
 
@@ -56,6 +61,39 @@ def _is_memory_child(session_json: Path) -> bool:
     except (OSError, ValueError):
         return False
     return meta.get("subagentName") == "memory"
+
+
+def words(text: str) -> set[str]:
+    """Lower-case letter/digit runs: what a word search for `text` would look for."""
+    out: set[str] = set()
+    cur = ""
+    for ch in text.lower():
+        if ch.isalnum():
+            cur += ch
+        elif cur:
+            out.add(cur)
+            cur = ""
+    if cur:
+        out.add(cur)
+    return out
+
+
+def child_tasks(session_dir: Path) -> list[str]:
+    """The user messages the memory children of a session started from (their tasks)."""
+    tasks: list[str] = []
+    for meta in session_dir.rglob("subagents/*/session.json"):
+        if not _is_memory_child(meta):
+            continue
+        for f in meta.parent.iterdir():
+            if f.name == "session.json" or not f.is_file():
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "User message for this turn:" in text:
+                tasks.append(text)
+    return tasks
 
 
 def repo_root() -> Path:
@@ -240,7 +278,7 @@ def main() -> None:
     prune_name = "e2e-disposable-global-note.md"
     prune_path = global_mem / prune_name
     prune_path.write_text(
-        "# disposable\nThis line exists only so the memory copilot can delete it after a prune instruction.\n",
+        "# disposable\nThis line exists only so the memory subagent can delete it after a prune instruction.\n",
         encoding="utf-8",
     )
 
@@ -285,6 +323,7 @@ def main() -> None:
     nid = [1]
     exit_code = 0
     sid2 = ""
+    sid3 = ""
 
     try:
         r0, _ = rpc_call(
@@ -312,9 +351,11 @@ def main() -> None:
         print("sessionId=", sid, "work_dir=", work, "CODDY_HOME=", coddy_home, file=sys.stderr)
 
         # Turn 1: user never names the seed file; recall must surface VERIFIER_TOKEN from global memory.
+        # Memory never runs on its own, so the prompt tells the model to delegate to the memory subagent.
         p1 = (
             "You are helping validate Coddy long-term memory recall.\n"
-            "Answer in at most 4 short lines of plain text.\n"
+            "First delegate the lookup to the memory subagent (spawn_agent, agent \"memory\") so it searches "
+            "long-term memory, then answer in at most 4 short lines of plain text.\n"
             "Questions:\n"
             "1) What is the VERIFIER_TOKEN value?\n"
             "2) What indentation preference was recorded for YAML?\n"
@@ -342,11 +383,12 @@ def main() -> None:
         mid_paths = set(list_memory_markdown(global_mem, project_mem))
 
         # Turn 2: an explicit request to remember a fact the user states, the codeword included.
-        # PERSIST runs on the user message alone, so the fact has to be in it (issue #235);
-        # the memory run may finish after the reply, hence the poll below.
+        # The memory child works from the task it is delegated, so the fact has to be in the user text
+        # (issue #235); the prompt asks the model to delegate the save to the memory subagent.
         p2 = (
             f"Remember durably for future sessions: my favorite fruit is the one whose codeword is {fruit_word}. "
-            f"Save that codeword exactly as written. Reply with one short line confirming it, "
+            f"Delegate the save to the memory subagent (spawn_agent, agent \"memory\") so it keeps that codeword "
+            "exactly as written. Reply with one short line confirming it, "
             "and avoid tools unless absolutely required."
         )
         rp2, backlog2 = rpc_call(
@@ -389,7 +431,8 @@ def main() -> None:
         p3 = (
             "Third check, answer briefly.\n"
             "What is the codeword of my favorite fruit? It starts with MEMFRUIT_.\n"
-            "Reply with that single token only on the first line."
+            "Look it up in long-term memory through the memory subagent (spawn_agent, agent \"memory\"), "
+            "then reply with that single token only on the first line."
         )
         rp3, backlog3 = rpc_call(
             proc,
@@ -413,9 +456,8 @@ def main() -> None:
             assert prune_path.is_file(), "prune seed missing"
             p4 = (
                 "Memory maintenance before you answer.\n"
-                "If your environment includes an internal memory copilot with delete capability, "
-                f"delete the global long-term memory entry at path global:{prune_name} "
-                "(use the internal memory delete tool if available).\n"
+                "Delegate to the memory subagent (spawn_agent, agent \"memory\") a delete of the global "
+                f"long-term memory entry at path global:{prune_name}.\n"
                 "Then reply exactly one word on the first line: PRUNED if removal was performed, else SKIP.\n"
             )
             rp4, backlog4 = rpc_call(
@@ -439,9 +481,73 @@ def main() -> None:
             else:
                 print("OK: disposable global note removed.", file=sys.stderr)
 
+        # Guide step: the question's words are in neither the path nor the body of the note, so a search
+        # finds nothing; the global AGENTS.md names the note, and that is the only way to it.
+        guide_token = "GUIDEFACT_" + secrets.token_hex(4).upper()
+        guide_note = f"vault/k{secrets.token_hex(4)}.md"
+        guide_question = "What is the passphrase of the guest network? Reply with the single token on the first line."
+        (global_mem / guide_note).parent.mkdir(parents=True, exist_ok=True)
+        (global_mem / guide_note).write_text(f"{guide_token}\n", encoding="utf-8")
+        assert not words(guide_question) & words(guide_note + " " + guide_token), "the note must share no word with the question"
+        (global_mem / "AGENTS.md").write_text(
+            "# Memory guide\n"
+            f"Everything about the guest network, its passphrase included, is kept in global:{guide_note}. "
+            "Read that note with coddy_memory_read when the user asks about it; do not search for it, "
+            "the note is worded without the question's words on purpose.\n",
+            encoding="utf-8",
+        )
+        r3s, _ = rpc_call(proc, "session/new", {"cwd": work, "mcpServers": []}, nid)
+        if "error" in r3s:
+            print("session/new (3) error:", jd(r3s), file=sys.stderr)
+            sys.exit(1)
+        sid3 = r3s["result"]["sessionId"]
+        rp5, backlog5 = rpc_call(
+            proc,
+            "session/prompt",
+            {
+                "sessionId": sid3,
+                "prompt": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Answer the question only through the memory subagent "
+                            "(spawn_agent, agent \"memory\"): " + guide_question
+                        ),
+                    }
+                ],
+            },
+            nid,
+        )
+        if "error" in rp5:
+            print("session/prompt (guide) error:", jd(rp5), file=sys.stderr)
+            sys.exit(1)
+        text5 = collect_assistant_text(backlog5)
+        print("--- assistant turn guide ---\n", text5, "\n", file=sys.stderr, sep="")
+        if guide_token.upper() not in text5.upper():
+            print(
+                f"FAIL: expected the reply to carry {guide_token}, which only global:{guide_note} holds "
+                "and only the global AGENTS.md points to.",
+                file=sys.stderr,
+            )
+            exit_code = exit_code or 14
+        # The guide travels quoted ("> " before each line; the bundle's JSON may spell ">" as \u003e).
+        guided_tasks = [
+            t
+            for t in child_tasks(Path(session_root) / sid3)
+            if "Memory guide (global:AGENTS.md):" in t
+            and ("> # Memory guide" in t or "\\u003e # Memory guide" in t)
+            and guide_note in t
+        ]
+        if not guided_tasks:
+            print(
+                f"FAIL: no memory child of {sid3} started from a task that opens with the quoted global guide.",
+                file=sys.stderr,
+            )
+            exit_code = exit_code or 15
+
         memory_children = [
             p
-            for root in (Path(session_root) / sid, Path(session_root) / sid2)
+            for root in (Path(session_root) / sid, Path(session_root) / sid2, Path(session_root) / sid3)
             for p in root.rglob("subagents/*/session.json")
             if _is_memory_child(p)
         ]
@@ -459,6 +565,8 @@ def main() -> None:
                 "token_found_turn1": token in text1,
                 "fruit_persisted": fruit_word.upper() in blob,
                 "fruit_recalled_fresh_session": fruit_word.upper() in text3.upper(),
+                "guide_led_to_note": guide_token.upper() in text5.upper(),
+                "guide_in_child_task": bool(guided_tasks),
                 "seed_files_before": len(before_paths),
                 "memory_files_mid": len(mid_paths),
                 "memory_files_after": len(after_paths),
@@ -471,8 +579,9 @@ def main() -> None:
         proc.wait(timeout=900)
         # The fresh session gets a generated id, so it is not the folder the next
         # run clears; remove it here unless the bundles are wanted.
-        if sid2 and not args.keep_session:
-            shutil.rmtree(os.path.join(session_root, sid2), ignore_errors=True)
+        for fresh in (sid2, sid3):
+            if fresh and not args.keep_session:
+                shutil.rmtree(os.path.join(session_root, fresh), ignore_errors=True)
         if cleanup_work and Path(work).exists():
             shutil.rmtree(work, ignore_errors=True)
         if not args.keep_coddy_home and Path(coddy_home).exists():

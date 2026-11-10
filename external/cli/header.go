@@ -77,7 +77,7 @@ var fullHints = []string{
 	"ctrl+t to expand thinking",
 	"F1 (or /docs) for the documentation",
 	"/ for commands",
-	"/login to sign in to a model provider",
+	"/login to pick and set up a model provider",
 	"!! to run a local command the agent never sees",
 	"enter to send, shift+enter (ctrl+j) for newline",
 	"up/down for prompt history",

@@ -18,7 +18,7 @@ func TestOpenAIStreamUpstreamStatusEnvelope(t *testing.T) {
 				}
 			}))
 			defer srv.Close()
-			p := newOpenAIProvider("m", "key", srv.URL, nil, 0, 0, "")
+			p := newOpenAIProvider("m", "key", srv.URL, nil, 0, 0, "", "")
 			_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
 			if err == nil || UpstreamStatus(err) != status {
 				t.Fatalf("status = %d, error %v; want %d", UpstreamStatus(err), err, status)

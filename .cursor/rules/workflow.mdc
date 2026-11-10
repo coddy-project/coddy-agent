@@ -134,8 +134,7 @@ When adding or changing behavior (including words like feature, add, implement, 
       **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`**; commit the result.
       **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for documentation
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and
-      on an unused asset. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`**
-      from the GitHub Releases.
+      on an unused asset.
     - **Translation** - the documentation is also in Russian: **`docs/ru/<group>/<page>.md`** translates
       **`docs/<group>/<page>.md`** under the same path. A change to an English page carries the same change
       into its translation in the same pull request; new or rewritten Russian prose is read by reviewers who

@@ -37,7 +37,7 @@ func (s *anthropicEmptyAssistantState) givenConversation() error {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, anthropicTextAnswerSSE("done"))
 	}))
-	s.provider = newAnthropicProvider("test-model", "key", s.server.URL, nil, 8192, 0, "high")
+	s.provider = newAnthropicProvider("test-model", "key", s.server.URL, nil, 8192, 0, "high", "")
 	return nil
 }
 

@@ -38,6 +38,7 @@ const SWATCH_COLORS: Record<
   monokai: { bg: "#272822", accent: "#fd971f", text: "#f8f8f2" },
   nord: { bg: "#2e3440", accent: "#88c0d0", text: "#eceff4" },
   "rose-pine": { bg: "#191724", accent: "#c4a7e7", text: "#e0def4" },
+  neuraldeep: { bg: "#08090c", accent: "#00ff88", text: "#f8fafc" },
 };
 
 function ThemeSwatch(props: {
@@ -172,8 +173,11 @@ export function AppearanceLanguagePicker() {
 /** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). Below the grid: the simplified mode,
- * wallpaper, language and system notifications. */
-export function AppearanceThemePicker() {
+ * wallpaper, language, system notifications, then the restart of the first-run
+ * onboarding. */
+export function AppearanceThemePicker(props: {
+  onRestartOnboarding?: (() => void) | undefined;
+}) {
   const { t } = useT();
   const current = useSyncExternalStore(
     subscribeTheme,
@@ -213,6 +217,19 @@ export function AppearanceThemePicker() {
       <BackdropSettings />
       <AppearanceLanguagePicker />
       <NotificationsSetting />
+      {props.onRestartOnboarding ? (
+        <div className="appearance-onboarding">
+          <p className="settings-field-desc">{t("onboarding.restartHint")}</p>
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="settings-restart-onboarding"
+            onClick={props.onRestartOnboarding}
+          >
+            {t("onboarding.restart")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -185,6 +185,10 @@ type State struct {
 	// built. Set at construction and never changed (context_window.go).
 	contextWindows providerContextWindows
 
+	// ephemeral marks a state Manager.NewEphemeralState built: one stateless
+	// model call, with no bundle and no place among the live sessions.
+	ephemeral bool
+
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
 
@@ -228,9 +232,6 @@ type State struct {
 	Pinned     bool
 	PinnedAt   string
 	PinnedRank int
-
-	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
-	MemoryCopilotBlock string
 
 	// pendingPlanContext is injected into the agent system prompt of the turn a
 	// plan run started, and mirrored into the bundle (pending_plan_context.json)
@@ -610,8 +611,9 @@ type SubagentMeta struct {
 	// names this session itself may delegate to, including at
 	// subagents.max_depth. Not persisted.
 	Spawns []string
-	// Kind marks a child the runtime started on its own behalf (SubagentKindMemory);
-	// empty for a spawn_agent child. The tool registration, the system flag
+	// Kind marks a child whose tools or prompt the runtime shapes of its own
+	// accord (SubagentKindMemory, SubagentKindGoalVerifier); empty for an
+	// ordinary spawn_agent child. The tool registration, the system flag
 	// of the task and the manager's shortcuts key on it. Not persisted.
 	Kind string
 	// PromptTemplate, when set, is the system prompt template source a system
@@ -654,8 +656,9 @@ func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
 	return &out
 }
 
-// SubagentKindMemory is the Kind of the memory subagent, the child a user
-// turn starts to recall and persist long-term memory.
+// SubagentKindMemory is the Kind of the child spawned under the bundled
+// memory definition: the agent package registers the six coddy_memory_*
+// tools for it and renders its own prompt template.
 const SubagentKindMemory = "memory"
 
 // SubagentKindGoalVerifier is the Kind of the goal verifier, the child the
@@ -1704,27 +1707,6 @@ func (s *State) SetOrigin(origin string) {
 func (s *State) SetOriginWithoutPersist(origin string) {
 	s.mu.Lock()
 	s.Origin = strings.TrimSpace(origin)
-	s.mu.Unlock()
-}
-
-// GetMemoryCopilotBlock returns ephemeral recall text for the current user turn.
-func (s *State) GetMemoryCopilotBlock() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.MemoryCopilotBlock
-}
-
-// SetMemoryCopilotBlock sets recall text for this turn only (no disk persist).
-func (s *State) SetMemoryCopilotBlock(text string) {
-	s.mu.Lock()
-	s.MemoryCopilotBlock = text
-	s.mu.Unlock()
-}
-
-// ClearMemoryCopilotBlock clears recall text before a new user turn.
-func (s *State) ClearMemoryCopilotBlock() {
-	s.mu.Lock()
-	s.MemoryCopilotBlock = ""
 	s.mu.Unlock()
 }
 

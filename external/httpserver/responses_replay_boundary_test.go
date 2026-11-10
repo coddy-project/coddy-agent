@@ -74,7 +74,7 @@ func TestResponsesRejectsOrphanReasoning(t *testing.T) {
 func TestResponsesDoesNotPretendToEnforceStrictTools(t *testing.T) {
 	for _, extra := range []string{`"strict":true`, `"future_option":true`} {
 		raw := json.RawMessage(`[{"type":"function","name":"read","parameters":{"type":"object"},` + extra + `}]`)
-		if _, err := parseResponsesTools(raw); err == nil {
+		if _, err := parseResponsesTools(raw, clientToolLimitsOf(nil)); err == nil {
 			t.Errorf("unsupported tool option silently ignored: %s", raw)
 		}
 	}

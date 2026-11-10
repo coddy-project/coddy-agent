@@ -52,8 +52,8 @@ func (s *Server) cancelNeuralDeepAuthLogins() {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.neuralDeepAuthLogins {
-		if attempt.cancel != nil {
-			attempt.cancel()
+		if err := attempt.stop(); err != nil {
+			s.log.Warn("provider login invalidation failed during shutdown")
 		}
 	}
 }
@@ -61,14 +61,17 @@ func (s *Server) cancelNeuralDeepAuthLogins() {
 // cancelNeuralDeepAuthLoginsFor stops the pending sign-ins of one provider.
 // A new login supersedes the previous one, and a sign-out must not leave a
 // background wait that later re-stores a credential the user just removed.
-func (s *Server) cancelNeuralDeepAuthLoginsFor(provider string) {
+func (s *Server) cancelNeuralDeepAuthLoginsFor(provider string) error {
 	s.codexAuthMu.Lock()
 	defer s.codexAuthMu.Unlock()
 	for _, attempt := range s.neuralDeepAuthLogins {
-		if attempt.ProviderName == provider && attempt.cancel != nil {
-			attempt.cancel()
+		if attempt.ProviderName == provider {
+			if err := attempt.stop(); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func (s *Server) registerNeuralDeepAuthRoutes() {
@@ -146,7 +149,10 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 	}
 	// A background device wait finishing after the sign-out would silently
 	// re-store a credential; supersede every pending attempt first.
-	s.cancelNeuralDeepAuthLoginsFor(name)
+	if err := s.cancelNeuralDeepAuthLoginsFor(name); err != nil {
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 	path := config.NeuralDeepAuthPath(s.activeCfg().Paths.Home, name)
 	// Honest logout: ask the hub to revoke the key first, best-effort. A hub
 	// that is unreachable must not keep the user locked in.
@@ -216,18 +222,13 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	// already visible to a concurrent start or sign-out and gets cancelled
 	// with everything else instead of slipping through the gap.
 	s.codexAuthMu.Lock()
-	for id, old := range s.neuralDeepAuthLogins {
-		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
-			if old.cancel != nil {
-				old.cancel()
-			}
-		}
-		if time.Since(old.CreatedAt) > 20*time.Minute {
-			delete(s.neuralDeepAuthLogins, id)
-		}
-	}
-	s.neuralDeepAuthLogins[loginID] = attempt
+	err = registerAuthLoginAttempt(s.neuralDeepAuthLogins, loginID, name, attempt)
 	s.codexAuthMu.Unlock()
+	if err != nil {
+		cancel()
+		writeCoddyConfigErr(w, 500, "could not invalidate provider login")
+		return
+	}
 
 	// The hub call answers this request, so it follows the request context,
 	// but a supersede or sign-out in the meantime aborts it as well.

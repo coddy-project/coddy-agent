@@ -280,10 +280,20 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "acp"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "kimi", "acp"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
-		"api_key":  providerAPIKey,
+		"mode":          map[string]interface{}{"type": "string", "title": "Kimi mode", "description": "Kimi credential mode; empty selects subscription.", "enum": []string{"", "subscription", "platform"}},
+		"kimi_identity": strProp("Kimi identity", "Stable random identity of this Kimi provider row."),
+		"region":        map[string]interface{}{"type": "string", "title": "Kimi region", "description": "Kimi region; empty selects global.", "enum": []string{"", "global", "china"}},
+		"api_base":      strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
+		"user_agent": map[string]interface{}{
+			"type":        "string",
+			"title":       "User-Agent",
+			"description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+			"enum":        []string{"", "openai", "anthropic", "coddy"},
+			"default":     "",
+		},
+		"api_key": providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead."),
 		// The settings screen renders this field as the "Ignore system proxy"
@@ -302,6 +312,12 @@ func UISchemaMap() map[string]interface{} {
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
+		"kimi_metadata": objectSchema("Kimi catalog metadata", "Protocol and provider settings captured from the model catalog.", map[string]interface{}{
+			"model":    strProp("Model reference", "Full provider/model reference."),
+			"protocol": strProp("Protocol", "Protocol reported by the catalog."),
+			"mode":     strProp("Mode", "Provider mode used to list the model."),
+			"region":   strProp("Region", "Provider region used to list the model."),
+		}, []string{"model", "protocol", "mode", "region"}, nil),
 		"max_tokens": intProp("Max tokens",
 			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
@@ -472,7 +488,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "acp", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "mode", "region", "kimi_identity", "acp", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -480,7 +496,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
+				[]string{"model", "kimi_metadata", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
 				[]string{"model"}),
 		},
 		"toolsets": map[string]interface{}{
@@ -747,7 +763,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
+				"enable": boolProp("Enabled", "Expose the bundled memory subagent to the model through spawn_agent (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
@@ -756,9 +772,6 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
 				},
 				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory."),
-				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
-				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
-				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20)."),
 				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
@@ -767,7 +780,7 @@ func UISchemaMap() map[string]interface{} {
 				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
+			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
 		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{
@@ -878,7 +891,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"enable":       boolProp("Enabled", "Offer the browser tool to the chats, and accept the extension when a key is set."),
 				"token":        secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
-				"serve_remote": boolProp("Serve to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
+				"serve_remote": boolProp("Open these browsers to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
 				"remotes": map[string]interface{}{
 					"type":        "array",
 					"title":       "Browsers of other servers",

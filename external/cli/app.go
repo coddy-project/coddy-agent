@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -217,6 +218,10 @@ type App struct {
 	pasted    map[int]pastedImage
 	pastedSeq int
 
+	// setup is the walk through the provider picker that is waiting for a
+	// provider to list its models (onboarding.go): the one step of the setup
+	// with no modal on screen. nil when none is.
+	setup *providerSetupRun
 	// The sign-in /login runs (login.go): the one in progress, how the
 	// configuration it writes is installed (the manager's InstallConfig; nil
 	// over --remote), how its page is opened, and the ChatGPT issuer a test
@@ -226,6 +231,7 @@ type App struct {
 	openURL          func(string) error
 	browserAvailable func() bool
 	codexIssuer      string
+	loginRunner      func(context.Context, *config.Config, *config.ProviderConfig, providerlogin.Hooks) (providerlogin.Result, error)
 
 	quitErr error
 }
@@ -598,6 +604,10 @@ func (a *App) Run(ctx context.Context) error {
 		}()
 	}
 	render := a.newRenderScheduler()
+	// A console with no provider that can answer opens the picker before the
+	// first prompt, the way the web UI opens its own (onboarding.go). Escape
+	// puts it away and the header keeps pointing at /login.
+	a.maybeOpenProviderPicker()
 	render.now()
 	for {
 		select {
@@ -633,6 +643,7 @@ func (a *App) Run(ctx context.Context) error {
 			a.openQuestionModal(req)
 			render.now()
 		case <-a.resizeCh:
+			a.fitModal(a.modal)
 			render.now()
 		case <-a.screen.RenderSignal():
 			render.throttled()
@@ -879,7 +890,19 @@ func (a *App) appendStatus(role, msg string) {
 
 // --- modal management ---
 
+// fitModal gives a selector the terminal it has to fit into: its height, and
+// the footer drawn under it, which is the only thing between the modal and the
+// bottom of the screen. Called when a modal opens and on every resize.
+func (a *App) fitModal(c tui.Component) {
+	modal, ok := c.(*selectorModal)
+	if !ok {
+		return
+	}
+	modal.FitTerminal(a.term.Rows(), func(width int) int { return len(a.foot.Render(width)) })
+}
+
 func (a *App) openModal(c tui.Component) {
+	a.fitModal(c)
 	a.modal = c
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(c)
@@ -1585,7 +1608,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	items = append(items,
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
-		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Sign in to a model provider and add its models: NeuralDeep, or /login codex, devin, opencode"},
+		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Pick a model provider and set it up; /login <name> goes straight to one"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},

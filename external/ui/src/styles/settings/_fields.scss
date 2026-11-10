@@ -240,7 +240,12 @@
 
 .settings-fieldset-toggle {
   display: inline-flex;
-  align-items: center;
+  /* A legend too long for the panel wraps, and the chevron hangs in front of
+     its first line, not in the middle of the block: a button's text is
+     centred by the browser's own stylesheet, so a wrapped name came out
+     centred with the chevron floating beside it. */
+  align-items: flex-start;
+  text-align: left;
   gap: 4px;
   padding: 0;
   border: 0;
@@ -249,6 +254,13 @@
   font: inherit;
   cursor: pointer;
   transition: color 120ms ease;
+}
+
+/* On the middle of the first line's lowercase letters, as every glyph beside
+   a word in this app stands. */
+.settings-fieldset-toggle > svg {
+  flex: none;
+  margin-top: 1px;
 }
 
 .settings-fieldset-toggle:hover,
