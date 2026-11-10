@@ -127,7 +127,8 @@ func TestEnrollmentLifecycle(t *testing.T) {
 		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body.String())
 	}
 	var first struct {
-		Codes []string `json:"codes"`
+		Codes      []string `json:"codes"`
+		Generation string   `json:"backup_codes_generation"`
 	}
 	if err := json.Unmarshal(enabled.Body.Bytes(), &first); err != nil || len(first.Codes) != 10 {
 		t.Fatalf("codes: %v %v", first.Codes, err)
@@ -145,15 +146,32 @@ func TestEnrollmentLifecycle(t *testing.T) {
 		}
 	}
 	firstGeneration := srv.activeCfg().HTTPServer.Login.BackupCodes.Generation
+	if first.Generation == "" || first.Generation != firstGeneration {
+		t.Fatalf("enable generation mismatch: %q", first.Generation)
+	}
+	for _, code := range first.Codes {
+		if strings.Contains(first.Generation, code) {
+			t.Fatal("generation contains a code")
+		}
+	}
+	for _, hash := range srv.activeCfg().HTTPServer.Login.BackupCodes.Hashes {
+		if strings.Contains(first.Generation, hash) {
+			t.Fatal("generation contains a hash")
+		}
+	}
 	rotated := post("/coddy/auth/backup-codes/regenerate", `{}`)
 	if rotated.Code != http.StatusOK {
 		t.Fatalf("rotate: %d %s", rotated.Code, rotated.Body.String())
 	}
 	var second struct {
-		Codes []string `json:"codes"`
+		Codes      []string `json:"codes"`
+		Generation string   `json:"backup_codes_generation"`
 	}
 	if err := json.Unmarshal(rotated.Body.Bytes(), &second); err != nil || len(second.Codes) != 10 || second.Codes[0] == first.Codes[0] {
 		t.Fatal("rotation did not produce fresh codes")
+	}
+	if second.Generation == "" || second.Generation != srv.activeCfg().HTTPServer.Login.BackupCodes.Generation || second.Generation == first.Generation {
+		t.Fatal("rotation response generation mismatch")
 	}
 	if srv.activeCfg().HTTPServer.Login.BackupCodes.Generation == firstGeneration {
 		t.Fatal("backup generation did not rotate")

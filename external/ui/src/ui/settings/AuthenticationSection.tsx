@@ -6,6 +6,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  acknowledgeEnrollment,
+  discardEnrollment,
+  reconcileEnrollment,
   changeEnrollment,
   enrollmentSnapshot,
   subscribeEnrollment,
@@ -32,7 +35,7 @@ type Props = {
   onChange: (value: Record<string, unknown>) => void;
 };
 export function AuthenticationSection({ value, onChange }: Props) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const confirm = useConfirm();
   const id = useId();
   const [enrolling, setEnrolling] = useState(false);
@@ -44,6 +47,8 @@ export function AuthenticationSection({ value, onChange }: Props) {
     busy,
     error: verifyError,
     configured,
+    backupGeneration,
+    pending,
   } = useSyncExternalStore(
     subscribeEnrollment,
     enrollmentSnapshot,
@@ -78,15 +83,62 @@ export function AuthenticationSection({ value, onChange }: Props) {
   const verify = () => {
     if (!/^\d{6}$/.test(code) || !secret || !qr || busy) return;
     setupSequence.current++;
+    startedHere.current = true;
     void verifyEnrollment(secret, code);
   };
   const login = (
     value.login && typeof value.login === "object" ? value.login : {}
   ) as Record<string, unknown>;
+  const startedHere = useRef(false);
+  const metadataMismatch =
+    !pending &&
+    !busy &&
+    configured !== null &&
+    typeof login.totp_configured === "boolean" &&
+    typeof login.backup_codes_count === "number" &&
+    (login.totp_configured !== configured ||
+      (login.backup_codes_configured === false && configured) ||
+      login.backup_codes_count !== codes.length ||
+      String(login.backup_codes_generation ?? "") !== backupGeneration);
+  const pendingMountMismatch =
+    pending &&
+    !startedHere.current &&
+    typeof login.backup_codes_generation === "string" &&
+    login.backup_codes_generation !== backupGeneration;
+  const shownCodes = metadataMismatch || pendingMountMismatch ? [] : codes;
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
   useEffect(() => {
     if (configured === null) return;
+    const freshGeneration = (
+      latest.current.value.login as Record<string, unknown> | undefined
+    )?.backup_codes_generation;
+    if (
+      !startedHere.current &&
+      pending &&
+      typeof freshGeneration === "string" &&
+      freshGeneration !== backupGeneration
+    ) {
+      discardEnrollment();
+      return;
+    }
+    if (!pending) {
+      const account = (latest.current.value.login ?? {}) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof account.totp_configured === "boolean" &&
+        typeof account.backup_codes_count === "number"
+      ) {
+        reconcileEnrollment(
+          account.totp_configured && account.backup_codes_configured !== false,
+          account.backup_codes_count,
+          String(account.backup_codes_generation ?? ""),
+        );
+      }
+      return;
+    }
     setEnrolling(false);
     if (!configured) {
       setupSequence.current++;
@@ -96,11 +148,6 @@ export function AuthenticationSection({ value, onChange }: Props) {
     }
     const current = latest.current;
     const account = (current.value.login ?? {}) as Record<string, unknown>;
-    if (
-      account.totp_configured === configured &&
-      account.backup_codes_count === codes.length
-    )
-      return;
     current.onChange({
       ...current.value,
       login: {
@@ -108,9 +155,22 @@ export function AuthenticationSection({ value, onChange }: Props) {
         totp_configured: configured,
         backup_codes_configured: configured,
         backup_codes_count: codes.length,
+        backup_codes_generation: backupGeneration,
       },
     });
-  }, [codes, configured]);
+    acknowledgeEnrollment();
+  }, [
+    codes,
+    configured,
+    pending,
+    backupGeneration,
+    login.totp_configured,
+    login.backup_codes_count,
+    login.backup_codes_generation,
+  ]);
+  useEffect(() => {
+    if (busy) setError("");
+  }, [busy]);
   const change = async (operation: "disable" | "regenerate") => {
     const env = environmentKey(getEnv());
     const accepted = await confirm({
@@ -127,17 +187,24 @@ export function AuthenticationSection({ value, onChange }: Props) {
       variant: "danger",
     });
     if (!accepted || env !== environmentKey(getEnv())) return;
+    startedHere.current = true;
     await changeEnrollment(operation);
   };
   const download = () => {
-    const url = URL.createObjectURL(
-      new Blob([codes.join("\n") + "\n"], { type: "text/plain" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "coddy-backup-codes.txt";
-    link.click();
-    URL.revokeObjectURL(url);
+    let url: string | undefined;
+    try {
+      url = URL.createObjectURL(
+        new Blob([shownCodes.join("\n") + "\n"], { type: "text/plain" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "coddy-backup-codes.txt";
+      link.click();
+    } catch {
+      setError(t("settings.auth.downloadError"));
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
   };
   const update = (key: string, v: unknown) =>
     onChange({ ...value, login: { ...login, [key]: v } });
@@ -293,31 +360,33 @@ export function AuthenticationSection({ value, onChange }: Props) {
         )}
         {(error || verifyError) && (
           <p className="settings-error" role="alert">
-            {error ||
+            {(verifyError &&
               t(
                 verifyError === "disable"
                   ? "settings.auth.disableError"
                   : verifyError === "regenerate"
                     ? "settings.auth.regenerateError"
                     : "settings.auth.verifyError",
-              )}
+              )) ||
+              error}
           </p>
         )}
         {login.totp_configured === true && (
           <div className="auth-backup-block">
             <div>
               {t("settings.auth.backupCodes")} ·{" "}
-              {t("settings.auth.unused", {
-                count: String(login.backup_codes_count ?? 0),
-              })}
+              {tp(
+                "settings.auth.unused",
+                Number(login.backup_codes_count ?? 0),
+              )}
             </div>
             <div className="auth-backup-actions">
               <button
                 type="button"
                 className="settings-btn"
-                disabled={codes.length === 0}
+                disabled={shownCodes.length === 0}
                 onClick={() =>
-                  void copyText(codes.join("\n")).then((ok) => {
+                  void copyText(shownCodes.join("\n")).then((ok) => {
                     if (!ok) setError(t("settings.auth.copyError"));
                   })
                 }
@@ -327,7 +396,7 @@ export function AuthenticationSection({ value, onChange }: Props) {
               <button
                 type="button"
                 className="settings-btn"
-                disabled={codes.length === 0}
+                disabled={shownCodes.length === 0}
                 onClick={download}
               >
                 {t("settings.auth.download")}
@@ -343,9 +412,9 @@ export function AuthenticationSection({ value, onChange }: Props) {
             </div>
           </div>
         )}
-        {codes.length > 0 && (
+        {shownCodes.length > 0 && (
           <div className="auth-enrollment-codes">
-            {codes.map((item) => (
+            {shownCodes.map((item) => (
               <code key={item}>{item}</code>
             ))}
           </div>

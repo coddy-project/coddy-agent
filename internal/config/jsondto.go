@@ -382,6 +382,7 @@ type HTTPLoginJSON struct {
 	TOTPConfigured        bool                 `json:"totp_configured"`
 	BackupCodesConfigured bool                 `json:"backup_codes_configured"`
 	BackupCodesCount      int                  `json:"backup_codes_count"`
+	BackupCodesGeneration string               `json:"backup_codes_generation"`
 	Enabled               *bool                `json:"enable,omitempty"`
 	Mode                  string               `json:"mode,omitempty"`
 	User                  string               `json:"user,omitempty"`
@@ -660,6 +661,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			TOTPConfigured:        c.HTTPServer.Login.HasTOTP(),
 			BackupCodesConfigured: c.HTTPServer.Login.BackupCodes.Generation != "",
 			BackupCodesCount:      len(c.HTTPServer.Login.BackupCodes.Hashes),
+			BackupCodesGeneration: c.HTTPServer.Login.BackupCodes.Generation,
 			// PasswordHash and TOTPSecret are redacted for the same reason
 			// the token is.
 			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,

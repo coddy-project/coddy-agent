@@ -4,10 +4,15 @@ const env = vi.hoisted(() => ({ current: "a", listener: () => {} }));
 vi.mock("../env/remoteEnv", () => ({
   getEnv: () => ({ mode: "remote", baseUrl: env.current, token: "" }),
   environmentKey: (value: { baseUrl: string }) => value.baseUrl,
+  subscribeEnv: () => () => {},
   onEnvironmentSwitch: (listener: () => void) => {
     env.listener = listener;
     return () => {};
   },
+}));
+vi.mock("../auth/authState", () => ({
+  snapshotAuth: () => ({ authenticated: false, user: "" }),
+  subscribeAuth: () => () => {},
 }));
 import {
   enrollmentSnapshot,

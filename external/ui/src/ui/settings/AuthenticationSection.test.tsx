@@ -433,3 +433,219 @@ test("failed regeneration preserves the codes already shown", async () => {
   expect(screen.getByText("KEPT-CODE")).toBeTruthy();
   expect(screen.getByText(/1 unused/)).toBeTruthy();
 });
+
+test("reopening with consumed codes trusts fresh metadata rather than retained results", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ codes: ["PRIVATE", "OTHER"] }),
+    })),
+  );
+  const first = render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("PRIVATE");
+  first.unmount();
+  const onChange = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AuthenticationSection
+        value={{
+          login: {
+            totp_configured: true,
+            backup_codes_configured: true,
+            backup_codes_count: 1,
+          },
+        }}
+        onChange={onChange}
+      />
+    </ConfirmProvider>,
+  );
+  await waitFor(() => expect(screen.queryByText("PRIVATE")).toBeNull());
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("download failure reports an error and revokes its object URL", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ codes: ["PRIVATE"] }),
+    })),
+  );
+  const create = vi.fn(() => "blob:temporary");
+  const revoke = vi.fn();
+  vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: revoke });
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => {
+      throw new Error("download failed");
+    });
+  render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("PRIVATE");
+  fireEvent.click(screen.getByRole("button", { name: "Download" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(revoke).toHaveBeenCalledWith("blob:temporary");
+  click.mockRestore();
+});
+
+test("reopening with a different generation hides codes even when the count is unchanged", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        codes: ["OLD-CODE"],
+        backup_codes_generation: "old-generation",
+      }),
+    })),
+  );
+  const first = render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("OLD-CODE");
+  first.unmount();
+  const onChange = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AuthenticationSection
+        value={{
+          login: {
+            totp_configured: true,
+            backup_codes_configured: true,
+            backup_codes_count: 1,
+            backup_codes_generation: "new-generation",
+          },
+        }}
+        onChange={onChange}
+      />
+    </ConfirmProvider>,
+  );
+  await waitFor(() => expect(screen.queryByText("OLD-CODE")).toBeNull());
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("reopening after an external disable does not restore stale metadata or codes", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        codes: ["PRIVATE"],
+        backup_codes_generation: "old-generation",
+      }),
+    })),
+  );
+  const first = render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  await screen.findByText("PRIVATE");
+  first.unmount();
+  const onChange = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AuthenticationSection
+        value={{
+          login: {
+            totp_configured: false,
+            backup_codes_configured: false,
+            backup_codes_count: 0,
+            backup_codes_generation: "",
+          },
+        }}
+        onChange={onChange}
+      />
+    </ConfirmProvider>,
+  );
+  await waitFor(() => expect(screen.queryByText("PRIVATE")).toBeNull());
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("a pending result cannot overwrite fresher server metadata after navigation", async () => {
+  const pending = deferred<{
+    ok: boolean;
+    json: () => Promise<{ codes: string[]; backup_codes_generation: string }>;
+  }>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => pending.promise),
+  );
+  const first = render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  first.unmount();
+  pending.resolve({
+    ok: true,
+    json: async () => ({
+      codes: ["STALE-PRIVATE"],
+      backup_codes_generation: "generation-old",
+    }),
+  });
+  await act(async () => {
+    await pending.promise;
+  });
+  const onChange = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AuthenticationSection
+        value={{
+          login: {
+            totp_configured: true,
+            backup_codes_configured: true,
+            backup_codes_count: 1,
+            backup_codes_generation: "generation-new",
+          },
+        }}
+        onChange={onChange}
+      />
+    </ConfirmProvider>,
+  );
+  await waitFor(() => expect(screen.queryByText("STALE-PRIVATE")).toBeNull());
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("a result arriving after reopening cannot replace fresh server metadata", async () => {
+  const pending = deferred<{
+    ok: boolean;
+    json: () => Promise<{ codes: string[]; backup_codes_generation: string }>;
+  }>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => pending.promise),
+  );
+  const first = render(<ConfiguredForm />);
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Regenerate codes" }));
+  first.unmount();
+  const onChange = vi.fn();
+  render(
+    <ConfirmProvider>
+      <AuthenticationSection
+        value={{
+          login: {
+            totp_configured: true,
+            backup_codes_configured: true,
+            backup_codes_count: 1,
+            backup_codes_generation: "generation-new",
+          },
+        }}
+        onChange={onChange}
+      />
+    </ConfirmProvider>,
+  );
+  await act(async () => {
+    pending.resolve({
+      ok: true,
+      json: async () => ({
+        codes: ["STALE-PRIVATE"],
+        backup_codes_generation: "generation-old",
+      }),
+    });
+    await pending.promise;
+  });
+  await waitFor(() => expect(screen.queryByText("STALE-PRIVATE")).toBeNull());
+  expect(onChange).not.toHaveBeenCalled();
+});

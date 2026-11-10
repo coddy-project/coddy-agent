@@ -123,6 +123,7 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 		req.Secret = u.Query().Get("secret")
 	}
 	var codes []string
+	var generation string
 	err := config.WithConfigFileLock(func() error {
 		if _, ok := s.sessionFromRequest(r, s.loginPolicyNow()); !ok {
 			return errEnrollmentSession
@@ -198,6 +199,7 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
+		generation = loaded.HTTPServer.Login.BackupCodes.Generation
 		return nil
 	})
 	if errors.Is(err, errEnrollmentSession) {
@@ -214,7 +216,7 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if codes != nil {
-		writeJSON(w, 200, map[string]interface{}{"codes": codes})
+		writeJSON(w, 200, map[string]interface{}{"codes": codes, "backup_codes_generation": generation})
 		return
 	}
 	writeJSON(w, 200, map[string]interface{}{"ok": true})
