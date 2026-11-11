@@ -142,6 +142,11 @@ func runDesktopWindow(args []string) error {
 	}); err != nil {
 		return err
 	}
+	wiring := newMetricsWiring(rt)
+	// The collectors count for the whole process, whether or not the metrics
+	// listener is enabled: the desktop starts them the way coddy serve does,
+	// or a scrape answers every Coddy family empty.
+	defer wiring.Start()()
 	log.Info("starting the desktop window", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.SetACPLogger(log)
 	defer llm.StopACPAgents()
@@ -167,7 +172,7 @@ func runDesktopWindow(args []string) error {
 		NewChat:       *newChat,
 		CWD:           paths.CWD,
 		RecentFolders: recentWorkspaces(rt, log),
-		Serve:         serveHTTP(rt, paths.Home, !*keepAuth, windowHandle, strings.TrimSpace(*logLevel)),
+		Serve:         serveHTTP(rt, paths.Home, !*keepAuth, windowHandle, wiring, strings.TrimSpace(*logLevel)),
 	})
 }
 
@@ -215,7 +220,7 @@ func recentWorkspaces(rt *serve.Runtime, log *slog.Logger) []string {
 // process exists for, and a surface that cannot come up - a port already
 // bound by a `coddy serve` of the same home, a token a gateway refuses -
 // stops alone instead of taking the window down with it.
-func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle, logLevel string) func(context.Context, string) error {
+func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle, wiring metricsWiring, logLevel string) func(context.Context, string) error {
 	return func(ctx context.Context, addr string) error {
 		deps := subsystemDeps{
 			httpListenAddr: func(c *config.Config) string {
@@ -229,7 +234,7 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 			httpLogin:       outOfBandLogin(),
 			swarmAuthTokens: outOfBandTokens("", swarm.TokenEnvVar),
 			adjust:          desktopConfigAdjust(logLevel),
-			metrics:         newMetricsWiring(rt),
+			metrics:         wiring,
 		}
 		all := desktopSubsystems(rt, deps, addr, noAuth, window)
 		cfg := rt.Cfg()

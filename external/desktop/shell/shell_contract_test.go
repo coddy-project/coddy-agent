@@ -57,8 +57,8 @@ func TestPendingPromptsAreQuestionMarks(t *testing.T) {
 	requireShellSource(t, script,
 		`permission: "Permission required",`,
 		`question: "Question pending",`,
-		`if (row.permissionPending) return "permission";`,
-		`if (row.questionPending) return "question";`,
+		`if (row && row.permissionPending) return "permission";`,
+		`if (row && row.questionPending) return "question";`,
 		`span.textContent = "?";`,
 	)
 	style := shellSource(t, "shell.css")
@@ -118,4 +118,68 @@ func TestTabsReorderByPointerWithoutChangingClicks(t *testing.T) {
 		"save();",
 		"renderStrip();",
 	)
+}
+
+func TestPendingPromptsOutrankTheLocalBusyMark(t *testing.T) {
+	// A prompt that waits for the operator outranks the busy mark a send just
+	// set: the mark lives for the whole turn, and a waited turn is exactly
+	// when the question sign has to show.
+	source := shellSource(t, "shell.js")
+	start := strings.Index(source, "function stateOf(tab)")
+	if start < 0 {
+		t.Fatal("stateOf is not in the shell source")
+	}
+	end := strings.Index(source[start:], "function stateDot")
+	if end < 0 {
+		t.Fatal("stateDot is not in the shell source")
+	}
+	body := source[start : start+end]
+	prompt := strings.Index(body, `return "permission"`)
+	busy := strings.Index(body, `locallyBusy.has(tab.uid)`)
+	if prompt < 0 || busy < 0 {
+		t.Fatal("stateOf no longer checks a pending prompt or the local busy mark")
+	}
+	if busy < prompt {
+		t.Fatal("the local busy mark outranks a pending prompt, so the question sign never shows during a waited turn")
+	}
+}
+
+func TestLocalBusyDiesWithoutASession(t *testing.T) {
+	// A send from a fresh tab can fail before the session it would start is
+	// ever created; the busy mark it set must be collected by age anyway, not
+	// kept forever because tab.session is still empty.
+	source := shellSource(t, "shell.js")
+	requireShellSource(t, source, "if (!locallyBusy.has(tab.uid)) continue;")
+	if strings.Contains(source, `if (!locallyBusy.has(tab.uid) || !tab.session) continue;`) {
+		t.Fatal("a tab without a session keeps its busy mark forever")
+	}
+}
+
+func TestACancelledTabDragDoesNotSwallowClicks(t *testing.T) {
+	// The suppress flag exists to eat the click a finished drag produces; a
+	// cancelled drag produces none, so the flag must be spent there or the
+	// tab's next real click is ignored.
+	source := shellSource(t, "shell.js")
+	start := strings.Index(source, "const stop = (m, drop) => {")
+	if start < 0 {
+		t.Fatal("the drag's stop handler is not in the shell source")
+	}
+	body := source[start : start+900]
+	if !strings.Contains(body, "suppressTabClickUid = null") {
+		t.Fatal("a cancelled drag leaves suppressTabClickUid set, swallowing the next click")
+	}
+}
+
+func TestManualReloadRestoresTheFrameRetryBudget(t *testing.T) {
+	// The watchdog's two tries are spent by earlier failures; a manual reload
+	// that leaves them spent arms a timer that cannot retry anything.
+	source := shellSource(t, "shell.js")
+	start := strings.Index(source, "function reloadActiveFrame()")
+	if start < 0 {
+		t.Fatal("reloadActiveFrame is not in the shell source")
+	}
+	body := source[start : start+800]
+	if !strings.Contains(body, "frameLoadAttempts.set(tab.uid, 0)") {
+		t.Fatal("a manual reload does not reset the frame load retry budget")
+	}
 }

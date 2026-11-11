@@ -842,11 +842,14 @@
   };
 
   function stateOf(tab) {
-    if (locallyBusy.has(tab.uid)) return "busy";
     const row = tab.session ? rows.get(tab.session) : null;
+    // A prompt that waits for the operator outranks the busy mark a send just
+    // set: the mark lives for the whole turn, and a waited turn is exactly
+    // when the question sign has to show.
+    if (row && row.permissionPending) return "permission";
+    if (row && row.questionPending) return "question";
+    if (locallyBusy.has(tab.uid)) return "busy";
     if (!row) return "idle";
-    if (row.permissionPending) return "permission";
-    if (row.questionPending) return "question";
     if (row.turnActive || (row.backgroundRunning || 0) > 0) return "busy";
     const inFront = tab.uid === activeUid;
     const failed = row.lastErrorSeq || 0;
@@ -956,6 +959,11 @@
       if (!didDrag) return;
       const index = drop ? tabDropIndex(m.clientX, m.clientY) : -1;
       draggedTabUid = null;
+      if (!drop) {
+        // A cancelled drag fires no click for the flag to be spent by; left
+        // standing it would eat the tab's next real click.
+        suppressTabClickUid = null;
+      }
       if (index >= 0) moveTab(tab.uid, index);
       else renderStrip();
     };
@@ -1328,8 +1336,8 @@
         if (row && typeof row.id === "string") rows.set(row.id, row);
       }
       for (const tab of tabs) {
-        if (!locallyBusy.has(tab.uid) || !tab.session) continue;
-        const row = rows.get(tab.session);
+        if (!locallyBusy.has(tab.uid)) continue;
+        const row = tab.session ? rows.get(tab.session) : null;
         const started = locallyBusy.get(tab.uid) || 0;
         if (
           (!row || (!row.turnActive && !(row.backgroundRunning > 0))) &&
@@ -1445,6 +1453,9 @@
     try {
       frame.contentWindow.location.reload();
       clearFrameLoadTimer(tab.uid);
+      // A manual reload starts the watchdog's budget over: the tries an
+      // earlier failure used up must not leave the timer below with none.
+      frameLoadAttempts.set(tab.uid, 0);
       frameLoadTimers.set(
         tab.uid,
         setTimeout(() => retryFrame(tab.uid, frame), FRAME_LOAD_TIMEOUT_MS),

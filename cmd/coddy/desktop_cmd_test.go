@@ -3,6 +3,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop"
@@ -52,5 +54,22 @@ func TestDesktopSubsystemsRunsEverythingBesideTheWindow(t *testing.T) {
 		if sub.Kind == serve.KindHTTP && sub.Enabled(&config.Config{HTTPServer: config.HTTPServerConfig{Enabled: &off}}) {
 			t.Fatal("httpserver.enable: false still enabled the public surface")
 		}
+	}
+}
+
+// The exporters' collectors run for the whole process, as coddy serve's do:
+// the desktop must start the wiring it hands its subsystem list, or a scrape
+// on a process with metrics.enable answers every Coddy family empty.
+func TestDesktopStartsTheMetricsWiring(t *testing.T) {
+	src, err := os.ReadFile("desktop_cmd.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(src)
+	if !strings.Contains(source, "defer wiring.Start()()") {
+		t.Fatal("the desktop never starts the metrics wiring")
+	}
+	if strings.Contains(source, "metrics:         newMetricsWiring(rt),") {
+		t.Fatal("the subsystem list gets a fresh wiring that is never started")
 	}
 }
