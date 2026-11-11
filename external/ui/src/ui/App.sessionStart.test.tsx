@@ -417,6 +417,41 @@ test("a fast first send waits for the desktop workspace instead of using its fal
   await waitFor(() => expect(responsesPosted).toBe(1));
 });
 
+test("a draft route applies the desktop folder written into its address", async () => {
+  history.replaceState(null, "", "/#/");
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("chat-workspace").textContent).toBe(
+      "/projects/default",
+    ),
+  );
+  fireEvent.click(screen.getByTestId("pick-data"));
+  await waitFor(() =>
+    expect(screen.getByTestId("chat-workspace").textContent).toBe(
+      DATA_WORKSPACE,
+    ),
+  );
+
+  act(() => {
+    history.replaceState(
+      null,
+      "",
+      "/?desktop_workspace=%2Fprojects%2Fdata#/draft/draft_test",
+    );
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await waitFor(() =>
+    expect(screen.getByTestId("chat-workspace").textContent).toBe(
+      "/projects/default",
+    ),
+  );
+});
+
 test("a manual folder picked while desktop resolution is pending wins over the late answer", async () => {
   history.replaceState(
     null,

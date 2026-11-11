@@ -86,7 +86,7 @@ func TestDesktopSurfacesRejectUntrustedBrowserOrigins(t *testing.T) {
 	}
 }
 
-func startDesktopSecurityStand(t *testing.T, attached, noAuth bool) string {
+func startDesktopSecurityStand(t *testing.T, attached, noAuth bool, adjust ...func(*config.Config)) string {
 	t.Helper()
 	home := t.TempDir()
 	off := false
@@ -96,6 +96,9 @@ func startDesktopSecurityStand(t *testing.T, attached, noAuth bool) string {
 			Enabled: &off, AuthToken: "service-public-token", AllowInsecure: true,
 			CORS: config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"*"}},
 		},
+	}
+	for _, change := range adjust {
+		change(cfg)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rt := &serve.Runtime{}
@@ -149,6 +152,10 @@ func startDesktopSecurityStand(t *testing.T, attached, noAuth bool) string {
 		}
 	})
 	base := "http://" + address
-	waitDesktopHTTP(t, base+"/v1/models")
+	if noAuth {
+		waitDesktopHTTP(t, base+"/v1/models")
+	} else {
+		waitDesktopHTTPStatus(t, base+"/v1/models", http.StatusUnauthorized)
+	}
 	return base
 }

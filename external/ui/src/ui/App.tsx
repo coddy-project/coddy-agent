@@ -584,7 +584,7 @@ export function App() {
   );
   // The worktree checkbox is this browser's choice for every folder (cookie).
   const [worktreePref, setWorktreePref] = useState(() => readWorktreePref());
-  const [desktopWorkspaceHandoff] = useState(() =>
+  const [desktopWorkspaceHandoff, setDesktopWorkspaceHandoff] = useState(() =>
     takeDesktopWorkspaceHandoff(),
   );
   const desktopWorkspaceHandoffAvailableRef = useRef(true);
@@ -631,6 +631,7 @@ export function App() {
   const [activeDraftId, setActiveDraftId] = useState(() =>
     initialRoute.branch === "draft" ? initialRoute.draftId.trim() : "",
   );
+  const desktopDraftRouteRef = useRef(activeDraftId);
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
@@ -2225,6 +2226,19 @@ export function App() {
     }
   }, [refreshWorkspaceContext]);
 
+  // Opening a named draft changes the address without remounting the app. Its
+  // own desktop handoff belongs to that route, not to the chat left before it.
+  useEffect(() => {
+    if (desktopDraftRouteRef.current === activeDraftId) return;
+    desktopDraftRouteRef.current = activeDraftId;
+    desktopWorkspaceWaitRef.current?.finish();
+    const next = takeDesktopWorkspaceHandoff();
+    desktopWorkspaceHandoffAvailableRef.current = Boolean(
+      next.path || next.pending,
+    );
+    setDesktopWorkspaceHandoff(next);
+  }, [activeDraftId]);
+
   // A desktop tab opens on its fallback at once. The shell's authoritative
   // answer arrives in place, without reloading the composer or losing its
   // draft; a folder picked by the operator supersedes that answer.
@@ -2338,18 +2352,21 @@ export function App() {
       void switchWorkspace({ path: String(wanted?.path ?? "") });
       return;
     }
-    if (!sessionId && pendingWorkspaceRef.current?.path) {
-      void refreshHomeWorkspace();
-      return;
-    }
     // The start screen opens on the folder last picked in this browser.
     const desktopHandoff = desktopWorkspaceHandoffAvailableRef.current
       ? desktopWorkspaceHandoff
       : { path: "", pending: false };
     desktopWorkspaceHandoffAvailableRef.current = false;
-    const remembered = sessionId
-      ? ""
-      : desktopHandoff.path || readLastWorkspaceDir();
+    if (desktopHandoff.path) {
+      setPendingWorkspace({ path: desktopHandoff.path });
+      void refreshHomeWorkspace();
+      return;
+    }
+    if (!sessionId && pendingWorkspaceRef.current?.path) {
+      void refreshHomeWorkspace();
+      return;
+    }
+    const remembered = sessionId ? "" : readLastWorkspaceDir();
     if (remembered) {
       setPendingWorkspace({ path: remembered });
       void refreshHomeWorkspace();

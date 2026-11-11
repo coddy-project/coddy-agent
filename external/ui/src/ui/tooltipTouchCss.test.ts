@@ -83,6 +83,13 @@ test("the composer shadow stays under the plate while a tip is up", () => {
   );
 });
 
+test("the composer shadow has the same owner before and during a tooltip", () => {
+  expect(css).toContain(
+    ".composer-panel { border-radius: 12px; box-shadow: var(--coddy-glass-panel-shadow); }",
+  );
+  expect(css).toContain(".composer-panel .composer-card { box-shadow: none; }");
+});
+
 // A finger is wider than a cursor and the control beside the ring stops the
 // turn, so the two stand further apart wherever the pointer is coarse.
 test("the ring keeps its distance from the stop control on a touch screen", () => {
