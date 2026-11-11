@@ -2,6 +2,7 @@ import { useCallback, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { SwitchField } from "../settings/SwitchField";
 import { SETTINGS_TEXTS, landmarkAnchor } from "../settings/settingsSections";
+import { useSpecialRowLabel } from "../settings/SettingsSpecialRows";
 import { telegramLaunch } from "../telegram/launch";
 import {
   disableNotifications,
@@ -57,6 +58,10 @@ export function NotificationsSetting() {
     }
   }, []);
 
+  const heading = useSpecialRowLabel(
+    "notifications",
+    t(SETTINGS_TEXTS.appearanceNotifications.label),
+  );
   if (!notificationsShown()) {
     return null;
   }
@@ -67,9 +72,7 @@ export function NotificationsSetting() {
       data-testid="appearance-notifications"
       data-settings-anchor={landmarkAnchor("appearance", "notifications")}
     >
-      <p className="appearance-section-label">
-        {t(SETTINGS_TEXTS.appearanceNotifications.label)}
-      </p>
+      <p className="appearance-section-label">{heading}</p>
       <SwitchField
         checked={on}
         onChange={(next) => void toggle(next)}

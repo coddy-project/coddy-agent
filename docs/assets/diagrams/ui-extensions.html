@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JavaScript extensions and incoming turn data</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .flow { grid-template-columns: 340px 400px 340px; gap: 56px; }
+      .stack { display: grid; gap: 28px; }
+      .stack .box { min-height: 76px; }
+      .network { grid-template-columns: repeat(4, 1fr); gap: 40px; margin-top: 24px; }
+    </style>
+  </head>
+  <body style="--width: 1280px">
+    <h1>JavaScript extensions and incoming turn data</h1>
+    <p class="lead">The server stores approvals and sends HTTP requests. The browser runs extension code and processes live payloads.</p>
+    <div class="cols flow">
+      <section>
+        <h2>1. Load an approved package</h2>
+        <div class="stack">
+          <div class="box amber" id="zip">Install one ZIP<br /><code>manifest.json</code> + JS / CSS / HTML</div>
+          <div class="box blue" id="stored">Store disabled<br /><code>&lt;home&gt;/extensions/&lt;id&gt;.json</code></div>
+          <div class="box green" id="approved">Accept risk and enable<br />Approval names the exact SHA-256</div>
+          <div class="box core" id="activate">Verify entry digest, then import<br /><code>activate(coddy)</code> in the app origin</div>
+        </div>
+        <p class="note">Code has the origin's authority. The SDK is not a sandbox.</p>
+      </section>
+      <section>
+        <h2>2. Process incoming turn payloads</h2>
+        <div class="stack">
+          <div class="box core" id="stream">POST response or composer relay<br />Wait up to 11 s for initial loading</div>
+          <div class="box blue" id="chain"><code>stream.registerIncoming</code><br />Extension id order, then registration order</div>
+          <div class="box blue" id="transform">Synchronous <code>transform(data, context)</code><br />Return a string, or observe with <code>undefined</code></div>
+          <div class="box green" id="consume">Apply the last valid payload<br />Assistant text, tools and other turn events</div>
+        </div>
+        <p class="note">The context is frozen. Empty keepalives, <code>[DONE]</code> and <code>desync</code> bypass the chain.</p>
+      </section>
+      <section>
+        <h2>3. Remove or revoke</h2>
+        <div class="stack">
+          <div class="box red" id="failure">Throw, promise or invalid result<br />Remove that processor; report in Settings</div>
+          <div class="box core">Keep the previous valid payload<br />Continue with the next processor</div>
+          <div class="box amber">Handle <code>remove()</code> or lifetime abort<br />Stop the owned registration</div>
+          <div class="box core">Disable, remove or switch environment<br />Reload evaluated extension code</div>
+        </div>
+        <p class="note">The server keeps the original history. A REST refresh can replace the transformed display.</p>
+      </section>
+    </div>
+    <h2 style="margin-top: 32px">4. Call local or external HTTP APIs</h2>
+    <div class="cols network">
+      <div class="box blue" id="net-sdk"><code>coddy.net.fetch</code><br />URL, method, headers and body</div>
+      <div class="box core" id="net-auth">Authenticated JSON route<br />Check the enabled package digest</div>
+      <div class="box blue" id="net-go">Go HTTP client<br />30 s, 4 MiB up / 8 MiB down</div>
+      <div class="box green" id="net-target">Server loopback, private or external API<br />Return status, headers and bytes</div>
+    </div>
+    <p class="note">No browser CORS on the target request. No automatic credentials or redirects. Disable/removal cancels calls through this server.</p>
+    <h2 style="margin-top: 32px">5. Observe and extend the interface</h2>
+    <div class="cols network">
+      <div class="box blue"><code>events.on</code><br />Tab changes, model steps and turn completion</div>
+      <div class="box green"><code>ui.registerToolRenderer</code><br />Custom MCP cards with original details</div>
+      <div class="box blue"><code>settings.registerField</code><br />Fields inside existing Settings sections</div>
+      <div class="box core"><code>settings.get / set</code><br />config.yaml: extension_values.&lt;id&gt;</div>
+    </div>
+    <p class="note">Lifetime abort removes listeners, views and fields. Saved scalar values survive disabling the extension.</p>
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#zip", to: "#stored", fromSide: "bottom", toSide: "top" },
+        { from: "#stored", to: "#approved", fromSide: "bottom", toSide: "top" },
+        { from: "#approved", to: "#activate", fromSide: "bottom", toSide: "top" },
+        { from: "#activate", to: "#chain", color: "blue" },
+        { from: "#stream", to: "#chain", fromSide: "bottom", toSide: "top" },
+        { from: "#chain", to: "#transform", fromSide: "bottom", toSide: "top", color: "blue" },
+        { from: "#transform", to: "#consume", fromSide: "bottom", toSide: "top", color: "green" },
+        { from: "#transform", to: "#failure", color: "red", dash: true },
+        { from: "#net-sdk", to: "#net-auth", color: "blue" },
+        { from: "#net-auth", to: "#net-go", color: "blue" },
+        { from: "#net-go", to: "#net-target", color: "green" },
+      ]);
+    </script>
+  </body>
+</html>

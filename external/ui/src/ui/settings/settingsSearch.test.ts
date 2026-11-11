@@ -514,7 +514,7 @@ test("the index lists the tabs, their blocks and their fields in the drawer's or
   });
   expect(
     bare.filter((e) => e.kind === "section").map((e) => e.section),
-  ).toEqual(["appearance", "sessions_manager", "status"]);
+  ).toEqual(["appearance", "extensions", "sessions_manager", "status"]);
   expect(bare.every((e) => e.kind === "section" || e.kind === "landmark")).toBe(
     true,
   );
@@ -655,7 +655,7 @@ test("a row without a name and rows that share a name are left out, so no result
   expect(entriesAt(bare, "agent:max_turns")).toHaveLength(1);
 });
 
-test("the rows key changes with the names and types of the rows and with nothing else", () => {
+test("the rows key changes with public row metadata, not secrets or values elsewhere", () => {
   const doc = configFromSchema(AGENT_SCHEMA);
   const key = settingsIndexRowsKey(doc);
   const row = (d: SettingsDoc, list: string, i: number) =>
@@ -675,6 +675,9 @@ test("the rows key changes with the names and types of the rows and with nothing
   expect(changes((d) => (row(d, "models", 0)["model"] = "x/y"))).toBe(true);
   expect(changes((d) => (row(d, "providers", 1)["api_key"] = "other"))).toBe(
     false,
+  );
+  expect(changes((d) => (row(d, "providers", 1)["api_base"] = "other"))).toBe(
+    true,
   );
   expect(
     changes((d) => ((d["agent"] as Record<string, unknown>)["max_turns"] = 1)),

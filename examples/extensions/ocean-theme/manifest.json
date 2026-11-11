@@ -1,0 +1,24 @@
+{
+  "api": 1,
+  "id": "ocean-theme",
+  "name": "Ocean Theme",
+  "version": "1.0.0",
+  "description": "Adds an Ocean appearance theme from the manifest.",
+  "permissions": ["ui.page"],
+  "ui": {
+    "entry": "main.js"
+  },
+  "themes": [
+    {
+      "id": "ocean",
+      "name": "Ocean",
+      "mode": "dark",
+      "styles": ["ocean.css"],
+      "swatch": {
+        "bg": "#082f49",
+        "accent": "#38bdf8",
+        "text": "#e0f2fe"
+      }
+    }
+  ]
+}

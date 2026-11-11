@@ -16,6 +16,7 @@ import { CompactionMessage } from "./CompactionMessage";
 import { GoalTurnMessage } from "./GoalTurnMessage";
 import { opensTurn } from "../chat/backgroundWake";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { ExtensionMessageView } from "../extensions/ExtensionMessageView";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
@@ -409,11 +410,28 @@ export function MessageList(props: {
             </div>
           );
         }
+        if (it.type === "ext_frame") {
+          // A frame only extensions know: drawn by a registered message
+          // renderer, dropped from the transcript when none matches.
+          return (
+            <ExtensionMessageView
+              key={it.id}
+              item={{
+                sessionId: props.sessionId || "",
+                itemId: it.id,
+                type: "ext_frame",
+                event: it.event,
+                data: it.data,
+              }}
+            />
+          );
+        }
         const rowBackgroundTask = props.backgroundTasksByToolCallId?.get(
           it.toolCallId,
         );
         return (
           <ToolCallMessage
+            sessionId={props.sessionId}
             key={it.id}
             rowId={it.id}
             toolCallId={it.toolCallId}

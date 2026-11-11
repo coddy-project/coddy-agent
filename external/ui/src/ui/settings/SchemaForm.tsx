@@ -1,7 +1,25 @@
 import type { ChangeEvent, ReactNode } from "react";
-import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  Fragment,
+  isValidElement,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Chevron } from "../components/Chevron";
+import {
+  alterSettingsRows,
+  SettingsRowAlterContext,
+  settingsSectionForDomain,
+  type SettingsRowAlter,
+  type SettingsRowDescriptor,
+  type SettingsRowTextResolver,
+} from "../extensions/settingsRowAlter";
 
 import { Combobox } from "./Combobox";
 import { FieldHint, FieldLabel, LegendWithHint } from "./FieldHint";
@@ -232,6 +250,8 @@ function SchemaField(props: {
    * assistive technology by the list and its position.
    */
   entryLabel?: string | undefined;
+  /** The altered rows of this form; nested fields keep the same plan. */
+  rowPlan?: SettingsRowPlan | null | undefined;
 }) {
   const {
     name,
@@ -243,16 +263,21 @@ function SchemaField(props: {
     i18nDomain,
     i18nInheritOnly,
     entryLabel,
+    rowPlan,
   } = props;
   const path = props.path ?? name;
-  const label = i18nInheritOnly
+  const originalLabel = i18nInheritOnly
     ? schema.title || name
     : schemaFieldLabel(i18nDomain, path, schema.title, name);
+  const label = settingsRowLabel(rowPlan, path, originalLabel);
   const desc = i18nInheritOnly
     ? schema.description
     : schemaFieldDesc(i18nDomain, path, schema.description);
   const t = schema.type;
   const { t: tr, tp } = useT();
+  if (!settingsRowVisible(rowPlan, path)) {
+    return null;
+  }
 
   // Every field stands in a box that carries its anchor. The frame of one list
   // entry has none: it is drawn with the list's path and would repeat its anchor.
@@ -282,7 +307,12 @@ function SchemaField(props: {
       return null;
     }
     if (override != null) {
-      return box(<>{override}</>);
+      const previous = rowPlan?.original.get(path)?.label ?? label;
+      return box(
+        label === previous
+          ? override
+          : retitleOverride(override, previous, label),
+      );
     }
   }
   let ph =
@@ -307,9 +337,10 @@ function SchemaField(props: {
       value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : (defaultForSchema(schema) as Record<string, unknown>);
-    const fields = entriesInSchemaOrder(
-      schema.properties,
-      schema["x-coddy-property-order"],
+    const fields = entriesInSettingsRowOrder(
+      entriesInSchemaOrder(schema.properties, schema["x-coddy-property-order"]),
+      rowPlan,
+      path,
     ).map(([k, sub]) => (
       <SchemaField
         key={k}
@@ -320,6 +351,7 @@ function SchemaField(props: {
         path={path ? `${path}.${k}` : k}
         fieldOverride={fieldOverride}
         i18nDomain={i18nDomain}
+        rowPlan={rowPlan}
         onChange={(nv) => onChange({ ...obj, [k]: nv })}
       />
     ));
@@ -392,6 +424,7 @@ function SchemaField(props: {
                     path={path}
                     fieldOverride={fieldOverride}
                     i18nDomain={i18nDomain}
+                    rowPlan={rowPlan}
                     i18nInheritOnly
                     entryLabel={`${label} ${i + 1}`}
                     parentObj={
@@ -560,6 +593,47 @@ function SchemaField(props: {
       />
     </div>,
   );
+}
+
+/**
+ * A field override owns its control but draws the row's label through the same
+ * conventional props as the built-in controls. Retitle those props without
+ * replacing the override: its value, onChange and secondary labels are intact.
+ */
+function retitleOverride(
+  node: ReactNode,
+  previous: string,
+  label: string,
+): ReactNode {
+  if (Array.isArray(node)) {
+    return Children.map(node, (child) =>
+      retitleOverride(child, previous, label),
+    );
+  }
+  if (!isValidElement(node)) {
+    return node;
+  }
+  const props = node.props as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  if (props.label === previous) patch.label = label;
+  if (props.ariaLabel === previous) patch.ariaLabel = label;
+  if (props["aria-label"] === previous) patch["aria-label"] = label;
+  const texts = props.texts;
+  if (
+    texts !== null &&
+    typeof texts === "object" &&
+    (texts as { primary?: unknown }).primary === previous
+  ) {
+    patch.texts = { ...texts, primary: label };
+  }
+  if (props.children !== undefined) {
+    patch.children = retitleOverride(
+      props.children as ReactNode,
+      previous,
+      label,
+    );
+  }
+  return Object.keys(patch).length === 0 ? node : cloneElement(node, patch);
 }
 
 /** A list item that is one value (a path, a number, a choice), not an object. */
@@ -785,6 +859,164 @@ export type SchemaFormGroup = {
   collapsible?: boolean | undefined;
 };
 
+/** The final rows of one form and where its original labels and order were. */
+export type SettingsRowPlan = {
+  original: ReadonlyMap<string, SettingsRowDescriptor>;
+  rows: ReadonlyMap<string, SettingsRowDescriptor>;
+  order: ReadonlyMap<string, number>;
+};
+
+export function settingsRowVisible(
+  plan: SettingsRowPlan | null | undefined,
+  path: string,
+): boolean {
+  if (!plan) return true;
+  const row = plan.rows.get(path);
+  return row !== undefined && row.visible !== false;
+}
+
+export function settingsRowLabel(
+  plan: SettingsRowPlan | null | undefined,
+  path: string,
+  fallback: string,
+): string {
+  return plan?.rows.get(path)?.label ?? fallback;
+}
+
+/** Sibling fields in the order the altered descriptors give them. */
+export function entriesInSettingsRowOrder(
+  entries: [string, JsonSchema][],
+  plan: SettingsRowPlan | null | undefined,
+  parentPath = "",
+): [string, JsonSchema][] {
+  if (!plan) return entries;
+  const rank = (key: string) =>
+    plan.order.get(parentPath ? `${parentPath}.${key}` : key) ??
+    Number.MAX_SAFE_INTEGER;
+  return [...entries].sort((a, b) => rank(a[0]) - rank(b[0]));
+}
+
+function asRowObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Builds the descriptor list in drawing order and runs the section's passes.
+ * The resolver is Settings' overrideTexts, so custom controls offer the pass
+ * the same primary label and description that they draw and search indexes.
+ */
+export function buildSettingsRowPlan(input: {
+  section: string;
+  domain: string;
+  schema: JsonSchema;
+  groups: SchemaFormGroup[] | undefined;
+  value: Record<string, unknown>;
+  alters: readonly SettingsRowAlter[];
+  texts?: SettingsRowTextResolver | undefined;
+}): SettingsRowPlan | null {
+  if (input.alters.length === 0) return null;
+  const base: SettingsRowDescriptor[] = [];
+  const { domain, texts } = input;
+
+  const walkField = (field: {
+    name: string;
+    schema: JsonSchema;
+    path: string;
+    parent: Record<string, unknown>;
+  }): void => {
+    const { name, schema, path, parent } = field;
+    const box = texts?.(domain, path, parent, schema) ?? null;
+    if (box === false) return;
+    const label = box
+      ? box.primary
+      : schemaFieldLabel(domain, path, schema.title, name);
+    const description = box
+      ? box.primaryDesc
+      : schemaFieldDesc(domain, path, schema.description);
+    base.push(
+      Object.freeze({
+        section: input.section,
+        id: path,
+        path,
+        label,
+        kind: box === null && isBlockField(schema) ? "block" : "field",
+        type: schema.type ?? "string",
+        ...(description !== undefined ? { description } : {}),
+      }),
+    );
+    if (box !== null) return;
+    if (schema.type === "object" && schema.properties) {
+      const held = parent[name];
+      const value =
+        held !== null && typeof held === "object" && !Array.isArray(held)
+          ? (held as Record<string, unknown>)
+          : asRowObject(defaultForSchema(schema));
+      for (const [key, child] of entriesInSchemaOrder(
+        schema.properties,
+        schema["x-coddy-property-order"],
+      )) {
+        walkField({
+          name: key,
+          schema: child,
+          path: `${path}.${key}`,
+          parent: value,
+        });
+      }
+      return;
+    }
+    const items = schema.items;
+    if (
+      schema.type === "array" &&
+      items !== undefined &&
+      !isScalarItem(items) &&
+      items.type === "object" &&
+      items.properties !== undefined
+    ) {
+      const value = asRowObject(defaultForSchema(items));
+      for (const [key, child] of entriesInSchemaOrder(
+        items.properties,
+        items["x-coddy-property-order"],
+      )) {
+        walkField({
+          name: key,
+          schema: child,
+          path: `${path}.${key}`,
+          parent: value,
+        });
+      }
+    }
+  };
+
+  for (const node of layoutSchemaForm(input.schema, input.groups)) {
+    const fields: [string, JsonSchema][] =
+      node.kind === "field" ? [[node.key, node.schema]] : node.fields;
+    for (const [key, schema] of fields) {
+      walkField({ name: key, schema, path: key, parent: input.value });
+    }
+  }
+  const altered = alterSettingsRows(base, input.alters, input.section);
+  const original = new Map(base.map((row) => [row.id, row]));
+  const rows = new Map<string, SettingsRowDescriptor>();
+  const order = new Map<string, number>();
+  for (const row of altered) {
+    const before = original.get(row.id);
+    // Unknown and duplicate ids cannot manufacture another anchored field.
+    if (!before || rows.has(row.id)) continue;
+    rows.set(
+      row.id,
+      Object.freeze({
+        ...before,
+        label: typeof row.label === "string" ? row.label : before.label,
+        ...(row.visible !== undefined ? { visible: row.visible } : {}),
+      }),
+    );
+    order.set(row.id, order.size);
+  }
+  return { original, rows, order };
+}
+
 /**
  * CollapsibleFieldset is a settings fieldset that folds: the legend is a
  * button, the app's chevron (right while folded, down while open) hanging in
@@ -862,6 +1094,7 @@ export type FormLayoutNode =
 export function layoutSchemaForm(
   schema: JsonSchema,
   groups: SchemaFormGroup[] | undefined,
+  rowPlan?: SettingsRowPlan | null,
 ): FormLayoutNode[] {
   if (schema.type !== "object" || !schema.properties) {
     return [];
@@ -888,7 +1121,7 @@ export function layoutSchemaForm(
     for (const [key, sub] of rest) {
       nodes.push({ kind: "field", key, schema: sub });
     }
-    return nodes;
+    return arrangeSettingsLayout(nodes, rowPlan);
   }
   // The group a field is laid out in: the one naming it, else the catch-all,
   // except that a list or nested object is a block of its own.
@@ -914,7 +1147,35 @@ export function layoutSchemaForm(
       fields: rest.filter(([k2, sub2]) => groupOf(k2, sub2) === g),
     });
   }
-  return nodes;
+  return arrangeSettingsLayout(nodes, rowPlan);
+}
+
+/** Filters and orders fields in place in their groups; groups never exchange members. */
+function arrangeSettingsLayout(
+  nodes: FormLayoutNode[],
+  plan: SettingsRowPlan | null | undefined,
+): FormLayoutNode[] {
+  if (!plan) return nodes;
+  const arranged = nodes.flatMap((node): FormLayoutNode[] => {
+    if (node.kind === "field") {
+      return settingsRowVisible(plan, node.key) ? [node] : [];
+    }
+    const fields = entriesInSettingsRowOrder(node.fields, plan).filter(
+      ([key]) => settingsRowVisible(plan, key),
+    );
+    return [{ ...node, fields }];
+  });
+  const rank = (node: FormLayoutNode): number => {
+    if (node.kind === "field") {
+      return plan.order.get(node.key) ?? Number.MAX_SAFE_INTEGER;
+    }
+    return Math.min(
+      ...node.fields.map(
+        ([key]) => plan.order.get(key) ?? Number.MAX_SAFE_INTEGER,
+      ),
+    );
+  };
+  return arranged.sort((a, b) => rank(a) - rank(b));
 }
 
 /** The anchor of a field's box: its settings domain and its path in the form. */
@@ -964,6 +1225,18 @@ export function SchemaForm(props: {
     return true;
   };
   const { t } = useT();
+  const rowAlter = useContext(SettingsRowAlterContext);
+  const rowPlan = i18nDomain
+    ? buildSettingsRowPlan({
+        section: settingsSectionForDomain(i18nDomain),
+        domain: i18nDomain,
+        schema,
+        groups: props.groups,
+        value,
+        alters: rowAlter.alters,
+        texts: rowAlter.texts,
+      })
+    : null;
   if (schema.type !== "object" || !schema.properties) {
     return (
       <p className="settings-muted">
@@ -982,6 +1255,7 @@ export function SchemaForm(props: {
       path={k}
       fieldOverride={fieldOverride}
       i18nDomain={i18nDomain}
+      rowPlan={rowPlan}
       onChange={(nv) => onChange({ ...value, [k]: nv })}
     />
   );
@@ -1013,7 +1287,7 @@ export function SchemaForm(props: {
   };
   return (
     <div className="settings-schema-root">
-      {layoutSchemaForm(schema, props.groups).map((node) =>
+      {layoutSchemaForm(schema, props.groups, rowPlan).map((node) =>
         node.kind === "field"
           ? renderEntry([node.key, node.schema])
           : renderGroup(node.group, node.fields),

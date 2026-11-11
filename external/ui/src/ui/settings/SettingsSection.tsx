@@ -23,8 +23,12 @@ import {
   type SchemaFormGroup,
 } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
+import { ExtensionsSection } from "../extensions/ExtensionsSection";
+import { ExtensionFields } from "../extensions/ExtensionFields";
+import { ExtensionSectionBody } from "../extensions/ExtensionSections";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
+import { SpecialRows } from "./SettingsSpecialRows";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SKILLS_HAND_DRAWN_FIELD, SkillsSection } from "./SkillsSection";
 import { SubagentsSection } from "./SubagentsSection";
@@ -691,7 +695,42 @@ function SystemPending() {
  * object sections; Skills and Appearance are special tabs. Model fields receive custom editors via
  * the SchemaForm fieldOverride hook.
  */
-export function SettingsSection(props: {
+export function SettingsSection(
+  props: Parameters<typeof BuiltinSettingsSection>[0],
+) {
+  const specialBody = new Set([
+    "appearance",
+    "sessions",
+    "status",
+    "skills",
+    "mcp",
+    "subagents",
+    "providers",
+  ]).has(props.section.kind);
+  return (
+    <>
+      <BuiltinSettingsSection {...props} />
+      {specialBody ? null : (
+        <SpecialRows
+          section={props.section.id}
+          doc={props.doc}
+          rowName={props.routeItem ?? null}
+          includeExtensions={
+            props.section.kind !== "array" || props.routeItem == null
+          }
+          nodes={{}}
+        />
+      )}
+      <ExtensionFields
+        section={props.section.id}
+        doc={props.doc}
+        setDoc={props.setDoc}
+      />
+    </>
+  );
+}
+
+function BuiltinSettingsSection(props: {
   section: SectionDescriptor;
   schema: JsonSchema;
   doc: Record<string, unknown>;
@@ -751,11 +790,19 @@ export function SettingsSection(props: {
   const setKey = (key: string, value: unknown) =>
     setDoc({ ...doc, [key]: value });
 
+  if (section.kind === "ext_section")
+    return (
+      <ExtensionSectionBody sectionKey={section.id} doc={doc} setDoc={setDoc} />
+    );
   if (section.kind === "appearance") {
     return (
-      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+      <AppearanceThemePicker
+        onRestartOnboarding={props.onRestartOnboarding}
+        doc={doc}
+      />
     );
   }
+  if (section.kind === "extensions") return <ExtensionsSection />;
 
   // The session table is API-driven (/coddy/sessions): it reads and removes
   // stored bundles and never touches the settings document. Above it, once
@@ -774,10 +821,18 @@ export function SettingsSection(props: {
             groups={sessionsFormGroups()}
           />
         ) : null}
-        <SessionsManager
-          {...(activeSessionId ? { activeSessionId } : {})}
-          {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
-          {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
+        <SpecialRows
+          section={section.id}
+          doc={doc}
+          nodes={{
+            manage: (
+              <SessionsManager
+                {...(activeSessionId ? { activeSessionId } : {})}
+                {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
+                {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
+              />
+            ),
+          }}
         />
       </div>
     );
@@ -1036,6 +1091,8 @@ export function SettingsSection(props: {
             ? (item) => (
                 <ProviderModelList
                   provider={item}
+                  doc={doc}
+                  rowName={String(item.name ?? "").trim()}
                   existingModels={modelIds}
                   onAddModel={(
                     id,
@@ -1075,7 +1132,16 @@ export function SettingsSection(props: {
                   }}
                 />
               )
-            : undefined
+            : (item) => (
+                <SpecialRows
+                  section={section.id}
+                  doc={doc}
+                  rowName={String(
+                    item[section.labelField ?? "name"] ?? "",
+                  ).trim()}
+                  nodes={{}}
+                />
+              )
         }
       />
     );

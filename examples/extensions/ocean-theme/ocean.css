@@ -1,0 +1,35 @@
+/* Ocean is a dark palette layered over the shared token contract. */
+:root,
+[data-theme="ext:ocean-theme/ocean"] {
+  --bg: #082f49;
+  --text: #e0f2fe;
+  --muted: #7dd3fc;
+  --accent: #38bdf8;
+  --coddy-on-accent-fg: #082f49;
+  --coddy-link: #7dd3fc;
+  --coddy-link-action: #38bdf8;
+  --coddy-link-action-hover: #bae6fd;
+  --coddy-danger: #fb7185;
+  --nav: #0c4a6e;
+  --sidebar: #0c4a6e;
+  --coddy-glass-panel-bg: rgba(12, 74, 110, 0.88);
+  --coddy-glass-panel-border: rgba(125, 211, 252, 0.28);
+  --coddy-chat-header-bg: rgba(8, 47, 73, 0.9);
+  --coddy-surface-raised: #0c4a6e;
+  --coddy-surface-field: #075985;
+  --coddy-surface-inset: #075985;
+  --coddy-surface-muted: #0c4a6e;
+  --coddy-surface-subtle: #082f49;
+  --coddy-surface-sunken: #082f49;
+  --coddy-surface-gutter: #082f49;
+  --coddy-surface-code-bg: #075985;
+  --coddy-surface-code-fg: #e0f2fe;
+  --coddy-tip-bg: #0c4a6e;
+  --coddy-tip-border: rgba(125, 211, 252, 0.35);
+  --coddy-tip-fg: #e0f2fe;
+  --coddy-context-ring-fg: #38bdf8;
+  --coddy-context-ring-inner: #075985;
+  --bubble-user: #075985;
+  --coddy-bubble-user-bg: #075985;
+  --coddy-bubble-user-fg: #e0f2fe;
+}

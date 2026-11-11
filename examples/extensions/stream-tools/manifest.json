@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "id": "stream-tools",
+  "name": "Stream tools",
+  "version": "1.0.0",
+  "description": "Process incoming turn data and inspect the last frame",
+  "ui": { "entry": "main.js" }
+}

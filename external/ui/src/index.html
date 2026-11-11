@@ -29,7 +29,13 @@
         };
         var m = document.cookie.match(/(?:^|;\s*)coddy_ui_theme=([^;]+)/);
         var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
-        var theme = t && VALID[t] ? t : "dark";
+        var ext =
+          t &&
+          /^ext:([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(
+            t,
+          );
+        var validExtension = ext && ext[1].length <= 32 && ext[2].length <= 64;
+        var theme = t && (VALID[t] || validExtension) ? t : "dark";
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = LIGHT[theme]
           ? "light"

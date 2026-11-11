@@ -9,6 +9,7 @@ import {
   SETTINGS_TEXTS,
   landmarkAnchor,
 } from "./settingsSections";
+import { SpecialRows, useSpecialRowLabel } from "./SettingsSpecialRows";
 import { Switch } from "./Switch";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
@@ -419,14 +420,22 @@ export function MCPSection(props: { activeSessionId?: string }) {
     })();
   };
 
-  return (
-    <div className="settings-mcp-section">
+  const discoveryHeading = useSpecialRowLabel(
+    "discovery",
+    t(SETTINGS_TEXTS.mcpDiscovery.label),
+  );
+  const serversHeading = useSpecialRowLabel(
+    "servers",
+    t(SETTINGS_TEXTS.mcpServers.label),
+  );
+  const nodes = {
+    discovery: (
       <fieldset
         className="settings-fieldset mcp-discovery-box"
         data-settings-anchor={landmarkAnchor(MCP_SECTION_ID, "discovery")}
       >
         <LegendWithHint
-          label={t(SETTINGS_TEXTS.mcpDiscovery.label)}
+          label={discoveryHeading}
           description={t(SETTINGS_TEXTS.mcpDiscovery.desc)}
         />
         <span className="settings-label settings-label-with-hint">
@@ -453,13 +462,14 @@ export function MCPSection(props: { activeSessionId?: string }) {
           ))}
         </select>
       </fieldset>
-
+    ),
+    servers: (
       <fieldset
         className="settings-fieldset mcp-servers-box"
         data-settings-anchor={landmarkAnchor(MCP_SECTION_ID, "servers")}
       >
         <LegendWithHint
-          label={t(SETTINGS_TEXTS.mcpServers.label)}
+          label={serversHeading}
           description={t(SETTINGS_TEXTS.mcpServers.desc)}
         />
 
@@ -761,6 +771,11 @@ export function MCPSection(props: { activeSessionId?: string }) {
           </ul>
         )}
       </fieldset>
+    ),
+  };
+  return (
+    <div className="settings-mcp-section">
+      <SpecialRows section={MCP_SECTION_ID} doc={{}} nodes={nodes} />
     </div>
   );
 }

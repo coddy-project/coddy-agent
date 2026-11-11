@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -619,7 +620,10 @@ func (s *windowState) windowRefusesAndOpensNothing() error {
 	return nil
 }
 
-func (s *windowState) twoChatsInFoldersOfTheirOwn() error {
+func (s *windowState) twoChatsInFoldersOfTheirOwn(ctx context.Context) error {
+	if runtime.GOOS != "linux" {
+		godog.T(ctx).Skip("the XDG application entry is written on Linux")
+	}
 	first, second := s.t.TempDir(), s.t.TempDir()
 	s.menuFolders = []string{first, second}
 	// The entry is written into this test's own data directory, not the

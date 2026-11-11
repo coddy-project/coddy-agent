@@ -268,6 +268,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerWorkspaceViewerRoutes()
 	s.registerCanvasRoutes()
 	s.registerSkillsManagementRoutes()
+	s.registerExtensionRoutes()
 	s.registerMCPManagementRoutes()
 }
 
