@@ -36,6 +36,10 @@ const (
 	KindScheduler     Kind = "scheduler"
 	KindMetrics       Kind = "metrics"
 	KindBrowser       Kind = "browser"
+	// KindDesktop is the window surface of `coddy desktop`: the loopback
+	// server the tab shell talks to, which always runs beside whatever the
+	// configuration enables.
+	KindDesktop Kind = "desktop"
 )
 
 // Subsystem describes one surface: whether the configuration asks for it,

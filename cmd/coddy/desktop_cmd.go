@@ -31,14 +31,17 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop"
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
+	"github.com/EvilFreelancer/coddy-agent/external/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
@@ -46,15 +49,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
-
-// desktopHiddenSections are the settings sections the window does not offer.
-//
-// They are the surfaces of `coddy serve` - a bot polling a messenger, a relay,
-// a cron daemon, an exporter - and the window runs none of them: it is handed
-// one subsystem descriptor and serve.Resolve consults no other. Offering a
-// switch the window ignores would be worse than not offering it, so its
-// settings form does not draw them whatever tags the binary was built with.
-var desktopHiddenSections = []string{"gateways", "swarm", "scheduler", "metrics", "browser"}
 
 // runDesktop is the `desktop` command: it returns when the window closes.
 //
@@ -119,17 +113,19 @@ func runDesktopWindow(args []string) error {
 	}
 	_, _ = skills.SeedDelivery(cfg)
 
-	// The window runs the web interface and nothing else, and it says so once.
-	// Nothing in the configuration is changed to achieve that: the surface it
-	// runs is the one subsystem descriptor serveHTTP hands the supervisor, and
-	// the document stays exactly as the operator wrote it - which is what the
-	// settings screen inside the window reads, and therefore what a save from
-	// that screen writes back.
-	if left := desktop.SurfacesLeftToServe(cfg); len(left) > 0 {
-		fmt.Fprintf(os.Stderr, "coddy desktop runs the web interface only; left to `coddy serve`: %s\n", strings.Join(left, ", "))
-	}
-	if lvl := strings.TrimSpace(*logLevel); lvl != "" {
-		cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: lvl})
+	// The window is one surface of this process; beside it the desktop runs
+	// whatever the configuration asks of `coddy serve` - the public HTTP
+	// surface a phone reaches on the configured address, a gateway, a relay,
+	// the scheduler - through the same supervisor and the same file watching.
+	// Nothing in the configuration is changed to get there: a save from the
+	// settings screen inside the window writes back exactly what the operator
+	// had. What the launch itself decided is re-applied on every reload.
+	adjust := desktopConfigAdjust(strings.TrimSpace(*logLevel))
+	if err := adjust(cfg); err != nil {
+		// The window is what this process exists for; a surface the
+		// configuration names that cannot come up says so in the log rather
+		// than keeping the window shut over it.
+		fmt.Fprintf(os.Stderr, "coddy desktop: %v\n", err)
 	}
 	log, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
@@ -171,7 +167,7 @@ func runDesktopWindow(args []string) error {
 		NewChat:       *newChat,
 		CWD:           paths.CWD,
 		RecentFolders: recentWorkspaces(rt, log),
-		Serve:         serveHTTP(rt, paths.Home, !*keepAuth, windowHandle),
+		Serve:         serveHTTP(rt, paths.Home, !*keepAuth, windowHandle, strings.TrimSpace(*logLevel)),
 	})
 }
 
@@ -207,57 +203,36 @@ func recentWorkspaces(rt *serve.Runtime, log *slog.Logger) []string {
 	return out
 }
 
-// serveHTTP is the surface behind the window: the HTTP server, and nothing
-// else, on the address the launcher picked.
+// serveHTTP is the serving half of `coddy desktop`: the same site `coddy
+// serve` would run - every subsystem the configuration enables, on the
+// configured addresses - beside the window's own loopback surface, so the web
+// UI a phone opens on this machine's address is the one the window drives.
 //
 // It goes through the supervisor rather than calling httpserver.Serve
 // directly, so that a configuration saved from the window's own settings
-// screen reaches the server the same way it does under `coddy serve`. The
-// address is the launcher's and never the file's, so the one change a running
-// server cannot adopt - a listen address that moved - cannot happen here.
-func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle) func(context.Context, string) error {
+// screen reaches every surface the same way it does under `coddy serve`.
+// Every configured surface is auxiliary here: the window is what this
+// process exists for, and a surface that cannot come up - a port already
+// bound by a `coddy serve` of the same home, a token a gateway refuses -
+// stops alone instead of taking the window down with it.
+func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle, logLevel string) func(context.Context, string) error {
 	return func(ctx context.Context, addr string) error {
-		at := func(*config.Config) string { return addr }
-		all := []serve.Subsystem{{
-			Kind:          serve.KindHTTP,
-			ConfigKey:     "httpserver.enable",
-			BuildTag:      "http",
-			Available:     httpserver.Available,
-			NeedsSessions: true,
-			// The window is this surface, so the key that decides whether a
-			// server runs it does not speak for it: `httpserver.enable:
-			// false`, set for a node that only polls a messenger, must not
-			// leave a desktop with nothing to open on. Every other subsystem
-			// is absent from this list, which is why none of them runs and why
-			// nothing had to be turned off in the operator's configuration.
-			Enabled:    func(*config.Config) bool { return true },
-			Address:    at,
-			RestartKey: at,
-			Run: func(ctx context.Context, cfg *config.Config) error {
-				withdrawPrompts := func() {}
-				return httpserver.Serve(ctx, httpserver.Options{
-					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
-					DefaultCWD: rt.Paths.CWD, Home: home,
-					ListenAddr: addr, DetachedPrompts: rt, Wakes: rt,
-					NoAuth:          noAuth,
-					DesktopWindow:   window,
-					UnbuiltSections: desktopHiddenSections, Status: rt.StatusDocument,
-					OnServer: func(s *httpserver.Server) {
-						if s == nil {
-							rt.SetTurnMirror(nil)
-							withdrawPrompts()
-							return
-						}
-						rt.SetTurnMirror(s)
-						withdrawPrompts = rt.AddDetachedPermissionApprover(s)
-					},
-				})
+		deps := subsystemDeps{
+			httpListenAddr: func(c *config.Config) string {
+				return net.JoinHostPort(c.HTTPServer.DefaultListenHost(), c.HTTPServer.DefaultListenPortString())
 			},
-		}}
-		cfg := rt.Cfg()
-		if _, err := serve.Resolve(cfg, all); err != nil {
-			return err
+			swarmListenAddr: func(c *config.Config) string {
+				return net.JoinHostPort(c.Swarm.Host, strconv.Itoa(c.Swarm.EffectivePort()))
+			},
+			home:            home,
+			httpAuthTokens:  outOfBandTokens("", httpserver.TokenEnvVar),
+			httpLogin:       outOfBandLogin(),
+			swarmAuthTokens: outOfBandTokens("", swarm.TokenEnvVar),
+			adjust:          desktopConfigAdjust(logLevel),
+			metrics:         newMetricsWiring(rt),
 		}
+		all := desktopSubsystems(rt, deps, addr, noAuth, window)
+		cfg := rt.Cfg()
 		reloads := make(chan *config.Config, 1)
 		removeObserver := rt.AddConfigObserver(func(next *config.Config) { offerNewest(reloads, next) })
 		defer removeObserver()
@@ -269,5 +244,81 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 		// in the log, not an exit.
 		sup.Restartable = false
 		return sup.Run(ctx, cfg, reloads)
+	}
+}
+
+// desktopSubsystems is the surface list of `coddy desktop`: the window's
+// loopback surface first - it is what this process exists for, so it comes up
+// first and stops last - then every surface the configuration enables, built
+// by the same `subsystems` `coddy serve` uses and marked auxiliary so each
+// fails on its own.
+func desktopSubsystems(rt *serve.Runtime, deps subsystemDeps, addr string, noAuth bool, window *desktop.WindowHandle) []serve.Subsystem {
+	all := subsystems(rt, deps)
+	for i := range all {
+		all[i].Auxiliary = true
+	}
+	return append([]serve.Subsystem{desktopWindowSubsystem(rt, deps, addr, noAuth, window)}, all...)
+}
+
+// desktopWindowSubsystem is the loopback surface the window's tab shell talks
+// to. It always runs, whatever the configuration enables, because without it
+// there is no window; it shares the session manager and the mirroring with
+// every other surface, but keeps its own loopback address, its own credential
+// policy (none, unless -auth was passed) and the tab shell mount.
+func desktopWindowSubsystem(rt *serve.Runtime, deps subsystemDeps, addr string, noAuth bool, window *desktop.WindowHandle) serve.Subsystem {
+	at := func(*config.Config) string { return addr }
+	return serve.Subsystem{
+		Kind:          serve.KindDesktop,
+		ConfigKey:     "coddy desktop",
+		BuildTag:      "desktop",
+		Available:     httpserver.Available,
+		NeedsSessions: true,
+		// The window is this surface, so the key that decides whether a server
+		// runs it does not speak for it: `httpserver.enable: false`, set for a
+		// node that only polls a messenger, must not leave a desktop with
+		// nothing to open on.
+		Enabled: func(*config.Config) bool { return true },
+		Address: at,
+		// The address is the launcher's and never the file's, so the one
+		// change a running server cannot adopt cannot happen here.
+		RestartKey: at,
+		Run: func(ctx context.Context, cfg *config.Config) error {
+			withdrawMirror := func() {}
+			withdrawPrompts := func() {}
+			return httpserver.Serve(ctx, httpserver.Options{
+				Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
+				DefaultCWD: rt.Paths.CWD, Home: deps.home,
+				ListenAddr: addr, DetachedPrompts: rt, Wakes: rt,
+				NoAuth:          noAuth,
+				DesktopWindow:   window,
+				UnbuiltSections: unbuiltSections(deps), Status: rt.StatusDocument,
+				OnServer: func(s *httpserver.Server) {
+					if s == nil {
+						withdrawMirror()
+						withdrawPrompts()
+						return
+					}
+					// Both HTTP surfaces register as mirrors: a turn started
+					// through a gateway, the console or the public surface is
+					// live in the window and in a remote browser alike.
+					withdrawMirror = rt.AddTurnMirror(s)
+					withdrawPrompts = rt.AddDetachedPermissionApprover(s)
+				},
+			})
+		},
+	}
+}
+
+// desktopConfigAdjust re-applies the launch-time overrides to a configuration
+// a reload brings - the desktop's --log-level, and the normalization and
+// validation the surfaces it shares with `coddy serve` expect.
+func desktopConfigAdjust(logLevel string) func(*config.Config) error {
+	return func(c *config.Config) error {
+		c.Logger.ApplyOverrides(config.LoggerCLIOverrides{Level: logLevel})
+		c.Swarm.Normalize()
+		if err := c.Swarm.Validate(); err != nil {
+			return err
+		}
+		return c.Scheduler.Validate(c)
 	}
 }

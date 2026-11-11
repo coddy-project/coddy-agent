@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // DefaultReadyTimeout bounds the wait for the surface behind the window to
@@ -309,43 +308,3 @@ func choosePort(home string, log *slog.Logger) (int, error) {
 // shellURL is where a window opens: the tab shell, never a chat directly. The
 // shell is what restores the tabs of the last session.
 func shellURL(addr string) string { return "http://" + addr + shell.Prefix }
-
-// SurfacesLeftToServe names the subsystems this configuration enables that the
-// window does not run, by their configuration key.
-//
-// It reads and changes nothing. That is the whole point: the settings screen
-// inside the window draws the live configuration (`configapi.Backend.Live`),
-// so a value this process had quietly turned off would be the value a save
-// from that screen wrote to disk - the operator's own swarm relay, their bot,
-// their sign-in account, gone because they changed a theme in a desktop
-// window. The window runs one surface because it is handed one subsystem
-// descriptor and `serve.Resolve` consults no other, not because the document
-// was edited underneath it.
-//
-// They are left to `coddy serve` for a reason beyond redundancy: the
-// supervisor cancels the whole run on one subsystem's error, so a second swarm
-// relay that cannot bind its port would take the window down with it; two
-// Telegram pollers on one token make the Bot API answer 409 and one bot goes
-// deaf; two schedulers fire every cron job twice.
-func SurfacesLeftToServe(cfg *config.Config) []string {
-	if cfg == nil {
-		return nil
-	}
-	var left []string
-	for _, s := range []struct {
-		key string
-		on  bool
-	}{
-		{"gateways.telegram.enable", cfg.Gateways.Telegram.Enabled},
-		{"gateways.pachca.enable", cfg.Gateways.Pachca.Enabled},
-		{"swarm.enable", cfg.Swarm.Enabled},
-		{"scheduler.enable", cfg.Scheduler.Enabled},
-		{"metrics.enable", cfg.Metrics.Enable},
-		{"browser.enable", cfg.Browser.Enable},
-	} {
-		if s.on {
-			left = append(left, s.key)
-		}
-	}
-	return left
-}

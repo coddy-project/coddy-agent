@@ -19,10 +19,11 @@ import (
 // the SDK errors of the other providers: a 429 or a 5xx is retried, its
 // Retry-After is the pause, and UpstreamStatus names the status.
 type httpStatusError struct {
-	label  string
-	status int
-	header http.Header
-	body   string
+	label      string
+	status     int
+	header     http.Header
+	body       string
+	retryAfter time.Duration
 }
 
 func (e *httpStatusError) Error() string {

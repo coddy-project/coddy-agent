@@ -941,6 +941,43 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
   expect(off).toBeCloseTo(c * (1 - 23787 / 128000), 1);
 });
 
+// The tip counts the same tokens the ring fills by: the context window, not
+// the session's cumulative usage. With 820k lifetime tokens in a 128k window
+// holding ~24k, the line used to read "19% · 820k / 128k" (issue #732).
+test("the context tip counts the window's tokens, not cumulative usage", () => {
+  const breakdown = {
+    systemPrompt: 851,
+    toolDefinitions: 1950,
+    rules: 14867,
+    skills: 45,
+    mcp: 0,
+    subagents: 0,
+    conversation: 6074,
+    estimatedTotal: 23787,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "18.6% · 23.7k / 128k",
+  );
+});
+
 test("context meter fill width reflects usage percent", () => {
   const breakdown = {
     systemPrompt: 500,

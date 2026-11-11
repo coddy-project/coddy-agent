@@ -235,8 +235,17 @@ body {
   animation: dot-pulse 1.2s ease-in-out infinite;
 }
 
-.dot.is-waiting {
-  box-shadow: inset 0 0 0 2px var(--accent);
+.tab .dot.is-permission,
+.tab .dot.is-question {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  color: rgba(196, 181, 253, 0.95);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
 }
 
 .dot.is-unread {
@@ -251,6 +260,19 @@ body {
 
 .dot.is-error-seen {
   box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.tab.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.tab.is-drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tab.is-drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 
 @keyframes dot-pulse {
@@ -435,3 +457,47 @@ body {
   visibility: hidden;
   z-index: -1;
 }
+
+/* The system frame is absent, so the page supplies the thin edge a pointer
+   takes hold of. Corners get a square target where the two edges meet. */
+.resize-edge {
+  position: fixed;
+  z-index: 50;
+}
+
+#resize-edges[hidden] {
+  display: none;
+}
+
+.resize-n,
+.resize-s {
+  right: 6px;
+  left: 6px;
+  height: 6px;
+}
+
+.resize-n { top: 0; cursor: n-resize; }
+.resize-s { bottom: 0; cursor: s-resize; }
+
+.resize-w,
+.resize-e {
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+}
+
+.resize-w { left: 0; cursor: w-resize; }
+.resize-e { right: 0; cursor: e-resize; }
+
+.resize-nw,
+.resize-ne,
+.resize-sw,
+.resize-se {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-nw { top: 0; left: 0; cursor: nw-resize; }
+.resize-ne { top: 0; right: 0; cursor: ne-resize; }
+.resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.resize-se { right: 0; bottom: 0; cursor: se-resize; }

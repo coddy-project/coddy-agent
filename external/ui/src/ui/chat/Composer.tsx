@@ -109,7 +109,7 @@ import {
 } from "../shellBreakpoint";
 import { formatTurnTokens } from "./turnProgress";
 import { composerEnterAction, insertNewline } from "./composerEnter";
-import { contextUsagePercent } from "./contextUsage";
+import { contextUsagePercent, contextUsedTokens } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
@@ -2433,12 +2433,19 @@ export function Composer(props: {
   // One line, because the ring opens a popover with everything: how much of
   // the window is used and the two numbers that say it, "20.1% · 201k / 1M".
   // The five lines it used to be repeated the popover badly - input, output
-  // and total of a window nobody reads at a glance.
+  // and total of a window nobody reads at a glance. `used` is the same count
+  // the ring fills by - the tokens of the context window when the breakdown
+  // reports them (issue #732), else the session's cumulative usage, which is
+  // the only estimate an older server's stats carry.
+  const usedCtxTokens =
+    props.contextBreakdown != null
+      ? contextUsedTokens(props.contextBreakdown)
+      : (usage?.totalTokens ?? 0);
   const tip = contextIdle
     ? t("composer.contextTipIdle")
     : t("composer.contextTipShort", {
         percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
-        used: formatTurnTokens(usage?.totalTokens ?? 0),
+        used: formatTurnTokens(usedCtxTokens),
         max: formatTurnTokens(maxCtx ?? 0),
       });
 

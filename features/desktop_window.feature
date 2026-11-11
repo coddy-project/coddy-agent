@@ -33,11 +33,10 @@ Feature: Opening Coddy as a desktop window
     Then the second run serves nothing of its own
     And it opens the tab shell of the desktop already running
 
-  Scenario: Only the HTTP surface runs behind the window
+  Scenario: The desktop runs what the configuration enables, beside the window
     Given a configuration that also enables the swarm relay and the scheduler
     When the desktop decides what to run
-    Then it names the surfaces it left to `coddy serve`
-    And it changes nothing in the configuration itself
+    Then it changes nothing in the configuration itself
 
   Scenario: A chord the browser answers itself still reaches the strip
     Given a window whose browser answers Ctrl+T and Ctrl+W itself

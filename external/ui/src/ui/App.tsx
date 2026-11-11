@@ -3512,7 +3512,7 @@ export function App() {
       return;
     }
     const timer = window.setInterval(() => {
-      void loadSessionsList(true);
+      if (document.visibilityState !== "hidden") void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
   }, [
@@ -3731,7 +3731,7 @@ export function App() {
       return;
     }
     void loadSessionsList(true);
-  }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
+  }, [sessionsOpen, sessionFilterQ, sessionId, loadSessionsList]);
 
   /**
    * The messages revision each transcript returned by loadMessages was read at, for
@@ -4929,7 +4929,8 @@ export function App() {
     setContextBreakdown(null);
     const lifecycle = new AbortController();
     void (async () => {
-      await loadSessionsList(true);
+      // While History is open its own effect refreshes on this session change.
+      if (!sessionsOpen) await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
       }
@@ -4939,14 +4940,24 @@ export function App() {
       // 404 says the session is not there.
       // A block, so `sess` stays out of the way of the rest of the effect.
       {
-        const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-          `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
-          { headers },
-        );
+        let statsRes: {
+          ok: boolean;
+          status: number;
+          data?: { stats?: SessionStats | null };
+        } | null = null;
+        try {
+          statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
+            `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
+            { headers },
+          );
+        } catch {
+          // Usage is auxiliary: a lost stats read must not prevent the
+          // transcript's opening read from settling the loading state.
+        }
         if (lifecycle.signal.aborted) {
           return;
         }
-        if (statsRes.ok && statsRes.data?.stats) {
+        if (statsRes?.ok && statsRes.data?.stats) {
           applySessionStatsPayload(
             statsRes.data.stats,
             sessionId,

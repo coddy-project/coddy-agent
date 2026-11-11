@@ -58,6 +58,10 @@ type WindowControl interface {
 	BeginMove(x, y int) error
 	// MoveBy puts the window that far from where BeginMove found it.
 	MoveBy(dx, dy int) error
+	// BeginResize remembers the geometry an edge drag is measured from.
+	BeginResize() error
+	// ResizeBy resizes from that geometry in an edge or corner direction.
+	ResizeBy(direction string, dx, dy int) error
 	// WaitForWindow blocks until the window is on the display, or the bound
 	// passes. A window that never appears is not an error.
 	WaitForWindow(bound time.Duration) bool
@@ -446,9 +450,10 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 		return
 	}
 	var body struct {
-		Action string `json:"action"`
-		X      int    `json:"x"`
-		Y      int    `json:"y"`
+		Action    string `json:"action"`
+		Direction string `json:"direction"`
+		X         int    `json:"x"`
+		Y         int    `json:"y"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
 		http.Error(w, "a window action is a small JSON object", http.StatusBadRequest)
@@ -478,6 +483,16 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 			return
 		}
 		err = ctl.MoveBy(body.X, body.Y)
+	case "resize-begin":
+		if err = ctl.BeginResize(); err == nil {
+			drag.begin()
+		}
+	case "resize-by":
+		if !drag.under() {
+			http.Error(w, "no drag of the bar has begun", http.StatusConflict)
+			return
+		}
+		err = ctl.ResizeBy(body.Direction, body.X, body.Y)
 	case "move-end":
 		drag.end()
 	case "decorate":

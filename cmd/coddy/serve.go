@@ -509,6 +509,20 @@ func metricsDescriptor() serve.Subsystem {
 	}
 }
 
+// unbuiltSections names the settings sections this binary cannot run, so the
+// settings screen of any HTTP surface it serves - the configured one or the
+// desktop window's - hides what turning on could never start.
+func unbuiltSections(deps subsystemDeps) []string {
+	var unbuilt []string
+	if !deps.metrics.Subsystem().Available {
+		unbuilt = append(unbuilt, "metrics")
+	}
+	if !browser.Available {
+		unbuilt = append(unbuilt, "browser")
+	}
+	return unbuilt
+}
+
 // subsystems describes every surface this binary knows about, available or not.
 //
 // A descriptor exists even when its build tag is missing, so a configuration
@@ -516,13 +530,7 @@ func metricsDescriptor() serve.Subsystem {
 // starting a daemon that quietly does less than it was told to.
 func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	metrics := deps.metrics.Subsystem()
-	var unbuilt []string
-	if !metrics.Available {
-		unbuilt = append(unbuilt, "metrics")
-	}
-	if !browser.Available {
-		unbuilt = append(unbuilt, "browser")
-	}
+	unbuilt := unbuiltSections(deps)
 	return []serve.Subsystem{
 		{
 			Kind:          serve.KindHTTP,
@@ -540,6 +548,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context, cfg *config.Config) error {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
+				withdrawMirror := func() {}
 				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
@@ -549,11 +558,14 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					UnbuiltSections: unbuilt, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
-							rt.SetTurnMirror(nil)
+							withdrawMirror()
 							withdrawPrompts()
 							return
 						}
-						rt.SetTurnMirror(s)
+						// The mirror is a set rather than a slot: under `coddy
+						// desktop` this server shares the mirroring with the
+						// window's loopback server.
+						withdrawMirror = rt.AddTurnMirror(s)
 						// A detached subagent's prompt is shown in the chat of
 						// its parent session, in the browser and in a console
 						// attached over --remote alike.
