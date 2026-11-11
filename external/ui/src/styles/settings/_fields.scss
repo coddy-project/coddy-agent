@@ -540,6 +540,10 @@
 .settings-secret-input > .settings-input {
   width: 100%;
   min-width: 0;
+  padding-right: 40px;
+}
+
+.settings-secret-input:has(> .settings-secret-copy) > .settings-input {
   padding-right: 104px;
 }
 

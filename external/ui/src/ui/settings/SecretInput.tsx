@@ -2,14 +2,19 @@ import { useState, type InputHTMLAttributes } from "react";
 import { IconEye } from "./icons";
 import { useT } from "../i18n/I18nProvider";
 
-export function SecretInput(props: InputHTMLAttributes<HTMLInputElement>) {
+export function SecretInput(
+  props: InputHTMLAttributes<HTMLInputElement> & {
+    children?: React.ReactNode;
+  },
+) {
   const [visible, setVisible] = useState(false);
   const { t } = useT();
+  const { children, ...inputProps } = props;
   return (
     <div className="settings-secret-input">
       <input
-        {...props}
-        className={props.className ?? "settings-input"}
+        {...inputProps}
+        className={inputProps.className ?? "settings-input"}
         type={visible ? "text" : "password"}
       />
       <button
@@ -23,6 +28,7 @@ export function SecretInput(props: InputHTMLAttributes<HTMLInputElement>) {
       >
         <IconEye off={visible} />
       </button>
+      {props.children}
     </div>
   );
 }

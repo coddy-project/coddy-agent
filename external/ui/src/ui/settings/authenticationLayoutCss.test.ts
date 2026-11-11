@@ -56,5 +56,10 @@ describe("authentication settings layout", () => {
     expect(ruleBody(".auth-enrollment-actions")).toContain("display: flex");
     expect(ruleBody(".auth-enrollment-actions")).toContain("gap: 8px");
     expect(ruleBody(".auth-enrollment-actions")).toContain("margin-top: 12px");
+    expect(
+      ruleBody(
+        ".settings-secret-input:has(> .settings-secret-copy) > .settings-input",
+      ),
+    ).toContain("padding-right: 104px");
   });
 });

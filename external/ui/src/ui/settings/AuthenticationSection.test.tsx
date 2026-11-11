@@ -364,6 +364,15 @@ test("reopens secret enrollment after TOTP is enabled and uses icon actions", as
   Object.assign(navigator, { clipboard: { writeText } });
   fireEvent.click(screen.getByRole("button", { name: "Copy secret key" }));
   expect(writeText).toHaveBeenCalledWith("JBSWY3DPEHPK3PXP");
+  const secretBox = screen
+    .getByLabelText("Secret")
+    .closest(".settings-secret-input");
+  expect(secretBox).toContain(
+    screen.getByRole("button", { name: "Copy secret key" }),
+  );
+  expect(secretBox).toContain(
+    screen.getByRole("button", { name: "Refresh secret key" }),
+  );
   const callsBefore = vi.mocked(fetch).mock.calls.length;
   fireEvent.click(screen.getByRole("button", { name: "Refresh secret key" }));
   expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(callsBefore);

@@ -384,30 +384,31 @@ export function AuthenticationSection({ value, onChange }: Props) {
                       setQr("");
                     }
                   }}
-                />
-                <button
-                  type="button"
-                  className="settings-btn-icon settings-secret-copy"
-                  title={t("settings.auth.copySecret")}
-                  aria-label={t("settings.auth.copySecret")}
-                  disabled={!secret || busy}
-                  onClick={() => void copyText(secret)}
                 >
-                  <IconCopy />
-                </button>
-                <button
-                  type="button"
-                  className="settings-btn-icon settings-secret-refresh"
-                  title={t("settings.auth.refreshSecret")}
-                  aria-label={t("settings.auth.refreshSecret")}
-                  disabled={busy}
-                  onClick={() => {
-                    setCode("");
-                    void setup();
-                  }}
-                >
-                  <IconSync />
-                </button>
+                  <button
+                    type="button"
+                    className="settings-btn-icon settings-secret-copy"
+                    title={t("settings.auth.copySecret")}
+                    aria-label={t("settings.auth.copySecret")}
+                    disabled={!secret || busy}
+                    onClick={() => void copyText(secret)}
+                  >
+                    <IconCopy />
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-btn-icon settings-secret-refresh"
+                    title={t("settings.auth.refreshSecret")}
+                    aria-label={t("settings.auth.refreshSecret")}
+                    disabled={busy}
+                    onClick={() => {
+                      setCode("");
+                      void setup();
+                    }}
+                  >
+                    <IconSync />
+                  </button>
+                </SecretInput>
               </div>
               <div className="settings-row">
                 <label className="settings-label" htmlFor={`${id}-code`}>
