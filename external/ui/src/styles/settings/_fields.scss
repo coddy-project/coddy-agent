@@ -515,13 +515,8 @@
 
 .auth-account-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-}
-
-.auth-account-fields
-  > [data-settings-anchor="httpserver.login:session_ttl_hours"] {
-  grid-column: 1 / -1;
 }
 
 .auth-account-fields > .settings-row,
@@ -585,65 +580,95 @@
   margin-top: 12px;
 }
 
-.auth-backup-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.auth-backup-actions > .settings-btn-icon {
-  flex: 0 0 40px;
-}
-
 .auth-enrollment-grid {
   display: grid;
-  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   margin-top: 14px;
 }
 .auth-enrollment-qr {
   display: block;
-  width: 100%;
+  box-sizing: border-box;
+  width: min(240px, 100%);
   padding: 10px;
   background: white;
   border-radius: 10px;
+}
+
+.auth-enrollment-qr--placeholder {
+  aspect-ratio: 1;
+  background: var(--coddy-surface-muted);
 }
 
 .auth-enrollment-qr-column {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
 }
 
-.auth-enrollment-qr-column > .auth-enrollment-actions {
-  margin-top: 0;
+.auth-enrollment-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .auth-enrollment-fields {
   min-width: 0;
-  display: grid;
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.auth-enrollment-fields > .auth-enrollment-actions {
+  margin-top: 0;
+}
+
+.auth-code-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auth-period--inline {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.auth-period--inline .auth-period-track {
+  flex: none;
+  width: 60px;
+}
+
+.auth-period-seconds {
+  width: 4ch;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .auth-enrollment-codes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 8px 12px;
   margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  font-size: 0.8rem;
+}
+
+.auth-enrollment-codes code {
+  overflow-wrap: anywhere;
 }
 @media (max-width: 599px) {
   .auth-account-fields {
     grid-template-columns: 1fr;
-  }
-
-  .auth-enrollment-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .auth-enrollment-qr {
-    width: 174px;
-    margin: auto;
   }
 }
 
@@ -653,19 +678,37 @@
 
 .auth-backup-block {
   min-inline-size: 0;
-  margin: 16px 0 0;
-  padding: 14px 0 0;
-  border: 0;
-  border-top: 1px solid var(--coddy-glass-panel-border);
 }
-.auth-backup-block > legend {
-  padding: 0;
-  color: inherit;
-  font-size: inherit;
+
+.auth-backup-count {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
+
+.auth-backup-notice {
+  margin: 12px 0 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 .auth-backup-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 14px;
+}
+
+.auth-backup-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+}
+
+.auth-backup-button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }

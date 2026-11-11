@@ -13,13 +13,21 @@ function ruleBody(selector: string): string {
 }
 
 describe("authentication settings layout", () => {
-  test("keeps account fields in two desktop columns and one phone column", () => {
+  test("keeps account and enrollment fields in one column at every width", () => {
     expect(ruleBody(".auth-account-fields")).toContain(
-      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+      "grid-template-columns: minmax(0, 1fr)",
     );
-    const source = stylesPartial("settings/fields").replace(/\s+/g, " ");
-    expect(source).toMatch(
-      /@media \(max-width: 599px\) \{[^]*\.auth-account-fields \{ grid-template-columns: 1fr;/,
+    expect(ruleBody(".auth-enrollment-grid")).toContain(
+      "grid-template-columns: minmax(0, 1fr)",
+    );
+    expect(ruleBody(".auth-enrollment-qr")).toContain(
+      "width: min(240px, 100%)",
+    );
+    expect(ruleBody(".auth-enrollment-qr--placeholder")).toContain(
+      "aspect-ratio: 1",
+    );
+    expect(ruleBody(".auth-period-seconds")).toContain(
+      "font-variant-numeric: tabular-nums",
     );
   });
 

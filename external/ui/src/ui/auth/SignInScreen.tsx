@@ -262,15 +262,17 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
                   />
                 </label>
 
-                <label className="auth-remember">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    disabled={busy}
-                    onChange={(event) => setRemember(event.target.checked)}
-                  />
-                  <span>{t("auth.signIn.remember")}</span>
-                </label>
+                {auth.rememberAvailable !== false && (
+                  <label className="auth-remember">
+                    <input
+                      type="checkbox"
+                      checked={remember}
+                      disabled={busy}
+                      onChange={(event) => setRemember(event.target.checked)}
+                    />
+                    <span>{t("auth.signIn.remember")}</span>
+                  </label>
+                )}
               </>
             )}
 

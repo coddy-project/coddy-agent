@@ -24,6 +24,7 @@ export type AuthState = {
    * (enrolled in Settings, Authentication); empty when the password alone signs in.
    */
   secondFactor: "" | "totp";
+  rememberAvailable?: boolean;
   /**
    * The page was opened as the Telegram bot's Mini App by somebody who is not
    * one of the bot's admins: the server refused the launch data, and only
@@ -91,6 +92,7 @@ type AuthMeResponse = {
   authenticated?: boolean;
   user?: string;
   second_factor?: string;
+  remember_available?: boolean;
   telegram_login?: boolean;
   browser_login?: boolean;
 };
@@ -232,6 +234,7 @@ async function askAuthMe(): Promise<{
           authenticated: body.authenticated === true,
           user: typeof body.user === "string" ? body.user : "",
           secondFactor: body.second_factor === "totp" ? "totp" : "",
+          rememberAvailable: body.remember_available !== false,
           telegramRefused: false,
           telegramProblem: "",
           loaded: true,

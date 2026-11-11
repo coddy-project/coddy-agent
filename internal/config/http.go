@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
+	"gopkg.in/yaml.v3"
 )
 
 // HTTPServerConfig controls the optional OpenAI-compatible HTTP gateway (built with -tags http). The embedded SPA requires -tags http,ui.
@@ -102,6 +103,25 @@ type HTTPLoginConfig struct {
 	// session it holds (webauth.DefaultSessionTTL), because it cannot see a
 	// browser close and a record it keeps forever is not a session.
 	SessionTTLHours int `yaml:"session_ttl_hours"`
+	// SessionTTLHoursSet distinguishes an explicit zero from an absent field.
+	SessionTTLHoursSet bool `yaml:"-" json:"-"`
+}
+
+func (l *HTTPLoginConfig) UnmarshalYAML(node *yaml.Node) error {
+	type plain HTTPLoginConfig
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	var fields struct {
+		SessionTTLHours *int `yaml:"session_ttl_hours"`
+	}
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	decoded.SessionTTLHoursSet = fields.SessionTTLHours != nil
+	*l = HTTPLoginConfig(decoded)
+	return nil
 }
 
 const DefaultLoginSessionTTLHours = 24
@@ -112,9 +132,10 @@ func (l *HTTPLoginConfig) Normalize() {
 	l.User = strings.TrimSpace(l.User)
 	l.PasswordHash = strings.TrimSpace(l.PasswordHash)
 	l.TOTPSecret = webauth.NormalizeTOTPSecret(l.TOTPSecret)
-	if l.SessionTTLHours == 0 {
+	if l.SessionTTLHours == 0 && !l.SessionTTLHoursSet {
 		l.SessionTTLHours = DefaultLoginSessionTTLHours
 	}
+	l.SessionTTLHoursSet = true
 }
 
 // Validate reports the login settings a server could not honour.
@@ -180,7 +201,7 @@ func (l *HTTPLoginConfig) SessionTTL() time.Duration {
 	if l.SessionTTLHours < 0 {
 		return 0
 	}
-	if l.SessionTTLHours == 0 {
+	if l.SessionTTLHours == 0 && !l.SessionTTLHoursSet {
 		return DefaultLoginSessionTTLHours * time.Hour
 	}
 	return time.Duration(l.SessionTTLHours) * time.Hour

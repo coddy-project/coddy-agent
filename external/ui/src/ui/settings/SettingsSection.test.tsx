@@ -2636,24 +2636,8 @@ describe("settings search index matches the drawing", () => {
 
   test("authentication fields are searchable by their displayed names in both languages", async () => {
     for (const [sc, names] of [
-      [
-        AGENT_EN,
-        [
-          "Enable authentication",
-          "Login",
-          "Password",
-          "Session duration (hours)",
-        ],
-      ],
-      [
-        AGENT_RU,
-        [
-          "Включить аутентификацию",
-          "Логин",
-          "Пароль",
-          "Длительность сеанса (часы)",
-        ],
-      ],
+      [AGENT_EN, ["Enabled", "Login", "Password", "Session duration (hours)"]],
+      [AGENT_RU, ["Включено", "Логин", "Пароль", "Длительность сеанса (часы)"]],
     ] as const) {
       const index = indexFor(sc);
       const page = await readPage(sc, index, "httpserver", null);

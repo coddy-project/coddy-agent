@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// DefaultSessionTTL is how long a browser stays signed in when the
-// configuration names no session_ttl_hours.
+// DefaultSessionTTL bounds a server-side session when its cookie is session-only.
 const DefaultSessionTTL = 30 * 24 * time.Hour
 
 // maxSessions bounds the store. A single-operator server never needs many, and
@@ -31,6 +30,8 @@ type Session struct {
 	// A rotated password produces a different fingerprint, which is what makes
 	// every session it opened stop working without anything to invalidate.
 	Credential string
+	// Persistent records whether the browser received a persistent cookie.
+	Persistent bool `json:"-"`
 	// IssuedAt and ExpiresAt bound the session's life on the server.
 	IssuedAt  time.Time
 	ExpiresAt time.Time
@@ -73,11 +74,12 @@ func (s *SessionStore) Issue(user, credential string, ttl time.Duration) (string
 		return "", Session{}, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	persistent := ttl > 0
 	if ttl <= 0 {
 		ttl = DefaultSessionTTL
 	}
 	now := s.now()
-	sess := Session{User: user, Credential: credential, IssuedAt: now, ExpiresAt: now.Add(ttl)}
+	sess := Session{User: user, Credential: credential, Persistent: persistent, IssuedAt: now, ExpiresAt: now.Add(ttl)}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

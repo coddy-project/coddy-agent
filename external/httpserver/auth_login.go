@@ -257,6 +257,7 @@ func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if pol.enabled && !pol.broken {
 		out["mode"] = config.LoginModePassword
+		out["remember_available"] = pol.account.ttl > 0
 		// second_factor tells the form to ask for a one-time code next to the
 		// password. Whether a code is needed is no secret: the form shows the
 		// field to anybody who opens the page.

@@ -88,6 +88,75 @@ func TestHTTPLoginUserExpandsEnvReference(t *testing.T) {
 	}
 }
 
+func TestHTTPLoginSessionTTLExplicitZero(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml string
+		want       int
+	}{{"absent", "", 24}, {"zero", "    session_ttl_hours: 0\n", 0}, {"merged zero", "    <<: {session_ttl_hours: 0}\n", 0}, {"null", "    session_ttl_hours: null\n", 24}, {"positive", "    session_ttl_hours: 12\n", 12}} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := writeLoginConfig(t, "httpserver:\n  login:\n"+tc.yaml+"    user: operator\n")
+			if got := int(cfg.HTTPServer.Login.SessionTTL() / time.Hour); got != tc.want {
+				t.Fatalf("TTL = %d, want %d", got, tc.want)
+			}
+			direct := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+			if got := direct.HTTPServer.Login.SessionTTL(); got != time.Duration(tc.want)*time.Hour {
+				t.Fatalf("direct DTO round-trip = %v, want %dh", got, tc.want)
+			}
+			encoded, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var dto config.ConfigJSON
+			if err := json.Unmarshal(encoded, &dto); err != nil {
+				t.Fatal(err)
+			}
+			got := config.JSONDTOToConfig(&dto, config.Paths{})
+			if got.HTTPServer.Login.SessionTTLHours != tc.want {
+				t.Fatalf("JSON round-trip = %d, want %d", got.HTTPServer.Login.SessionTTLHours, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPLoginSessionTTLJSONEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		login   config.HTTPLoginJSON
+		present bool
+		want    float64
+	}{
+		{"absent", config.HTTPLoginJSON{}, false, 0},
+		{"explicit zero", config.HTTPLoginJSON{SessionTTLHoursSet: true}, true, 0},
+		{"positive", config.HTTPLoginJSON{SessionTTLHours: 12}, true, 12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.login)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := fields["session_ttl_hours"]
+			if ok != tc.present || (ok && got != tc.want) {
+				t.Fatalf("session_ttl_hours = %v, present %v; want %v, present %v", got, ok, tc.want, tc.present)
+			}
+		})
+	}
+}
+
+func TestHTTPLoginSessionTTLJSONNullUsesDefault(t *testing.T) {
+	var dto config.ConfigJSON
+	if err := json.Unmarshal([]byte(`{"httpserver":{"login":{"session_ttl_hours":null}}}`), &dto); err != nil {
+		t.Fatal(err)
+	}
+	got := config.JSONDTOToConfig(&dto, config.Paths{})
+	if ttl := got.HTTPServer.Login.SessionTTL(); ttl != 24*time.Hour {
+		t.Fatalf("null session TTL = %v, want 24h", ttl)
+	}
+}
+
 func TestHTTPLoginValidation(t *testing.T) {
 	good := loginHash(t, "pw")
 	cases := []struct {

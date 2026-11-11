@@ -317,8 +317,12 @@ export function deriveSettingsSections(
 export type DrawnText = { label?: string; desc?: string };
 
 export const SETTINGS_TEXTS = {
-  authAccount: { label: "settings.auth.account" },
+  authAccount: {
+    label: "settings.auth.account",
+    desc: "settings.auth.environment",
+  },
   authPassword: { desc: "settings.auth.passwordHint" },
+  authTtl: { desc: "settings.auth.ttlHint" },
   authAuthenticator: { label: "settings.auth.authenticator" },
   authBackupCodes: { label: "settings.auth.backupCodes" },
   proxyIgnoreSystem: {

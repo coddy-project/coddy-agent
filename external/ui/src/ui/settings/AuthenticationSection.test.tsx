@@ -81,8 +81,41 @@ test("defaults the persistent session duration to 24 hours", () => {
   expect(screen.getByLabelText("Session duration (hours)")).toHaveValue(24);
 });
 
+test("puts the environment precedence notice beside the account legend", () => {
+  render(<Form initial={{ login_source: "env", login: { enable: true } }} />);
+  const hint = screen.getByRole("button", { name: "About Account" });
+  expect(
+    screen.queryByText(
+      "Environment credentials take precedence over these account settings.",
+    ),
+  ).toBeNull();
+  fireEvent.click(hint);
+  expect(screen.getByRole("tooltip")).toHaveTextContent(
+    "Environment credentials take precedence over these account settings.",
+  );
+});
+
 test("puts the password help behind its field hint", () => {
   render(<Form />);
+  expect(screen.getByRole("button", { name: "About Password" })).toBeTruthy();
+});
+
+test.each([
+  [
+    { login_configured: true, login_source: "config" },
+    "Password hash is stored on the server",
+  ],
+  [
+    { login_configured: true, login_source: "env" },
+    "Set with CODDY_HTTP_PASSWORD",
+  ],
+  [{}, "Set with CODDY_HTTP_PASSWORD"],
+])("reports the password state without exposing it", (state, placeholder) => {
+  render(<Form initial={{ ...state, login: { enable: true } }} />);
+  expect(
+    screen.getByLabelText("Password").getAttribute("placeholder") ?? "",
+  ).toBe(placeholder);
+  expect(screen.getByLabelText("Password")).toHaveValue("");
   expect(screen.getByRole("button", { name: "About Password" })).toBeTruthy();
 });
 
@@ -112,15 +145,11 @@ test("styles the secret input without inline layout and exposes the eye state", 
 test("edits account settings without replacing the stored password with an empty value", () => {
   render(<Form />);
   expect(screen.getByText("Account")).toBeTruthy();
-  fireEvent.click(
-    screen.getByRole("switch", { name: "Enable authentication" }),
-  );
+  fireEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   expect(screen.getByTestId("document").textContent).toContain(
     '"enable":false',
   );
-  fireEvent.click(
-    screen.getByRole("switch", { name: "Enable authentication" }),
-  );
+  fireEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   fireEvent.change(screen.getByLabelText("Login"), {
     target: { value: "alice" },
   });
@@ -163,15 +192,66 @@ test("enrolls an authenticator and shows backup codes only after verification", 
     await screen.findByRole("img", { name: "Authenticator QR code" }),
   ).toBeTruthy();
   expect(screen.queryByText("FIRST-CODE")).toBeNull();
-  fireEvent.change(screen.getByLabelText("Code from the app"), {
+  expect(
+    screen
+      .getByLabelText("App code")
+      .compareDocumentPosition(screen.getByRole("button", { name: "Submit" })) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const period = screen.getByRole("timer", { name: /New code in/ });
+  expect(period).toHaveAttribute("aria-live", "off");
+  expect(
+    period.compareDocumentPosition(screen.getByLabelText("App code")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    period.compareDocumentPosition(
+      screen.getByRole("button", { name: "Submit" }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("App code"), {
     target: { value: "123456" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }));
   expect(await screen.findByText("FIRST-CODE")).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith(
     "/coddy/auth/totp/enable",
     expect.objectContaining({ method: "POST" }),
   );
+});
+
+test("keeps a QR placeholder while a refreshed secret is loading", async () => {
+  let resolveRefresh!: (value: unknown) => void;
+  const refresh = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const response = {
+    ok: true,
+    json: async () => ({
+      secret: "JBSWY3DPEHPK3PXP",
+      qr_png: "data:image/png;base64,YQ==",
+    }),
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValueOnce(response).mockReturnValueOnce(refresh),
+  );
+  render(<Form />);
+  fireEvent.click(
+    screen.getByRole("switch", { name: "Require one-time code" }),
+  );
+  await screen.findByRole("img", { name: "Authenticator QR code" });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh secret key" }));
+  expect(
+    document.querySelector(".auth-enrollment-qr--placeholder"),
+  ).toBeTruthy();
+  expect(screen.getByLabelText("App code")).toBeTruthy();
+  await act(async () => {
+    resolveRefresh(response);
+  });
+  expect(
+    await screen.findByRole("img", { name: "Authenticator QR code" }),
+  ).toBeTruthy();
 });
 
 test("a rejected verification leaves TOTP unconfigured", async () => {
@@ -192,10 +272,10 @@ test("a rejected verification leaves TOTP unconfigured", async () => {
   render(<Form />);
   fireEvent.click(screen.getAllByRole("switch")[1]!);
   await screen.findByRole("img", { name: "Authenticator QR code" });
-  fireEvent.change(screen.getByLabelText("Code from the app"), {
+  fireEvent.change(screen.getByLabelText("App code"), {
     target: { value: "123456" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Could not verify",
   );
@@ -254,10 +334,10 @@ async function startDeferredVerification() {
     screen.getByRole("switch", { name: "Require one-time code" }),
   );
   await screen.findByRole("img", { name: "Authenticator QR code" });
-  fireEvent.change(screen.getByLabelText("Code from the app"), {
+  fireEvent.change(screen.getByLabelText("App code"), {
     target: { value: "123456" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }));
   return pending;
 }
 
@@ -288,9 +368,7 @@ test("verification merges metadata with account edits made in flight", async () 
   fireEvent.change(screen.getByLabelText("Session duration (hours)"), {
     target: { value: "48" },
   });
-  fireEvent.click(
-    screen.getByRole("switch", { name: "Enable authentication" }),
-  );
+  fireEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   pending.resolve({ ok: true, json: async () => ({ codes: ["CODE"] }) });
   await screen.findByText("CODE");
   expect(
@@ -323,17 +401,20 @@ test("reopens secret enrollment after TOTP is enabled and uses icon actions", as
   fireEvent.click(
     screen.getByRole("switch", { name: "Require one-time code" }),
   );
-  fireEvent.change(await screen.findByLabelText("Code from the app"), {
+  fireEvent.change(await screen.findByLabelText("App code"), {
     target: { value: "123456" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }));
   await screen.findByText("FIRST-CODE");
   expect(screen.getByText("Login", { selector: "label" })).toHaveClass(
     "settings-label",
   );
   expect(
-    screen.getByText("Session duration (hours)", { selector: "label" }),
-  ).toHaveClass("settings-label");
+    screen.getByText("Session duration (hours)").closest("label"),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "About Session duration (hours)" }),
+  ).toBeTruthy();
   for (const name of [
     "Copy backup codes",
     "Download backup codes",
@@ -341,13 +422,14 @@ test("reopens secret enrollment after TOTP is enabled and uses icon actions", as
   ]) {
     const button = screen.getByRole("button", { name });
     expect(button).toHaveAttribute("title", name);
-    expect(button).toHaveClass("settings-btn-icon");
-    expect(button.textContent).toBe("");
+    expect(button).toHaveClass("settings-btn", "auth-backup-button");
+    expect(button.textContent).not.toBe("");
   }
   fireEvent.click(screen.getByRole("button", { name: "Edit secret" }));
   const qr = document.querySelector(".auth-enrollment-qr");
-  const verify = screen.getByRole("button", { name: "Verify and enable" });
-  expect(qr?.parentElement).toContain(verify);
+  const verify = screen.getByRole("button", { name: "Submit" });
+  expect(qr?.parentElement).not.toContain(verify);
+  expect(verify.closest(".auth-enrollment-fields")).toBeTruthy();
   const codes = document.querySelector(".auth-enrollment-codes");
   const actions = document.querySelector(".auth-backup-actions");
   expect(
@@ -384,7 +466,7 @@ test("locks secret and code during verification", async () => {
   render(<Form />);
   const pending = await startDeferredVerification();
   expect(screen.getByLabelText("Secret")).toBeDisabled();
-  expect(screen.getByLabelText("Code from the app")).toBeDisabled();
+  expect(screen.getByLabelText("App code")).toBeDisabled();
   pending.resolve({ ok: false, json: async () => ({ codes: [] }) });
   await screen.findByRole("alert");
 });
@@ -423,10 +505,10 @@ test("an older setup response cannot replace the secret being verified", async (
     target: { value: "BBBB" },
   });
   await screen.findByRole("img", { name: "Authenticator QR code" });
-  fireEvent.change(screen.getByLabelText("Code from the app"), {
+  fireEvent.change(screen.getByLabelText("App code"), {
     target: { value: "123456" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Verify and enable" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit" }));
   expect(
     JSON.parse(
       String(
@@ -512,7 +594,7 @@ test.each([true, false])(
     }));
     vi.stubGlobal("fetch", fetchMock);
     render(<ConfiguredForm />);
-    const fieldset = screen.getByRole("group", { name: "Authenticator app" });
+    const fieldset = screen.getByRole("group", { name: "Backup codes" });
     expect(within(fieldset).getByText(/5 unused/)).toBeTruthy();
     fireEvent.click(
       within(fieldset).getByRole("button", { name: "Regenerate backup codes" }),
@@ -823,14 +905,18 @@ describe("the authenticator code period", () => {
     try {
       startEnrollment();
       const period = screen.getByTestId("auth-period");
-      expect(period.textContent).toContain("New code in 25 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 25 seconds",
+      );
       const at25 = parseFloat(periodFill().style.width);
       expect(at25).toBeGreaterThan(80);
       expect(at25).toBeLessThanOrEqual(83.4);
       act(() => {
         vi.advanceTimersByTime(1_000);
       });
-      expect(period.textContent).toContain("New code in 24 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 24 seconds",
+      );
       expect(parseFloat(periodFill().style.width)).toBeLessThan(at25);
     } finally {
       vi.useRealTimers();
@@ -841,9 +927,9 @@ describe("the authenticator code period", () => {
     vi.useFakeTimers({ now: 120_000 });
     try {
       startEnrollment();
-      expect(screen.getByTestId("auth-period").textContent).toContain(
-        "New code in 30 seconds",
-      );
+      expect(
+        screen.getByTestId("auth-period").getAttribute("aria-label"),
+      ).toContain("New code in 30 seconds");
       expect(periodFill().style.width).toBe("100%");
     } finally {
       vi.useRealTimers();
@@ -859,11 +945,15 @@ describe("the authenticator code period", () => {
       act(() => {
         vi.advanceTimersByTime(999);
       });
-      expect(period.textContent).toContain("New code in 25 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 25 seconds",
+      );
       act(() => {
         vi.advanceTimersByTime(1);
       });
-      expect(period.textContent).toContain("New code in 24 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 24 seconds",
+      );
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();
@@ -879,11 +969,15 @@ describe("the authenticator code period", () => {
       act(() => {
         vi.advanceTimersByTime(999);
       });
-      expect(period.textContent).toContain("New code in 25 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 25 seconds",
+      );
       act(() => {
         vi.advanceTimersByTime(1);
       });
-      expect(period.textContent).toContain("New code in 24 seconds");
+      expect(period.getAttribute("aria-label")).toContain(
+        "New code in 24 seconds",
+      );
     } finally {
       vi.useRealTimers();
       delete document.documentElement.dataset.simple;
@@ -895,9 +989,9 @@ describe("the authenticator code period", () => {
     vi.useFakeTimers({ now: 125_000 });
     try {
       startEnrollment();
-      expect(screen.getByTestId("auth-period").textContent).toContain(
-        "Новый код через 25 с",
-      );
+      expect(
+        screen.getByTestId("auth-period").getAttribute("aria-label"),
+      ).toContain("Новый код через 25 с");
     } finally {
       vi.useRealTimers();
       setLocale("en");

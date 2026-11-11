@@ -125,7 +125,8 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 	var codes []string
 	var generation string
 	err := config.WithConfigFileLock(func() error {
-		if _, ok := s.sessionFromRequest(r, s.loginPolicyNow()); !ok {
+		currentSession, ok := s.sessionFromRequest(r, s.loginPolicyNow())
+		if !ok {
 			return errEnrollmentSession
 		}
 		c := s.activeCfg()
@@ -201,7 +202,7 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 		}
 		// Preserve only the browser that performed the change. Its old session
 		// and every other session keep the previous fingerprint and are refused.
-		if err = s.refreshEnrollmentSession(w, r); err != nil {
+		if err = s.refreshEnrollmentSession(w, r, currentSession); err != nil {
 			return err
 		}
 		generation = loaded.HTTPServer.Login.BackupCodes.Generation
@@ -227,8 +228,11 @@ func (s *Server) enrollmentChange(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"ok": true})
 }
 
-func (s *Server) refreshEnrollmentSession(w http.ResponseWriter, r *http.Request) error {
+func (s *Server) refreshEnrollmentSession(w http.ResponseWriter, r *http.Request, previous webauth.Session) error {
 	account := s.loginPolicyNow().account
+	if !previous.Persistent {
+		account.ttl = 0
+	}
 	token, _, err := s.sessions.Issue(account.user, account.fingerprint(), account.ttl)
 	if err != nil {
 		return err

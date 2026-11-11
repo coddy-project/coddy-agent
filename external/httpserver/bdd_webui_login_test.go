@@ -489,6 +489,19 @@ func initializeLoginScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a coddy HTTP server whose account comes from the environment as "([^"]+)" with password "([^"]+)"$`, s.serverWithEnvAccount)
 	sc.Step(`^a coddy HTTP server with no account and no token$`, s.serverWithoutCredentials)
 	sc.Step(`^the config turns the login off$`, s.configTurnsLoginOff)
+	sc.Step(`^the login uses browser-session cookies only$`, func() error {
+		s.replaceConfig(func(c *config.Config) {
+			c.HTTPServer.Login.SessionTTLHours = 0
+			c.HTTPServer.Login.SessionTTLHoursSet = true
+		})
+		return nil
+	})
+	sc.Step(`^the answer says persistent sign-in is unavailable$`, func() error {
+		if available, ok := s.body["remember_available"].(bool); !ok || available {
+			return errStatus("persistent sign-in should be unavailable", s.status, s.rawBody)
+		}
+		return nil
+	})
 	sc.Step(`^the server also requires the bearer token "([^"]+)"$`, s.serverAlsoRequiresToken)
 	sc.Step(`^the browser is signed in as "([^"]+)" with password "([^"]+)"$`, s.signedIn)
 

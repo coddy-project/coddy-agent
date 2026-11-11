@@ -261,6 +261,27 @@ func TestLoginCookieCarriesTheConfiguredTTL(t *testing.T) {
 	}
 }
 
+func TestAuthMeRememberAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		hours int
+		want  bool
+	}{{0, false}, {24, true}} {
+		login := configuredLogin(t)
+		login.SessionTTLHours = tc.hours
+		login.SessionTTLHoursSet = true
+		srv := newLoginServer(t, login)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/coddy/auth/me", nil))
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["remember_available"] != tc.want {
+			t.Fatalf("ttl %d: remember_available = %v, want %v", tc.hours, body["remember_available"], tc.want)
+		}
+	}
+}
+
 func TestLoginRememberMeControlsPersistentCookie(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

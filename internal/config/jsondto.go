@@ -394,6 +394,36 @@ type HTTPLoginJSON struct {
 	PasswordHash          string               `json:"password_hash,omitempty"`
 	TOTPSecret            string               `json:"totp_secret,omitempty"`
 	SessionTTLHours       int                  `json:"session_ttl_hours,omitempty"`
+	SessionTTLHoursSet    bool                 `json:"-"`
+}
+
+func (j HTTPLoginJSON) MarshalJSON() ([]byte, error) {
+	type plain HTTPLoginJSON
+	var ttl *int
+	if j.SessionTTLHoursSet || j.SessionTTLHours != 0 {
+		ttl = &j.SessionTTLHours
+	}
+	return json.Marshal(struct {
+		plain
+		SessionTTLHours *int `json:"session_ttl_hours,omitempty"`
+	}{plain: plain(j), SessionTTLHours: ttl})
+}
+
+func (j *HTTPLoginJSON) UnmarshalJSON(data []byte) error {
+	type plain HTTPLoginJSON
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields struct {
+		SessionTTLHours *int `json:"session_ttl_hours"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	decoded.SessionTTLHoursSet = fields.SessionTTLHours != nil
+	*j = HTTPLoginJSON(decoded)
+	return nil
 }
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
@@ -670,7 +700,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			BackupCodesGeneration: c.HTTPServer.Login.BackupCodes.Generation,
 			// PasswordHash and TOTPSecret are redacted for the same reason
 			// the token is.
-			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,
+			SessionTTLHours:    c.HTTPServer.Login.SessionTTLHours,
+			SessionTTLHoursSet: c.HTTPServer.Login.SessionTTLHoursSet,
 		},
 		// An account behind a switched-off form is not a configured sign-in:
 		// the HTTP layer overrides this with the live policy anyway, and a
@@ -925,12 +956,13 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Port:                     j.HTTPServer.Port,
 		AuthToken:                j.HTTPServer.AuthToken,
 		Login: HTTPLoginConfig{
-			Enabled:         cloneBoolPtr(j.HTTPServer.Login.Enabled),
-			Mode:            j.HTTPServer.Login.Mode,
-			User:            j.HTTPServer.Login.User,
-			PasswordHash:    j.HTTPServer.Login.PasswordHash,
-			TOTPSecret:      j.HTTPServer.Login.TOTPSecret,
-			SessionTTLHours: j.HTTPServer.Login.SessionTTLHours,
+			Enabled:            cloneBoolPtr(j.HTTPServer.Login.Enabled),
+			Mode:               j.HTTPServer.Login.Mode,
+			User:               j.HTTPServer.Login.User,
+			PasswordHash:       j.HTTPServer.Login.PasswordHash,
+			TOTPSecret:         j.HTTPServer.Login.TOTPSecret,
+			SessionTTLHours:    j.HTTPServer.Login.SessionTTLHours,
+			SessionTTLHoursSet: j.HTTPServer.Login.SessionTTLHoursSet,
 		},
 		PublicDocs:    j.HTTPServer.PublicDocs,
 		AllowInsecure: j.HTTPServer.AllowInsecure,

@@ -85,6 +85,7 @@ describe("refreshAuthState", () => {
       authenticated: true,
       user: "operator",
       secondFactor: "",
+      rememberAvailable: true,
       telegramRefused: false,
       telegramProblem: "",
       loaded: true,

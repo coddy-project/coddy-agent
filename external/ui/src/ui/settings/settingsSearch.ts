@@ -436,7 +436,9 @@ function walkField(frame: FieldFrame): void {
   const passwordHint =
     form.domain === "httpserver.login" && path === "password"
       ? translate(SETTINGS_TEXTS.authPassword.desc!)
-      : undefined;
+      : form.domain === "httpserver.login" && path === "session_ttl_hours"
+        ? translate(SETTINGS_TEXTS.authTtl.desc!)
+        : undefined;
   walk.out.push(
     makeSearchEntry({
       kind: box === null && isBlockField(schema) ? "block" : "field",

@@ -111,7 +111,9 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 	}
 	s.loginThrottle.Reset(client)
 	account := pol.account
-	account.ttl = entry.ttl
+	if entry.ttl == 0 || (account.ttl > 0 && entry.ttl < account.ttl) {
+		account.ttl = entry.ttl
+	}
 	s.issueLoginSession(w, r, account, client)
 }
 

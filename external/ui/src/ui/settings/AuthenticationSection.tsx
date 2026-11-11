@@ -20,12 +20,12 @@ import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { motionIsReduced, subscribeUiSimple } from "../theme/uiSimple";
 import { SwitchField } from "./SwitchField";
-import { FieldLabel } from "./FieldHint";
+import { FieldLabel, LegendWithHint } from "./FieldHint";
 import { SecretInput } from "./SecretInput";
 import { totpPeriodLeft } from "./totpPeriod";
 import { IconCopy, IconDownload, IconSync } from "./icons";
 import { fieldAnchor } from "./SchemaForm";
-import { landmarkAnchor } from "./settingsSections";
+import { landmarkAnchor, SETTINGS_TEXTS } from "./settingsSections";
 
 export const AUTHENTICATION_FIELD_TEXTS: Record<string, string> = {
   enable: "settings.auth.enable",
@@ -243,10 +243,10 @@ export function AuthenticationSection({ value, onChange }: Props) {
         className="settings-fieldset"
         data-settings-anchor={landmarkAnchor("httpserver", "account")}
       >
-        <legend>{t("settings.auth.account")}</legend>
-        {value.login_source === "env" && (
-          <p className="settings-muted">{t("settings.auth.environment")}</p>
-        )}
+        <LegendWithHint
+          label={t(SETTINGS_TEXTS.authAccount.label)}
+          description={t(SETTINGS_TEXTS.authAccount.desc)}
+        />
         <div className="auth-account-fields">
           <div
             className="settings-row"
@@ -258,6 +258,7 @@ export function AuthenticationSection({ value, onChange }: Props) {
             <input
               id={`${id}-user`}
               className="settings-input"
+              placeholder={t("settings.auth.userEnv")}
               value={String(login.user ?? "")}
               onChange={(e) => update("user", e.target.value)}
             />
@@ -273,6 +274,11 @@ export function AuthenticationSection({ value, onChange }: Props) {
             <SecretInput
               id={`${id}-password`}
               aria-label={t(AUTHENTICATION_FIELD_TEXTS.password!)}
+              placeholder={
+                value.login_configured === true && value.login_source !== "env"
+                  ? t("settings.auth.passwordStored")
+                  : t("settings.auth.passwordEnv")
+              }
               value={String(login.password ?? "")}
               onChange={(e) => update("password", e.target.value)}
               autoComplete="new-password"
@@ -285,9 +291,15 @@ export function AuthenticationSection({ value, onChange }: Props) {
               "session_ttl_hours",
             )}
           >
-            <label className="settings-label" htmlFor={`${id}-ttl`}>
-              {t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
-            </label>
+            <FieldLabel
+              label={
+                <label htmlFor={`${id}-ttl`}>
+                  {t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
+                </label>
+              }
+              hintLabel={t(AUTHENTICATION_FIELD_TEXTS.session_ttl_hours!)}
+              description={t("settings.auth.ttlHint")}
+            />
             <input
               id={`${id}-ttl`}
               className="settings-input"
@@ -335,25 +347,23 @@ export function AuthenticationSection({ value, onChange }: Props) {
         )}
         {enrolling && (
           <div className="auth-enrollment-grid">
-            {qr && (
-              <div className="auth-enrollment-qr-column">
+            <div className="auth-enrollment-qr-column">
+              {qr ? (
                 <img
                   className="auth-enrollment-qr"
                   src={qr}
                   alt={t("settings.auth.qr")}
                 />
-                <div className="auth-enrollment-actions">
-                  <button
-                    type="button"
-                    className="settings-btn settings-btn-primary"
-                    disabled={!/^\d{6}$/.test(code) || !qr || busy}
-                    onClick={() => void verify()}
-                  >
-                    {t("settings.auth.verify")}
-                  </button>
-                </div>
-              </div>
-            )}
+              ) : (
+                <div
+                  className="auth-enrollment-qr auth-enrollment-qr--placeholder"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="auth-enrollment-hint">
+                {t("settings.auth.scanHint")}
+              </span>
+            </div>
             <div className="auth-enrollment-fields">
               <div className="settings-row">
                 <label className="settings-label" htmlFor={`${id}-secret`}>
@@ -401,9 +411,28 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 </SecretInput>
               </div>
               <div className="settings-row">
-                <label className="settings-label" htmlFor={`${id}-code`}>
-                  {t("settings.auth.code")}
-                </label>
+                <div className="auth-code-heading">
+                  <label className="settings-label" htmlFor={`${id}-code`}>
+                    {t("settings.auth.code")}
+                  </label>
+                  <div
+                    className="auth-period auth-period--inline"
+                    data-testid="auth-period"
+                    role="timer"
+                    aria-live="off"
+                    aria-label={tp("settings.auth.period", period.seconds)}
+                  >
+                    <span className="auth-period-track" aria-hidden="true">
+                      <span
+                        className="auth-period-fill"
+                        style={{ width: `${period.fraction * 100}%` }}
+                      />
+                    </span>
+                    <span className="auth-period-seconds" aria-hidden="true">
+                      {t("settings.auth.seconds", { count: period.seconds })}
+                    </span>
+                  </div>
+                </div>
                 <input
                   id={`${id}-code`}
                   className="settings-input"
@@ -417,16 +446,15 @@ export function AuthenticationSection({ value, onChange }: Props) {
                   }
                 />
               </div>
-              <div className="auth-period" data-testid="auth-period">
-                <span className="auth-period-label">
-                  {tp("settings.auth.period", period.seconds)}
-                </span>
-                <span className="auth-period-track" aria-hidden="true">
-                  <span
-                    className="auth-period-fill"
-                    style={{ width: `${period.fraction * 100}%` }}
-                  />
-                </span>
+              <div className="auth-enrollment-actions">
+                <button
+                  type="button"
+                  className="settings-btn settings-btn-primary"
+                  disabled={!/^\d{6}$/.test(code) || !qr || busy}
+                  onClick={() => void verify()}
+                >
+                  {t("settings.auth.verify")}
+                </button>
               </div>
             </div>
           </div>
@@ -454,64 +482,68 @@ export function AuthenticationSection({ value, onChange }: Props) {
               error}
           </p>
         )}
-        {login.totp_configured === true && (
-          <fieldset
-            className="auth-backup-block"
-            data-settings-anchor={landmarkAnchor("httpserver", "backupCodes")}
-          >
-            <legend>{t("settings.auth.backupCodes")}</legend>
-            <div>
-              {tp(
-                "settings.auth.unused",
-                Number(login.backup_codes_count ?? 0),
-              )}
-            </div>
-            {shownCodes.length > 0 && (
+      </fieldset>
+      {login.totp_configured === true && (
+        <fieldset
+          className="settings-fieldset auth-backup-block"
+          data-settings-anchor={landmarkAnchor("httpserver", "backupCodes")}
+        >
+          <legend>{t("settings.auth.backupCodes")}</legend>
+          <div className="auth-backup-count">
+            {tp("settings.auth.unused", Number(login.backup_codes_count ?? 0))}
+          </div>
+          {shownCodes.length > 0 && (
+            <>
+              <p className="auth-backup-notice">
+                {t("settings.auth.backupNotice")}
+              </p>
               <div className="auth-enrollment-codes">
                 {shownCodes.map((item) => (
                   <code key={item}>{item}</code>
                 ))}
               </div>
+            </>
+          )}
+          <div className="auth-backup-actions">
+            {shownCodes.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="settings-btn auth-backup-button"
+                  title={t("settings.auth.copyCodes")}
+                  aria-label={t("settings.auth.copyCodes")}
+                  onClick={() =>
+                    void copyText(shownCodes.join("\n")).then((ok) => {
+                      if (!ok) setError(t("settings.auth.copyError"));
+                    })
+                  }
+                >
+                  <IconCopy /> {t("settings.auth.copyAction")}
+                </button>
+                <button
+                  type="button"
+                  className="settings-btn auth-backup-button"
+                  title={t("settings.auth.downloadCodes")}
+                  aria-label={t("settings.auth.downloadCodes")}
+                  onClick={download}
+                >
+                  <IconDownload /> {t("settings.auth.downloadAction")}
+                </button>
+              </>
             )}
-            <div className="auth-backup-actions">
-              <button
-                type="button"
-                className="settings-btn-icon"
-                title={t("settings.auth.copyCodes")}
-                aria-label={t("settings.auth.copyCodes")}
-                disabled={shownCodes.length === 0}
-                onClick={() =>
-                  void copyText(shownCodes.join("\n")).then((ok) => {
-                    if (!ok) setError(t("settings.auth.copyError"));
-                  })
-                }
-              >
-                <IconCopy />
-              </button>
-              <button
-                type="button"
-                className="settings-btn-icon"
-                title={t("settings.auth.downloadCodes")}
-                aria-label={t("settings.auth.downloadCodes")}
-                disabled={shownCodes.length === 0}
-                onClick={download}
-              >
-                <IconDownload />
-              </button>
-              <button
-                type="button"
-                className="settings-btn-icon"
-                title={t("settings.auth.regenerateCodes")}
-                aria-label={t("settings.auth.regenerateCodes")}
-                disabled={busy}
-                onClick={() => void change("regenerate")}
-              >
-                <IconSync />
-              </button>
-            </div>
-          </fieldset>
-        )}
-      </fieldset>
+            <button
+              type="button"
+              className="settings-btn auth-backup-button"
+              title={t("settings.auth.regenerateCodes")}
+              aria-label={t("settings.auth.regenerateCodes")}
+              disabled={busy}
+              onClick={() => void change("regenerate")}
+            >
+              <IconSync /> {t("settings.auth.regenerateAction")}
+            </button>
+          </div>
+        </fieldset>
+      )}
     </div>
   );
 }

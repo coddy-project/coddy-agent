@@ -101,6 +101,27 @@ describe("AuthGate", () => {
     expect(screen.queryByTestId("the-app")).not.toBeInTheDocument();
   });
 
+  it.each([
+    [undefined, true],
+    [true, true],
+    [false, false],
+  ])(
+    "shows the remember checkbox when allowed (%s)",
+    async (available, visible) => {
+      respond = () =>
+        jsonResponse(200, {
+          login_required: true,
+          authenticated: false,
+          remember_available: available,
+        });
+      renderGate();
+      await screen.findByTestId("sign-in-screen");
+      expect(
+        screen.queryByRole("checkbox", { name: "Keep me signed in" }) !== null,
+      ).toBe(visible);
+    },
+  );
+
   it("renders the app once the browser is signed in", async () => {
     respond = () =>
       jsonResponse(200, {
@@ -210,7 +231,7 @@ describe("SignInScreen", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "correct-horse" },
     });
-    fireEvent.click(screen.getByLabelText("Keep me signed in for 24 hours"));
+    fireEvent.click(screen.getByLabelText("Keep me signed in"));
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() =>
       expect(seen.find((s) => s.url === "/coddy/auth/login")?.body).toBe(
