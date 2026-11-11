@@ -97,6 +97,9 @@ func TestModelListingAdvertisesTheLimits(t *testing.T) {
 		// Its last message is refused with a picture (issue #584), so the row
 		// must not advertise room for one.
 		limits := read(t, "local/qwen3-text").Get("limits")
+		if !limits.Get("images_per_message").Exists() {
+			t.Fatal("limits.images_per_message is missing, want an explicit zero")
+		}
 		if got := limits.Get("images_per_message").Int(); got != 0 {
 			t.Errorf("limits.images_per_message = %d, want 0: %s", got, limits.Raw)
 		}

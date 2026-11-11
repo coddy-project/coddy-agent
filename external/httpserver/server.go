@@ -1419,6 +1419,34 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := r.Context()
+	sessionID := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if len(body.InlineFiles) > 0 {
+		var preflight *session.State
+		loadFailed := false
+		if sessionID == "" {
+			preflight = s.mgr.NewEphemeralState()
+		} else {
+			loaded, loadErr := s.mgr.PreviewHTTPSession(sessionID)
+			if loadErr != nil {
+				loadFailed = true
+			} else {
+				preflight = loaded
+			}
+		}
+		if !loadFailed {
+			if preflight == nil {
+				preflight = s.mgr.NewEphemeralState()
+			}
+			if rejectSubagentTurn(w, preflight) {
+				return
+			}
+			cfg := s.activeCfg()
+			if model, ok := profileModelForImageCheck(cfg, preflight, body.Metadata); ok && !configuredModelMultimodal(cfg, model) {
+				writeOpenAIValidationError(w, fmt.Sprintf("%s takes no images: inline_files need a model configured multimodal", model), "inline_files")
+				return
+			}
+		}
+	}
 	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
@@ -1477,7 +1505,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		effectiveModel = effectiveYAMLModel(s.activeCfg(), st)
 	}
 	if !configuredModelMultimodal(s.activeCfg(), effectiveModel) {
-		inlineFiles = nil
+		if len(inlineFiles) > 0 {
+			writeOpenAIValidationError(w, "the selected model takes no images: inline_files need a model configured multimodal", "inline_files")
+			return
+		}
 	}
 
 	if httpModelIsCoddyProfile(model) {

@@ -1252,6 +1252,26 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 // session it creates comes from: origin is recorded only when the bundle is
 // created here, never on a session that is live or stored already.
 func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD, origin string) (*State, error) {
+	st, err := m.LoadHTTPSession(ctx, sessionID)
+	if err != nil || st != nil {
+		return st, err
+	}
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	if err != nil {
+		return nil, err
+	}
+	if res.SessionID != sessionID {
+		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
+	}
+	st = m.getSession(sessionID)
+	if st == nil {
+		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
+	}
+	return st, nil
+}
+
+// LoadHTTPSession returns a live or stored session without creating one.
+func (m *Manager) LoadHTTPSession(ctx context.Context, sessionID string) (*State, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("empty session id")
 	}
@@ -1284,16 +1304,43 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 		}
 		return st, nil
 	}
-	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	return nil, nil
+}
+
+// PreviewHTTPSession reads a stored session without registering it or running
+// its resume lifecycle. A live session is returned as it is.
+func (m *Manager) PreviewHTTPSession(sessionID string) (*State, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("empty session id")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	if existing := m.getSession(sessionID); existing != nil {
+		return existing, nil
+	}
+	if m.store == nil || !m.store.HasPersistedSnapshot(sessionID) {
+		return nil, nil
+	}
+	snap, err := m.store.ReadSnapshot(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if res.SessionID != sessionID {
-		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
+	st := &State{ID: sessionID, CWD: snap.Meta.CWD, SessionDir: snap.Dir, contextWindows: m}
+	mode := Mode(snap.Meta.Mode)
+	if !IsValidMode(string(mode)) {
+		mode = ModeAgent
 	}
-	st := m.getSession(sessionID)
-	if st == nil {
-		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
+	if snap.Meta.IsSubagentRun() {
+		st.SetSubagentMeta(SubagentMeta{
+			Name:            snap.Meta.SubagentName,
+			ParentSessionID: snap.Meta.ParentSessionID,
+			TaskID:          snap.Meta.SubagentTaskID,
+			Depth:           snap.Meta.SubagentDepth,
+			Scheduler:       schedulerRunMetaFromSnapshot(snap.Meta),
+		})
 	}
 	return st, nil
 }

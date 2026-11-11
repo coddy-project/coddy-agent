@@ -3204,7 +3204,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	}
 }
 
-func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
+func TestResponsesInlineFilesRefusedForNonMultimodalDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, sessRoot := testHTTPServerPersist(t)
 	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
@@ -3222,30 +3222,26 @@ func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
 	}
-
-	var userMsg *llm.Message
-	for i := range cp.seen {
-		if cp.seen[i].Role == llm.RoleUser {
-			userMsg = &cp.seen[i]
-		}
+	var refusal struct {
+		Error struct {
+			Param string `json:"param"`
+		} `json:"error"`
 	}
-	if userMsg == nil {
-		t.Fatal("no user message found")
-	}
-	if len(userMsg.ImageParts) != 0 {
-		t.Fatalf("non-multimodal provider received %d image parts", len(userMsg.ImageParts))
-	}
-
-	store := &session.FileStore{Root: sessRoot}
-	snap, err := store.ReadSnapshot(sid)
-	if err != nil {
+	if err := json.Unmarshal(b, &refusal); err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 0 {
-		t.Fatalf("non-multimodal history retained image parts: %+v", snap.Messages)
+	if refusal.Error.Param != "inline_files" {
+		t.Fatalf("error.param = %q, want inline_files: %s", refusal.Error.Param, b)
+	}
+	if cp.seen != nil {
+		t.Fatalf("the provider was called for a refused request: %+v", cp.seen)
+	}
+
+	if _, err := os.Stat(filepath.Join(sessRoot, sid)); !os.IsNotExist(err) {
+		t.Fatalf("a refused request left a session behind: %v", err)
 	}
 }
 
@@ -3382,13 +3378,13 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	}
 }
 
-func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
-	var imageParts []llm.ImagePart
+func TestResponsesInlineFilesRefusedForNonMultimodalAgentModel(t *testing.T) {
+	called := false
 	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
-		imageParts = st.TakePendingImageParts()
+		called = true
 		return string(acp.StopReasonEndTurn), nil
 	}
-	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	_, srv, sessRoot := testHTTPServerPersistWithRunner(t, runner)
 	srv.activeCfg().Models[0].Multimodal = true
 	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
 		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
@@ -3404,11 +3400,150 @@ func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
 	}
-	if len(imageParts) != 0 {
-		t.Fatalf("non-multimodal agent runner received %d image parts", len(imageParts))
+	if called {
+		t.Fatal("the agent runner was called for a refused request")
+	}
+	var refusal struct {
+		Error struct {
+			Param string `json:"param"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(b, &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal.Error.Param != "inline_files" {
+		t.Fatalf("error.param = %q, want inline_files: %s", refusal.Error.Param, b)
+	}
+	entries, err := os.ReadDir(sessRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a refused profile request left %d session(s) behind", len(entries))
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", "sess_named_image_refusal")
+	res, err = ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a new named session: want 400, got %d: %s", res.StatusCode, b)
+	}
+	if _, err := os.Stat(filepath.Join(sessRoot, "sess_named_image_refusal")); !os.IsNotExist(err) {
+		t.Fatalf("a refused named request left a session behind: %v", err)
+	}
+}
+
+func TestResponsesInlineFilesRefusalDoesNotApplyProfileSettings(t *testing.T) {
+	called := false
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		called = true
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	cfg := srv.activeCfg()
+	cfg.Models = append(cfg.Models,
+		config.ModelEntry{Model: "openai/text-only"},
+		config.ModelEntry{Model: "openai/vision", Multimodal: true},
+	)
+	st, err := srv.mgr.EnsureHTTPSession(context.Background(), "vision-refusal", "/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applySessionYAMLModel(cfg, st, "openai/vision"); err != nil {
+		t.Fatal(err)
+	}
+	settingsVersion := st.PublishedSettingsVersion()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	body := fmt.Sprintf(`{"model":"agent","input":"inspect","metadata":{"model":"openai/text-only","settingsVersion":%d},"inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`, settingsVersion)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", "vision-refusal")
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+	if got := effectiveYAMLModel(cfg, st); got != "openai/vision" {
+		t.Fatalf("a refused request changed the session model to %q", got)
+	}
+	if called {
+		t.Fatal("the agent runner was called for a refused request")
+	}
+}
+
+func TestResponsesInlineFilesPreserveSessionRefusals(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	_, childID := subagentChildFixture(t, srv.mgr, "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	payload := `{"model":"agent","input":"inspect","inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`
+	for _, tc := range []struct {
+		name, sessionID string
+		status          int
+		wantBody        string
+	}{
+		{name: "invalid session header", sessionID: "not a session", status: http.StatusBadRequest, wantBody: "invalid X-Coddy-Session-ID"},
+		{name: "read-only child", sessionID: childID, status: http.StatusConflict, wantBody: "subagent sessions are read-only transcripts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("X-Coddy-Session-ID", tc.sessionID)
+			res, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != tc.status || !strings.Contains(string(b), tc.wantBody) {
+				t.Fatalf("status %d body %s, want %d containing %q", res.StatusCode, b, tc.status, tc.wantBody)
+			}
+		})
+	}
+}
+
+func TestResponsesInlineFilesRefusalDoesNotResumeStoredSession(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	const sessionID = "stored-image-refusal"
+	if _, err := srv.mgr.EnsureHTTPSession(context.Background(), sessionID, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	srv.mgr.ForgetLiveSession(sessionID)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	payload := `{"model":"agent","input":"inspect","inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", sessionID)
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+	if st := srv.mgr.SessionByID(sessionID); st != nil {
+		t.Fatal("a refused request resumed and registered the stored session")
 	}
 }
 
@@ -6691,6 +6826,7 @@ func TestChatCompletionsImagesForModelWithoutMultimodal(t *testing.T) {
 	const picture = `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`
 	lastWithPicture := `[{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]}]`
 	historyWithPicture := `[{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]},{"role":"assistant","content":"a square"},{"role":"user","content":"and now?"}]`
+	historyThenLastPicture := `[{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]}]`
 	post := func(model, messages string) (int, string) {
 		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"`+model+`","messages":`+messages+`,"stream":false}`))
 		if err != nil {
@@ -6738,6 +6874,11 @@ func TestChatCompletionsImagesForModelWithoutMultimodal(t *testing.T) {
 	}
 	if after := sessions(); after != before {
 		t.Fatalf("a refused request left %d session(s) behind", after-before)
+	}
+	code, body = post("openai/gpt-4o", historyThenLastPicture)
+	_ = json.Unmarshal([]byte(body), &refusal)
+	if code != http.StatusBadRequest || refusal.Error.Param != "messages[2].content" {
+		t.Fatalf("last message picture after history: %d %s, want 400 on messages[2].content", code, body)
 	}
 
 	// The same text model, the picture in the replayed history: dropped, the turn runs.
