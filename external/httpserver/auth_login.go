@@ -59,16 +59,23 @@ type loginAccount struct {
 	hash string
 	// source is loginSourceConfig or loginSourceEnv, for the settings screen.
 	source string
+	// totpSecret is the base32 secret of the one-time codes asked for after
+	// the password; empty means the password alone signs in.
+	totpSecret       string
+	backupGeneration string
 	// ttl is how long a session lives; zero means the cookie is dropped when the
 	// browser closes, and the server falls back to webauth.DefaultSessionTTL for
 	// the record it keeps, which it cannot otherwise ever let go of.
 	ttl time.Duration
 }
 
-// fingerprint identifies the account behind a session. A rotated password or a
-// renamed user yields a different one, which is what ends the sessions the old
-// account opened - with nothing to invalidate and no plaintext held anywhere.
-func (a loginAccount) fingerprint() string { return webauth.CredentialFingerprint(a.user, a.hash) }
+// fingerprint identifies the account behind a session. A rotated password, a
+// renamed user or a second factor turned on, rotated or off yields a different
+// one, which is what ends the sessions the old account opened - with nothing to
+// invalidate and no plaintext held anywhere.
+func (a loginAccount) fingerprint() string {
+	return webauth.AccountFingerprint(a.user, a.hash, a.totpSecret, a.backupGeneration)
+}
 
 // loginPolicy is the sign-in form as it stands for one request.
 type loginPolicy struct {
@@ -127,14 +134,19 @@ func (s *Server) loginPolicyNow() loginPolicy {
 		return loginPolicy{}
 	}
 	ttl := cfgLogin.SessionTTL()
+	// The one-time code secret belongs to the server's form, not to where the
+	// password came from: the web UI's Settings, Authentication enrollment
+	// writes it, and it guards an account from the environment as much as one
+	// from the file.
+	totp := cfgLogin.TOTPSecret
 	switch {
 	case s.envLoginUser != "" && s.envLoginHash != "":
 		return loginPolicy{enabled: true, account: loginAccount{
-			user: s.envLoginUser, hash: s.envLoginHash, source: loginSourceEnv, ttl: ttl,
+			user: s.envLoginUser, hash: s.envLoginHash, totpSecret: totp, backupGeneration: cfgLogin.BackupCodes.Generation, source: loginSourceEnv, ttl: ttl,
 		}}
 	case cfgLogin.HasAccount():
 		return loginPolicy{enabled: true, account: loginAccount{
-			user: cfgLogin.User, hash: cfgLogin.PasswordHash, source: loginSourceConfig, ttl: ttl,
+			user: cfgLogin.User, hash: cfgLogin.PasswordHash, totpSecret: totp, backupGeneration: cfgLogin.BackupCodes.Generation, source: loginSourceConfig, ttl: ttl,
 		}}
 	case cfgLogin.IsExplicitlyEnabled():
 		return loginPolicy{enabled: true, broken: true}
@@ -143,7 +155,12 @@ func (s *Server) loginPolicyNow() loginPolicy {
 }
 
 func (s *Server) registerAuthRoutes() {
+	s.mux.HandleFunc("POST /coddy/auth/totp/setup", s.enrollmentSetup)
+	s.mux.HandleFunc("POST /coddy/auth/totp/enable", s.enrollmentChange)
+	s.mux.HandleFunc("POST /coddy/auth/totp/disable", s.enrollmentChange)
+	s.mux.HandleFunc("POST /coddy/auth/backup-codes/regenerate", s.enrollmentChange)
 	s.mux.HandleFunc("POST /coddy/auth/login", s.coddyAuthLoginPost)
+	s.mux.HandleFunc("POST /coddy/auth/login/verify", s.coddyAuthLoginVerifyPost)
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)
 	s.mux.HandleFunc("POST /coddy/auth/telegram", s.coddyAuthTelegramPost)
@@ -157,7 +174,7 @@ func (s *Server) registerAuthRoutes() {
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
+	case "POST /coddy/auth/login", "POST /coddy/auth/login/verify", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
 		return true
 	}
 	return false
@@ -240,6 +257,13 @@ func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if pol.enabled && !pol.broken {
 		out["mode"] = config.LoginModePassword
+		out["remember_available"] = pol.account.ttl > 0
+		// second_factor tells the form to ask for a one-time code next to the
+		// password. Whether a code is needed is no secret: the form shows the
+		// field to anybody who opens the page.
+		if pol.account.totpSecret != "" {
+			out["second_factor"] = secondFactorTOTP
+		}
 	}
 	// telegram_login tells a page opened as the Telegram bot's Mini App that
 	// its launch data can sign it in (an admin's only).
@@ -292,6 +316,7 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		User     string `json:"user"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBodyBytes))
 	if err != nil {
@@ -319,21 +344,45 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	if !s.verifyLogin(pol.account, req.User, req.Password) {
 		s.log.Warn("web sign-in refused", "user", req.User, "remote", client)
-		// The same answer whether the user exists or not: a form that says
-		// "no such user" is a list of the users that do exist.
-		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"error": "invalid credentials"})
+		// The same answer whether the user exists or the password is wrong.
+		refusal := map[string]interface{}{"error": "invalid credentials"}
+		if pol.account.totpSecret != "" {
+			refusal["second_factor"] = secondFactorTOTP
+		}
+		writeJSON(w, http.StatusUnauthorized, refusal)
+		return
+	}
+	if pol.account.totpSecret != "" {
+		ttl := pol.account.ttl
+		if !req.Remember {
+			ttl = 0
+		}
+		challenge, err := s.challenges.issue(pol.account.fingerprint(), ttl, s.authNow())
+		if err != nil {
+			writeJSON(w, 500, map[string]interface{}{"error": "could not open a challenge"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]interface{}{"second_factor": secondFactorTOTP, "challenge": challenge})
 		return
 	}
 	s.loginThrottle.Reset(client)
+	account := pol.account
+	if !req.Remember {
+		account.ttl = 0
+	}
+	s.issueLoginSession(w, r, account, client)
+}
 
-	token, sess, err := s.sessions.Issue(pol.account.user, pol.account.fingerprint(), pol.account.ttl)
+func (s *Server) issueLoginSession(w http.ResponseWriter, r *http.Request, account loginAccount, client string) {
+	token, sess, err := s.sessions.Issue(account.user, account.fingerprint(), account.ttl)
 	if err != nil {
 		s.log.Error("web sign-in could not open a session", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})
 		return
 	}
-	http.SetCookie(w, sessionCookie(r, token, pol.account.ttl))
-	s.log.Info("web sign-in", "user", pol.account.user, "remote", client)
+	http.SetCookie(w, sessionCookie(r, token, account.ttl))
+	s.log.Info("web sign-in", "user", account.user, "remote", client)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":         true,
 		"user":       sess.User,
@@ -358,6 +407,36 @@ func (s *Server) verifyLogin(acc loginAccount, user, password string) bool {
 		return false
 	}
 	return userOK && passOK
+}
+
+// secondFactorTOTP is the value of `second_factor` in the sign-in answers when
+// the form asks for a one-time code from an authenticator app.
+const secondFactorTOTP = "totp"
+
+// verifySecondFactor checks the one-time code of an account that has one.
+//
+// A code is taken once: the step it matched is recorded, and the same code -
+// or an older one still inside the window - opens no second session. The
+// password is checked first and this only after it, so a code is never spent
+// by a request that would have been refused anyway.
+func (s *Server) verifySecondFactor(acc loginAccount, code string) bool {
+	if acc.totpSecret == "" {
+		return true
+	}
+	step, ok := webauth.VerifyTOTP(acc.totpSecret, code, s.authNow())
+	if !ok {
+		return false
+	}
+	return s.totpGuard.Accept(acc.fingerprint(), step)
+}
+
+// authNow is the clock of the sign-in, the session store's so a test that
+// moves one moves both.
+func (s *Server) authNow() time.Time {
+	if s.sessions != nil && s.sessions.Now != nil {
+		return s.sessions.Now()
+	}
+	return time.Now()
 }
 
 func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {

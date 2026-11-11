@@ -1653,7 +1653,8 @@ func openAPISpec() map[string]interface{} {
 					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
 						"**login_required** is true when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
 						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
-						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. See https://coddy.dev/docs/operate/remote.",
+						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. " +
+						"**second_factor** is `totp` when the form also asks for a one-time code from an authenticator app (`httpserver.login.totp_secret`, enrolled in the web UI under Settings, Authentication). See https://coddy.dev/docs/operate/remote.",
 					"operationId": "getAuthState",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -1664,14 +1665,16 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"login_required": map[string]string{"type": "boolean", "description": "A password sign-in form is configured."},
-											"auth_required":  map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /coddy/*."},
-											"authenticated":  map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
-											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
-											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
-											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
-											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
-											"browser_login":  map[string]string{"type": "boolean", "description": "A page opened in the side panel of Coddy for Browser can sign in with the ticket the extension's endpoint gave it (POST /coddy/auth/browser)."},
+											"login_required":     map[string]string{"type": "boolean", "description": "A password sign-in form is configured."},
+											"auth_required":      map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /coddy/*."},
+											"authenticated":      map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
+											"mode":               map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
+											"second_factor":      map[string]interface{}{"type": "string", "enum": []string{"totp"}, "description": "The form also asks for the six-digit one-time code of an authenticator app. Absent when the password alone signs in."},
+											"remember_available": map[string]interface{}{"type": "boolean", "description": "Whether the sign-in form can issue a persistent cookie."},
+											"user":               map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
+											"expires_at":         map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+											"telegram_login":     map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
+											"browser_login":      map[string]string{"type": "boolean", "description": "A page opened in the side panel of Coddy for Browser can sign in with the ticket the extension's endpoint gave it (POST /coddy/auth/browser)."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1684,8 +1687,9 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/auth/login": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Sign a browser in with the configured account",
-					"description": "Public: it is the way through the gate. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
-						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
+					"description": "Public: it is the way through the gate, and it takes the password only. Optional `remember: true` requests the persistent cookie of `session_ttl_hours` (24 by default); omitted or false uses a browser-session cookie. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`). " +
+						"When `httpserver.login.totp_secret` is set, a correct password signs nobody in yet: the answer is `second_factor: \"totp\"` with a `challenge` instead of a session, no cookie is set, and the challenge opens `POST /coddy/auth/login/verify` for one attempt within three minutes. " +
+						"A wrong password and an unknown user get the same **401** and the same body (with `second_factor: \"totp\"` when codes are on); repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
 						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
 					"operationId": "authLogin",
 					"security":    []interface{}{map[string]interface{}{}},
@@ -1698,8 +1702,69 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"user":     map[string]string{"type": "string"},
 										"password": map[string]string{"type": "string", "format": "password"},
+										"remember": map[string]interface{}{"type": "boolean", "default": false},
 									},
 									"required": []string{"user", "password"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in (the session cookie is set) or, with `httpserver.login.totp_secret`, the challenge the second step is taken with",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"oneOf": []interface{}{
+											map[string]interface{}{
+												"type":        "object",
+												"description": "Signed in; the session cookie is set.",
+												"properties": map[string]interface{}{
+													"ok":         map[string]string{"type": "boolean"},
+													"user":       map[string]string{"type": "string"},
+													"expires_at": map[string]string{"type": "string", "format": "date-time"},
+												},
+												"required": []string{"ok", "user"},
+											},
+											map[string]interface{}{
+												"type":        "object",
+												"description": "Password accepted; the one-time code still has to be verified. No cookie is set.",
+												"properties": map[string]interface{}{
+													"second_factor": map[string]interface{}{"type": "string", "enum": []string{"totp"}},
+													"challenge":     map[string]string{"type": "string", "description": "One-use token `POST /coddy/auth/login/verify` takes, good for three minutes and bound to the account it was issued for."},
+												},
+												"required": []string{"second_factor", "challenge"},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/login/verify": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Complete a two-step sign-in with the one-time code",
+					"description": "Public: the second step of the form for an account with `httpserver.login.totp_secret`. `challenge` is the token `POST /coddy/auth/login` answered with - single-use, three minutes to live, bound to the account it was issued for - and `code` is the six-digit code of the authenticator app (RFC 6238: SHA-1, 30-second step, one step of clock drift either way, each code accepted once) or one backup code of the shape `XXXXXXXX-XXXXXXXX`, each spent once. " +
+						"On success sets the same session cookie `POST /coddy/auth/login` sets. **401** for an unknown, expired or spent challenge and for a wrong or reused code - the same body as a wrong password, counted against the same throttle - **400** for an unreadable body, **403** for a cross-site attempt, **500** when a spent backup code could not be recorded.",
+					"operationId": "authLoginVerify",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"challenge": map[string]string{"type": "string"},
+										"code":      map[string]string{"type": "string", "description": "Six-digit TOTP of the authenticator app, or one backup code."},
+									},
+									"required": []string{"challenge", "code"},
 								},
 							},
 						},
@@ -1724,7 +1789,7 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
-						"503": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -1812,6 +1877,152 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"401": errorResponseRef(),
 						"403": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/totp/setup": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Start an authenticator enrollment",
+					"description": "The enrollment the web UI runs under Settings, Authentication. Signed-in browser only: the request has to carry the session cookie and pass the same-origin check - a bearer token manages no second factor. " +
+						"`secret` is optional: absent, a fresh 160-bit secret is generated; supplied, it is accepted in base32 or base16 (a string that decodes as both is read as base32) and canonicalized to base32. The answer carries the canonical secret, the `otpauth://` URI (`Coddy:<user>`, issuer `Coddy`, SHA-1, 6 digits, 30-second period) and `qr_png`, a PNG of that URI as a `data:` URL. Nothing is stored at this step: the key lands in `httpserver.login.totp_secret` only through `POST /coddy/auth/totp/enable` with a code the app already produces. " +
+						"Answers are `Cache-Control: no-store`. **400** for an unreadable body or an unusable secret, **401** for no live session, **403** for a cross-site request, **500** when the setup could not be built.",
+					"operationId": "authTotpSetup",
+					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
+					"requestBody": map[string]interface{}{
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"secret": map[string]string{"type": "string", "description": "Base32 or base16 TOTP secret; a string that decodes as both is read as base32. Empty or absent generates one."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The enrollment material; nothing stored yet",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"secret": map[string]string{"type": "string", "description": "The canonical base32 secret."},
+											"uri":    map[string]string{"type": "string", "description": "The `otpauth://totp/...` URI."},
+											"qr_png": map[string]string{"type": "string", "description": "A `data:image/png;base64,...` URL with the QR of `uri`."},
+										},
+										"required": []string{"secret", "uri", "qr_png"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/totp/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Turn one-time codes on after a verified code",
+					"description": "Finishes the enrollment `POST /coddy/auth/totp/setup` opened: the `code` the authenticator app shows for `secret` has to match before anything is written, so a scan that went wrong locks nobody out. On success `httpserver.login.totp_secret` and a fresh set of ten backup codes are written into `config.yaml` and the current browser receives a refreshed session and every other session the account opened before ends on its next request. " +
+						"The answer's `codes` are the plaintext backup codes (`XXXXXXXX-XXXXXXXX`), shown once - the config keeps their SHA-256 hashes, and `backup_codes_generation` is the opaque id of the set. Same session-cookie and same-origin rules as the rest of the enrollment, `Cache-Control: no-store`. **400** for an invalid body, secret or code, **401** for no live session (a session that ended while the config lock was held included), **403** cross-site, **500** when the write could not be applied.",
+					"operationId": "authTotpEnable",
+					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"secret": map[string]string{"type": "string"},
+										"code":   map[string]string{"type": "string", "description": "Six-digit code the app shows for `secret`."},
+									},
+									"required": []string{"secret", "code"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "One-time codes on; the plaintext backup codes, shown once",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"codes":                   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Ten backup codes in plaintext; the config keeps only their hashes."},
+											"backup_codes_generation": map[string]string{"type": "string", "description": "Opaque id of the backup-code set."},
+										},
+										"required": []string{"codes", "backup_codes_generation"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/totp/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Turn one-time codes off",
+					"description": "Clears `httpserver.login.totp_secret` and the backup-code set from `config.yaml`; the password alone signs in afterwards, the current browser receives a refreshed session, and every other session the account opened ends on its next request. Same session-cookie and same-origin rules as the rest of the enrollment. **401** for no live session, **403** cross-site, **500** when the write could not be applied.",
+					"operationId": "authTotpDisable",
+					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "One-time codes off",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok": map[string]string{"type": "boolean"},
+										},
+										"required": []string{"ok"},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/backup-codes/regenerate": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Issue a new set of backup codes",
+					"description": "Replaces the backup-code set of an account that has one-time codes on: ten new codes are written into `config.yaml` and the old set stops working, while the spent codes of the old set stay spent - the ledger in `$CODDY_HOME/webauth-backup-consumed.json` records consumed codes across generations. " +
+						"The answer's `codes` are the plaintext codes, shown once; `backup_codes_generation` is the opaque id of the new set. Same session-cookie and same-origin rules as the rest of the enrollment, `Cache-Control: no-store`. **400** when one-time codes are not on, **401** for no live session, **403** cross-site, **500** when the write could not be applied.",
+					"operationId": "authBackupCodesRegenerate",
+					"security":    []interface{}{map[string]interface{}{"cookieAuth": []interface{}{}}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The new plaintext backup codes, shown once",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"codes":                   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+											"backup_codes_generation": map[string]string{"type": "string", "description": "Opaque id of the new backup-code set."},
+										},
+										"required": []string{"codes", "backup_codes_generation"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -3769,13 +3980,13 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it. While no credential is configured and httpserver.allow_insecure is off, a request that arrived on a loopback address is answered with 421 when its Host is not a loopback name, and any request that changes state (any method but GET, HEAD and OPTIONS) with 403 when it carries an Origin that is neither the server's own nor one httpserver.cors admits.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The public `/coddy/auth/*` routes (`me`, `login`, `login/verify`, `logout`, `telegram`, `browser`) are always reachable without it; the enrollment routes under `/coddy/auth/totp/*` and `/coddy/auth/backup-codes/*` take the sign-in cookie instead. While no credential is configured and httpserver.allow_insecure is off, a request that arrived on a loopback address is answered with 421 when its Host is not a loopback name, and any request that changes state (any method but GET, HEAD and OPTIONS) with 403 when it carries an Origin that is neither the server's own nor one httpserver.cors admits.",
 				},
 				"cookieAuth": map[string]interface{}{
 					"type": "apiKey",
 					"in":   "cookie",
 					"name": sessionCookieBaseName + "_<host digest>",
-					"description": "Optional, for browsers. When httpserver.login is configured (or CODDY_HTTP_USER / CODDY_HTTP_PASSWORD are set), `POST /coddy/auth/login` returns an HttpOnly `" + sessionCookieBaseName + "_<digest of the request host>` cookie (the digest keeps two servers on one host from overwriting each other's session, since cookies are not scoped by port) that opens the same routes a bearer token opens, including the SSE streams (no ?access_token= needed, since a same-origin EventSource sends cookies). " +
+					"description": "Optional, for browsers. When httpserver.login is configured (or CODDY_HTTP_USER / CODDY_HTTP_PASSWORD are set), `POST /coddy/auth/login` returns an HttpOnly `" + sessionCookieBaseName + "_<digest of the request host>` cookie (the digest keeps two servers on one host from overwriting each other's session, since cookies are not scoped by port) that opens the same routes a bearer token opens, including the SSE streams (no ?access_token= needed, since a same-origin EventSource sends cookies). An account with one-time codes on gets the cookie from `POST /coddy/auth/login/verify` instead, the challenge of the password step in hand. " +
 						"The cookie is `SameSite=Strict`, so it never travels with a request another site caused. Cookie-authenticated requests that change state are additionally refused with 403 unless `Sec-Fetch-Site` says same-origin (or none) or `Origin` matches the request host - a non-browser client driving this API with a cookie has to send an `Origin` header, or present a bearer token instead. Bearer requests are never subject to that check. Sign-in is off by default. See https://coddy.dev/docs/operate/remote.",
 				},
 			},

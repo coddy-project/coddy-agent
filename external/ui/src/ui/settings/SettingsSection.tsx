@@ -1,3 +1,7 @@
+import {
+  AuthenticationSection,
+  AUTHENTICATION_FIELD_TEXTS,
+} from "./AuthenticationSection";
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
@@ -342,6 +346,9 @@ export function overrideTexts(
   parent: Record<string, unknown> | undefined,
   schema: JsonSchema,
 ): false | null | OverrideTexts {
+  if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
+    return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+  }
   const label = () =>
     schemaFieldLabel(
       domain,
@@ -791,6 +798,15 @@ export function SettingsSection(props: {
           <SystemSection />
         </Suspense>
       </ChunkBoundary>
+    );
+  }
+
+  if (section.kind === "authentication") {
+    return (
+      <AuthenticationSection
+        value={asObject(doc.httpserver)}
+        onChange={(v) => setKey("httpserver", v)}
+      />
     );
   }
 

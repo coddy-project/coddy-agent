@@ -2,7 +2,7 @@ module github.com/EvilFreelancer/coddy-agent
 
 go 1.26.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/EvilFreelancer/tgfake v1.1.0
@@ -31,6 +31,7 @@ require (
 	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
+	rsc.io/qr v0.2.0
 )
 
 require (

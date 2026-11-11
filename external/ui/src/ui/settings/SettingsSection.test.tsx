@@ -2634,6 +2634,31 @@ describe("settings search index matches the drawing", () => {
     return pages;
   }
 
+  test("authentication fields are searchable by their displayed names in both languages", async () => {
+    for (const [sc, names] of [
+      [AGENT_EN, ["Enabled", "Login", "Password", "Session duration (hours)"]],
+      [AGENT_RU, ["Включено", "Логин", "Пароль", "Длительность сеанса (часы)"]],
+    ] as const) {
+      const index = indexFor(sc);
+      const page = await readPage(sc, index, "httpserver", null);
+      for (const name of names) {
+        const hit = searchSettings(index, name, index.length).hits.find(
+          ({ entry }) =>
+            entry.section === "httpserver" &&
+            entry.kind === "field" &&
+            entry.names.includes(name),
+        );
+        expect(hit, `${sc.name}: ${name}`).toBeDefined();
+        expect(
+          page.drawn.some(
+            (box) =>
+              box.anchor === hit!.entry.anchor && box.names.includes(name),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
   test("every drawn anchor is indexed and every indexed anchor is drawn, once or once per entry its list draws, tab by tab and row by row", async () => {
     for (const sc of SCENARIOS) {
       const pages = await pagesOf(sc);
