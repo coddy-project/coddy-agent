@@ -59,12 +59,27 @@ test("the tip above the context ring draws no shadow", () => {
   expect(css).not.toContain("--coddy-tip-shadow-above");
 });
 
+// The panel of the plate and the card draws the shadow while a tip is up -
+// not the wrap, which also holds the queue and the banners above the plate.
+// On a touch device a tap leaves :hover behind, so the hover rules run only
+// where a real pointer hovers; :focus-visible stays for the keyboard.
 test("the composer shadow stays under the plate while a tip is up", () => {
-  expect(css).toMatch(
-    /\.composer-wrap:has\(\.rail-tip-host:hover, \.composer-context-tip-host:hover\)[\s\S]*?box-shadow: var\(--coddy-glass-panel-shadow\);/,
+  expect(css).toContain(
+    "@media (hover: hover) { .composer-panel:has(.rail-tip-host:hover, .composer-context-tip-host:hover) { border-radius: 12px; box-shadow: var(--coddy-glass-panel-shadow); }",
+  );
+  expect(css).toContain(
+    "@media (hover: hover) { .composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover) { box-shadow: none; }",
   );
   expect(css).toMatch(
-    /\.composer-card:has\(\.rail-tip-host:hover, \.composer-context-tip-host:hover\)[\s\S]*?box-shadow: none;/,
+    /\.composer-panel:has\( ?\.rail-tip-host :focus-visible, \.composer-context-tip-host:focus-visible ?\) \{ border-radius: 12px; box-shadow: var\(--coddy-glass-panel-shadow\); \}/,
+  );
+  expect(css).toMatch(
+    /\.composer-card:has\( ?\.rail-tip-host :focus-visible, \.composer-context-tip-host:focus-visible ?\) \{ box-shadow: none; \}/,
+  );
+  // The wrap holds the queue and the banners too: a shadow on it would
+  // cover them, so it is not the element that draws it.
+  expect(css).not.toMatch(
+    /\.composer-wrap:has\([^)]*rail-tip[^)]*\)[^{]*\{[^}]*box-shadow/,
   );
 });
 

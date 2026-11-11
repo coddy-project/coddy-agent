@@ -202,6 +202,13 @@ async function startOnPickedFolder() {
   fireEvent.click(screen.getByTestId("pick-data"));
 }
 
+const workspacePosts = () =>
+  fetchMock.mock.calls.filter(
+    ([input, init]) =>
+      /^\/coddy\/sessions\/[^/]+\/workspace$/.test(String(input)) &&
+      (init as RequestInit | undefined)?.method === "POST",
+  );
+
 const rows = () =>
   [...screen.getByTestId("items").querySelectorAll("li")].map((li) => ({
     type: li.getAttribute("data-type"),
@@ -360,4 +367,105 @@ test("the text comes back when the operator left the chat before the folder fail
     "folder not found: /projects/data",
   );
   expect(responsesPosted).toBe(0);
+});
+
+test("a fast first send waits for the desktop workspace instead of using its fallback", async () => {
+  history.replaceState(
+    null,
+    "",
+    "/?desktop_workspace=%2Fprojects%2Fdefault&desktop_workspace_pending=1#/",
+  );
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith("/coddy/workspace/context"),
+      ),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByTestId("send"));
+  await waitFor(() =>
+    expect(screen.getByTestId("generating").textContent).toBe("yes"),
+  );
+
+  expect(workspacePosts()).toHaveLength(0);
+  expect(responsesPosted).toBe(0);
+
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          channel: "coddy.desktop",
+          type: "workspace-resolved",
+          path: DATA_WORKSPACE,
+        },
+        origin: window.location.origin,
+        source: window.parent,
+      }),
+    );
+  });
+
+  await waitFor(() => expect(workspacePosts()).toHaveLength(1));
+  expect(JSON.parse(String(workspacePosts()[0]?.[1]?.body ?? "{}"))).toEqual({
+    path: DATA_WORKSPACE,
+  });
+  answerWorkspace(ctx(DATA_WORKSPACE));
+  await waitFor(() => expect(responsesPosted).toBe(1));
+});
+
+test("a manual folder picked while desktop resolution is pending wins over the late answer", async () => {
+  history.replaceState(
+    null,
+    "",
+    "/?desktop_workspace=%2Fprojects%2Fdefault&desktop_workspace_pending=1#/",
+  );
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith("/coddy/workspace/context"),
+      ),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByTestId("pick-data"));
+  expect(screen.getByTestId("chat-workspace").textContent).toBe(DATA_WORKSPACE);
+  fireEvent.click(screen.getByTestId("send"));
+  await waitFor(() =>
+    expect(screen.getByTestId("generating").textContent).toBe("yes"),
+  );
+
+  await waitFor(() => expect(workspacePosts()).toHaveLength(1));
+  expect(JSON.parse(String(workspacePosts()[0]?.[1]?.body ?? "{}"))).toEqual({
+    path: DATA_WORKSPACE,
+  });
+
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          channel: "coddy.desktop",
+          type: "workspace-resolved",
+          path: "/projects/late",
+        },
+        origin: window.location.origin,
+        source: window.parent,
+      }),
+    );
+  });
+  expect(
+    fetchMock.mock.calls.some(([input]) =>
+      String(input).includes(encodeURIComponent("/projects/late")),
+    ),
+  ).toBe(false);
+
+  answerWorkspace(ctx(DATA_WORKSPACE));
+  await waitFor(() => expect(responsesPosted).toBe(1));
 });

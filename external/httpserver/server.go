@@ -77,6 +77,9 @@ type Server struct {
 	// noAuth serves without any credential, whatever the configuration says
 	// (httpserver.Options.NoAuth). Set once, before the server serves.
 	noAuth bool
+	// noAuthHeader permits that choice per request on the authenticated local
+	// IPC server only (Options.NoAuthHeader).
+	noAuthHeader string
 
 	// unbuiltSections are the settings sections the form leaves out
 	// (Options.UnbuiltSections).
@@ -120,6 +123,10 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	// turnMirror fans turns this server starts out to the other surfaces of
+	// the process. Nil means this server's own composer relay only.
+	turnMirror session.TurnMirror
 
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
@@ -829,6 +836,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
+		// The local relay already exists, so this server's registration in the
+		// runtime is a no-op while every other HTTP surface mirrors the turn.
+		mirrored, releaseMirror := session.Mirror(s.turnMirror, sessionID, bridge)
+		defer releaseMirror()
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
@@ -840,7 +851,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Prompt:     prompt,
 			ImageParts: promptImages,
 			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
-		}, bridge, promptOpts)
+		}, mirrored, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
@@ -1489,6 +1500,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
+		mirrored, releaseMirror := session.Mirror(s.turnMirror, sid, bridge)
+		defer releaseMirror()
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		// A turn from the side panel of Coddy for Browser names the tab it
@@ -1517,7 +1530,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, mirrored, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)

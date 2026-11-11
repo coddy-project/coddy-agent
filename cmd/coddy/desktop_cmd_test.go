@@ -3,9 +3,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"log/slog"
+	"net"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -71,5 +79,124 @@ func TestDesktopStartsTheMetricsWiring(t *testing.T) {
 	}
 	if strings.Contains(source, "metrics:         newMetricsWiring(rt),") {
 		t.Fatal("the subsystem list gets a fresh wiring that is never started")
+	}
+}
+
+type desktopTestLogBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *desktopTestLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *desktopTestLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
+}
+
+func TestDesktopWarnsAboutEnabledUnavailableSubsystems(t *testing.T) {
+	var out desktopTestLogBuffer
+	log := slog.New(slog.NewTextHandler(&out, nil))
+	cfg := &config.Config{Metrics: config.MetricsConfig{Enable: true}}
+	all := []serve.Subsystem{
+		{Kind: serve.KindMetrics, ConfigKey: "metrics.enable", BuildTag: "metrics", Enabled: func(c *config.Config) bool { return c.Metrics.Enable }},
+		{Kind: serve.KindHTTP, ConfigKey: "httpserver.enable", BuildTag: "http", Available: true, Enabled: func(*config.Config) bool { return true }},
+	}
+	warnDesktopSubsystems(log, cfg, all)
+	got := out.String()
+	for _, want := range []string{"metrics.enable", "metrics", "not built", "desktop window"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "httpserver.enable") {
+		t.Fatalf("an available subsystem was warned about: %q", got)
+	}
+}
+
+// A coddy serve process may already own the configured public address. Its
+// bind conflict is auxiliary to the desktop: the loopback window must keep
+// serving instead of the supervisor cancelling every surface.
+func TestDesktopPublicPortConflictLeavesWindowRunning(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = occupied.Close() }()
+	windowListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	windowAddr := windowListener.Addr().String()
+	if err := windowListener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	var out desktopTestLogBuffer
+	log := slog.New(slog.NewTextHandler(&out, nil))
+	host, portText, err := net.SplitHostPort(occupied.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: home},
+		HTTPServer: config.HTTPServerConfig{Host: host, Port: port},
+		Metrics:    config.MetricsConfig{Enable: true},
+	}
+	rt := &serve.Runtime{}
+	if err := rt.Init(serve.Options{
+		CLI: config.CLIPaths{Home: home, CWD: home}, NeedsSessions: true,
+		Log: log, Cfg: cfg,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- serveHTTP(rt, home, true, desktop.NewWindowHandle(), newMetricsWiring(rt), "")(ctx, windowAddr)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		res, requestErr := http.Get("http://" + windowAddr + "/v1/models")
+		failed := strings.Contains(out.String(), "subsystem=httpserver") && strings.Contains(out.String(), "level=ERROR")
+		if requestErr == nil {
+			_ = res.Body.Close()
+			if res.StatusCode == http.StatusOK && failed {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the window did not survive the public bind conflict; log:\n%s", out.String())
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the desktop supervisor ended on the auxiliary bind conflict: %v", err)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := out.String(); !strings.Contains(got, "metrics.enable") || !strings.Contains(got, "desktop window") {
+		t.Fatalf("the unavailable enabled subsystem was not warned about: %q", got)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("the desktop supervisor returned the auxiliary error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the desktop supervisor did not stop")
 	}
 }

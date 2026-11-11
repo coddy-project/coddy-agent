@@ -87,14 +87,16 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 | `--auth` | ask for the credential the configuration carries. Without it the window asks for nothing (below) |
 | `-t`, `--test-config` | check the configuration file and exit, starting nothing |
 
-The desktop runs the same site `coddy serve` runs. Every surface the configuration enables - the
-public HTTP surface, the Telegram bot, the Pachca bot, the swarm relay, the scheduler, the exporter,
-the browser endpoint - comes up beside the window's own loopback surface, so the web UI a phone
-opens on this machine's configured address is the one the window drives. A surface that cannot come
-up - a port already bound by a `coddy serve` of the same home, a token a gateway refuses - stops
-alone and says so in the log; the window and the rest keep running. Nothing in the configuration is
-rewritten to get there: a save from the settings screen inside the window writes back exactly what
-the operator had.
+The desktop runs the same site `coddy serve` runs. If a service for the same agent home is already
+running, the window connects to that process over a private local channel and starts no second
+session manager, scheduler or gateway. The service keeps running when the window closes. This also
+works when the public HTTP listener is disabled. Restart an older background service that does not
+yet offer the channel before opening the window.
+
+Otherwise the desktop starts the surfaces the configuration enables - the public HTTP surface, the
+Telegram and Pachca bots, the swarm relay, the scheduler, the exporter and the browser endpoint -
+beside the window's loopback surface. A surface that cannot start stops alone and says so in the
+log; the window and the rest keep running. The configuration on disk is not rewritten.
 
 ## Tabs
 
@@ -327,6 +329,14 @@ configuration configures, and the sign-in form appears inside the window.
 Every other surface the configuration enables runs beside the window, as above, and that too is a
 decision of this process rather than an edit: the document stays as written, and the credential the
 public surface asks of a visitor from elsewhere is the one it holds.
+
+A remote environment sees the desktop window as a separate browser origin,
+`http://127.0.0.1:<port>`, where the port is recorded in `<home>/desktop/port`. On the remote
+server, enable `httpserver.cors` and list that exact origin in `httpserver.cors.allowed_origins`.
+For a swarm relay, configure `swarm.cors` on the relay instead. The alternative
+`allow_loopback: true` admits every loopback page in the browser, not only Coddy's window; use it
+only when that broader trust is intended, and protect the remote API with a credential. Starting
+the desktop does not change a remote server's CORS policy.
 
 ## Linux, macOS and Windows
 

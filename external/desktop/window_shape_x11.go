@@ -108,6 +108,35 @@ func (c *x11Control) reapplyShape() {
 	shape.Rectangles(c.conn, shape.SoSet, shape.SkBounding, xproto.ClipOrderingUnsorted, win, 0, 0, rects)
 }
 
+// resizeShape describes the corners of the geometry an edge drag asked for.
+// Nil means the geometry cannot be represented by X's 16-bit rectangles, in
+// which case the watcher reads the geometry the manager actually applied.
+func resizeShape(rect windowRect) []xproto.Rectangle {
+	if rect.W <= 0 || rect.H <= 0 || rect.W > int(^uint16(0)) || rect.H > int(^uint16(0)) {
+		return nil
+	}
+	return roundedRectangles(uint16(rect.W), uint16(rect.H), cornerRadius)
+}
+
+// reshapeAfterResize puts the corners back before watchShape's next tick.
+// Unlike reapplyShape it cannot reuse shapeRects: their size is the old one.
+func (c *x11Control) reshapeAfterResize(rect windowRect) {
+	win, err := c.window()
+	if err != nil {
+		return
+	}
+	if c.maximised() || c.framed() {
+		c.clearShape(win)
+		return
+	}
+	rects := resizeShape(rect)
+	if len(rects) == 0 {
+		c.roundCorners()
+		return
+	}
+	c.applyShape(win, rects)
+}
+
 // shapeReady loads the extension once per connection. A server without it
 // leaves the corners square, which is a look and never a failure.
 func (c *x11Control) shapeReady() bool {

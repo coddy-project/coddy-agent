@@ -473,7 +473,13 @@ func (c *x11Control) ResizeBy(direction string, dx, dy int) error {
 	if !ok {
 		return errors.New("desktop: unknown resize direction")
 	}
-	return c.placeRect(next)
+	if err := c.placeRect(next); err != nil {
+		return err
+	}
+	// A move can lay its old shape again, but a resize cannot: the browser
+	// clears the region and the corners now belong to a different rectangle.
+	c.reshapeAfterResize(next)
+	return nil
 }
 
 // place puts the window's top left corner at x, y.

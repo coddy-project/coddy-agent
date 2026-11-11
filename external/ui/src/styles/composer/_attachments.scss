@@ -325,10 +325,17 @@
 }
 
 /* The card rises for its tooltip, but its shadow must not rise with it over
-   the joined plate. While a tip is up the wrapper draws the shadow under the
-   whole composer instead, and the lifted card draws none. */
-.composer-wrap:has(.rail-tip-host:hover, .composer-context-tip-host:hover),
-.composer-wrap:has(
+   the joined plate. While a tip is up the panel of the plate and the card
+   draws the shadow under them instead - the queue and the banners above the
+   plate keep their own - and the lifted card draws none. */
+@media (hover: hover) {
+  .composer-panel:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    border-radius: 12px;
+    box-shadow: var(--coddy-glass-panel-shadow);
+  }
+}
+
+.composer-panel:has(
   .rail-tip-host :focus-visible,
   .composer-context-tip-host:focus-visible
 ) {
@@ -336,7 +343,12 @@
   box-shadow: var(--coddy-glass-panel-shadow);
 }
 
-.composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover),
+@media (hover: hover) {
+  .composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    box-shadow: none;
+  }
+}
+
 .composer-card:has(
   .rail-tip-host :focus-visible,
   .composer-context-tip-host:focus-visible

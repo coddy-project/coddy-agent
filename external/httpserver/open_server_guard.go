@@ -35,7 +35,7 @@ const browserEndpointPrefix = "/browser/v1/"
 // (internal/tools/preview).
 func (s *Server) openServerGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.authPolicyNow().enabled || s.openOnPurpose() || strings.HasPrefix(r.URL.Path, browserEndpointPrefix) {
+		if s.authPolicyForRequest(r).enabled || s.openOnPurpose() || strings.HasPrefix(r.URL.Path, browserEndpointPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}

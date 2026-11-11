@@ -293,7 +293,9 @@ import {
   readLastWorkspaceDir,
   readWorktreePref,
   publishWorkspaceToDesktop,
-  takeDesktopWorkspaceDir,
+  takeDesktopWorkspaceHandoff,
+  waitForDesktopWorkspace,
+  type DesktopWorkspaceWait,
   writeLastWorkspaceDir,
   writeWorktreePref,
 } from "./chat/workspaceCookies";
@@ -582,6 +584,12 @@ export function App() {
   );
   // The worktree checkbox is this browser's choice for every folder (cookie).
   const [worktreePref, setWorktreePref] = useState(() => readWorktreePref());
+  const [desktopWorkspaceHandoff] = useState(() =>
+    takeDesktopWorkspaceHandoff(),
+  );
+  const desktopWorkspaceHandoffAvailableRef = useRef(true);
+  const desktopWorkspaceWaitRef = useRef<DesktopWorkspaceWait | null>(null);
+  const desktopFolderPickRef = useRef(0);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
@@ -593,8 +601,11 @@ export function App() {
   // the pick at once, never a preview answer that may still be in flight.
   const [pendingWorkspacePath, setPendingWorkspacePath] = useState("");
   const setPendingWorkspace = useCallback(
-    (next: { path?: string; branch?: string; worktree?: boolean } | null) => {
-      publishWorkspaceToDesktop(next?.path ?? "");
+    (
+      next: { path?: string; branch?: string; worktree?: boolean } | null,
+      manual = false,
+    ) => {
+      publishWorkspaceToDesktop(next?.path ?? "", manual);
       pendingWorkspaceRef.current = next;
       setPendingWorkspacePath(next?.path ?? "");
     },
@@ -2214,6 +2225,32 @@ export function App() {
     }
   }, [refreshWorkspaceContext]);
 
+  // A desktop tab opens on its fallback at once. The shell's authoritative
+  // answer arrives in place, without reloading the composer or losing its
+  // draft; a folder picked by the operator supersedes that answer.
+  useEffect(() => {
+    if (!desktopWorkspaceHandoff.pending || sessionId) return undefined;
+    const pick = desktopFolderPickRef.current;
+    const wait = waitForDesktopWorkspace((path) => {
+      if (pick !== desktopFolderPickRef.current) return;
+      setPendingWorkspace(
+        path ? { ...(pendingWorkspaceRef.current || {}), path } : null,
+      );
+      void refreshHomeWorkspace();
+    });
+    desktopWorkspaceWaitRef.current = wait;
+    return () => {
+      if (desktopWorkspaceWaitRef.current === wait) {
+        desktopWorkspaceWaitRef.current = null;
+      }
+      wait.finish();
+    };
+  }, [
+    desktopWorkspaceHandoff.pending,
+    refreshHomeWorkspace,
+    setPendingWorkspace,
+  ]);
+
   /**
    * Fetches the remotes of the folder the branch list is about - the session's,
    * or before a session exists the folder the new chat picked - and takes the
@@ -2306,9 +2343,13 @@ export function App() {
       return;
     }
     // The start screen opens on the folder last picked in this browser.
+    const desktopHandoff = desktopWorkspaceHandoffAvailableRef.current
+      ? desktopWorkspaceHandoff
+      : { path: "", pending: false };
+    desktopWorkspaceHandoffAvailableRef.current = false;
     const remembered = sessionId
       ? ""
-      : takeDesktopWorkspaceDir() || readLastWorkspaceDir();
+      : desktopHandoff.path || readLastWorkspaceDir();
     if (remembered) {
       setPendingWorkspace({ path: remembered });
       void refreshHomeWorkspace();
@@ -2322,6 +2363,7 @@ export function App() {
     refreshHomeWorkspace,
     newChatWorkspaceEpoch,
     setPendingWorkspace,
+    desktopWorkspaceHandoff,
   ]);
 
   // On the start screen, coming back to the page reads the folder again: its
@@ -2352,13 +2394,19 @@ export function App() {
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
       // A folder picked is this browser's for the next start screen too.
+      const manualWorkspace =
+        payload.path !== undefined || payload.branch !== undefined;
+      if (manualWorkspace) {
+        desktopFolderPickRef.current += 1;
+        desktopWorkspaceWaitRef.current?.finish();
+      }
       if (payload.path) {
         writeLastWorkspaceDir(payload.path);
       }
-      setPendingWorkspace({
-        ...(pendingWorkspaceRef.current || {}),
-        ...payload,
-      });
+      setPendingWorkspace(
+        { ...(pendingWorkspaceRef.current || {}), ...payload },
+        manualWorkspace,
+      );
       if (payload.path) {
         const gen = ++workspaceCtxGenRef.current;
         try {
@@ -5603,6 +5651,15 @@ export function App() {
         }
       };
 
+      const desktopWorkspaceWait = isNewChatFirstSend
+        ? desktopWorkspaceWaitRef.current
+        : null;
+      if (desktopWorkspaceWait && !desktopWorkspaceWait.isSettled()) {
+        // The fallback is safe to draw, never safe to send into while the
+        // desktop shell still owes this tab its authoritative folder.
+        await desktopWorkspaceWait.done;
+      }
+
       // A first send of attachments alone has no text to name the chat by.
       let naming: TitleSuggestHandle | null = null;
       if (isNewChatFirstSend && sessionIdWhenKnown && text.trim()) {
@@ -6779,7 +6836,10 @@ export function App() {
   );
 
   const contextPct = useMemo(
-    () => contextUsagePercent(maxContextTokens, contextBreakdown),
+    () =>
+      contextBreakdown === null
+        ? undefined
+        : contextUsagePercent(maxContextTokens, contextBreakdown),
     [maxContextTokens, contextBreakdown],
   );
 
@@ -8349,7 +8409,7 @@ export function App() {
             providerUsage={providerUsageState.usage}
             usageBannerDismissedKey={providerUsageState.dismissedKey}
             onUsageBannerDismiss={providerUsageState.dismissBanner}
-            contextPct={contextPct}
+            {...(contextPct !== undefined ? { contextPct } : {})}
             maxContextTokens={maxContextTokens}
             contextBreakdown={contextBreakdown}
             compactionSettings={{

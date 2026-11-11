@@ -405,8 +405,12 @@ func TabFolder(raw string) (string, error) {
 // with no gesture behind it is refused, and the page waits for the start to be
 // answered before it sends one.
 type dragGesture struct {
-	mu   sync.Mutex
-	open bool
+	// operation keeps an accepted resize or move ordered with the requests
+	// behind it, including move-end. HTTP handlers run concurrently even when
+	// the page sends its requests in order.
+	operation sync.Mutex
+	mu        sync.Mutex
+	open      bool
 }
 
 func (g *dragGesture) begin() {
@@ -458,6 +462,11 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
 		http.Error(w, "a window action is a small JSON object", http.StatusBadRequest)
 		return
+	}
+	switch body.Action {
+	case "move-begin", "move-by", "resize-begin", "resize-by", "move-end":
+		drag.operation.Lock()
+		defer drag.operation.Unlock()
 	}
 	var err error
 	switch body.Action {

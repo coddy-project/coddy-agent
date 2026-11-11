@@ -11,6 +11,7 @@ import { envStorageSuffix } from "../env/remoteEnv";
 
 export const CODDY_WORKSPACE_DIR_COOKIE = "coddy_workspace_dir";
 export const CODDY_WORKTREE_COOKIE = "coddy_worktree";
+export const DESKTOP_WORKSPACE_RESOLVE_TIMEOUT_MS = 6500;
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
@@ -76,26 +77,103 @@ export function readLastWorkspaceDir(): string {
  * once and then leaves the address before a later folder pick can be undone
  * by a restart of the tab.
  */
-export function takeDesktopWorkspaceDir(): string {
+export function takeDesktopWorkspaceHandoff(): {
+  path: string;
+  pending: boolean;
+} {
   if (typeof window === "undefined") {
-    return "";
+    return { path: "", pending: false };
   }
   const url = new URL(window.location.href);
   const path = url.searchParams.get("desktop_workspace")?.trim() ?? "";
-  if (!path) {
-    return "";
+  const pending = url.searchParams.get("desktop_workspace_pending") === "1";
+  if (!path && !pending) {
+    return { path: "", pending: false };
   }
   url.searchParams.delete("desktop_workspace");
+  url.searchParams.delete("desktop_workspace_pending");
   window.history.replaceState(
     window.history.state,
     "",
     `${url.pathname}${url.search}${url.hash}`,
   );
-  return path;
+  return { path, pending };
+}
+
+export function takeDesktopWorkspaceDir(): string {
+  return takeDesktopWorkspaceHandoff().path;
+}
+
+export type DesktopWorkspaceWait = {
+  done: Promise<void>;
+  isSettled: () => boolean;
+  /** A manual folder pick settles the wait without applying a late answer. */
+  finish: () => void;
+};
+
+/**
+ * Waits for the desktop shell's authoritative folder without reloading the
+ * SPA. The ready request covers a shell that resolved before React mounted;
+ * the timeout leaves the address's fallback in force when no answer arrives.
+ */
+export function waitForDesktopWorkspace(
+  onPath: (path: string) => void,
+  timeoutMs = DESKTOP_WORKSPACE_RESOLVE_TIMEOUT_MS,
+): DesktopWorkspaceWait {
+  let settled = false;
+  let timer = 0;
+  let resolveDone = () => {};
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timer);
+    window.removeEventListener("message", onMessage);
+    resolveDone();
+  };
+  const onMessage = (event: MessageEvent) => {
+    if (
+      event.origin !== window.location.origin ||
+      event.source !== window.parent
+    ) {
+      return;
+    }
+    const data = event.data as {
+      channel?: unknown;
+      type?: unknown;
+      path?: unknown;
+    } | null;
+    if (
+      !data ||
+      data.channel !== "coddy.desktop" ||
+      data.type !== "workspace-resolved" ||
+      typeof data.path !== "string"
+    ) {
+      return;
+    }
+    try {
+      onPath(data.path);
+    } finally {
+      finish();
+    }
+  };
+  window.addEventListener("message", onMessage);
+  timer = window.setTimeout(finish, timeoutMs);
+  try {
+    window.parent.postMessage(
+      { channel: "coddy.desktop", type: "workspace-ready" },
+      window.location.origin,
+    );
+  } catch {
+    finish();
+  }
+  return { done, isSettled: () => settled, finish };
 }
 
 /** Keeps the draft's folder on its own desktop tab, not only in a shared cookie. */
-export function publishWorkspaceToDesktop(path: string): void {
+export function publishWorkspaceToDesktop(path: string, manual = false): void {
   if (typeof window === "undefined") {
     return;
   }
@@ -114,7 +192,12 @@ export function publishWorkspaceToDesktop(path: string): void {
     );
   }
   window.parent.postMessage(
-    { channel: "coddy.desktop", type: "workspace", path },
+    {
+      channel: "coddy.desktop",
+      type: "workspace",
+      path,
+      ...(manual ? { manual: true } : {}),
+    },
     window.location.origin,
   );
 }

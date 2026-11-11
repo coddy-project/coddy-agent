@@ -793,7 +793,11 @@ test("generating shows stop and calls onStop", () => {
 // that say it. The five lines it used to be - input, output, total and the
 // window - repeated the popover the ring opens, badly.
 test("the context tip is the percent and the tokens, and follows the model's window", () => {
-  const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
+  const usage = {
+    inputTokens: 800000,
+    outputTokens: 200000,
+    totalTokens: 1000000,
+  };
   const { rerender } = render(
     <Composer
       value=""
@@ -975,6 +979,29 @@ test("the context tip counts the window's tokens, not cumulative usage", () => {
   );
   expect(screen.getByRole("tooltip").textContent ?? "").toBe(
     "18.6% · 23.7k / 128k",
+  );
+});
+
+test("the context tip does not use lifetime tokens when the window is unknown", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "Context usage unavailable · max 128k",
   );
 });
 

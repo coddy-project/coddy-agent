@@ -66,8 +66,10 @@
   const frameLoadAttempts = new Map();
   let draggedTabUid = null;
   let suppressTabClickUid = null;
-  /** The rows of GET /coddy/sessions, by session id: the title and the state. */
+  /** The rows of GET /coddy/sessions, by tab: session ids are per environment. */
   const rows = new Map();
+  /** One session-list read in flight per environment and credential scope. */
+  const sessionReads = new Map();
   /** Turns a frame has just sent, before the session list catches up. */
   const locallyBusy = new Map();
   /** Whether this window can be asked to minimise, maximise, move or close. */
@@ -490,14 +492,26 @@
     const startY = e.screenY;
     let began = false;
     let pending = null;
+    let draining = null;
     let frame = 0;
 
     const send = () => {
       frame = 0;
-      if (!began || !pending) return;
-      const [dx, dy] = pending;
-      pending = null;
-      return askWindow("resize-by", { direction, x: dx, y: dy });
+      if (!began || draining) return draining;
+      if (!pending) return null;
+      // One request at a time. Pointer moves only replace the delta waiting
+      // in this drain, so the last one is sent after the request in flight,
+      // and stop can await the whole queue before ending the gesture.
+      draining = (async () => {
+        while (pending) {
+          const [dx, dy] = pending;
+          pending = null;
+          await askWindow("resize-by", { direction, x: dx, y: dy });
+        }
+      })().finally(() => {
+        draining = null;
+      });
+      return draining;
     };
     const begun = askWindow("resize-begin").then((ok) => {
       began = ok;
@@ -624,12 +638,30 @@
 
   // --- frames -------------------------------------------------------------
 
-  const addressOf = (tab) =>
-    "/" +
-    (tab.workspace
-      ? "?desktop_workspace=" + encodeURIComponent(tab.workspace)
-      : "") +
-    (tab.route || (tab.session ? "#/s/" + tab.session : "#/"));
+  // The HTML shell firing load is not the SPA being ready: its module may
+  // still have failed before React mounted anything into #root. Only a
+  // mounted application proves that this frame no longer needs recovery.
+  function spaReady(frame) {
+    try {
+      const root = frame.contentDocument.getElementById("root");
+      return Boolean(root && root.childElementCount > 0);
+    } catch {
+      return false;
+    }
+  }
+
+  const addressOf = (tab) => {
+    const query = [];
+    if (tab.workspace) {
+      query.push("desktop_workspace=" + encodeURIComponent(tab.workspace));
+    }
+    if (tab.workspacePending) query.push("desktop_workspace_pending=1");
+    return (
+      "/" +
+      (query.length ? "?" + query.join("&") : "") +
+      (tab.route || (tab.session ? "#/s/" + tab.session : "#/"))
+    );
+  };
 
   function routeOfFrame(frame) {
     try {
@@ -654,9 +686,12 @@
       } catch {
         /* a frame that cannot be read is still given its load handling */
       }
+      // The document can load before React mounts. Its keyboard and link
+      // handlers must already work even while the readiness watchdog waits.
+      onFrameLoad(tab.uid, frame);
+      if (!spaReady(frame)) return;
       clearFrameLoadTimer(tab.uid);
       frameLoadAttempts.set(tab.uid, 0);
-      onFrameLoad(tab.uid, frame);
     });
     frame.addEventListener("error", () => retryFrame(tab.uid, frame));
     frameOf.set(tab.uid, frame);
@@ -683,6 +718,11 @@
     clearFrameLoadTimer(tabUid);
     const tab = tabs.find((t) => t.uid === tabUid);
     if (!tab || frameOf.get(tabUid) !== frame) return;
+    if (spaReady(frame)) {
+      frameLoadAttempts.set(tabUid, 0);
+      watchTurnStarts(tabUid, frame);
+      return;
+    }
     const attempts = frameLoadAttempts.get(tabUid) || 0;
     if (attempts >= FRAME_LOAD_RETRIES) return;
     frameLoadAttempts.set(tabUid, attempts + 1);
@@ -738,6 +778,7 @@
       const session = sessionOfFrame(frame);
       if (session === null || session === (tab.session || "")) continue;
       tab.session = session;
+      rows.delete(tab.uid);
       moved = true;
     }
     if (!moved) return false;
@@ -822,7 +863,7 @@
 
   function labelOf(tab) {
     if (!tab.session) return "New chat";
-    const row = rows.get(tab.session);
+    const row = rows.get(tab.uid);
     return (row && row.title) || "Chat";
   }
 
@@ -842,7 +883,7 @@
   };
 
   function stateOf(tab) {
-    const row = tab.session ? rows.get(tab.session) : null;
+    const row = tab.session ? rows.get(tab.uid) : null;
     // A prompt that waits for the operator outranks the busy mark a send just
     // set: the mark lives for the whole turn, and a waited turn is exactly
     // when the question sign has to show.
@@ -1174,16 +1215,36 @@
     }
   }
 
+  function postWorkspaceResolved(tab) {
+    const win = frameOf.get(tab.uid)?.contentWindow;
+    if (!win || tab.workspacePending) return;
+    try {
+      win.postMessage(
+        { channel: "coddy.desktop", type: "workspace-resolved", path: tab.workspace },
+        location.origin,
+      );
+    } catch {
+      // A frame in navigation asks again when its SPA mounts.
+    }
+  }
+
   function resolveWorkspace(tab) {
     void workspaceOf(tab).then((cwd) => {
-      if (!tabs.includes(tab)) return;
+      // An explicit folder or branch pick in the new tab cancels this request.
+      if (!tabs.includes(tab) || !tab.workspacePending) return;
       const previous = tab.workspace;
       tab.workspace = cwd || tab.workspace;
       tab.workspacePending = false;
       const frame = frameOf.get(tab.uid);
-      if (frame && tab.workspace !== previous) navigateFrame(tab, frame);
+      // The answer can arrive after the operator has started typing. A ready
+      // SPA owns live state that assigning src would destroy, so pass the
+      // folder to it rather than reloading the document.
+      if (frame && tab.workspace !== previous && !spaReady(frame)) {
+        navigateFrame(tab, frame);
+      }
       save();
       render();
+      postWorkspaceResolved(tab);
     });
   }
 
@@ -1296,6 +1357,7 @@
   function closeTab(tabUid) {
     const index = tabs.findIndex((t) => t.uid === tabUid);
     if (index < 0) return;
+    rows.delete(tabUid);
     locallyBusy.delete(tabUid);
     tabs.splice(index, 1);
     // The window keeps a tab: closing the last chat would leave a blank frame
@@ -1312,44 +1374,111 @@
 
   // --- titles -------------------------------------------------------------
 
-  // What a tab draws - its name and the state of the chat behind it - comes
-  // from the session list rather than from the frames: the page already has
-  // the browser's credential for this origin, one request answers for every
-  // tab, and the list is the same source the History list reads.
-  async function refreshSessions() {
+  // What a tab draws comes from its own environment's session list. The SPA's
+  // live scope names the address and a fingerprint of its token, not the token
+  // itself. Tabs sharing it also share one authenticated read per cycle.
+  function sessionScope(frame) {
     try {
-      // include_activity is what carries turnActive, the pending prompts and
-      // the unread marks; without it every row comes back looking finished and
-      // the dot on a tab never moves (the History list asks the same way).
-      const res = await fetch(
+      const win = frame.contentWindow;
+      // The SPA installs its shim and scope before it mounts. Until both are
+      // there the environment is unknown, and local is not a safe fallback.
+      if (
+        !win.__coddyFetchShimmed ||
+        typeof win.fetch !== "function" ||
+        typeof win.__coddySessionScope !== "function"
+      ) {
+        return null;
+      }
+      const scope = win.__coddySessionScope();
+      if (typeof scope !== "string" || !scope) return null;
+      return { scope, win };
+    } catch {
+      return null;
+    }
+  }
+
+  async function readScopeSessions(win) {
+    try {
+      // include_activity carries turnActive, pending prompts and unread marks.
+      const res = await win.fetch(
         "/coddy/sessions?limit=200&include_activity=true",
         {
           credentials: "same-origin",
           headers: { Accept: "application/json" },
         },
       );
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const body = await res.json();
-      const list = Array.isArray(body && body.sessions) ? body.sessions : [];
-      rows.clear();
-      for (const row of list) {
-        if (row && typeof row.id === "string") rows.set(row.id, row);
-      }
-      for (const tab of tabs) {
-        if (!locallyBusy.has(tab.uid)) continue;
-        const row = tab.session ? rows.get(tab.session) : null;
-        const started = locallyBusy.get(tab.uid) || 0;
-        if (
-          (!row || (!row.turnActive && !(row.backgroundRunning > 0))) &&
-          Date.now() - started >= SESSIONS_TICK_MS
-        ) {
-          locallyBusy.delete(tab.uid);
-        }
-      }
-      renderStrip();
+      return Array.isArray(body && body.sessions) ? body.sessions : [];
     } catch {
-      /* the strip falls back to "Chat" and a finished mark */
+      // An unreachable environment leaves every tab in its scope unchanged.
+      return null;
     }
+  }
+
+  async function refreshSessions() {
+    const groups = new Map();
+    for (const tab of tabs) {
+      if (!tab.session) continue;
+      const frame = frameOf.get(tab.uid);
+      if (!frame) continue;
+      const access = sessionScope(frame);
+      if (!access) continue;
+      let group = groups.get(access.scope);
+      if (!group) {
+        group = { tabs: [], win: access.win };
+        groups.set(access.scope, group);
+      }
+      group.tabs.push(tab);
+    }
+    const pending = [];
+    for (const [scope, group] of groups) {
+      let read = sessionReads.get(scope);
+      if (!read) {
+        read = readScopeSessions(group.win);
+        sessionReads.set(scope, read);
+        read.finally(() => {
+          if (sessionReads.get(scope) === read) sessionReads.delete(scope);
+        });
+      }
+      pending.push({ scope, tabs: group.tabs, read });
+    }
+    const answers = await Promise.all(pending.map(({ read }) => read));
+    const answered = new Set();
+    for (let i = 0; i < answers.length; i++) {
+      const list = answers[i];
+      if (!Array.isArray(list)) continue;
+      const { scope, tabs: groupTabs } = pending[i];
+      for (const tab of groupTabs) {
+        if (!tabs.includes(tab) || !tab.session) continue;
+        const frame = frameOf.get(tab.uid);
+        if (!frame) continue;
+        const current = sessionScope(frame);
+        // A navigation, a new session or an environment switch makes this
+        // answer stale for this tab alone, not for the rest of its old group.
+        if (!current || current.scope !== scope) continue;
+        const row = list.find((item) => item && item.id === tab.session) || null;
+        if (row) rows.set(tab.uid, row);
+        else rows.delete(tab.uid);
+        answered.add(tab.uid);
+      }
+    }
+    for (const tab of tabs) {
+      if (!answered.has(tab.uid)) continue;
+      // Only a successful answer can retire the frame's local busy marker.
+      // A failed read changes nothing, so a temporary outage cannot make a
+      // running turn look idle.
+      if (!locallyBusy.has(tab.uid)) continue;
+      const row = rows.get(tab.uid);
+      const started = locallyBusy.get(tab.uid) || 0;
+      if (
+        (!row || (!row.turnActive && !(row.backgroundRunning > 0))) &&
+        Date.now() - started >= SESSIONS_TICK_MS
+      ) {
+        locallyBusy.delete(tab.uid);
+      }
+    }
+    renderStrip();
   }
 
   // --- the switches of the menu -------------------------------------------
@@ -1718,20 +1847,25 @@
   window.addEventListener("message", (e) => {
     if (e.origin !== location.origin) return;
     const data = e.data;
-    if (
-      !data ||
-      data.channel !== "coddy.desktop" ||
-      data.type !== "workspace" ||
-      typeof data.path !== "string"
-    ) {
-      return;
-    }
+    if (!data || data.channel !== "coddy.desktop") return;
     const tab = tabs.find(
       (t) => frameOf.get(t.uid)?.contentWindow === e.source,
     );
-    if (!tab || tab.session) return;
+    if (!tab) return;
+    if (data.type === "workspace-ready") {
+      postWorkspaceResolved(tab);
+      return;
+    }
+    if (data.type !== "workspace" || typeof data.path !== "string" || tab.session) return;
     tab.workspace = data.path;
+    const pickedDuringResolution = data.manual === true && tab.workspacePending;
+    if (pickedDuringResolution) {
+      tab.workspacePending = false;
+      tab.workspaceSource = "";
+      tab.workspaceSourceUid = "";
+    }
     save();
+    if (pickedDuringResolution) postWorkspaceResolved(tab);
   });
 
   newTabButton.addEventListener("click", () => openTab());

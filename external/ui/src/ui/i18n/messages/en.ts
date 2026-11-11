@@ -1815,6 +1815,7 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
+  "composer.contextTipUnknown": "Context usage unavailable · max {max}",
   "composer.contextTipIdle": "Context is empty",
   "composer.contextTipUsed": "{percent}% context used",
   "composer.contextTipInput": "Input {count}",

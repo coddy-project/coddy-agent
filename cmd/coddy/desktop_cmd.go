@@ -44,6 +44,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/localipc"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -133,6 +134,50 @@ func runDesktopWindow(args []string) error {
 	}
 	defer func() { _ = logCloser.Close() }()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// A running serve owns this home. Attach before constructing anything
+	// stateful: no second manager, MCP pool, metrics registry, gateway,
+	// scheduler or config watcher is created in this mode.
+	if shared, sharedErr := connectDesktopRuntime(ctx, paths.Home); sharedErr == nil {
+		log.Info("attaching the desktop window to the running Coddy service", "config", paths.ConfigPath, "workspace", paths.CWD)
+		windowHandle := desktop.NewWindowHandle()
+		return desktop.Run(ctx, desktop.Options{
+			Home: paths.Home, Window: strings.TrimSpace(*window),
+			Browser: desktop.BrowserCommand{Path: strings.TrimSpace(*browser)},
+			Log:     log, Handle: windowHandle, Framed: *framed, NewChat: *newChat, CWD: paths.CWD,
+			Serve: serveAttachedDesktop(shared, !*keepAuth, windowHandle),
+		})
+	} else if !errors.Is(sharedErr, localipc.ErrUnavailable) {
+		return sharedErr
+	}
+
+	// Nobody answered the authenticated IPC probe. Claim the home before the
+	// manager is built; if a service won the race, attach to it instead.
+	runtimeOwner, err := claimRuntimeOwner(paths.Home, true)
+	if err != nil {
+		if errors.Is(err, localipc.ErrAlreadyOwned) {
+			shared, sharedErr := connectDesktopRuntime(ctx, paths.Home)
+			if sharedErr != nil {
+				return sharedErr
+			}
+			windowHandle := desktop.NewWindowHandle()
+			return desktop.Run(ctx, desktop.Options{
+				Home: paths.Home, Window: strings.TrimSpace(*window),
+				Browser: desktop.BrowserCommand{Path: strings.TrimSpace(*browser)},
+				Log:     log, Handle: windowHandle, Framed: *framed, NewChat: *newChat, CWD: paths.CWD,
+				Serve: serveAttachedDesktop(shared, !*keepAuth, windowHandle),
+			})
+		}
+		return err
+	}
+	defer func() {
+		if err := runtimeOwner.Close(); err != nil {
+			log.Warn("closing the local runtime IPC", "error", err)
+		}
+	}()
+
 	rt := &serve.Runtime{}
 	if err := rt.Init(serve.Options{
 		CLI:           cli,
@@ -155,9 +200,6 @@ func runDesktopWindow(args []string) error {
 		defer rt.Mgr.CloseMCP()
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// The handle is given to the server before there is a window, because the
 	// page is served the moment the surface is up and the browser window
 	// appears a second later; the launcher attaches the window to it then.
@@ -172,7 +214,7 @@ func runDesktopWindow(args []string) error {
 		NewChat:       *newChat,
 		CWD:           paths.CWD,
 		RecentFolders: recentWorkspaces(rt, log),
-		Serve:         serveHTTP(rt, paths.Home, !*keepAuth, windowHandle, wiring, strings.TrimSpace(*logLevel)),
+		Serve:         serveHTTPWithOwner(rt, paths.Home, !*keepAuth, windowHandle, wiring, strings.TrimSpace(*logLevel), runtimeOwner),
 	})
 }
 
@@ -221,6 +263,10 @@ func recentWorkspaces(rt *serve.Runtime, log *slog.Logger) []string {
 // bound by a `coddy serve` of the same home, a token a gateway refuses -
 // stops alone instead of taking the window down with it.
 func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle, wiring metricsWiring, logLevel string) func(context.Context, string) error {
+	return serveHTTPWithOwner(rt, home, noAuth, window, wiring, logLevel, nil)
+}
+
+func serveHTTPWithOwner(rt *serve.Runtime, home string, noAuth bool, window *desktop.WindowHandle, wiring metricsWiring, logLevel string, runtimeOwner *localipc.Owner) func(context.Context, string) error {
 	return func(ctx context.Context, addr string) error {
 		deps := subsystemDeps{
 			httpListenAddr: func(c *config.Config) string {
@@ -237,7 +283,9 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 			metrics:         wiring,
 		}
 		all := desktopSubsystems(rt, deps, addr, noAuth, window)
+		all = runtimeIPCSubsystems(all, rt, deps, runtimeOwner)
 		cfg := rt.Cfg()
+		warnDesktopSubsystems(rt.Log, cfg, all)
 		reloads := make(chan *config.Config, 1)
 		removeObserver := rt.AddConfigObserver(func(next *config.Config) { offerNewest(reloads, next) })
 		defer removeObserver()
@@ -249,6 +297,21 @@ func serveHTTP(rt *serve.Runtime, home string, noAuth bool, window *desktop.Wind
 		// in the log, not an exit.
 		sup.Restartable = false
 		return sup.Run(ctx, cfg, reloads)
+	}
+}
+
+// warnDesktopSubsystems reports a surface the configuration enables but this
+// binary cannot run. Unlike coddy serve's pre-flight, the desktop must not
+// refuse to open its window over an optional surface; the supervisor skips
+// the unavailable one and this warning says what is missing and how to add it.
+func warnDesktopSubsystems(log *slog.Logger, cfg *config.Config, all []serve.Subsystem) {
+	for _, sub := range all {
+		if sub.Available || sub.Enabled == nil || !sub.Enabled(cfg) {
+			continue
+		}
+		log.Warn("enabled subsystem is not built in; the desktop window will run without it",
+			"subsystem", string(sub.Kind), "key", sub.ConfigKey,
+			"hint", "rebuild with -tags "+sub.BuildTag)
 	}
 }
 
@@ -293,7 +356,7 @@ func desktopWindowSubsystem(rt *serve.Runtime, deps subsystemDeps, addr string, 
 			return httpserver.Serve(ctx, httpserver.Options{
 				Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 				DefaultCWD: rt.Paths.CWD, Home: deps.home,
-				ListenAddr: addr, DetachedPrompts: rt, Wakes: rt,
+				ListenAddr: addr, Mirror: rt, DetachedPrompts: rt, Wakes: rt,
 				NoAuth:          noAuth,
 				DesktopWindow:   window,
 				UnbuiltSections: unbuiltSections(deps), Status: rt.StatusDocument,

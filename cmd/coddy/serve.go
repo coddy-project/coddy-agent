@@ -274,6 +274,22 @@ func runServe(args []string) error {
 		return nil
 	}
 
+	// The per-home owner is claimed before a session manager exists. A second
+	// serve therefore fails here instead of opening another manager, scheduler
+	// and MCP set on different public ports. The endpoint itself does not
+	// depend on httpserver.enable or the configured public port.
+	runtimeOwner, err := claimRuntimeOwner(paths.Home, httpserver.Available)
+	if err != nil {
+		return err
+	}
+	if runtimeOwner != nil {
+		defer func() {
+			if err := runtimeOwner.Close(); err != nil {
+				log.Warn("closing the local runtime IPC", "error", err)
+			}
+		}()
+	}
+
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
 		AdjustConfig:       applyProcessOverrides,
@@ -285,6 +301,16 @@ func runServe(args []string) error {
 	}); err != nil {
 		return err
 	}
+	all = runtimeIPCSubsystems(all, rt, subsystemDeps{
+		httpListenAddr:  httpListenAddr,
+		swarmListenAddr: swarmListenAddr,
+		home:            paths.Home,
+		httpAuthTokens:  httpTokens,
+		httpLogin:       outOfBandLogin(),
+		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
+		adjust:          applyProcessOverrides,
+		metrics:         wiring,
+	}, runtimeOwner)
 	// The registry counts for the whole process, whether or not the listener
 	// is enabled: enabling it later shows what happened before.
 	defer wiring.Start()()
@@ -554,7 +580,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
+					ExtraLogin: deps.httpLogin, Mirror: rt, DetachedPrompts: rt, Wakes: rt,
 					UnbuiltSections: unbuilt, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
