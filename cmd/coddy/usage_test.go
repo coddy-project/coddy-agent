@@ -19,7 +19,7 @@ import (
 // Adding a command means adding it below, which then fails until the usage
 // text, the man page and the completions carry it too.
 var topLevelCommands = []string{
-	"acp", "cli", "serve", "sessions", "skills", "plugin",
+	"acp", "cli", "serve", "desktop", "sessions", "skills", "plugin",
 	"mcp", "providers", "rules", "agents", "hooks", "docs", "update", "help",
 }
 
@@ -102,6 +102,13 @@ func TestPackagingFilesTrackTheServeVerbs(t *testing.T) {
 	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
 	man := readRepoFile(t, "../../packaging/man/coddy.1")
 
+	// The same both-directions rule the top-level commands hold to: a verb the
+	// bash completion still offers after the binary stopped answering it is a
+	// user-visible bug, so the serve case of the completion is compared as a
+	// set with serveVerbs, not merely checked for containing each of them.
+	assertSameSet(t, "the serve case of packaging/completions/coddy.bash",
+		serveVerbWords(t, completions), "serveVerbs", serveVerbs)
+
 	for _, verb := range serveVerbs {
 		if !strings.Contains(usage, verb) {
 			t.Errorf("usage does not mention `serve %s`", verb)
@@ -128,6 +135,38 @@ func TestPackagingFilesTrackTheServeVerbs(t *testing.T) {
 			t.Errorf("%s does not mention `serve --daemon`", name)
 		}
 	}
+}
+
+// serveVerbWords reads the words of the bash completion's serve) case, leaving
+// out the flags: those words are the verbs it offers.
+func serveVerbWords(t *testing.T, completions string) []string {
+	t.Helper()
+	_, rest, ok := strings.Cut(completions, "\n        serve)\n")
+	if !ok {
+		t.Fatal("packaging/completions/coddy.bash has no serve) case")
+	}
+	line, _, ok := strings.Cut(rest, "\n")
+	if !ok {
+		t.Fatal("packaging/completions/coddy.bash: unterminated serve) case")
+	}
+	_, list, ok := strings.Cut(line, `compgen -W "`)
+	if !ok {
+		t.Fatalf("the serve) case has no compgen -W list: %s", line)
+	}
+	list, _, ok = strings.Cut(list, `"`)
+	if !ok {
+		t.Fatalf("the serve) case has an unterminated compgen -W list: %s", line)
+	}
+	var out []string
+	for _, w := range strings.Fields(list) {
+		if !strings.HasPrefix(w, "-") {
+			out = append(out, w)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("the serve) case offers no verbs")
+	}
+	return out
 }
 
 // commandWords reads the words of the bash completion's commands= line.

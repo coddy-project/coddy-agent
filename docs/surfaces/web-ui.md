@@ -166,7 +166,7 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance**, **Sessions** and **System** (a read-only page, see [System](#system-settings-tab)); where the models come from (**LLM providers**, **Logical models**, **Toolsets**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Metrics**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last. **Metrics** (the Prometheus exporter) is offered only by a binary built with the `metrics` tag; any other binary leaves the tab out, and a save from its form keeps the `metrics` section in `config.yaml` as it was.
+- The tabs read in groups: **Appearance**, **Sessions** and **System** (a read-only page, see [System](#system-settings-tab)); where the models come from (**LLM providers**, **Logical models**, **Toolsets**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Metrics**, **Browser**, **Authentication**, **Prompts**). **Authentication** manages the web sign-in account and the second step ([Settings: Authentication](#settings-authentication)). **Prompts** holds the prompt templates and the instruction files and is always last. **Metrics** (the Prometheus exporter) is offered only by a binary built with the `metrics` tag; any other binary leaves the tab out, and a save from its form keeps the `metrics` section in `config.yaml` as it was.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
 - A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
@@ -256,6 +256,26 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 - The event also reads again the copy of the configuration the **Settings** drawer keeps (see [Settings: opening and saving](#settings-opening-and-saving)). An open form takes it only while it holds no edits of its own: refetching under unsaved edits would discard work, so those stay, and the **Reload** control in the form is the deliberate way to drop them.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+## Settings: Authentication
+
+The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config section) manages the web sign-in account in one place - the same account `coddy serve set-password` writes on the server, and nothing here needs the bearer token. Every control applies to the settings document except the enrollment calls, which write `config.yaml` on the server at once.
+
+- **Account.** The **Enabled** switch, **Login**, write-only **Password** and **Session duration (hours)** stand in one column. An empty password keeps the stored hash; typing replaces it. The field placeholders name `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, and the Account hint explains that environment credentials take precedence. The session duration defaults to 24 hours; zero uses a browser-session cookie and hides **Keep me signed in**. The server still expires such a session after 30 days.
+- **Two-step verification.** A **Require one-time code** switch starts enrollment: **`POST /coddy/auth/totp/setup`** answers a fresh 160-bit secret, its canonical `otpauth://` URI and a QR picture (`data:image/png;base64,…`). The QR stands above the fields at every width and keeps its space during a refresh. The secret may be pasted in Base32 or Base16 (an ambiguous string reads as Base32), and the QR always carries the canonical Base32 form. The eye, **Copy secret key** and **Refresh secret key** controls sit inside the secret input. A bar and a fixed-width seconds counter stand beside **App code**; typing the six-digit code and pressing **Submit** sends **`POST /coddy/auth/totp/enable`**, which writes `totp_secret` and a first set of backup codes into `config.yaml` and answers the codes once. Enrollment needs the session cookie of the same origin, so a bearer token or another site cannot drive it.
+- **Backup codes.** A separate **Backup codes** fieldset shows the number left unused and, once after issue, the codes with a reminder to save them. **Copy** and **Download** (`coddy-backup-codes.txt`) are offered while the codes are on screen; the server keeps SHA-256 hashes, so a later visit cannot show them again. **Generate new codes** asks for confirmation, then calls `POST /coddy/auth/backup-codes/regenerate` and invalidates the old set. **Edit secret** reopens enrollment, and **Remove TOTP** asks for confirmation before clearing the secret and codes. The config document reports `totp_configured`, `backup_codes_configured`, `backup_codes_count` and `backup_codes_generation`; a stored set whose generation no longer matches is not shown.
+
+![Authentication enrollment with QR code and secret fields](../assets/web-ui/authentication-enrollment-dark-1280.png)
+
+*Enrollment in Settings → Authentication.*
+
+![Backup codes in a separate settings fieldset on desktop](../assets/web-ui/authentication-backup-codes-dark-1280.png)
+
+![Backup codes in a separate settings fieldset on a phone](../assets/web-ui/authentication-backup-codes-dark-390.png)
+
+*One-time backup codes in their own fieldset at 1280 and 390 px.*
+
+Sign-in itself is described under [Sign-in](#sign-in-httpserverlogin); the API is under [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional) and [One-time codes](../operate/remote.md#one-time-codes).
+
 ## Sign-in (`httpserver.login`)
 
 Off unless the server has an account, and a server without one renders exactly as it always did.
@@ -267,6 +287,7 @@ Off unless the server has an account, and a server without one renders exactly a
 - **What decides:** **`AuthGate`** (**`external/ui/src/ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) calls **`GET /coddy/auth/me`** once on boot. **`login_required`** without **`authenticated`** renders **`SignInScreen`** instead of the app; anything else renders the app. While the answer is outstanding it renders a bare **`.auth-boot`** ground rather than the app, so the transcript is never shown and then yanked away.
 - **A server that cannot answer** - a network error, or a **404** from a `coddy serve` built before this existed - is read as "no sign-in here", so an older server keeps working with a newer page.
 - **The screen** (**`SignInScreen.tsx`**, **`.auth-screen`** / **`.auth-shell`** / **`.auth-card`**) is the whole page, not a dialog over a blurred transcript: there is nothing behind it to look at. The wordmark sits above the card, centred and outside it; the card holds the title, user, password, one error line (**`role="alert"`**), and a submit button disabled until both fields are filled, with no explanatory line under the title. Every string is a dictionary key (**`auth.signIn.*`**), and the card uses theme tokens only, so all eight themes and both languages carry it.
+- **The second step.** When the account asks for a one-time code, a correct password answers **`{second_factor, challenge}`** and the card turns into **Two-step verification** (**Step 2 of 2**): one code field, a countdown of the current authenticator period, **Verify and sign in**, and **Use a backup code** / **Use an authenticator code** to switch the field between the 6-digit code and a backup code. **Keep me signed in** on the password step requests the persistent cookie for the configured duration; leaving it unchecked uses a browser-session cookie. A zero duration hides the checkbox. **Back to login** drops the challenge. The verify call is the one that creates the session. Every completed verify attempt consumes the challenge, so a refused code returns the reader to the password step; a network error before an answer keeps it for an intentional retry.
 - **The wordmark** is the rectangular logo (**`src/assets/coddy-logo-wordmark.svg`**, and **`-light.svg`** on the light theme), inlined into the bundle rather than fetched, so the screen paints in one request. Its alt text is localized (**`auth.signIn.logoAlt`**).
 - **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
 - **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/coddy/*`** call (the **`/coddy/auth/*`** routes excepted) and the gate re-reads the state.
@@ -845,7 +866,7 @@ Select text anywhere in the transcript - an answer, a prompt, a tool card - and 
 
 Context ring and breakdown popover
 
-- **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
+- **Hover** on **`.composer-context-tip-host`** shows the percentage and tokens in the current window, followed by its maximum. When the server reports neither a breakdown nor a percentage, the tooltip says the context usage is unavailable; it never substitutes cumulative session tokens.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet as the slash / **`@`** pickers, over a dimming scrim of its own (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**; the pickers' backdrop is transparent). **Escape** or **Close** dismisses; hover tooltip returns when closed.
 - Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
@@ -2556,10 +2577,10 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user clicks **Less**
   - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
-- Token usage survives restart
-  - Given a session has non zero token usage
+- Context usage survives restart
+  - Given a session has a saved context breakdown
   - When the user reloads the page
-  - Then the context ring's tooltip shows the persisted Input, Output and Total
+  - Then the context ring's tooltip shows the saved window usage and maximum
 
 - Memory subagent in the Tasks panel (Playwright MCP)
   - Given **`memory.enable: true`** on the **`coddy serve`** process and at least one Markdown file under global or workspace memory so recall can run

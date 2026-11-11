@@ -1,11 +1,13 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { CoddyEnv } from "../env/remoteEnv";
+import { setEnv } from "../env/remoteEnv";
 import {
   FakeLocks,
   fakeChannels,
   fakeWorkers,
 } from "./sharedServerEvents.fakes";
 import {
+  installSessionScopeBridge,
   serverEventsScope,
   subscribeSharedServerEvents,
   type EventsTransports,
@@ -217,6 +219,20 @@ test("the scope separates environments and tokens without spelling the token", (
   });
   expect(new Set([local, remote, rotated]).size).toBe(3);
   expect(remote).not.toContain("one");
+});
+
+test("the iframe session scope follows the cached environment", () => {
+  installSessionScopeBridge();
+  const w = window as Window & { __coddySessionScope?: () => string };
+  const local = w.__coddySessionScope!();
+  setEnv({ mode: "remote", baseUrl: "http://nas02:19980", token: "one" });
+  const first = w.__coddySessionScope!();
+  setEnv({ mode: "remote", baseUrl: "http://nas02:19980", token: "two" });
+  const rotated = w.__coddySessionScope!();
+  expect(new Set([local, first, rotated]).size).toBe(3);
+  expect(first).not.toContain("one");
+  expect(rotated).not.toContain("two");
+  delete w.__coddySessionScope;
 });
 
 test("the worker's stream closes once the last tab has left", async () => {

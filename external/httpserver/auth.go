@@ -22,6 +22,26 @@ type authPolicy struct {
 
 // SetExtraAuthTokens registers bearer tokens supplied via --auth-token / CODDY_HTTP_TOKEN.
 // These enable auth on their own and are kept out of config.yaml (no redaction round-trip).
+// SetNoAuth makes this server ask for no credential at all, whatever the
+// configuration carries. It is set once, before the server serves, by a caller
+// that knows nobody else can reach it: `coddy-desktop` on loopback.
+func (s *Server) SetNoAuth(on bool) { s.noAuth = on }
+
+// SetNoAuthHeader enables the per-request no-auth choice only on a private
+// IPC server whose transport has already authenticated the local caller.
+func (s *Server) SetNoAuthHeader(name string) { s.noAuthHeader = name }
+
+func (s *Server) authPolicyForRequest(r *http.Request) authPolicy {
+	if s.noAuthHeader != "" && r.Header.Get(s.noAuthHeader) == "1" {
+		return authPolicy{}
+	}
+	return s.authPolicyNow()
+}
+
+// SetDesktopWindow gives the server the window its tab shell drives. Set once,
+// before the server serves, by coddy-desktop and by nothing else.
+func (s *Server) SetDesktopWindow(w any) { s.desktopWindow = w }
+
 func (s *Server) SetExtraAuthTokens(tokens []string) {
 	out := make([]string, 0, len(tokens))
 	for _, t := range tokens {
@@ -35,6 +55,12 @@ func (s *Server) SetExtraAuthTokens(tokens []string) {
 // authPolicyNow builds the current policy from the atomic config and any extra tokens.
 func (s *Server) authPolicyNow() authPolicy {
 	var pol authPolicy
+	// A server that asks for nothing asks for nothing: not the configuration's
+	// token, not its sign-in form. The desktop window is the one caller, and
+	// what it serves is loopback for the person who started it.
+	if s.noAuth {
+		return pol
+	}
 	if c := s.activeCfg(); c != nil {
 		pol.tokens = append(pol.tokens, c.HTTPServer.EffectiveAuthTokens()...)
 		pol.publicDocs = c.HTTPServer.PublicDocs
@@ -54,7 +80,7 @@ func (s *Server) authPolicyNow() authPolicy {
 // transparent pass-through, so unauthenticated deployments behave exactly as before.
 func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pol := s.authPolicyNow()
+		pol := s.authPolicyForRequest(r)
 		_, pattern := s.mux.Handler(r)
 		// A canvas frame's address carries its own capability, which the
 		// handler checks; nothing else of the API answers an opaque origin.

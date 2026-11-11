@@ -409,7 +409,7 @@ async function navigate(sid: string) {
 }
 
 test.each(["post", "relay"])(
-  "unknown usage clears the active HUD on %s",
+  "unknown session usage leaves known context intact on %s",
   async (transport) => {
     backend.override = (r) =>
       r.path.endsWith(`/${A}/stats`)
@@ -420,6 +420,7 @@ test.each(["post", "relay"])(
                 outputTokens: 20,
                 totalTokens: 120,
               },
+              contextBreakdown: { estimatedTotal: 120 },
             },
           })
         : undefined;
@@ -442,12 +443,12 @@ test.each(["post", "relay"])(
     await waitFor(() =>
       expect(
         document.querySelector(".composer-context-tip")?.textContent,
-      ).not.toContain("120"),
+      ).toContain("120"),
     );
   },
 );
 
-test("unknown usage in a background stream does not contaminate the active session", async () => {
+test("unknown usage in a background stream does not contaminate the active context", async () => {
   await mount();
   await send("Own A turn");
   await navigate(B);
@@ -459,6 +460,10 @@ test("unknown usage in a background stream does not contaminate the active sessi
       inputTokens: 70,
       outputTokens: 30,
       totalTokens: 100,
+    });
+    backend.posts[1]!.stream.frame("usage_update", {
+      used: 100,
+      size: 128000,
     });
   });
   await waitFor(() =>

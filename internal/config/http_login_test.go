@@ -68,8 +68,8 @@ func TestHTTPLoginAbsentMeansOff(t *testing.T) {
 	if l.HasAccount() || l.IsExplicitlyEnabled() || l.IsExplicitlyDisabled() {
 		t.Fatalf("an untouched config reports a login: %+v", l)
 	}
-	if got := l.SessionTTL(); got != 0 {
-		t.Fatalf("session TTL without a value = %v, want 0 (browser session)", got)
+	if got := l.SessionTTL(); got != 24*time.Hour {
+		t.Fatalf("session TTL without a value = %v, want 24h", got)
 	}
 }
 
@@ -88,6 +88,75 @@ func TestHTTPLoginUserExpandsEnvReference(t *testing.T) {
 	}
 }
 
+func TestHTTPLoginSessionTTLExplicitZero(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml string
+		want       int
+	}{{"absent", "", 24}, {"zero", "    session_ttl_hours: 0\n", 0}, {"merged zero", "    <<: {session_ttl_hours: 0}\n", 0}, {"null", "    session_ttl_hours: null\n", 24}, {"positive", "    session_ttl_hours: 12\n", 12}} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := writeLoginConfig(t, "httpserver:\n  login:\n"+tc.yaml+"    user: operator\n")
+			if got := int(cfg.HTTPServer.Login.SessionTTL() / time.Hour); got != tc.want {
+				t.Fatalf("TTL = %d, want %d", got, tc.want)
+			}
+			direct := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+			if got := direct.HTTPServer.Login.SessionTTL(); got != time.Duration(tc.want)*time.Hour {
+				t.Fatalf("direct DTO round-trip = %v, want %dh", got, tc.want)
+			}
+			encoded, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var dto config.ConfigJSON
+			if err := json.Unmarshal(encoded, &dto); err != nil {
+				t.Fatal(err)
+			}
+			got := config.JSONDTOToConfig(&dto, config.Paths{})
+			if got.HTTPServer.Login.SessionTTLHours != tc.want {
+				t.Fatalf("JSON round-trip = %d, want %d", got.HTTPServer.Login.SessionTTLHours, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTTPLoginSessionTTLJSONEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		login   config.HTTPLoginJSON
+		present bool
+		want    float64
+	}{
+		{"absent", config.HTTPLoginJSON{}, false, 0},
+		{"explicit zero", config.HTTPLoginJSON{SessionTTLHoursSet: true}, true, 0},
+		{"positive", config.HTTPLoginJSON{SessionTTLHours: 12}, true, 12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.login)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := fields["session_ttl_hours"]
+			if ok != tc.present || (ok && got != tc.want) {
+				t.Fatalf("session_ttl_hours = %v, present %v; want %v, present %v", got, ok, tc.want, tc.present)
+			}
+		})
+	}
+}
+
+func TestHTTPLoginSessionTTLJSONNullUsesDefault(t *testing.T) {
+	var dto config.ConfigJSON
+	if err := json.Unmarshal([]byte(`{"httpserver":{"login":{"session_ttl_hours":null}}}`), &dto); err != nil {
+		t.Fatal(err)
+	}
+	got := config.JSONDTOToConfig(&dto, config.Paths{})
+	if ttl := got.HTTPServer.Login.SessionTTL(); ttl != 24*time.Hour {
+		t.Fatalf("null session TTL = %v, want 24h", ttl)
+	}
+}
+
 func TestHTTPLoginValidation(t *testing.T) {
 	good := loginHash(t, "pw")
 	cases := []struct {
@@ -102,10 +171,15 @@ func TestHTTPLoginValidation(t *testing.T) {
 		{name: "plaintext hash", login: config.HTTPLoginConfig{PasswordHash: "hunter2"}, wantErr: "argon2id"},
 		{name: "bcrypt hash", login: config.HTTPLoginConfig{PasswordHash: "$2y$10$abcdefghij"}, wantErr: "argon2id"},
 		{name: "real hash", login: config.HTTPLoginConfig{User: "operator", PasswordHash: good}},
+		{name: "totp secret", login: config.HTTPLoginConfig{User: "operator", PasswordHash: good, TOTPSecret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"}},
+		{name: "totp secret in groups", login: config.HTTPLoginConfig{TOTPSecret: "jbsw y3dp ehpk 3pxp"}},
+		{name: "totp secret not base32", login: config.HTTPLoginConfig{TOTPSecret: "not-a-secret!1"}, wantErr: "totp_secret"},
+		{name: "totp secret too short", login: config.HTTPLoginConfig{TOTPSecret: "GEZDGNBV"}, wantErr: "totp_secret"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := config.HTTPServerConfig{Login: tc.login}
+			h.Normalize()
 			err := h.Validate()
 			if tc.wantErr == "" {
 				if err != nil {
@@ -285,5 +359,145 @@ func TestHTTPLoginHashFromEnvReferenceSurvivesReload(t *testing.T) {
 	cfg := writeLoginConfig(t, "httpserver:\n  login:\n    enable: true\n    user: operator\n    password_hash: \"${CODDY_TEST_LOGIN_HASH}\"\n")
 	if got := cfg.HTTPServer.Login.PasswordHash; got != hash {
 		t.Fatalf("password_hash did not expand ${ENV}: %q", got)
+	}
+}
+
+func TestHTTPLoginTOTPSecretRedactedAndPreserved(t *testing.T) {
+	hash := loginHash(t, "pw")
+	const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(hash)+"\"\n    totp_secret: \""+secret+"\"\n")
+	if !cur.HTTPServer.Login.HasTOTP() {
+		t.Fatal("totp_secret was not read from the file")
+	}
+	dto := config.ConfigToJSONDTO(cur)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.HTTPServer.Login.TOTPSecret != "" || strings.Contains(string(raw), secret) {
+		t.Fatalf("GET /coddy/config must not expose totp_secret: %s", raw)
+	}
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o"},` +
+		`"httpserver":{"login":{"user":"operator"}}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatalf("preserve parse: %v", err)
+	}
+	if next.HTTPServer.Login.TOTPSecret != secret {
+		t.Fatalf("totp_secret not preserved across a redacted save: %q", next.HTTPServer.Login.TOTPSecret)
+	}
+}
+
+func TestHTTPLoginSettingsPasswordIsHashed(t *testing.T) {
+	old := loginHash(t, "old")
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(old)+"\"\n")
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o"},` +
+		`"httpserver":{"login":{"user":"operator","password":"new password"}}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := webauth.VerifyPassword(next.HTTPServer.Login.PasswordHash, "new password")
+	if err != nil || !ok {
+		t.Fatalf("new password was not hashed: ok=%v err=%v", ok, err)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(next))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "new password") {
+		t.Fatal("password appeared in settings response")
+	}
+}
+
+func TestHTTPLoginBackupConfigRedactedAndPreserved(t *testing.T) {
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    backup_codes:\n      generation: abc123\n      hashes: [deadbeef]\n")
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cur))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "deadbeef") || !strings.Contains(string(raw), `"backup_codes_configured":true`) || !strings.Contains(string(raw), `"backup_codes_count":1`) {
+		t.Fatalf("bad backup metadata: %s", raw)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(raw, cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yaml, err := config.MarshalConfigYAMLForFile(next, cur.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(yaml), "deadbeef") || !strings.Contains(string(yaml), "abc123") {
+		t.Fatal("backup state lost")
+	}
+	read, err := config.ReadConfigPath(cur.Paths, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted, err := json.Marshal(read.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(redacted), "deadbeef") {
+		t.Fatal("general config reader exposed backup hashes")
+	}
+}
+
+func TestHTTPLoginEmptySettingsPasswordPreservesHash(t *testing.T) {
+	hash := loginHash(t, "old")
+	cur := writeLoginConfig(t, "httpserver:\n  login:\n    user: operator\n    password_hash: \""+yamlHash(hash)+"\"\n")
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cur))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	login := doc["httpserver"].(map[string]interface{})["login"].(map[string]interface{})
+	login["password"] = ""
+	raw, err = json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(raw, cur.Paths, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.HTTPServer.Login.PasswordHash != hash {
+		t.Fatal("empty password changed hash")
+	}
+}
+
+func TestHTTPLoginSettingsSchema(t *testing.T) {
+	b, err := config.UISchemaJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	props := doc["properties"].(map[string]interface{})
+	h, ok := props["httpserver"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing account settings")
+	}
+	hp := h["properties"].(map[string]interface{})
+	if _, ok := hp["host"]; ok {
+		t.Fatal("listener exposed")
+	}
+	l, ok := hp["login"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing login settings")
+	}
+	p := l["properties"].(map[string]interface{})
+	password, ok := p["password"].(map[string]interface{})
+	if !ok || password["writeOnly"] != true {
+		t.Fatal("password is not write-only")
 	}
 }

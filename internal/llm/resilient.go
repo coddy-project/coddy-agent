@@ -462,6 +462,10 @@ func serverRetryDelay(err error) (time.Duration, bool) {
 	if d, ok := parseRetryAfterHeaders(err); ok {
 		return d, true
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) && raw.retryAfter > 0 {
+		return raw.retryAfter, true
+	}
 	if d, ok := parseLimitResetDelay(err); ok {
 		return d, true
 	}

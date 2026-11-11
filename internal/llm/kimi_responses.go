@@ -87,14 +87,7 @@ func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []To
 	if err != nil {
 		return nil, err
 	}
-	resp, err := p.transport.Do(ctx, bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, kimiStatusError("kimi responses", resp)
-	}
-	return resp, nil
+	return p.transport.do(ctx, bytes.NewReader(b), false, "kimi responses")
 }
 func kimiResponsesUsage(raw gjson.Result, r *Response) {
 	if raw.Get("input_tokens").Type != gjson.Number || raw.Get("output_tokens").Type != gjson.Number {

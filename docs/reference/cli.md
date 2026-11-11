@@ -7,7 +7,7 @@ Commands that only print a one-line usage (`skills`, `mcp`, `rules`, `agents`, `
 ## Help screens
 
 <!-- docsgen:cli:start -->
-Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser`, the set the release binaries carry.
+Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop`, the set the release binaries carry.
 
 ### coddy
 
@@ -44,6 +44,11 @@ Usage:
   coddy serve uninstall (stop and disable that service and remove the unit
         that install wrote; ~/.coddy and ~/Coddy are kept)
   coddy serve status | stop | restart [--home DIR]
+  coddy desktop [flags] (open Coddy as a window on this machine: a tab strip with
+        one chat per tab, over an HTTP surface on a loopback port this home
+        remembers. --frame keeps the system title bar, --browser names the
+        browser to open it with, --auth asks for the credential the
+        configuration carries; build tags http ui desktop)
   coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
