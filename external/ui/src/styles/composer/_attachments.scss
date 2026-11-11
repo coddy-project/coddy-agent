@@ -324,6 +324,26 @@
   z-index: 3;
 }
 
+/* The card rises for its tooltip, but its shadow must not rise with it over
+   the joined plate. While a tip is up the wrapper draws the shadow under the
+   whole composer instead, and the lifted card draws none. */
+.composer-wrap:has(.rail-tip-host:hover, .composer-context-tip-host:hover),
+.composer-wrap:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  border-radius: 12px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover),
+.composer-card:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  box-shadow: none;
+}
+
 .composer-context-tip-host.composer-context-tip-suppressed:hover .rail-tip,
 .composer-context-tip-host.composer-context-tip-suppressed:focus-visible
   .rail-tip {

@@ -59,6 +59,15 @@ test("the tip above the context ring draws no shadow", () => {
   expect(css).not.toContain("--coddy-tip-shadow-above");
 });
 
+test("the composer shadow stays under the plate while a tip is up", () => {
+  expect(css).toMatch(
+    /\.composer-wrap:has\(\.rail-tip-host:hover, \.composer-context-tip-host:hover\)[\s\S]*?box-shadow: var\(--coddy-glass-panel-shadow\);/,
+  );
+  expect(css).toMatch(
+    /\.composer-card:has\(\.rail-tip-host:hover, \.composer-context-tip-host:hover\)[\s\S]*?box-shadow: none;/,
+  );
+});
+
 // A finger is wider than a cursor and the control beside the ring stops the
 // turn, so the two stand further apart wherever the pointer is coarse.
 test("the ring keeps its distance from the stop control on a touch screen", () => {
