@@ -183,7 +183,11 @@ Open Coddy as a window on this machine: the web interface in a Chromium\-family
 browser in application mode, in a profile of its own, over an HTTP surface
 started on a loopback port
 .I ~/.coddy/desktop/port
-remembers, so the window keeps its tabs from launch to launch. The page is a
+remembers, so the window keeps its tabs from launch to launch. The process
+also runs every surface the configuration enables - the public HTTP surface,
+the gateways, the relay, the scheduler - the way
+.B serve
+does, so the same site the window drives is reachable from other machines. The page is a
 tab strip with one chat per tab; a second launch while a window is open hands
 that window its tabs instead of serving twice, and closing the window ends the
 run. On an X11 session the window carries no system frame: the strip is its

@@ -60,8 +60,8 @@ type x11Control struct {
 
 	// mu guards where a drag started from, which the page sets once and then
 	// measures every move against.
-	mu               sync.Mutex
-	originX, originY int
+	mu                                 sync.Mutex
+	originX, originY, originW, originH int
 }
 
 // newWindowControl answers the control for this session. A session that is not
@@ -452,6 +452,36 @@ func (c *x11Control) MoveBy(dx, dy int) error {
 	return nil
 }
 
+// BeginResize remembers the geometry every request of an edge drag is
+// measured from, just as BeginMove does for the window's position.
+func (c *x11Control) BeginResize() error {
+	cur, err := c.rect()
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.originX, c.originY, c.originW, c.originH = cur.X, cur.Y, cur.W, cur.H
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *x11Control) ResizeBy(direction string, dx, dy int) error {
+	c.mu.Lock()
+	start := windowRect{X: c.originX, Y: c.originY, W: c.originW, H: c.originH}
+	c.mu.Unlock()
+	next, ok := resizeRect(start, direction, dx, dy)
+	if !ok {
+		return errors.New("desktop: unknown resize direction")
+	}
+	if err := c.placeRect(next); err != nil {
+		return err
+	}
+	// A move can lay its old shape again, but a resize cannot: the browser
+	// clears the region and the corners now belong to a different rectangle.
+	c.reshapeAfterResize(next)
+	return nil
+}
+
 // place puts the window's top left corner at x, y.
 //
 // _NET_MOVERESIZE_WINDOW and not ConfigureWindow: a managed window's geometry
@@ -468,6 +498,16 @@ func (c *x11Control) place(x, y int) error {
 	// screen the window is on, and the message carries them as the signed
 	// 32-bit numbers EWMH specifies.
 	return c.message("_NET_MOVERESIZE_WINDOW", flags, uint32(int32(x)), uint32(int32(y)), 0, 0) //nolint:gosec // G115: see above.
+}
+
+// placeRect asks for a new geometry through the same manager-owned path as a
+// move, with the width and height flags set as well as the position flags.
+func (c *x11Control) placeRect(rect windowRect) error {
+	const flags = 1<<8 | 1<<9 | 1<<10 | 1<<11 | 1<<12
+	// G115: EWMH carries signed 32-bit geometry and unsigned 32-bit sizes;
+	// resizeRect bounds both sizes to a usable positive minimum.
+	return c.message("_NET_MOVERESIZE_WINDOW", flags,
+		uint32(int32(rect.X)), uint32(int32(rect.Y)), uint32(rect.W), uint32(rect.H)) //nolint:gosec // G115: see above.
 }
 
 // rect answers where the window is, in root coordinates. Its own x and y are

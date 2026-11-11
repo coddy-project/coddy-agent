@@ -116,7 +116,6 @@ type windowState struct {
 	srv     *http.Server
 	cancel  context.CancelFunc
 	lastCfg *config.Config
-	left    []string
 	// before is the configuration as it stood before the decision, so the
 	// scenario can see that the decision changed none of it.
 	before string
@@ -171,7 +170,6 @@ func (s *windowState) reset(t *testing.T) {
 	s.mu.Unlock()
 	s.runErr = nil
 	s.lastCfg = nil
-	s.left = nil
 	s.before = ""
 	s.secondRun = nil
 	t.Setenv("CODDY_TEST_BROWSER_RECORD", s.recordPath)
@@ -860,7 +858,6 @@ func (s *windowState) decidesWhatToRun() error {
 		return errors.New("no configuration was given")
 	}
 	s.before = fmt.Sprintf("%+v", *s.lastCfg)
-	s.left = desktop.SurfacesLeftToServe(s.lastCfg)
 	return nil
 }
 
@@ -1013,19 +1010,10 @@ func (s *windowState) changesNothingInTheConfig() error {
 	return nil
 }
 
-func (s *windowState) namesWhatItLeft() error {
-	if len(s.left) == 0 {
-		return errors.New("the desktop named none of the surfaces it turned off")
-	}
-	joined := strings.Join(s.left, " ")
-	for _, want := range []string{"swarm", "scheduler"} {
-		if !strings.Contains(joined, want) {
-			return fmt.Errorf("the desktop did not name %q among %v", want, s.left)
-		}
-	}
-	return nil
-}
-
+// The desktop decides by building the same subsystem list `coddy serve`
+// builds, so an enabled relay and an enabled scheduler are its work as much
+// as the window is; nothing is named away to another process any more.
+//
 // --- dragging the bar -------------------------------------------------------
 
 // The window manager's side of a drag needs a display and a running manager,
@@ -1131,7 +1119,6 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^the run ends and the HTTP surface stops with it$`, st.runEndsAndServeStops)
 			sc.Step(`^the second run serves nothing of its own$`, st.secondRunServedNothing)
 			sc.Step(`^it opens the tab shell of the desktop already running$`, st.secondRunOpenedTheRunningDesktop)
-			sc.Step("^it names the surfaces it left to `coddy serve`$", st.namesWhatItLeft)
 			sc.Step(`^it changes nothing in the configuration itself$`, st.changesNothingInTheConfig)
 
 			sc.Step(`^a window whose browser answers Ctrl\+T and Ctrl\+W itself$`, st.browserAnswersTheChordsItself)

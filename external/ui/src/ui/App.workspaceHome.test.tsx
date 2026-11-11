@@ -258,7 +258,12 @@ test("a draft tells the desktop shell which folder it picked", async () => {
     expect(state().textContent).toBe("home:/projects/picked"),
   );
   expect(posted).toHaveBeenCalledWith(
-    { channel: "coddy.desktop", type: "workspace", path: "/projects/picked" },
+    {
+      channel: "coddy.desktop",
+      type: "workspace",
+      path: "/projects/picked",
+      manual: true,
+    },
     window.location.origin,
   );
 });

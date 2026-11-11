@@ -866,7 +866,7 @@ Select text anywhere in the transcript - an answer, a prompt, a tool card - and 
 
 Context ring and breakdown popover
 
-- **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
+- **Hover** on **`.composer-context-tip-host`** shows the percentage and tokens in the current window, followed by its maximum. When the server reports neither a breakdown nor a percentage, the tooltip says the context usage is unavailable; it never substitutes cumulative session tokens.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet as the slash / **`@`** pickers, over a dimming scrim of its own (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**; the pickers' backdrop is transparent). **Escape** or **Close** dismisses; hover tooltip returns when closed.
 - Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
@@ -2577,10 +2577,10 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user clicks **Less**
   - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
-- Token usage survives restart
-  - Given a session has non zero token usage
+- Context usage survives restart
+  - Given a session has a saved context breakdown
   - When the user reloads the page
-  - Then the context ring's tooltip shows the persisted Input, Output and Total
+  - Then the context ring's tooltip shows the saved window usage and maximum
 
 - Memory subagent in the Tasks panel (Playwright MCP)
   - Given **`memory.enable: true`** on the **`coddy serve`** process and at least one Markdown file under global or workspace memory so recall can run

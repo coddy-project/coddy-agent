@@ -274,6 +274,22 @@ func runServe(args []string) error {
 		return nil
 	}
 
+	// The per-home owner is claimed before a session manager exists. A second
+	// serve therefore fails here instead of opening another manager, scheduler
+	// and MCP set on different public ports. The endpoint itself does not
+	// depend on httpserver.enable or the configured public port.
+	runtimeOwner, err := claimRuntimeOwner(paths.Home, httpserver.Available)
+	if err != nil {
+		return err
+	}
+	if runtimeOwner != nil {
+		defer func() {
+			if err := runtimeOwner.Close(); err != nil {
+				log.Warn("closing the local runtime IPC", "error", err)
+			}
+		}()
+	}
+
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
 		AdjustConfig:       applyProcessOverrides,
@@ -285,6 +301,16 @@ func runServe(args []string) error {
 	}); err != nil {
 		return err
 	}
+	all = runtimeIPCSubsystems(all, rt, subsystemDeps{
+		httpListenAddr:  httpListenAddr,
+		swarmListenAddr: swarmListenAddr,
+		home:            paths.Home,
+		httpAuthTokens:  httpTokens,
+		httpLogin:       outOfBandLogin(),
+		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
+		adjust:          applyProcessOverrides,
+		metrics:         wiring,
+	}, runtimeOwner)
 	// The registry counts for the whole process, whether or not the listener
 	// is enabled: enabling it later shows what happened before.
 	defer wiring.Start()()
@@ -509,6 +535,20 @@ func metricsDescriptor() serve.Subsystem {
 	}
 }
 
+// unbuiltSections names the settings sections this binary cannot run, so the
+// settings screen of any HTTP surface it serves - the configured one or the
+// desktop window's - hides what turning on could never start.
+func unbuiltSections(deps subsystemDeps) []string {
+	var unbuilt []string
+	if !deps.metrics.Subsystem().Available {
+		unbuilt = append(unbuilt, "metrics")
+	}
+	if !browser.Available {
+		unbuilt = append(unbuilt, "browser")
+	}
+	return unbuilt
+}
+
 // subsystems describes every surface this binary knows about, available or not.
 //
 // A descriptor exists even when its build tag is missing, so a configuration
@@ -516,13 +556,7 @@ func metricsDescriptor() serve.Subsystem {
 // starting a daemon that quietly does less than it was told to.
 func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	metrics := deps.metrics.Subsystem()
-	var unbuilt []string
-	if !metrics.Available {
-		unbuilt = append(unbuilt, "metrics")
-	}
-	if !browser.Available {
-		unbuilt = append(unbuilt, "browser")
-	}
+	unbuilt := unbuiltSections(deps)
 	return []serve.Subsystem{
 		{
 			Kind:          serve.KindHTTP,
@@ -540,20 +574,24 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context, cfg *config.Config) error {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
+				withdrawMirror := func() {}
 				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
+					ExtraLogin: deps.httpLogin, Mirror: rt, DetachedPrompts: rt, Wakes: rt,
 					UnbuiltSections: unbuilt, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
-							rt.SetTurnMirror(nil)
+							withdrawMirror()
 							withdrawPrompts()
 							return
 						}
-						rt.SetTurnMirror(s)
+						// The mirror is a set rather than a slot: under `coddy
+						// desktop` this server shares the mirroring with the
+						// window's loopback server.
+						withdrawMirror = rt.AddTurnMirror(s)
 						// A detached subagent's prompt is shown in the chat of
 						// its parent session, in the browser and in a console
 						// attached over --remote alike.

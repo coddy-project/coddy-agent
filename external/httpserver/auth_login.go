@@ -245,7 +245,10 @@ func originMatchesHost(origin, host string) bool {
 
 func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	pol := s.loginPolicyNow()
-	auth := s.authPolicyNow()
+	auth := s.authPolicyForRequest(r)
+	if !auth.enabled {
+		pol.enabled = false
+	}
 	out := map[string]interface{}{
 		// login_required is what makes the app draw a sign-in screen instead of
 		// the composer; auth_required tells it that a server it cannot sign in

@@ -236,6 +236,7 @@ export function ContextBreakdownPopover(props: {
   const idle = props.contextIdle === true;
   const maxCtx = props.maxContextTokens > 0 ? props.maxContextTokens : 128000;
   const b = props.breakdown;
+  const contextUnavailable = !idle && b == null;
   const rows = SEGMENTS.map((s) => ({
     ...s,
     label: t(s.labelKey),
@@ -287,70 +288,86 @@ export function ContextBreakdownPopover(props: {
           ×
         </button>
       </div>
-      <div
-        className="context-breakdown-usage-row"
-        data-testid="context-breakdown-usage-row"
-      >
-        <span className="context-breakdown-used">
-          {t("chat.contextPercentUsed", { percent: percentUsed })}
-        </span>
-        <span
-          className="context-breakdown-tokens"
-          title={t("chat.contextTokensSummary", {
-            used: fmtInt(used),
-            max: fmtInt(maxCtx),
+      {contextUnavailable ? (
+        <p
+          className="context-breakdown-empty"
+          data-testid="context-breakdown-unavailable"
+          role="status"
+        >
+          {t("composer.contextTipUnknown", {
+            max: formatContextTokens(maxCtx),
           })}
-        >
-          {formatContextTokens(used)} / {formatContextTokens(maxCtx)}
-        </span>
-      </div>
-      <div
-        className="context-meter-track"
-        role="img"
-        aria-label={t("chat.contextMeterAriaLabel", {
-          percent: fillPct.toFixed(1),
-        })}
-        data-testid="context-breakdown-bar"
-      >
-        <div
-          className="context-meter-fill"
-          style={{ width: `${fillPct}%` }}
-          data-testid="context-meter-fill"
-        >
-          {usedRows.length > 0
-            ? usedRows.map((r) => (
-                <span
-                  key={r.key}
-                  className="context-meter-seg"
-                  data-segment={r.key}
-                  style={{
-                    flexGrow: r.tokens,
-                    background: `var(${r.cssVar})`,
-                  }}
-                  title={t("chat.contextSegmentTooltip", {
-                    label: r.label,
-                    count: fmtInt(r.tokens),
-                  })}
-                />
-              ))
-            : null}
-        </div>
-      </div>
-      {showEmptyState ? (
-        <p className="context-breakdown-empty">{t("chat.contextEmpty")}</p>
-      ) : null}
-      <ul className="context-breakdown-legend">
-        {displayRows.map((r) => (
-          <li key={r.key} data-testid={`context-breakdown-row-${r.key}`}>
+        </p>
+      ) : (
+        <>
+          <div
+            className="context-breakdown-usage-row"
+            data-testid="context-breakdown-usage-row"
+          >
+            <span className="context-breakdown-used">
+              {t("chat.contextPercentUsed", { percent: percentUsed })}
+            </span>
             <span
-              className="context-breakdown-swatch"
-              style={{ background: `var(${r.cssVar})` }}
-            />
-            <span className="context-breakdown-label">{r.label}</span>
-            <span className="context-breakdown-value">{fmtInt(r.tokens)}</span>
-          </li>
-        ))}
-      </ul>
+              className="context-breakdown-tokens"
+              title={t("chat.contextTokensSummary", {
+                used: fmtInt(used),
+                max: fmtInt(maxCtx),
+              })}
+            >
+              {formatContextTokens(used)} / {formatContextTokens(maxCtx)}
+            </span>
+          </div>
+          <div
+            className="context-meter-track"
+            role="img"
+            aria-label={t("chat.contextMeterAriaLabel", {
+              percent: fillPct.toFixed(1),
+            })}
+            data-testid="context-breakdown-bar"
+          >
+            <div
+              className="context-meter-fill"
+              style={{ width: `${fillPct}%` }}
+              data-testid="context-meter-fill"
+            >
+              {usedRows.length > 0
+                ? usedRows.map((r) => (
+                    <span
+                      key={r.key}
+                      className="context-meter-seg"
+                      data-segment={r.key}
+                      style={{
+                        flexGrow: r.tokens,
+                        background: `var(${r.cssVar})`,
+                      }}
+                      title={t("chat.contextSegmentTooltip", {
+                        label: r.label,
+                        count: fmtInt(r.tokens),
+                      })}
+                    />
+                  ))
+                : null}
+            </div>
+          </div>
+          {showEmptyState ? (
+            <p className="context-breakdown-empty">{t("chat.contextEmpty")}</p>
+          ) : null}
+          <ul className="context-breakdown-legend">
+            {displayRows.map((r) => (
+              <li key={r.key} data-testid={`context-breakdown-row-${r.key}`}>
+                <span
+                  className="context-breakdown-swatch"
+                  style={{ background: `var(${r.cssVar})` }}
+                />
+                <span className="context-breakdown-label">{r.label}</span>
+                <span className="context-breakdown-value">
+                  {fmtInt(r.tokens)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <div
         className="context-breakdown-compaction"
         data-testid="context-breakdown-compaction"

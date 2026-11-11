@@ -17,6 +17,7 @@ type KimiCredentialSource func(context.Context) (string, error)
 // Encoding and decoding the selected wire protocol belong to the caller.
 type KimiInferenceTransport struct {
 	endpoint           string
+	usageEndpoint      string
 	source             KimiCredentialSource
 	client             *http.Client
 	anthropic          bool
@@ -65,6 +66,10 @@ func newKimiInferenceTransport(mode, region, protocol string, source KimiCredent
 	if base == "" {
 		return nil, errors.New("kimi: invalid inference mode or region")
 	}
+	usageEndpoint := ""
+	if mode == "subscription" {
+		usageEndpoint = base + "/usages"
+	}
 	if mode == "platform" && protocol != "kimi" {
 		return nil, errors.New("kimi: unsupported platform inference protocol")
 	}
@@ -80,15 +85,15 @@ func newKimiInferenceTransport(mode, region, protocol string, source KimiCredent
 	}
 	safe := *client
 	safe.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &KimiInferenceTransport{endpoint: base, source: source, client: &safe, anthropic: protocol == "anthropic"}, nil
+	return &KimiInferenceTransport{endpoint: base, usageEndpoint: usageEndpoint, source: source, client: &safe, anthropic: protocol == "anthropic"}, nil
 }
 
 // Do posts a wire-format inference body. The caller must close the response.
 func (t *KimiInferenceTransport) Do(ctx context.Context, body io.Reader) (*http.Response, error) {
-	return t.do(ctx, body, false)
+	return t.do(ctx, body, false, "")
 }
 
-func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, contextManagement bool) (*http.Response, error) {
+func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, contextManagement bool, label string) (*http.Response, error) {
 	data, err := io.ReadAll(body)
 	if err != nil {
 		return nil, errors.New("kimi: cannot read inference request")
@@ -113,9 +118,15 @@ func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, context
 		}
 		return nil, errors.New("kimi: credential unavailable")
 	}
+	finish := func(resp *http.Response, requestErr error) (*http.Response, error) {
+		if requestErr != nil || label == "" || resp == nil || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+			return resp, requestErr
+		}
+		return nil, t.statusError(ctx, label, resp, token)
+	}
 	resp, err := t.send(ctx, data, token, contextManagement)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.recovery == nil {
-		return resp, err
+		return finish(resp, err)
 	}
 	if err := resp.Body.Close(); err != nil {
 		return nil, errors.New("kimi: cannot close rejected response")
@@ -138,7 +149,7 @@ func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, context
 			return nil, err
 		}
 	}
-	return t.send(ctx, data, token, contextManagement)
+	return finish(t.send(ctx, data, token, contextManagement))
 }
 
 func (t *KimiInferenceTransport) send(ctx context.Context, data []byte, token string, contextManagement bool) (*http.Response, error) {

@@ -1953,6 +1953,8 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
+  "composer.contextTipUnknown":
+    "Использование контекста неизвестно · максимум {max}",
   "composer.contextTipIdle": "Контекст пуст",
   "composer.contextTipUsed": "Использовано {percent}% контекста",
   "usage.resets": "сброс {time}",

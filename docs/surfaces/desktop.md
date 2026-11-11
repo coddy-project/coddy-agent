@@ -87,12 +87,16 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 | `--auth` | ask for the credential the configuration carries. Without it the window asks for nothing (below) |
 | `-t`, `--test-config` | check the configuration file and exit, starting nothing |
 
-The window runs the web interface and nothing else. A configuration that also enables the Telegram
-bot, the Pachca bot, the swarm relay, the scheduler, the exporter or the browser endpoint keeps
-them as written; this process simply does not start them, says so on startup and leaves them to
-`coddy serve`. Running them twice over one agent home does not divide the work: two bots on one
-token make Telegram answer `409`, two schedulers fire every job twice, and a relay that cannot bind
-its port would take the window down with it.
+The desktop runs the same site `coddy serve` runs. If a service for the same agent home is already
+running, the window connects to that process over a private local channel and starts no second
+session manager, scheduler or gateway. The service keeps running when the window closes. This also
+works when the public HTTP listener is disabled. Restart an older background service that does not
+yet offer the channel before opening the window.
+
+Otherwise the desktop starts the surfaces the configuration enables - the public HTTP surface, the
+Telegram and Pachca bots, the swarm relay, the scheduler, the exporter and the browser endpoint -
+beside the window's loopback surface. A surface that cannot start stops alone and says so in the
+log; the window and the rest keep running. The configuration on disk is not rewritten.
 
 ## Tabs
 
@@ -102,6 +106,7 @@ its port would take the window down with it.
 | Close a tab | its `×`, a middle click on it, or `Ctrl`+`W` for the one in front |
 | Switch | click a tab, or `Ctrl`+`1` ... `Ctrl`+`9` |
 | Next, previous | `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab`, which wrap at both ends |
+| Reorder | drag a tab to its new place in the row |
 | Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
 | Walk a long row | the two arrows beside the window's own buttons, which appear once the tabs are wider than the bar |
 
@@ -110,6 +115,8 @@ A middle click on **New chat**, a conversation in **History**, or a rail item su
 browser window. `Ctrl`+click and `Cmd`+click do the same. A new chat opened this way starts in the
 folder of the chat you were reading; before a chat has started, it uses the folder picked on the
 start screen. The route of every tab is restored after a restart, including an open rail screen.
+A new tab shows its start screen immediately while that folder is resolved. If a chat does not
+finish loading, the window tries its address again twice before leaving it for `Ctrl`+`R`.
 
 The chords work while you are typing in a chat, and some of them take a detour to get there. A
 browser window in application mode answers `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R` and `Ctrl`+`Tab`
@@ -119,9 +126,10 @@ those keys at the X server, with a grab on its own window, and hands them to the
 `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab` are two grabs rather than one, because a grab matches the
 modifiers exactly. `Ctrl`+`1` ... `Ctrl`+`9` need none of that, since an application window has no
 tabs of its own to switch to and gives the digits to the page. `Alt` stands beside `Ctrl` for every
-chord, and on a Mac so does `Cmd`: that is what a Wayland or a macOS session - where the keys
-cannot be taken from the browser - leaves you with. A chord is read off the physical key, so a
-Russian or any other layout answers the same keys as a US one.
+letter and digit chord, and on a Mac so does `Cmd`: that is what a Wayland or a macOS session -
+where the keys cannot be taken from the browser - leaves you with. `Alt`+`Tab` and `Cmd`+`Tab`
+always belong to the window manager and never switch these tabs. A chord is read off the physical
+key, so a Russian or any other layout answers the same keys as a US one.
 
 A row longer than the bar scrolls, and the tab you switch to is always brought into sight, so the
 chords stay usable however many chats are open.
@@ -134,10 +142,14 @@ Ahead of the name each tab carries the state of its chat, the same mark the Hist
 | Mark | What it means |
 | --- | --- |
 | A filled dot, pulsing | the chat is working: a turn is running, or a background task is still in flight |
-| A ring in the theme's accent | the chat is waiting for you, for a permission or an answer |
+| A question mark, named **Permission required** | the chat is waiting for a permission |
+| A question mark, named **Question pending** | the chat is waiting for an answer |
 | A red dot | the last turn of that chat failed |
 | A filled dot in the accent | the chat finished while you were in another tab |
 | A hollow ring | the chat is finished |
+
+A turn sent in any tab marks that tab as working immediately; the ordinary session-list poll
+then takes over and clears the mark when the work finishes.
 
 The window keeps a tab: closing the last one opens an empty chat instead of leaving the window
 blank. The strip's close button minimises the window when **Show the tray icon** is enabled and
@@ -164,6 +176,7 @@ right edge. The corners are rounded while the window floats and square while it 
 | Action | How |
 | --- | --- |
 | Move the window | drag the empty part of the strip |
+| Resize the window | drag an edge or a corner; the pointer shows the direction |
 | Maximise or restore | double-click the empty part of the strip, or the middle button at the right |
 | Minimise, close | the buttons at the right edge |
 | The desktop menu | the button at the left edge of the strip |
@@ -304,17 +317,26 @@ The window asks for nothing. It binds loopback for the person who started the ap
 sign-in form in a window they opened themselves proves nothing, so `coddy desktop` serves without a
 credential whatever the configuration carries - a bearer token, a sign-in account, both.
 
-**The configuration on disk is untouched.** The same `config.yaml` still signs in a `coddy serve`
-that is reachable from elsewhere, and the settings screen inside the window shows the real values,
-so saving from there does not take the operator's account off disk.
+**The configuration on disk is untouched.** The same `config.yaml` still signs in the public
+surface this process and `coddy serve` run, and the settings screen inside the window shows the
+real values, so saving from there does not take the operator's account off disk.
 
 Two things follow. Any program running on this machine can reach that port and drive the agent,
 which is the same bargain `coddy serve` makes on loopback by default. And if you want the
 credential back - a shared machine, a second user account - `--auth` asks for whatever the
 configuration configures, and the sign-in form appears inside the window.
 
-The window runs the web interface and nothing else, as above, and that too is a decision of this
-process rather than an edit: the other subsystems are simply not among the surfaces it starts.
+Every other surface the configuration enables runs beside the window, as above, and that too is a
+decision of this process rather than an edit: the document stays as written, and the credential the
+public surface asks of a visitor from elsewhere is the one it holds.
+
+A remote environment sees the desktop window as a separate browser origin,
+`http://127.0.0.1:<port>`, where the port is recorded in `<home>/desktop/port`. On the remote
+server, enable `httpserver.cors` and list that exact origin in `httpserver.cors.allowed_origins`.
+For a swarm relay, configure `swarm.cors` on the relay instead. The alternative
+`allow_loopback: true` admits every loopback page in the browser, not only Coddy's window; use it
+only when that broader trust is intended, and protect the remote API with a credential. Starting
+the desktop does not change a remote server's CORS policy.
 
 ## Linux, macOS and Windows
 
@@ -326,12 +348,13 @@ The window opens on all three. What differs is how much of it the system lets Co
 | No system frame, the strip as the title bar | yes | no | no | no |
 | Rounded corners, drag by the strip, its own buttons | yes | no | no | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
-| `Alt` (and `Cmd` on a Mac) for the same chords | yes | yes | yes | yes |
+| `Alt` (and `Cmd` on a Mac) for the letter and digit chords | yes | yes | yes | yes |
 | Tray icon | yes | yes | no | no |
 | Open at login | autostart entry | autostart entry | launch agent | `Run` key |
 
-Where a chord cannot be taken from the browser, `Alt`+`T`, `Alt`+`W`, `Alt`+`R` and `Alt`+`Tab` do
-the same thing, and on a Mac `Cmd` stands beside them.
+Where a chord cannot be taken from the browser, `Alt`+`T`, `Alt`+`W`, `Alt`+`R` and the digit
+chords do the same thing, and on a Mac `Cmd` stands beside them. `Alt`+`Tab` and `Cmd`+`Tab` stay
+with the window manager.
 
 The browser is looked for where each system keeps one: on `PATH` on Linux, in `/Applications` and
 `~/Applications` on macOS, under Program Files and the user's local application data on Windows.

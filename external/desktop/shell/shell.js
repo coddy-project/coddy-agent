@@ -41,6 +41,8 @@
   // spin on a request that will keep failing.
   const CHORD_RETRY_MS = 2000;
   const DRAG_THRESHOLD_PX = 4;
+  const FRAME_LOAD_TIMEOUT_MS = 10000;
+  const FRAME_LOAD_RETRIES = 2;
 
   const strip = document.getElementById("strip");
   const frames = document.getElementById("coddy-desktop-frames");
@@ -53,14 +55,23 @@
   const scrollButtons = document.getElementById("scroll-btns");
   const scrollLeft = document.getElementById("scroll-left");
   const scrollRight = document.getElementById("scroll-right");
+  const resizeEdges = document.getElementById("resize-edges");
 
   /** @type {{uid: string, session: string|null, route: string, workspace: string, workspacePending?: boolean, workspaceSource?: string, workspaceSourceUid?: string}[]} */
   let tabs = [];
   let activeUid = null;
   /** @type {Map<string, HTMLIFrameElement>} */
   const frameOf = new Map();
-  /** The rows of GET /coddy/sessions, by session id: the title and the state. */
+  const frameLoadTimers = new Map();
+  const frameLoadAttempts = new Map();
+  let draggedTabUid = null;
+  let suppressTabClickUid = null;
+  /** The rows of GET /coddy/sessions, by tab: session ids are per environment. */
   const rows = new Map();
+  /** One session-list read in flight per environment and credential scope. */
+  const sessionReads = new Map();
+  /** Turns a frame has just sent, before the session list catches up. */
+  const locallyBusy = new Map();
   /** Whether this window can be asked to minimise, maximise, move or close. */
   let windowDriven = false;
   /**
@@ -345,6 +356,12 @@
   // would be two sets of the same buttons.
   function syncWindowButtons() {
     windowButtons.hidden = !windowDriven || settings.framed;
+    syncResizeEdges();
+  }
+
+  function syncResizeEdges() {
+    resizeEdges.hidden =
+      !windowDriven || settings.framed || root.dataset.window === "maximised";
   }
 
   // The window's own corners are cut by the launcher while it floats and left
@@ -360,7 +377,8 @@
     const filled =
       Math.abs(window.outerWidth - screen.availWidth) <= 2 &&
       Math.abs(window.outerHeight - screen.availHeight) <= 2;
-    document.documentElement.dataset.window = filled ? "maximised" : "floating";
+  document.documentElement.dataset.window = filled ? "maximised" : "floating";
+    syncResizeEdges();
   }
 
   // Dragging the bar moves the window, and the page drives the move from the
@@ -465,6 +483,72 @@
     zone.addEventListener("pointercancel", stop);
   }
 
+  function resizeWindowFrom(e) {
+    if (!windowDriven || e.button !== 0) return;
+    e.preventDefault();
+    const zone = e.currentTarget;
+    const direction = zone.dataset.direction;
+    const startX = e.screenX;
+    const startY = e.screenY;
+    let began = false;
+    let pending = null;
+    let draining = null;
+    let frame = 0;
+
+    const send = () => {
+      frame = 0;
+      if (!began || draining) return draining;
+      if (!pending) return null;
+      // One request at a time. Pointer moves only replace the delta waiting
+      // in this drain, so the last one is sent after the request in flight,
+      // and stop can await the whole queue before ending the gesture.
+      draining = (async () => {
+        while (pending) {
+          const [dx, dy] = pending;
+          pending = null;
+          await askWindow("resize-by", { direction, x: dx, y: dy });
+        }
+      })().finally(() => {
+        draining = null;
+      });
+      return draining;
+    };
+    const begun = askWindow("resize-begin").then((ok) => {
+      began = ok;
+      if (ok && pending && !frame) frame = requestAnimationFrame(send);
+      return ok;
+    });
+    const onMove = (m) => {
+      pending = [m.screenX - startX, m.screenY - startY];
+      if (!frame) frame = requestAnimationFrame(send);
+    };
+    const stop = () => {
+      if (frame) cancelAnimationFrame(frame);
+      begun
+        .then(() => send())
+        .then(() => askWindow("move-end"))
+        .catch(() => {
+          /* the window is gone, and so is the drag */
+        });
+      zone.removeEventListener("pointermove", onMove);
+      zone.removeEventListener("pointerup", stop);
+      zone.removeEventListener("pointercancel", stop);
+      try {
+        zone.releasePointerCapture(e.pointerId);
+      } catch {
+        /* the capture may already be gone */
+      }
+    };
+    try {
+      zone.setPointerCapture(e.pointerId);
+    } catch {
+      /* without capture the listeners below still see most of the gesture */
+    }
+    zone.addEventListener("pointermove", onMove);
+    zone.addEventListener("pointerup", stop);
+    zone.addEventListener("pointercancel", stop);
+  }
+
   // A link out of Coddy opens in this machine's own browser.
   //
   // Clicked inside a frame, a link to another site loads that site into the
@@ -554,18 +638,37 @@
 
   // --- frames -------------------------------------------------------------
 
-  const addressOf = (tab) =>
-    "/" +
-    (tab.workspace
-      ? "?desktop_workspace=" + encodeURIComponent(tab.workspace)
-      : "") +
-    (tab.route || (tab.session ? "#/s/" + tab.session : "#/"));
+  // The HTML shell firing load is not the SPA being ready: its module may
+  // still have failed before React mounted anything into #root. Only a
+  // mounted application proves that this frame no longer needs recovery.
+  function spaReady(frame) {
+    try {
+      const root = frame.contentDocument.getElementById("root");
+      return Boolean(root && root.childElementCount > 0);
+    } catch {
+      return false;
+    }
+  }
+
+  const addressOf = (tab) => {
+    const query = [];
+    if (tab.workspace) {
+      query.push("desktop_workspace=" + encodeURIComponent(tab.workspace));
+    }
+    if (tab.workspacePending) query.push("desktop_workspace_pending=1");
+    return (
+      "/" +
+      (query.length ? "?" + query.join("&") : "") +
+      (tab.route || (tab.session ? "#/s/" + tab.session : "#/"))
+    );
+  };
 
   function routeOfFrame(frame) {
     try {
       const location = frame.contentWindow.location;
       if (location.href === "about:blank") return null;
       const hash = location.hash || "";
+      if (!hash || hash === "#") return null;
       return hash.startsWith("#/") ? hash : "#/";
     } catch {
       return null;
@@ -574,15 +677,56 @@
 
   function ensureFrame(tab) {
     let frame = frameOf.get(tab.uid);
-    if (tab.workspacePending) return frame || null;
     if (frame) return frame;
     frame = document.createElement("iframe");
-    frame.src = addressOf(tab);
     frame.title = "Chat";
-    frame.addEventListener("load", () => onFrameLoad(tab.uid, frame));
+    frame.addEventListener("load", () => {
+      try {
+        if (frame.contentWindow.location.href === "about:blank") return;
+      } catch {
+        /* a frame that cannot be read is still given its load handling */
+      }
+      // The document can load before React mounts. Its keyboard and link
+      // handlers must already work even while the readiness watchdog waits.
+      onFrameLoad(tab.uid, frame);
+      if (!spaReady(frame)) return;
+      clearFrameLoadTimer(tab.uid);
+      frameLoadAttempts.set(tab.uid, 0);
+    });
+    frame.addEventListener("error", () => retryFrame(tab.uid, frame));
     frameOf.set(tab.uid, frame);
     frames.appendChild(frame);
+    navigateFrame(tab, frame);
     return frame;
+  }
+
+  function clearFrameLoadTimer(tabUid) {
+    clearTimeout(frameLoadTimers.get(tabUid));
+    frameLoadTimers.delete(tabUid);
+  }
+
+  function navigateFrame(tab, frame) {
+    clearFrameLoadTimer(tab.uid);
+    frame.src = addressOf(tab);
+    frameLoadTimers.set(
+      tab.uid,
+      setTimeout(() => retryFrame(tab.uid, frame), FRAME_LOAD_TIMEOUT_MS),
+    );
+  }
+
+  function retryFrame(tabUid, frame) {
+    clearFrameLoadTimer(tabUid);
+    const tab = tabs.find((t) => t.uid === tabUid);
+    if (!tab || frameOf.get(tabUid) !== frame) return;
+    if (spaReady(frame)) {
+      frameLoadAttempts.set(tabUid, 0);
+      watchTurnStarts(tabUid, frame);
+      return;
+    }
+    const attempts = frameLoadAttempts.get(tabUid) || 0;
+    if (attempts >= FRAME_LOAD_RETRIES) return;
+    frameLoadAttempts.set(tabUid, attempts + 1);
+    navigateFrame(tab, frame);
   }
 
   // A frame tells this page which session it is on through its own address,
@@ -597,15 +741,13 @@
   // documentation - where the tab keeps the name it had.
   function sessionOfFrame(frame) {
     try {
-      const hash = frame.contentWindow.location.hash || "";
+      const location = frame.contentWindow.location;
+      if (location.href === "about:blank") return null;
+      const hash = location.hash || "";
+      if (!hash || hash === "#") return null;
       const m = hash.match(/^#\/s\/([A-Za-z0-9_-]+)/);
       if (m) return m[1];
-      if (
-        hash === "" ||
-        hash === "#" ||
-        hash === "#/" ||
-        hash.startsWith("#/draft/")
-      ) {
+      if (hash === "#/" || hash.startsWith("#/draft/")) {
         return "";
       }
       return null;
@@ -636,6 +778,7 @@
       const session = sessionOfFrame(frame);
       if (session === null || session === (tab.session || "")) continue;
       tab.session = session;
+      rows.delete(tab.uid);
       moved = true;
     }
     if (!moved) return false;
@@ -651,12 +794,45 @@
     return true;
   }
 
+  function watchTurnStarts(tabUid, frame) {
+    const win = frame.contentWindow;
+    if (win.__coddyDesktopActivityWrapped) return;
+    const originalFetch = win.fetch;
+    win.fetch = (...args) => {
+      try {
+        const input = args[0];
+        const init = args[1];
+        const raw = typeof input === "string" ? input : input?.url;
+        const url = new URL(raw, win.location.href);
+        const method = (
+          init?.method || (typeof input === "object" && input?.method) || "GET"
+        ).toUpperCase();
+        if (
+          method === "POST" &&
+          url.origin === location.origin &&
+          url.pathname === "/v1/responses"
+        ) {
+          locallyBusy.set(tabUid, Date.now());
+          renderStrip();
+          const response = originalFetch.apply(win, args);
+          refreshSessions();
+          return response;
+        }
+      } catch {
+        /* an unusual request still goes through unchanged */
+      }
+      return originalFetch.apply(win, args);
+    };
+    win.__coddyDesktopActivityWrapped = true;
+  }
+
   function onFrameLoad(tabUid, frame) {
     const sync = () => {
       if (!tabs.some((t) => t.uid === tabUid)) return;
       if (!syncFrameSessions()) renderStrip();
     };
     try {
+      watchTurnStarts(tabUid, frame);
       frame.contentWindow.addEventListener("hashchange", sync);
       // A key pressed inside a frame is delivered to that frame's document and
       // never reaches this one, so the handler is attached there as well. It
@@ -687,7 +863,7 @@
 
   function labelOf(tab) {
     if (!tab.session) return "New chat";
-    const row = rows.get(tab.session);
+    const row = rows.get(tab.uid);
     return (row && row.title) || "Chat";
   }
 
@@ -698,7 +874,8 @@
   // one being read, so it carries neither an unread mark nor an unseen failure.
   const STATES = {
     busy: "Working",
-    waiting: "Waiting for you",
+    permission: "Permission required",
+    question: "Question pending",
     error: "The last turn failed",
     "error-seen": "The last turn failed",
     unread: "Finished, not read yet",
@@ -706,9 +883,14 @@
   };
 
   function stateOf(tab) {
-    const row = tab.session ? rows.get(tab.session) : null;
+    const row = tab.session ? rows.get(tab.uid) : null;
+    // A prompt that waits for the operator outranks the busy mark a send just
+    // set: the mark lives for the whole turn, and a waited turn is exactly
+    // when the question sign has to show.
+    if (row && row.permissionPending) return "permission";
+    if (row && row.questionPending) return "question";
+    if (locallyBusy.has(tab.uid)) return "busy";
     if (!row) return "idle";
-    if (row.permissionPending || row.questionPending) return "waiting";
     if (row.turnActive || (row.backgroundRunning || 0) > 0) return "busy";
     const inFront = tab.uid === activeUid;
     const failed = row.lastErrorSeq || 0;
@@ -728,10 +910,113 @@
     span.setAttribute("role", "img");
     span.setAttribute("aria-label", STATES[state]);
     span.title = STATES[state];
+    if (state === "permission" || state === "question") {
+      span.textContent = "?";
+    }
     return span;
   }
 
+  function clearTabDropIndicator() {
+    for (const button of strip.querySelectorAll(".tab")) {
+      button.classList.remove("is-drop-before", "is-drop-after");
+    }
+  }
+
+  function tabDropIndex(x, y) {
+    const bounds = strip.getBoundingClientRect();
+    if (y < bounds.top || y > bounds.bottom) return -1;
+    const buttons = [...strip.querySelectorAll(".tab")];
+    for (let i = 0; i < buttons.length; i++) {
+      const rect = buttons[i].getBoundingClientRect();
+      if (x < rect.left + rect.width / 2) return i;
+    }
+    return buttons.length;
+  }
+
+  function showTabDropIndex(index) {
+    clearTabDropIndicator();
+    const buttons = strip.querySelectorAll(".tab");
+    if (index < 0) return;
+    if (index >= buttons.length) {
+      buttons[buttons.length - 1]?.classList.add("is-drop-after");
+    } else {
+      buttons[index]?.classList.add("is-drop-before");
+    }
+  }
+
+  function moveTab(tabUid, index) {
+    const from = tabs.findIndex((t) => t.uid === tabUid);
+    if (from < 0) return;
+    const tab = tabs[from];
+    tabs.splice(from, 1);
+    if (from < index) index--;
+    index = Math.max(0, Math.min(index, tabs.length));
+    tabs.splice(index, 0, tab);
+    save();
+    renderStrip();
+  }
+
+  function dragTabFrom(e, tab, button) {
+    if (e.button !== 0 || e.target.closest(".close")) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let didDrag = false;
+    let ended = false;
+    try {
+      button.setPointerCapture(e.pointerId);
+    } catch {
+      /* without capture the button still receives an ordinary click */
+    }
+
+    const onMove = (m) => {
+      const dx = m.clientX - startX;
+      const dy = m.clientY - startY;
+      if (!didDrag) {
+        if (
+          Math.abs(dx) < DRAG_THRESHOLD_PX &&
+          Math.abs(dy) < DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        didDrag = true;
+        draggedTabUid = tab.uid;
+        suppressTabClickUid = tab.uid;
+        button.classList.add("is-dragging");
+      }
+      showTabDropIndex(tabDropIndex(m.clientX, m.clientY));
+    };
+
+    const stop = (m, drop) => {
+      if (ended) return;
+      ended = true;
+      button.removeEventListener("pointermove", onMove);
+      button.removeEventListener("pointerup", onUp);
+      button.removeEventListener("pointercancel", onCancel);
+      try {
+        button.releasePointerCapture(e.pointerId);
+      } catch {
+        /* the capture may already be gone */
+      }
+      if (!didDrag) return;
+      const index = drop ? tabDropIndex(m.clientX, m.clientY) : -1;
+      draggedTabUid = null;
+      if (!drop) {
+        // A cancelled drag fires no click for the flag to be spent by; left
+        // standing it would eat the tab's next real click.
+        suppressTabClickUid = null;
+      }
+      if (index >= 0) moveTab(tab.uid, index);
+      else renderStrip();
+    };
+    const onUp = (m) => stop(m, true);
+    const onCancel = (m) => stop(m, false);
+    button.addEventListener("pointermove", onMove);
+    button.addEventListener("pointerup", onUp);
+    button.addEventListener("pointercancel", onCancel);
+  }
+
   function renderStrip() {
+    if (draggedTabUid) return;
     strip.textContent = "";
     tabs.forEach((tab, index) => {
       const button = document.createElement("button");
@@ -762,7 +1047,14 @@
       });
       button.appendChild(close);
 
-      button.addEventListener("click", () => activate(tab.uid));
+      button.addEventListener("pointerdown", (e) => dragTabFrom(e, tab, button));
+      button.addEventListener("click", () => {
+        if (suppressTabClickUid === tab.uid) {
+          suppressTabClickUid = null;
+          return;
+        }
+        activate(tab.uid);
+      });
       button.addEventListener("auxclick", (e) => {
         if (e.button === 1) closeTab(tab.uid);
       });
@@ -779,6 +1071,8 @@
     });
     for (const [tabUid, frame] of frameOf) {
       if (!tabs.some((t) => t.uid === tabUid)) {
+        clearFrameLoadTimer(tabUid);
+        frameLoadAttempts.delete(tabUid);
         frame.remove();
         frameOf.delete(tabUid);
       }
@@ -921,13 +1215,36 @@
     }
   }
 
+  function postWorkspaceResolved(tab) {
+    const win = frameOf.get(tab.uid)?.contentWindow;
+    if (!win || tab.workspacePending) return;
+    try {
+      win.postMessage(
+        { channel: "coddy.desktop", type: "workspace-resolved", path: tab.workspace },
+        location.origin,
+      );
+    } catch {
+      // A frame in navigation asks again when its SPA mounts.
+    }
+  }
+
   function resolveWorkspace(tab) {
     void workspaceOf(tab).then((cwd) => {
-      if (!tabs.includes(tab)) return;
+      // An explicit folder or branch pick in the new tab cancels this request.
+      if (!tabs.includes(tab) || !tab.workspacePending) return;
+      const previous = tab.workspace;
       tab.workspace = cwd || tab.workspace;
       tab.workspacePending = false;
+      const frame = frameOf.get(tab.uid);
+      // The answer can arrive after the operator has started typing. A ready
+      // SPA owns live state that assigning src would destroy, so pass the
+      // folder to it rather than reloading the document.
+      if (frame && tab.workspace !== previous && !spaReady(frame)) {
+        navigateFrame(tab, frame);
+      }
       save();
       render();
+      postWorkspaceResolved(tab);
     });
   }
 
@@ -1040,6 +1357,8 @@
   function closeTab(tabUid) {
     const index = tabs.findIndex((t) => t.uid === tabUid);
     if (index < 0) return;
+    rows.delete(tabUid);
+    locallyBusy.delete(tabUid);
     tabs.splice(index, 1);
     // The window keeps a tab: closing the last chat would leave a blank frame
     // with no way back. Closing a tab never closes the window around it.
@@ -1055,33 +1374,111 @@
 
   // --- titles -------------------------------------------------------------
 
-  // What a tab draws - its name and the state of the chat behind it - comes
-  // from the session list rather than from the frames: the page already has
-  // the browser's credential for this origin, one request answers for every
-  // tab, and the list is the same source the History list reads.
-  async function refreshSessions() {
+  // What a tab draws comes from its own environment's session list. The SPA's
+  // live scope names the address and a fingerprint of its token, not the token
+  // itself. Tabs sharing it also share one authenticated read per cycle.
+  function sessionScope(frame) {
     try {
-      // include_activity is what carries turnActive, the pending prompts and
-      // the unread marks; without it every row comes back looking finished and
-      // the dot on a tab never moves (the History list asks the same way).
-      const res = await fetch(
+      const win = frame.contentWindow;
+      // The SPA installs its shim and scope before it mounts. Until both are
+      // there the environment is unknown, and local is not a safe fallback.
+      if (
+        !win.__coddyFetchShimmed ||
+        typeof win.fetch !== "function" ||
+        typeof win.__coddySessionScope !== "function"
+      ) {
+        return null;
+      }
+      const scope = win.__coddySessionScope();
+      if (typeof scope !== "string" || !scope) return null;
+      return { scope, win };
+    } catch {
+      return null;
+    }
+  }
+
+  async function readScopeSessions(win) {
+    try {
+      // include_activity carries turnActive, pending prompts and unread marks.
+      const res = await win.fetch(
         "/coddy/sessions?limit=200&include_activity=true",
         {
           credentials: "same-origin",
           headers: { Accept: "application/json" },
         },
       );
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const body = await res.json();
-      const list = Array.isArray(body && body.sessions) ? body.sessions : [];
-      rows.clear();
-      for (const row of list) {
-        if (row && typeof row.id === "string") rows.set(row.id, row);
-      }
-      renderStrip();
+      return Array.isArray(body && body.sessions) ? body.sessions : [];
     } catch {
-      /* the strip falls back to "Chat" and a finished mark */
+      // An unreachable environment leaves every tab in its scope unchanged.
+      return null;
     }
+  }
+
+  async function refreshSessions() {
+    const groups = new Map();
+    for (const tab of tabs) {
+      if (!tab.session) continue;
+      const frame = frameOf.get(tab.uid);
+      if (!frame) continue;
+      const access = sessionScope(frame);
+      if (!access) continue;
+      let group = groups.get(access.scope);
+      if (!group) {
+        group = { tabs: [], win: access.win };
+        groups.set(access.scope, group);
+      }
+      group.tabs.push(tab);
+    }
+    const pending = [];
+    for (const [scope, group] of groups) {
+      let read = sessionReads.get(scope);
+      if (!read) {
+        read = readScopeSessions(group.win);
+        sessionReads.set(scope, read);
+        read.finally(() => {
+          if (sessionReads.get(scope) === read) sessionReads.delete(scope);
+        });
+      }
+      pending.push({ scope, tabs: group.tabs, read });
+    }
+    const answers = await Promise.all(pending.map(({ read }) => read));
+    const answered = new Set();
+    for (let i = 0; i < answers.length; i++) {
+      const list = answers[i];
+      if (!Array.isArray(list)) continue;
+      const { scope, tabs: groupTabs } = pending[i];
+      for (const tab of groupTabs) {
+        if (!tabs.includes(tab) || !tab.session) continue;
+        const frame = frameOf.get(tab.uid);
+        if (!frame) continue;
+        const current = sessionScope(frame);
+        // A navigation, a new session or an environment switch makes this
+        // answer stale for this tab alone, not for the rest of its old group.
+        if (!current || current.scope !== scope) continue;
+        const row = list.find((item) => item && item.id === tab.session) || null;
+        if (row) rows.set(tab.uid, row);
+        else rows.delete(tab.uid);
+        answered.add(tab.uid);
+      }
+    }
+    for (const tab of tabs) {
+      if (!answered.has(tab.uid)) continue;
+      // Only a successful answer can retire the frame's local busy marker.
+      // A failed read changes nothing, so a temporary outage cannot make a
+      // running turn look idle.
+      if (!locallyBusy.has(tab.uid)) continue;
+      const row = rows.get(tab.uid);
+      const started = locallyBusy.get(tab.uid) || 0;
+      if (
+        (!row || (!row.turnActive && !(row.backgroundRunning > 0))) &&
+        Date.now() - started >= SESSIONS_TICK_MS
+      ) {
+        locallyBusy.delete(tab.uid);
+      }
+    }
+    renderStrip();
   }
 
   // --- the switches of the menu -------------------------------------------
@@ -1179,14 +1576,23 @@
   // without the others moving, so the key reloads the frame of the tab in
   // front and leaves the rest alone.
   function reloadActiveFrame() {
-    const frame = frameOf.get(activeUid);
+    const tab = tabs.find((t) => t.uid === activeUid);
+    const frame = tab && frameOf.get(activeUid);
     if (!frame) return;
     try {
       frame.contentWindow.location.reload();
+      clearFrameLoadTimer(tab.uid);
+      // A manual reload starts the watchdog's budget over: the tries an
+      // earlier failure used up must not leave the timer below with none.
+      frameLoadAttempts.set(tab.uid, 0);
+      frameLoadTimers.set(
+        tab.uid,
+        setTimeout(() => retryFrame(tab.uid, frame), FRAME_LOAD_TIMEOUT_MS),
+      );
     } catch {
       // A frame that will not be reached from here is reloaded by being
       // pointed at its own address again.
-      frame.src = frame.src;
+      navigateFrame(tab, frame);
     }
   }
 
@@ -1344,8 +1750,9 @@
 
   // --- keys ---------------------------------------------------------------
 
-  // Ctrl is what a person expects, Alt is bound beside it, and on a Mac the
-  // Command key stands with them.
+  // Ctrl is what a person expects. Alt is bound beside it for the letter and
+  // digit chords, and on a Mac the Command key stands with them. Tab cycling
+  // is Ctrl alone: Alt+Tab and Cmd+Tab belong to the window manager.
   //
   // A Chromium window opened with --app has no tab strip of its own, so it
   // hands Ctrl+T, Ctrl+W and Ctrl+1..9 to the page instead of acting on them
@@ -1367,9 +1774,9 @@
       return;
     }
     // Tab walks the row, and it is the one chord that takes Shift: forward
-    // with Ctrl, back with Ctrl+Shift, the way every tabbed application does
-    // it. It is handled before the guard below, which turns Shift away.
-    if (e.code === "Tab" && chordModifier(e)) {
+    // with Ctrl, back with Ctrl+Shift. It is handled before the guard below,
+    // which turns Shift away. Alt and Cmd are deliberately not accepted.
+    if (e.code === "Tab" && e.ctrlKey) {
       e.preventDefault();
       step(e.shiftKey ? -1 : 1);
       return;
@@ -1440,20 +1847,25 @@
   window.addEventListener("message", (e) => {
     if (e.origin !== location.origin) return;
     const data = e.data;
-    if (
-      !data ||
-      data.channel !== "coddy.desktop" ||
-      data.type !== "workspace" ||
-      typeof data.path !== "string"
-    ) {
-      return;
-    }
+    if (!data || data.channel !== "coddy.desktop") return;
     const tab = tabs.find(
       (t) => frameOf.get(t.uid)?.contentWindow === e.source,
     );
-    if (!tab || tab.session) return;
+    if (!tab) return;
+    if (data.type === "workspace-ready") {
+      postWorkspaceResolved(tab);
+      return;
+    }
+    if (data.type !== "workspace" || typeof data.path !== "string" || tab.session) return;
     tab.workspace = data.path;
+    const pickedDuringResolution = data.manual === true && tab.workspacePending;
+    if (pickedDuringResolution) {
+      tab.workspacePending = false;
+      tab.workspaceSource = "";
+      tab.workspaceSourceUid = "";
+    }
     save();
+    if (pickedDuringResolution) postWorkspaceResolved(tab);
   });
 
   newTabButton.addEventListener("click", () => openTab());
@@ -1463,6 +1875,10 @@
   window.addEventListener("resize", syncScrollButtons);
   window.addEventListener("resize", syncWindowShape);
   document.addEventListener("keydown", onKeyDown);
+
+  for (const edge of resizeEdges.children) {
+    edge.addEventListener("pointerdown", resizeWindowFrom);
+  }
 
   menuButton.addEventListener("click", toggleMenu);
   document

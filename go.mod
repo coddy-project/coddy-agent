@@ -7,6 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/EvilFreelancer/tgfake v1.1.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -37,7 +38,6 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect

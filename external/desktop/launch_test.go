@@ -5,52 +5,9 @@ package desktop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
-
-// The window runs one surface because it is handed one subsystem descriptor,
-// and every other subsystem either duplicates a `coddy serve` of the same home
-// or fights it for a port, a token or a cron tick. They are named, never
-// turned off: the settings screen inside the window draws the live
-// configuration, so a value this process cleared is the value a save from that
-// screen would write to the operator's file.
-func TestTheSurfacesLeftToServeAreNamedAndNothingIsEdited(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Swarm.Enabled = true
-	cfg.Scheduler.Enabled = true
-	cfg.Metrics.Enable = true
-	cfg.Browser.Enable = true
-	cfg.Gateways.Telegram.Enabled = true
-	cfg.Gateways.Pachca.Enabled = true
-	before := fmt.Sprintf("%+v", *cfg)
-
-	left := SurfacesLeftToServe(cfg)
-
-	if after := fmt.Sprintf("%+v", *cfg); after != before {
-		t.Fatalf("the operator's configuration was edited:\n before %s\n after  %s", before, after)
-	}
-	joined := strings.Join(left, " ")
-	for _, want := range []string{"swarm", "scheduler", "metrics", "browser", "telegram", "pachca"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("the operator was not told that %s was left to `coddy serve`: %v", want, left)
-		}
-	}
-}
-
-// A configuration that enables nothing extra says nothing: a line naming
-// surfaces the operator never asked for would be noise on every launch.
-func TestNothingIsSaidWhenThereIsNothingToSay(t *testing.T) {
-	if left := SurfacesLeftToServe(&config.Config{}); len(left) != 0 {
-		t.Fatalf("a plain configuration reported %v", left)
-	}
-	if left := SurfacesLeftToServe(nil); left != nil {
-		t.Fatalf("no configuration reported %v", left)
-	}
-}
 
 func TestAWindowBackendThatDoesNotExistIsNamed(t *testing.T) {
 	err := openWindow(context.Background(), Options{Window: "webview2"}, "http://127.0.0.1:1/desktop/")

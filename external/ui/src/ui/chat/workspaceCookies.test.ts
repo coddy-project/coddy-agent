@@ -3,10 +3,13 @@ import { setEnv } from "../env/remoteEnv";
 import {
   CODDY_WORKSPACE_DIR_COOKIE,
   CODDY_WORKTREE_COOKIE,
+  DESKTOP_WORKSPACE_RESOLVE_TIMEOUT_MS,
   readLastWorkspaceDir,
   readWorktreePref,
   publishWorkspaceToDesktop,
+  takeDesktopWorkspaceHandoff,
   takeDesktopWorkspaceDir,
+  waitForDesktopWorkspace,
   writeLastWorkspaceDir,
   writeWorktreePref,
 } from "./workspaceCookies";
@@ -31,6 +34,8 @@ beforeEach(() => {
 afterEach(() => {
   clear();
   setEnv({ mode: "local" });
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 test("nothing picked yet: no folder, the worktree checkbox off", () => {
@@ -80,6 +85,80 @@ test("a desktop workspace handoff is read once and removed from the address", ()
   expect(window.location.search).toBe("?lang=en");
   expect(window.location.hash).toBe("#/");
   expect(takeDesktopWorkspaceDir()).toBe("");
+});
+
+test("a pending desktop handoff keeps its fallback and is consumed once", () => {
+  history.replaceState(
+    null,
+    "",
+    "/?desktop_workspace=%2Fsrv%2Ffallback&desktop_workspace_pending=1&lang=en#/",
+  );
+  expect(takeDesktopWorkspaceHandoff()).toEqual({
+    path: "/srv/fallback",
+    pending: true,
+  });
+  expect(window.location.search).toBe("?lang=en");
+  expect(takeDesktopWorkspaceHandoff()).toEqual({ path: "", pending: false });
+});
+
+test("desktop resolution accepts only the parent at this origin and answers ready", async () => {
+  const posted = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+  const onPath = vi.fn();
+  const wait = waitForDesktopWorkspace(onPath);
+  expect(posted).toHaveBeenCalledWith(
+    { channel: "coddy.desktop", type: "workspace-ready" },
+    window.location.origin,
+  );
+  const data = {
+    channel: "coddy.desktop",
+    type: "workspace-resolved",
+    path: "/srv/resolved",
+  };
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      data,
+      origin: "https://untrusted.example",
+      source: window.parent,
+    }),
+  );
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      data,
+      origin: window.location.origin,
+      source: null,
+    }),
+  );
+  expect(onPath).not.toHaveBeenCalled();
+
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      data,
+      origin: window.location.origin,
+      source: window.parent,
+    }),
+  );
+  await wait.done;
+  expect(onPath).toHaveBeenCalledWith("/srv/resolved");
+});
+
+test("desktop resolution times out with the fallback still in force", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(window, "postMessage").mockImplementation(() => {});
+  const onPath = vi.fn();
+  const wait = waitForDesktopWorkspace(onPath);
+  await vi.advanceTimersByTimeAsync(DESKTOP_WORKSPACE_RESOLVE_TIMEOUT_MS);
+  await wait.done;
+  expect(onPath).not.toHaveBeenCalled();
+});
+
+test("a failed ready request settles desktop resolution instead of hanging", async () => {
+  vi.spyOn(window, "postMessage").mockImplementation(() => {
+    throw new Error("parent unavailable");
+  });
+  const onPath = vi.fn();
+  const wait = waitForDesktopWorkspace(onPath);
+  await wait.done;
+  expect(onPath).not.toHaveBeenCalled();
 });
 
 test("a desktop draft replaces and clears its workspace handoff", () => {
