@@ -83,7 +83,12 @@ jobs:
         run: make ui-build
 
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: |
+          mkdir -p "$RUNNER_TEMP/ripgrep"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/ripgrep"
+          sudo install "$RUNNER_TEMP/ripgrep/ripgrep-15.1.0-x86_64-unknown-linux-musl/rg" /usr/local/bin/rg
 
       - name: Run tests
         run: go test -tags=${{ matrix.tags }} ./...
@@ -268,7 +273,12 @@ jobs:
 
       # The test suite runs with ripgrep installed; the same code paths run here.
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: |
+          mkdir -p "$RUNNER_TEMP/ripgrep"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/ripgrep"
+          sudo install "$RUNNER_TEMP/ripgrep/ripgrep-15.1.0-x86_64-unknown-linux-musl/rg" /usr/local/bin/rg
 
       - name: Run tests under the race detector
         run: make test-race
