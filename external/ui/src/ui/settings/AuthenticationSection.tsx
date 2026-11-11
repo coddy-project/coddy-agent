@@ -354,16 +354,6 @@ export function AuthenticationSection({ value, onChange }: Props) {
                 </div>
               </div>
             )}
-            {login.totp_configured === true && (
-              <button
-                type="button"
-                className="settings-btn settings-btn-danger auth-remove-totp"
-                disabled={busy}
-                onClick={() => void change("disable")}
-              >
-                {t("settings.auth.removeTotp")}
-              </button>
-            )}
             <div className="auth-enrollment-fields">
               <div className="settings-row">
                 <label className="settings-label" htmlFor={`${id}-secret`}>
@@ -440,6 +430,16 @@ export function AuthenticationSection({ value, onChange }: Props) {
               </div>
             </div>
           </div>
+        )}
+        {enrolling && login.totp_configured === true && (
+          <button
+            type="button"
+            className="settings-btn settings-btn-danger auth-edit-secret"
+            disabled={busy}
+            onClick={() => void change("disable")}
+          >
+            {t("settings.auth.removeTotp")}
+          </button>
         )}
         {(error || verifyError) && (
           <p className="settings-error" role="alert">
