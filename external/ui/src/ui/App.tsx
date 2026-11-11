@@ -631,7 +631,6 @@ export function App() {
   const [activeDraftId, setActiveDraftId] = useState(() =>
     initialRoute.branch === "draft" ? initialRoute.draftId.trim() : "",
   );
-  const desktopDraftRouteRef = useRef(activeDraftId);
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
@@ -2226,19 +2225,6 @@ export function App() {
     }
   }, [refreshWorkspaceContext]);
 
-  // Opening a named draft changes the address without remounting the app. Its
-  // own desktop handoff belongs to that route, not to the chat left before it.
-  useEffect(() => {
-    if (desktopDraftRouteRef.current === activeDraftId) return;
-    desktopDraftRouteRef.current = activeDraftId;
-    desktopWorkspaceWaitRef.current?.finish();
-    const next = takeDesktopWorkspaceHandoff();
-    desktopWorkspaceHandoffAvailableRef.current = Boolean(
-      next.path || next.pending,
-    );
-    setDesktopWorkspaceHandoff(next);
-  }, [activeDraftId]);
-
   // A desktop tab opens on its fallback at once. The shell's authoritative
   // answer arrives in place, without reloading the composer or losing its
   // draft; a folder picked by the operator supersedes that answer.
@@ -2750,6 +2736,14 @@ export function App() {
       return;
     }
     if (p.branch === "draft") {
+      const handoff = takeDesktopWorkspaceHandoff();
+      if (handoff.path || handoff.pending) {
+        setDesktopWorkspaceHandoff(handoff);
+        if (!handoff.pending) {
+          setPendingWorkspace({ path: handoff.path });
+          void refreshHomeWorkspace();
+        }
+      }
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
@@ -2831,7 +2825,7 @@ export function App() {
     setSchedulerEditor(null);
     setTasksOpen(false);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked]);
+  }, [refreshHomeWorkspace, schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean; tasksOpen?: boolean }) => {

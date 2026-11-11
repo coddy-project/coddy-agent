@@ -440,7 +440,7 @@ test("a draft route applies the desktop folder written into its address", async 
     history.replaceState(
       null,
       "",
-      "/?desktop_workspace=%2Fprojects%2Fdata#/draft/draft_test",
+      "/?desktop_workspace=%2Fprojects%2Fdefault#/draft/draft_test",
     );
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
