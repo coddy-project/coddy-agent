@@ -148,7 +148,9 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: |
           npm --prefix external/ui i --no-save playwright
-          (cd external/ui && npx playwright install --with-deps chromium)
+          # The runner image supplies the shared libraries; download only the
+          # browser so a failing Ubuntu mirror cannot block the test.
+          (cd external/ui && npx playwright install --only-shell chromium)
           CODDY_BIN="$PWD/build/coddy" CODDY_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
 
       # The message queue (issue #364) through the same kind of stand: the
