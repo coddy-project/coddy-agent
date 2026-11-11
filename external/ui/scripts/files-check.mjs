@@ -2548,7 +2548,7 @@ async function scenarioFormats(sid, { relay = true } = {}) {
       : null;
   const f = await openPage({ throughRelay: relay, using: own || browser });
   const beacons = [];
-  f.context.on("request", (r) => {
+  f.context.on("response", (r) => {
     if (r.url().startsWith(BEACON)) beacons.push(r.url());
   });
   const win = f.page.getByTestId("files-view");
