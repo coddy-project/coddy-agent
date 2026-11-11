@@ -151,7 +151,6 @@ func TestDesktopPublicPortConflictLeavesWindowRunning(t *testing.T) {
 	cfg := &config.Config{
 		Paths:      config.Paths{Home: home, CWD: home},
 		HTTPServer: config.HTTPServerConfig{Host: host, Port: port},
-		Metrics:    config.MetricsConfig{Enable: true},
 	}
 	rt := &serve.Runtime{}
 	if err := rt.Init(serve.Options{
@@ -187,8 +186,8 @@ func TestDesktopPublicPortConflictLeavesWindowRunning(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := out.String(); !strings.Contains(got, "metrics.enable") || !strings.Contains(got, "desktop window") {
-		t.Fatalf("the unavailable enabled subsystem was not warned about: %q", got)
+	if got := out.String(); !strings.Contains(got, "subsystem=httpserver error=") || !strings.Contains(got, "address already in use") {
+		t.Fatalf("the public bind conflict was not reported: %q", got)
 	}
 	cancel()
 	select {
