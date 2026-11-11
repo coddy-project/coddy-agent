@@ -506,3 +506,209 @@
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   gap: 8px;
 }
+
+.settings-authentication {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-account-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.auth-account-fields > .settings-row,
+.auth-enrollment-fields > .settings-row {
+  min-width: 0;
+}
+
+.settings-secret-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-secret-input > .settings-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 40px;
+}
+
+.settings-secret-input:has(> .settings-secret-copy) > .settings-input {
+  padding-right: 104px;
+}
+
+.settings-secret-input > .settings-btn-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.settings-secret-input > .settings-btn-icon:hover,
+.settings-secret-input > .settings-btn-icon:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.settings-secret-input > .settings-secret-copy {
+  right: 36px;
+}
+
+.settings-secret-input > .settings-secret-refresh {
+  right: 68px;
+}
+
+.auth-enrollment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auth-edit-secret {
+  margin-top: 12px;
+}
+
+.auth-enrollment-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 14px;
+}
+.auth-enrollment-qr {
+  display: block;
+  box-sizing: border-box;
+  width: min(240px, 100%);
+  padding: 10px;
+  background: white;
+  border-radius: 10px;
+}
+
+.auth-enrollment-qr--placeholder {
+  aspect-ratio: 1;
+  background: var(--coddy-surface-muted);
+}
+
+.auth-enrollment-qr-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-enrollment-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.auth-enrollment-fields {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.auth-enrollment-fields > .auth-enrollment-actions {
+  margin-top: 0;
+}
+
+.auth-code-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auth-period--inline {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.auth-period--inline .auth-period-track {
+  flex: none;
+  width: 60px;
+}
+
+.auth-period-seconds {
+  width: 4ch;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.auth-enrollment-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  font-size: 0.8rem;
+}
+
+.auth-enrollment-codes code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 599px) {
+  .auth-account-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The TOTP period countdown (.auth-period) is owned by the sign-in screen's
+   partial (styles/screens/_auth.scss): the enrollment fields and the second
+   sign-in step draw the same bar. */
+
+.auth-backup-block {
+  min-inline-size: 0;
+}
+
+.auth-backup-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.auth-backup-notice {
+  margin: 12px 0 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.auth-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.auth-backup-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+}
+
+.auth-backup-button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}

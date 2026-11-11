@@ -1,0 +1,218 @@
+//go:build http
+
+package httpserver
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sync"
+	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
+)
+
+// Challenges expire after three minutes, even if no verification is attempted.
+const challengeTTL = 3 * time.Minute
+const maxChallenges = 4096
+
+type challengeEntry struct {
+	fingerprint string
+	expires     time.Time
+	ttl         time.Duration
+}
+type challengeStore struct {
+	mu      sync.Mutex
+	entries map[string]challengeEntry
+}
+
+func (c *challengeStore) issue(fingerprint string, ttl time.Duration, now time.Time) (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw[:])
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[string]challengeEntry)
+	}
+	for k, v := range c.entries {
+		if !now.Before(v.expires) {
+			delete(c.entries, k)
+		}
+	}
+	if len(c.entries) >= maxChallenges {
+		return "", errors.New("too many pending challenges")
+	}
+	c.entries[token] = challengeEntry{fingerprint: fingerprint, expires: now.Add(challengeTTL), ttl: ttl}
+	return token, nil
+}
+func (c *challengeStore) take(token string, now time.Time) (challengeEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[token]
+	delete(c.entries, token)
+	return entry, ok && now.Before(entry.expires)
+}
+func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request) {
+	if !isSameOriginRequest(r) {
+		writeJSON(w, 403, map[string]interface{}{"error": "cross-site sign-in refused"})
+		return
+	}
+	var req struct {
+		Challenge string `json:"challenge"`
+		Code      string `json:"code"`
+	}
+	if err := enrollmentBody(r, &req); err != nil {
+		writeJSON(w, 400, map[string]interface{}{"error": "invalid JSON body"})
+		return
+	}
+	client := loginClientAddr(r)
+	if d := s.loginThrottle.Penalize(client); d > 0 {
+		select {
+		case <-time.After(d):
+		case <-r.Context().Done():
+			return
+		}
+	}
+	entry, ok := s.challenges.take(req.Challenge, s.authNow())
+	pol := s.loginPolicyNow()
+	if !ok || !pol.enabled || pol.broken || pol.account.totpSecret == "" || entry.fingerprint != pol.account.fingerprint() {
+		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
+		return
+	}
+	valid := s.verifySecondFactor(pol.account, req.Code)
+	if !valid {
+		var err error
+		valid, err = s.consumeLoginBackup(entry.fingerprint, req.Code)
+		if err != nil {
+			s.log.Error("backup code persistence failed", "error", err)
+			writeJSON(w, 500, map[string]interface{}{"error": "could not update authentication"})
+			return
+		}
+	}
+	if !valid {
+		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
+		return
+	}
+	// Recheck after verification so a rotation cannot yield a usable old session.
+	pol = s.loginPolicyNow()
+	if !pol.enabled || pol.broken || pol.account.fingerprint() != entry.fingerprint {
+		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
+		return
+	}
+	s.loginThrottle.Reset(client)
+	account := pol.account
+	if entry.ttl == 0 || (account.ttl > 0 && entry.ttl < account.ttl) {
+		account.ttl = entry.ttl
+	}
+	s.issueLoginSession(w, r, account, client)
+}
+
+func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {
+	consumed := false
+	err := config.WithConfigFileLock(func() error {
+		pol := s.loginPolicyNow()
+		if !pol.enabled || pol.broken || pol.account.fingerprint() != fingerprint {
+			return nil
+		}
+		c := s.activeCfg()
+		if c == nil {
+			return errors.New("configuration unavailable")
+		}
+		if !platform.FileLockingAvailable || c.Paths.Home == "" {
+			return errors.New("backup ledger locking unavailable")
+		}
+		unlock, err := platform.LockFile(filepath.Join(c.Paths.Home, "webauth-backup-consumed.json.lock"))
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		ledger, err := loadBackupLedger(c.Paths.Home)
+		if err != nil {
+			return err
+		}
+		oldState := c.HTTPServer.Login.BackupCodes
+		store := webauth.NewBackupStore(oldState)
+		if !store.Consume(code) {
+			return nil
+		}
+		next := *c
+		next.HTTPServer.Login.BackupCodes = store.Snapshot()
+		doc, err := json.Marshal(config.ConfigToJSONDTO(&next))
+		if err != nil {
+			return err
+		}
+		if _, err = config.ParseConfigJSONPreservingSecrets(doc, next.Paths, &next); err != nil {
+			return err
+		}
+		path := c.Paths.ConfigPath
+		original, readErr := os.ReadFile(path)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return readErr
+		}
+		data, err := config.MarshalConfigYAMLForEdit(&next, c, c, path)
+		if err != nil {
+			return err
+		}
+		loaded, err := config.ParseConfigYAML(data, c.Paths)
+		if err != nil {
+			return err
+		}
+		if loaded.HTTPServer.Login.TOTPSecret != next.HTTPServer.Login.TOTPSecret || !reflect.DeepEqual(loaded.HTTPServer.Login.BackupCodes, next.HTTPServer.Login.BackupCodes) {
+			return errors.New("rendered authentication differs from requested state")
+		}
+		remaining := make(map[string]int)
+		for _, h := range next.HTTPServer.Login.BackupCodes.Hashes {
+			remaining[h]++
+		}
+		var usedHash string
+		for _, h := range oldState.Hashes {
+			if remaining[h] > 0 {
+				remaining[h]--
+			} else {
+				usedHash = h
+				break
+			}
+		}
+		if usedHash == "" {
+			return errors.New("consumed backup hash not found")
+		}
+		recorded, err := recordBackupConsumption(c.Paths.Home, oldState.Generation, usedHash, ledger)
+		if err != nil {
+			return err
+		}
+		if !recorded {
+			return nil
+		}
+		if err = config.BackupCurrent(path); err != nil {
+			return err
+		}
+		if err = config.AtomicWriteConfigYAML(path, data); err != nil {
+			return err
+		}
+		if err = s.mgr.InstallConfig(loaded); err != nil {
+			var rollbackErr error
+			if errors.Is(readErr, os.ErrNotExist) {
+				rollbackErr = os.Remove(path)
+			} else {
+				rollbackErr = config.AtomicWriteFile(path, original, 0600)
+			}
+			if rollbackErr != nil {
+				s.log.Error("authentication config rollback failed", "error", rollbackErr)
+			}
+			return err
+		}
+		consumed = true
+		return nil
+	})
+	return consumed, err
+}

@@ -653,6 +653,51 @@
         "max_output_chars"
       ]
     },
+    "httpserver": {
+      "additionalProperties": false,
+      "description": "Web sign-in account",
+      "properties": {
+        "login": {
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "description": "Require a web sign-in.",
+              "title": "Enable sign-in",
+              "type": "boolean"
+            },
+            "password": {
+              "description": "Set a new sign-in password; leave empty to keep the existing password.",
+              "title": "Password",
+              "type": "string",
+              "writeOnly": true
+            },
+            "session_ttl_hours": {
+              "description": "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie.",
+              "title": "Session duration",
+              "type": "integer"
+            },
+            "user": {
+              "description": "The account name.",
+              "title": "User",
+              "type": "string"
+            }
+          },
+          "title": "Sign-in",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "user",
+            "password",
+            "session_ttl_hours"
+          ]
+        }
+      },
+      "title": "Account",
+      "type": "object",
+      "x-coddy-property-order": [
+        "login"
+      ]
+    },
     "instructions": {
       "additionalProperties": false,
       "description": "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.",
@@ -1908,6 +1953,7 @@
     "logger",
     "metrics",
     "browser",
+    "httpserver",
     "sessions",
     "prompts",
     "instructions"

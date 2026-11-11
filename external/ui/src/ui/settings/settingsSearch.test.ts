@@ -77,6 +77,50 @@ function expectFound(
   }
 }
 
+test("the authenticator and backup codes blocks are searchable in both languages", () => {
+  const index = indexOf(AGENT_SCHEMA);
+  expect(only(index, landmarkAnchor("httpserver", "account")).names).toEqual([
+    "Account",
+  ]);
+  expect(
+    only(index, landmarkAnchor("httpserver", "authenticator")),
+  ).toMatchObject({
+    kind: "landmark",
+    section: "httpserver",
+    names: ["Authenticator app"],
+  });
+  expect(entriesAt(index, landmarkAnchor("httpserver", "backupCodes"))).toEqual(
+    [],
+  );
+
+  const configured = indexOf(AGENT_SCHEMA, {
+    httpserver: { login: { enable: true, totp_configured: true } },
+  });
+  expect(
+    only(configured, landmarkAnchor("httpserver", "backupCodes")),
+  ).toMatchObject({
+    kind: "landmark",
+    section: "httpserver",
+    names: ["Backup codes"],
+  });
+  expectFound(configured, ["authenticator"], ["Authenticator app"]);
+  expectFound(configured, ["backup codes"], ["Backup codes"]);
+
+  setLocale("ru");
+  const russian = indexOf(AGENT_SCHEMA, {
+    httpserver: { login: { enable: true, totp_configured: true } },
+  });
+  expect(only(russian, landmarkAnchor("httpserver", "account")).names).toEqual([
+    "Учётная запись",
+  ]);
+  expect(
+    only(russian, landmarkAnchor("httpserver", "authenticator")).names,
+  ).toEqual(["Приложение-аутентификатор"]);
+  expect(
+    only(russian, landmarkAnchor("httpserver", "backupCodes")).names,
+  ).toEqual(["Резервные коды"]);
+});
+
 function indexOf(
   schema: JsonSchema,
   doc: SettingsDoc = configFromSchema(schema),
@@ -680,6 +724,29 @@ test("the rows key changes with the names and types of the rows and with nothing
     changes((d) => ((d["agent"] as Record<string, unknown>)["max_turns"] = 1)),
   ).toBe(false);
   expect(settingsIndexRowsKey({})).toBe(settingsIndexRowsKey({ agent: {} }));
+});
+
+test("the rows key follows TOTP visibility but not account keystrokes", () => {
+  const doc = {
+    httpserver: {
+      login: { enable: true, totp_configured: false, user: "operator" },
+    },
+  };
+  const disabled = settingsIndexRowsKey(doc);
+
+  doc.httpserver.login.totp_configured = true;
+  const enabled = settingsIndexRowsKey(doc);
+  expect(enabled).not.toBe(disabled);
+
+  doc.httpserver.login.totp_configured = false;
+  expect(settingsIndexRowsKey(doc)).not.toBe(enabled);
+
+  doc.httpserver.login.totp_configured = true;
+  const beforeTyping = settingsIndexRowsKey(doc);
+  doc.httpserver.login.user = "renamed";
+  expect(settingsIndexRowsKey(doc)).toBe(beforeTyping);
+  (doc.httpserver.login as Record<string, unknown>)["password"] = "secret";
+  expect(settingsIndexRowsKey(doc)).toBe(beforeTyping);
 });
 
 test("values are never indexed: a key, a token or a URL of the document finds nothing", () => {

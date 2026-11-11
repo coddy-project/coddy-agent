@@ -1332,10 +1332,24 @@
               "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here.",
               "default": ""
             },
+            "totp_secret": {
+              "type": "string",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrollment accepts Base32 or Base16 and stores canonical Base32. Written in the web UI under Settings, Authentication, which shows a QR code and saves the key only after code verification; empty means the password alone signs in, and removing the key there empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "default": ""
+            },
+            "backup_codes": {
+              "type": "object",
+              "description": "Opaque generation identifier and SHA-256 hashes of the recovery codes for the web account. Plaintext codes are shown only when issued, and GET /coddy/config never returns their hashes.",
+              "additionalProperties": false,
+              "properties": {
+                "generation": {"type": "string", "description": "Identifier of the current recovery-code set."},
+                "hashes": {"type": "array", "description": "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored.", "items": {"type": "string"}}
+              }
+            },
             "session_ttl_hours": {
               "type": "integer",
-              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
-              "default": 0,
+              "description": "How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked.",
+              "default": 24,
               "minimum": 0
             }
           }
