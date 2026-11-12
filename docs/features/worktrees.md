@@ -5,6 +5,10 @@ working directory moves into the worktree, so its next `run_command`, file tool,
 rule lookup and project-scoped MCP connection use that directory without a
 manual `cd`.
 
+When a session is already in a linked worktree, every agent surface receives runtime guidance to keep implementation there and avoid switching branches in the main checkout unless the operator asks. This is an instruction to the model, not an access restriction.
+
+With the web UI's Worktree checkbox enabled, every turn carries `metadata.worktree: true`. The server adds a turn-only system instruction to work in a dedicated git worktree on a separate feature branch and not to create or switch branches in the main checkout. Without the checkbox that instruction is absent, so branch work in the main checkout remains allowed.
+
 In an agent conversation, ask Coddy to work on a feature branch. The
 `worktree_open` tool takes `{"branch":"feature/login"}` and moves the session
 into the worktree that holds the branch, or opens one for it: it fetches

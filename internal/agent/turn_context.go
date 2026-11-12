@@ -107,6 +107,9 @@ func (a *Agent) gitWorkspaceSection() string {
 	if info.BaseBranch != "" {
 		lines = append(lines, "Default branch: "+info.BaseBranch)
 	}
+	if info.IsWorktree {
+		lines = append(lines, "This session is in a linked git worktree. Keep implementation work in this worktree and its feature branch; do not create or switch branches in the main checkout unless the operator explicitly asks.")
+	}
 	a.workspaceContextText = "## Git workspace\n\n" + strings.Join(lines, "\n")
 	return a.workspaceContextText
 }

@@ -5936,6 +5936,11 @@ export function App() {
       // draws: Mermaid and SVG fences as pictures, LaTeX as formulas
       // (external/httpserver/webui_prompt.go).
       const meta: Record<string, unknown> = { surface: "webui" };
+      if (
+        workspaceCtx?.is_git_repo &&
+        (worktreePref || workspaceCtx.is_worktree)
+      )
+        meta.worktree = true;
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;

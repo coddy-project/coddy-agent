@@ -35,6 +35,9 @@ const webUISurfacePrompt = "## Answering in the Coddy web UI\n\n" +
 	"- The reader can switch every picture back to its source, copy it and download it, so the source does not need repeating in prose.\n\n" +
 	"None of this is visible to the person, and nothing about it belongs in the answer itself."
 
+const webUIWorktreePrompt = "## Working in a git worktree\n\n" +
+	"The web UI's Worktree option is active. Do all implementation work in a dedicated git worktree on a separate feature branch. If the session is not already in that worktree, call `worktree_open` with the feature branch before editing. Do not create or switch branches in the main checkout. Creating and switching branches there is allowed only when the checkbox is off."
+
 // surfacePromptFromHTTP returns the surface system prompt a request's metadata
 // asks for, or "" when it names no surface this server knows.
 func surfacePromptFromHTTP(raw json.RawMessage) string {
@@ -42,12 +45,16 @@ func surfacePromptFromHTTP(raw json.RawMessage) string {
 		return ""
 	}
 	var m struct {
-		Surface string `json:"surface"`
+		Surface  string `json:"surface"`
+		Worktree bool   `json:"worktree"`
 	}
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return ""
 	}
 	if strings.EqualFold(strings.TrimSpace(m.Surface), webUISurface) {
+		if m.Worktree {
+			return webUISurfacePrompt + "\n\n" + webUIWorktreePrompt
+		}
 		return webUISurfacePrompt
 	}
 	return ""
