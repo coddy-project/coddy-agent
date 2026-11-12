@@ -203,7 +203,16 @@ func kimiDeviceID() (string, error) {
 
 var kimiDeviceIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
+type kimiOAuthTransportError struct{ cause error }
+
+func (e *kimiOAuthTransportError) Error() string { return "kimi: OAuth request failed" }
+func (e *kimiOAuthTransportError) Unwrap() error { return e.cause }
+
 func kimiPostForDevice(ctx context.Context, client *http.Client, endpoint string, form url.Values, out any, deviceID string) (int, error) {
+	return kimiPostForDeviceWithHeaders(ctx, client, endpoint, form, out, deviceID, nil)
+}
+
+func kimiPostForDeviceWithHeaders(ctx context.Context, client *http.Client, endpoint string, form url.Values, out any, deviceID string, headers *http.Header) (int, error) {
 	if client == nil {
 		return 0, errors.New("kimi: missing provider HTTP client")
 	}
@@ -235,10 +244,16 @@ func kimiPostForDevice(ctx context.Context, client *http.Client, endpoint string
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		return 0, errors.New("kimi: OAuth request failed")
+		return 0, &kimiOAuthTransportError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if headers != nil {
+		*headers = resp.Header.Clone()
+	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
+		if resp.StatusCode == http.StatusTooManyRequests && headers != nil {
+			return resp.StatusCode, nil
+		}
 		return 0, errors.New("kimi: invalid OAuth response")
 	}
 	return resp.StatusCode, nil

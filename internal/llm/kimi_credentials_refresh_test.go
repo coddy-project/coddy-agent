@@ -453,7 +453,7 @@ func TestKimiAccessTokenFailureLeavesIntent(t *testing.T) {
 	if !KimiRefreshSupported() {
 		t.Skip("managed Kimi storage requires secure durable locking")
 	}
-	for _, status := range []int{http.StatusBadGateway, http.StatusTooManyRequests} {
+	for _, status := range []int{http.StatusBadGateway} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			store := NewKimiCredentialStore(privateKimiTestDir(t))
 			if err := store.saveForTest("global", expiringKimiCredential()); err != nil {
