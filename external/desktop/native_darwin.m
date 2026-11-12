@@ -5,10 +5,11 @@
 #import <CoreGraphics/CGSession.h>
 #include "native_darwin.h"
 
-@interface CoddyNativeWindow : NSObject <NSWindowDelegate, NSApplicationDelegate, WKUIDelegate>
+@interface CoddyNativeWindow : NSObject <NSWindowDelegate, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate>
 @property(strong) NSWindow *window;
 @property(strong) WKWebView *webview;
 @property BOOL closed;
+@property(strong) NSMapTable<WKDownload *, NSURL *> *downloads;
 @end
 
 @implementation CoddyNativeWindow
@@ -43,6 +44,64 @@
         completionHandler(response == NSModalResponseOK ? panel.URLs : nil);
     }];
 }
+// WebKit turns both the HTML download attribute and attachment responses into
+// WKDownload objects. A destination must not exist; WebKit refuses a collision.
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action
+    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    if (@available(macOS 11.3, *)) {
+        if (action.shouldPerformDownload) { decisionHandler(WKNavigationActionPolicyDownload); return; }
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)response
+    decisionHandler:(void (^)(WKNavigationResponsePolicy))decisionHandler {
+    if (@available(macOS 11.3, *)) {
+        NSString *disposition = nil;
+        if ([response.response isKindOfClass:NSHTTPURLResponse.class]) {
+            disposition = [(NSHTTPURLResponse *)response.response valueForHTTPHeaderField:@"Content-Disposition"];
+        }
+        if (!response.canShowMIMEType || [[disposition lowercaseString] hasPrefix:@"attachment"]) {
+            decisionHandler(WKNavigationResponsePolicyDownload); return;
+        }
+    }
+    decisionHandler(WKNavigationResponsePolicyAllow);
+}
+- (void)webView:(WKWebView *)webView navigationAction:(WKNavigationAction *)action
+    didBecomeDownload:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    download.delegate = self;
+}
+- (void)webView:(WKWebView *)webView navigationResponse:(WKNavigationResponse *)response
+    didBecomeDownload:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    download.delegate = self;
+}
+- (void)download:(WKDownload *)download decideDestinationUsingResponse:(NSURLResponse *)response
+    suggestedFilename:(NSString *)suggestedFilename completionHandler:(void (^)(NSURL *))completionHandler
+    API_AVAILABLE(macos(11.3)) {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSURL *directory = [files URLsForDirectory:NSDownloadsDirectory inDomains:NSUserDomainMask].firstObject;
+    if (!directory || ![files createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil]) {
+        completionHandler(nil); return;
+    }
+    NSString *name = suggestedFilename.lastPathComponent;
+    if (!name.length || [name isEqualToString:@"."] || [name isEqualToString:@".."]) name = @"download";
+    NSURL *destination = [directory URLByAppendingPathComponent:name];
+    if (!self.downloads) self.downloads = [NSMapTable weakToStrongObjectsMapTable];
+    NSUInteger suffix = 0;
+    while ([files fileExistsAtPath:destination.path] || [self.downloads.objectEnumerator.allObjects containsObject:destination]) {
+        NSString *unique = [NSString stringWithFormat:@"%@-%lu", name.stringByDeletingPathExtension, (unsigned long)++suffix];
+        if (name.pathExtension.length) unique = [unique stringByAppendingPathExtension:name.pathExtension];
+        destination = [directory URLByAppendingPathComponent:unique];
+    }
+    [self.downloads setObject:destination forKey:download];
+    completionHandler(destination);
+}
+- (void)downloadDidFinish:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    [self.downloads removeObjectForKey:download];
+}
+- (void)download:(WKDownload *)download didFailWithError:(NSError *)error resumeData:(NSData *)resumeData
+    API_AVAILABLE(macos(11.3)) {
+    [self.downloads removeObjectForKey:download];
+}
 - (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
     forNavigationAction:(WKNavigationAction *)action windowFeatures:(WKWindowFeatures *)features {
     // Match shell.ExternalURL: only bounded, absolute HTTP(S) links leave
@@ -66,6 +125,8 @@ int coddy_native_available(void) {
     @autoreleasepool {
         // Do this before NSApplication or any window: a headless launch must be
         // able to fall back to the browser backend without Cocoa terminating it.
+        // Named persistent stores (macOS 14) keep agent homes isolated. The
+        // release binary itself starts on macOS 13 and falls back to a browser.
         if (@available(macOS 14.0, *)) {} else { return 0; }
         CFDictionaryRef session = CGSessionCopyCurrentDictionary();
         if (!session) return 0;
@@ -104,8 +165,8 @@ static void coddyMenu(CoddyNativeWindow *controller) {
     [edit.submenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
     [edit.submenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
     [edit.submenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
-    // T/W/R and Ctrl+Tab stay with shell.js; WebKit has no browser tab menu
-    // to consume them, and the shell already interprets Cmd on macOS.
+    // The shell interprets letter, digit and Ctrl+Tab chords it receives.
+    // Command shortcuts may be consumed by WebKit before reaching the page.
     NSApp.mainMenu = menu;
 }
 
@@ -133,6 +194,7 @@ void *coddy_native_create(const char *url, const char *store, int framed, int mi
         WKWebView *webview = [[WKWebView alloc] initWithFrame:window.contentView.bounds configuration:configuration];
         webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         webview.UIDelegate = controller;
+        webview.navigationDelegate = controller;
         controller.webview = webview;
         window.contentView = webview;
         NSApp.delegate = controller;
@@ -161,6 +223,7 @@ void coddy_native_release(void *opaque) {
             andEventID:kAEQuitApplication];
         [controller.webview stopLoading];
         controller.webview.UIDelegate = nil;
+        controller.webview.navigationDelegate = nil;
         controller.window.contentView = nil;
         controller.webview = nil;
         controller.window.delegate = nil;

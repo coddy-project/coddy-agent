@@ -31,7 +31,7 @@ import (
 func init() { runtime.LockOSThread() }
 
 const nativeAvailable = true
-const nativeUnavailableHint = "macOS 14 or later and a GUI session are required"
+const nativeUnavailableHint = "macOS 14 or later (isolated persistent WebKit stores) and a GUI session are required"
 
 func openNativeWindow(ctx context.Context, opts Options, url string) error {
 	if err := ctx.Err(); err != nil {

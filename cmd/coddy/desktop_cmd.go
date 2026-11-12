@@ -20,8 +20,9 @@
 // is new. A second 72 MiB artefact to ship, package and update was the larger
 // cost by far.
 //
-// The macOS native window needs desktop.native, cgo and macOS 14 or later.
-// Release builds use the browser backend.
+// macOS release archives include desktop.native and cgo. The binary starts on
+// macOS 13; the native window needs macOS 14 for isolated persistent WebKit
+// stores, and auto falls back to a browser on older systems.
 
 package main
 

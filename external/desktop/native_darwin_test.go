@@ -60,6 +60,13 @@ func testNativeWindowIntegration(t *testing.T, mode string) {
 	if out, err := compile.CombinedOutput(); err != nil {
 		t.Fatalf("compile window probe: %v: %s", err, out)
 	}
+	downloads := filepath.Join(helperHome, "Downloads")
+	if err := os.MkdirAll(downloads, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(downloads, "native-download.txt"), []byte("keep existing file"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	ready := filepath.Join(helperHome, "ready")
 	cmd.Env = append(cmd.Env, "CODDY_NATIVE_WINDOW_READY="+ready, "CODDY_NATIVE_WINDOW_PROBE="+probe)
 	cmd.Env = append(cmd.Env, "CODDY_NATIVE_WINDOW_HELPER=1", "CODDY_NATIVE_WINDOW_END="+mode, "CODDY_HOME="+filepath.Join(helperHome, "coddy"), "HOME="+helperHome, "CFFIXED_USER_HOME="+helperHome)
@@ -138,14 +145,40 @@ func nativeWindowIntegration() error {
 			mux := http.NewServeMux()
 			mux.HandleFunc("/desktop/", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/html")
-				_, _ = w.Write([]byte(`<!doctype html><title>Coddy native integration</title><input type="file"><script>
+				_, _ = w.Write([]byte(`<!doctype html><title>Coddy native integration</title><input type="file"><button id="notify" style="position:fixed;left:20px;top:20px;width:180px;height:50px" autofocus>Test notification</button><script>
+let notification = 'pending', notificationClick = '';
+async function probeNotification(event) {
+ notificationClick = 'trusted='+event.isTrusted+'; activation='+navigator.userActivation.isActive;
+ if (typeof Notification !== 'function') { notification = typeof Notification; return; }
+ const permission = await Promise.race([Notification.requestPermission(),new Promise(resolve=>setTimeout(()=>resolve('timeout'),1000))]);
+ try {
+  const n = new Notification('Coddy native integration'); notification = 'permission='+permission+'; constructor=returned';
+  n.onshow=()=>notification+='; event=show'; n.onerror=()=>notification+='; event=error';
+ }
+ catch (error) { notification = 'permission='+permission+'; constructor='+error.name+': '+error.message; }
+}
+document.getElementById('notify').onclick = probeNotification;
+probeNotification({isTrusted:false});
+for (const [path, download] of [['/download-anchor','native-download.txt'],['/attachment',null]]) {
+ const a=document.createElement('a'); a.href=path; if(download) a.download=download;
+ document.body.appendChild(a); setTimeout(()=>a.click(),download ? 500 : 1000);
+}
 async function report() {
  await fetch('/report', {method:'POST', body:JSON.stringify({at:Date.now(),x:screenX,y:screenY,
- outerWidth,outerHeight,innerWidth,innerHeight,visibility:document.visibilityState})});
+ outerWidth,outerHeight,innerWidth,innerHeight,visibility:document.visibilityState,notification,notificationClick})});
  setTimeout(report, 50);
 }
 report(); document.addEventListener('visibilitychange', report);
 </script>`))
+			})
+			mux.HandleFunc("/download-anchor", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				_, _ = w.Write([]byte("anchor download"))
+			})
+			mux.HandleFunc("/attachment", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				w.Header().Set("Content-Disposition", `attachment; filename="native-download.txt"`)
+				_, _ = w.Write([]byte("attachment download"))
 			})
 			mux.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) {
 				var report nativePageReport
@@ -188,6 +221,8 @@ type nativePageReport struct {
 	X, Y                                             int
 	OuterWidth, OuterHeight, InnerWidth, InnerHeight int
 	Visibility                                       string
+	Notification                                     string
+	NotificationClick                                string
 	At                                               int64
 }
 
@@ -211,6 +246,37 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 	if _, err := pageAfter("loaded page", 0); err != nil {
 		return err
 	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		entries, err := os.ReadDir(filepath.Join(os.Getenv("HOME"), "Downloads"))
+		if err != nil {
+			return err
+		}
+		contents := make(map[string]bool)
+		for _, entry := range entries {
+			b, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), "Downloads", entry.Name()))
+			if err == nil {
+				contents[string(b)] = true
+			}
+		}
+		if contents["keep existing file"] && contents["anchor download"] && contents["attachment download"] {
+			fmt.Println("download attribute and attachment saved to temporary HOME/Downloads without overwriting")
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("downloads missing or existing file overwritten: %v", contents)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	report, err := pageAfter("notification probe", time.Now().Add(time.Second).UnixMilli())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("WKWebView Notification: %s; click=%s\n", report.Notification, report.NotificationClick)
 	if !handle.WaitForWindow(time.Second) {
 		return errors.New("native window is not controllable")
 	}

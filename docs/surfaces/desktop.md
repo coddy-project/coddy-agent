@@ -49,11 +49,13 @@ The surface costs 0.44 MiB in a binary that already carries the HTTP server and 
 which is why it is a verb rather than a second program to install and update, and why every build
 has it - the release archives, the packages, the Homebrew formula and the container image alike.
 
-Release builds need a Chromium-family browser installed - Chrome, Chromium, Edge, Brave, Vivaldi
-or Yandex Browser - which they start in application mode. Firefox has no application mode.
-A source build with `desktop.native` and cgo uses Cocoa/WKWebView on macOS 14 or later, with no
-browser installation required. It needs the Xcode command-line tools to build and a GUI session to
-run. See [Building from source](../contributing/build.md#desktop-window-coddy-desktop).
+macOS release archives run on macOS 13 or later and include the Cocoa/WKWebView backend.
+The native window needs macOS 14 or later for a persistent WebKit store isolated to the agent home,
+and a GUI session. On macOS 13, `auto` falls back to a Chromium-family browser.
+Linux, Windows and macOS builds without the native backend need Chrome, Chromium, Edge, Brave,
+Vivaldi or Yandex Browser. Firefox has no application mode.
+Building the native backend from source needs cgo and the Xcode command-line tools.
+Running a release binary on macOS 14 or later needs neither a compiler nor an installed browser. See [Building from source](../contributing/build.md#desktop-window-coddy-desktop).
 
 ![The native macOS window in Dark at 1280 pixels](../assets/desktop/desktop-native-window-dark-1280.png)
 
@@ -86,7 +88,7 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 
 | Flag | What it does |
 | --- | --- |
-| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` requires macOS 14+, cgo and `desktop.native`, and reports an error if unavailable |
+| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+ in macOS release archives; source builds need cgo and `desktop.native`; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
 | `--frame` | keep the system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar |
@@ -133,8 +135,9 @@ those keys at the X server, with a grab on its own window, and hands them to the
 `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab` are two grabs rather than one, because a grab matches the
 modifiers exactly. `Ctrl`+`1` ... `Ctrl`+`9` need none of that, since an application window has no
 tabs of its own to switch to and gives the digits to the page. `Alt` stands beside `Ctrl` for every
-letter and digit chord, and on a Mac so does `Cmd`. The native macOS window hands those keys
-directly to the strip; browser windows on macOS and Wayland use these alternatives. `Alt`+`Tab` and
+letter and digit chord, and so does `Cmd`: in the native macOS window `Cmd`+`T`, `Cmd`+`W` and the
+`Cmd` digit chords reach the strip. In a browser window a `Cmd` shortcut the browser answers itself
+stays the browser's, and `Ctrl` or `Alt` do the same there. `Alt`+`Tab` and
 `Cmd`+`Tab` always belong to the window manager and never switch these tabs. A chord is read off the physical
 key, so a Russian or any other layout answers the same keys as a US one.
 
@@ -301,8 +304,8 @@ strip. The grant names this window's address and nothing else, and it holds beca
 A launch that had to take another port gets a grant that no longer matches, and the browser asks
 once.
 
-The native backend adds no macOS notification bridge. In WKWebView on macOS 26.7.1,
-`typeof Notification` returned `function`, and the shared event stream used `SharedWorker`.
+WebKit denies notification permission requests made without a user gesture. The native backend
+adds no macOS notification bridge. Open the web interface in a browser to use its notification support.
 
 ## The port it remembers
 
@@ -364,16 +367,16 @@ The window opens on all three. What differs is how much of it the system lets Co
 
 | | Linux (X11) | Linux (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
-| The window, tabs, settings | yes | yes | yes | yes |
+| The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on macOS 13 | yes |
 | No system frame, the strip as the title bar | yes | no | native only | no |
 | Rounded corners, drag by the strip, its own buttons | yes | no | native only | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
-| `Alt` (and `Cmd` on a Mac) for the letter and digit chords | yes | yes | yes | yes |
+| `Alt` for the letter and digit chords | yes | yes | yes | yes |
 | Tray icon | yes | yes | no | no |
 | Open at login | autostart entry | autostart entry | launch agent | `Run` key |
 
 Where a chord cannot be taken from the browser, `Alt`+`T`, `Alt`+`W`, `Alt`+`R` and the digit
-chords do the same thing, and on a Mac `Cmd` stands beside them. `Alt`+`Tab` and `Cmd`+`Tab` stay
+chords do the same thing. The strip also accepts `Cmd` when the macOS backend delivers it to the page. `Alt`+`Tab` and `Cmd`+`Tab` stay
 with the window manager.
 
 The browser is looked for where each system keeps one: on `PATH` on Linux, in `/Applications` and
@@ -387,8 +390,12 @@ CODDY_DESKTOP_BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chr
 The macOS native backend uses Cocoa and WebKit from the system, with a standard file picker for
 file inputs and the system browser for HTTP(S) links opened in a new window. The Edit menu supplies
 `Cmd`+`C`, `Cmd`+`V`, `Cmd`+`X`, `Cmd`+`A` and `Cmd`+`Z`; `Cmd`+`Q` closes the window and ends the
-run. This build adds no tray icon, signing, notarisation or application bundle. Published releases
-still use the browser backend because they are built without cgo or `desktop.native`.
+run. Downloads from an HTML `download` link or an attachment response go to the standard Downloads
+folder. A duplicate name receives a numeric suffix, so an existing file is kept.
+The macOS release archives include this backend, built with cgo and `desktop.native`. The binary's
+minimum is macOS 13; the native window's minimum is macOS 14 because its isolated persistent data
+store uses `WKWebsiteDataStore.dataStoreForIdentifier`. `auto` uses the browser backend on macOS 13.
+This build adds no tray icon, signing, notarisation or application bundle.
 
 On Windows, `coddy` remains a console program, so the console window it was started from stays
 behind the browser window. Browser windows on macOS and Windows keep the system title bar, and

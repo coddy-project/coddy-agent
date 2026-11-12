@@ -8,7 +8,8 @@ import (
 )
 
 // The Cocoa/WKWebView window needs macOS, cgo and desktop.native. Other
-// platforms and cgo-free builds retain the browser backend, including releases.
+// platforms and cgo-free builds retain the browser backend. Darwin release
+// archives enable the native backend separately from the common shipped tags.
 // Keep this constraint the exact complement of native_darwin.go under desktop.
 const nativeAvailable = false
 
