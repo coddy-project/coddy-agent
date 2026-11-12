@@ -13,7 +13,7 @@ import (
 // context window. Require both a tool-schema location and an explicit size or
 // complexity refusal. In particular, Anthropic's bare compilation error also
 // applies to output formats and does not establish that tools were rejected.
-var toolSchemaLocation = regexp.MustCompile(`(?i)\b(?:tools?(?:\[[0-9]+\]|\.[0-9]+)?\.(?:function\.)?(?:parameters|input_schema)|function_declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parameters|tool schemas?\b|schema for (?:function|tool) ['"])`)
+var toolSchemaLocation = regexp.MustCompile(`(?i)\b(?:tools?(?:\[[0-9]+\]|\.[0-9]+)?\.(?:function\.)?(?:parameters|input_schema)|tools?(?:\[[0-9]+\]|\.[0-9]+)?\.function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parametersJsonSchema|function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parameters|tool schemas?\b|schema for (?:function|tool) ['"])`)
 
 var toolSchemaLimitPhrases = []string{
 	"schema exceeds maximum allowed size",
@@ -80,6 +80,10 @@ func hasToolSchemaLimitPhrase(text string) bool {
 // adapters. A non-JSON diagnostic retains the existing text fallback.
 func toolSchemaDiagnostic(err error) string {
 	text := overflowText(err)
+	var stream *streamServerError
+	if errors.As(err, &stream) && stream.diagnostic != "" {
+		text = stream.diagnostic
+	}
 	var raw *httpStatusError
 	if errors.As(err, &raw) && raw.body != "" {
 		text = raw.body
@@ -104,9 +108,10 @@ func toolSchemaDiagnostic(err error) string {
 // The names come from the adapter's constructed wire params, not a caller's
 // pre-filtered tool list. No schemas, credentials or request text are retained.
 type toolSchemaRequestError struct {
-	cause    error
-	names    []string
-	toolOnly bool
+	cause       error
+	names       []string
+	googleNames map[string]string
+	toolOnly    bool
 }
 
 func (e *toolSchemaRequestError) Error() string { return e.cause.Error() }
@@ -116,30 +121,51 @@ func withToolSchemaRequest(err error, params any, allowBareComplexity bool) erro
 	if err == nil || !hasToolSchemaLimitPhrase(strings.ToLower(toolSchemaDiagnostic(err))) {
 		return err
 	}
-	data, marshalErr := json.Marshal(params)
-	if marshalErr != nil {
-		return err
+	var data []byte
+	switch typed := params.(type) {
+	case []byte:
+		data = typed
+	case json.RawMessage:
+		data = typed
+	default:
+		var marshalErr error
+		data, marshalErr = json.Marshal(params)
+		if marshalErr != nil {
+			return err
+		}
 	}
 	var wire struct {
 		Tools []struct {
-			Name     string
-			Function *struct{ Name string }
+			Name                 string
+			Function             *struct{ Name string }
+			FunctionDeclarations []struct{ Name string } `json:"functionDeclarations"`
 		} `json:"tools"`
 		ResponseFormat json.RawMessage                  `json:"response_format"`
 		OutputConfig   struct{ Format json.RawMessage } `json:"output_config"`
 		Text           struct{ Format json.RawMessage } `json:"text"`
 	}
-	if json.Unmarshal(data, &wire) != nil || len(wire.Tools) == 0 {
+	if json.Unmarshal(data, &wire) != nil {
 		return err
 	}
-	names := make([]string, len(wire.Tools))
-	for i, tool := range wire.Tools {
-		names[i] = tool.Name
-		if tool.Function != nil {
-			names[i] = tool.Function.Name
+	var names []string
+	googleNames := make(map[string]string)
+	for groupIndex, tool := range wire.Tools {
+		switch {
+		case tool.Function != nil:
+			names = append(names, tool.Function.Name)
+		case len(tool.FunctionDeclarations) > 0:
+			for declarationIndex, declaration := range tool.FunctionDeclarations {
+				names = append(names, declaration.Name)
+				googleNames[strconv.Itoa(groupIndex)+":"+strconv.Itoa(declarationIndex)] = declaration.Name
+			}
+		default:
+			names = append(names, tool.Name)
 		}
 	}
-	return &toolSchemaRequestError{cause: err, names: names, toolOnly: allowBareComplexity && len(wire.ResponseFormat) == 0 && len(wire.OutputConfig.Format) == 0 && len(wire.Text.Format) == 0}
+	if len(names) == 0 {
+		return err
+	}
+	return &toolSchemaRequestError{cause: err, names: names, googleNames: googleNames, toolOnly: allowBareComplexity && len(wire.ResponseFormat) == 0 && len(wire.OutputConfig.Format) == 0 && len(wire.Text.Format) == 0}
 }
 
 // ToolSchemaLimitDetail contains only facts a refusal establishes. Empty
@@ -151,10 +177,11 @@ type ToolSchemaLimitDetail struct {
 }
 
 var (
-	toolSchemaFunction = regexp.MustCompile(`(?i)schema for (?:function|tool) ['"]([a-zA-Z0-9_-]{1,128})['"]`)
-	toolSchemaDepth    = regexp.MustCompile(`(?i)schema depth exceeds maximum limit of ([0-9]{1,9})\b`)
-	toolSchemaIndex    = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.(?:function\.)?(?:parameters|input_schema)\b`)
-	toolSchemaSafeName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+	toolSchemaFunction    = regexp.MustCompile(`(?i)schema for (?:function|tool) ['"]([a-zA-Z0-9_-]{1,128})['"]`)
+	toolSchemaDepth       = regexp.MustCompile(`(?i)schema depth exceeds maximum limit of ([0-9]{1,9})\b`)
+	toolSchemaIndex       = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.(?:function\.)?(?:parameters|input_schema)\b`)
+	toolSchemaGoogleIndex = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.function[_]?declarations(?:\[([0-9]+)\]|\.([0-9]+))\.parametersJsonSchema\b`)
+	toolSchemaSafeName    = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 )
 
 // ToolSchemaLimitDetailOf reads safe diagnostic details for the actual tools
@@ -180,7 +207,10 @@ func ToolSchemaLimitDetailOf(err error, tools []ToolDefinition) ToolSchemaLimitD
 	var request *toolSchemaRequestError
 	captured := errors.As(err, &request)
 	if name == "" && captured {
-		if m := toolSchemaIndex.FindStringSubmatch(text); m != nil {
+		if m := toolSchemaGoogleIndex.FindStringSubmatch(text); m != nil {
+			key := firstNonEmpty(m[1], m[2]) + ":" + firstNonEmpty(m[3], m[4])
+			name = request.googleNames[key]
+		} else if m := toolSchemaIndex.FindStringSubmatch(text); m != nil {
 			index, parseErr := strconv.Atoi(firstNonEmpty(m[1], m[2]))
 			if parseErr == nil && index >= 0 && index < len(request.names) {
 				name = request.names[index]

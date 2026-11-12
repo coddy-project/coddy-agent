@@ -106,7 +106,7 @@ func NewKimiAnthropicProvider(input ProviderInput, source KimiCredentialSource) 
 func newKimiAnthropicProvider(tr *KimiInferenceTransport, input ProviderInput) *kimiAnthropicProvider {
 	return &kimiAnthropicProvider{transport: tr, input: input}
 }
-func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool) (*http.Response, error) {
+func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool, wire *map[string]any) (*http.Response, error) {
 	if p.transport == nil {
 		return nil, errors.New("kimi anthropic: missing transport")
 	}
@@ -163,6 +163,9 @@ func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message,
 	if err != nil {
 		return nil, fmt.Errorf("kimi anthropic encode: %w", err)
 	}
+	if wire != nil {
+		*wire = body
+	}
 	resp, err := p.transport.do(ctx, bytes.NewReader(data), p.input.ReasoningEffort != "", "kimi anthropic")
 	if err != nil {
 		return nil, withToolSchemaRequest(err, body, true)
@@ -170,7 +173,7 @@ func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message,
 	return resp, nil
 }
 func (p *kimiAnthropicProvider) Complete(ctx context.Context, m []Message, t []ToolDefinition) (*Response, error) {
-	resp, err := p.request(ctx, m, t, false)
+	resp, err := p.request(ctx, m, t, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -226,11 +229,13 @@ func (p *kimiAnthropicProvider) Complete(ctx context.Context, m []Message, t []T
 	return r, nil
 }
 
-func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	resp, err := p.request(ctx, m, t, true)
+func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
+	var wire map[string]any
+	resp, err := p.request(ctx, m, t, true, &wire)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = withToolSchemaRequest(retErr, wire, true) }()
 	defer func() { _ = resp.Body.Close() }()
 	r := &Response{UsageIncomplete: true}
 	log := anthropicBlockLog{}
@@ -406,7 +411,11 @@ func (p *kimiAnthropicProvider) Stream(ctx context.Context, m []Message, t []Too
 			case "rate_limit_error", "rate_limit_reached_error", "rate_limit_exceeded":
 				code = 429
 			}
-			err = &streamServerError{code: code, msg: "kimi anthropic: server stream error", emitted: emitted}
+			diagnostic := e.Get("error.message").String()
+			if !hasToolSchemaLimitPhrase(strings.ToLower(diagnostic)) {
+				diagnostic = ""
+			}
+			err = &streamServerError{code: code, msg: "kimi anthropic: server stream error", diagnostic: diagnostic, emitted: emitted}
 		}
 		if err != nil || terminal {
 			break

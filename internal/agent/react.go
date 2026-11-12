@@ -1443,11 +1443,6 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
-			// A schema validation refusal cannot be repaired by replaying the
-			// same request or compacting the conversation.
-			if llm.IsToolSchemaLimit(streamErr) {
-				return string(acp.StopReasonRefused), a.toolSchemaLimitError(streamErr, toolDefs)
-			}
 			// The provider named the moment its limit lifts and the operator
 			// asked the turn to wait for it: the countdown reaches the client,
 			// then the same call runs again (nothing was persisted for the
@@ -1536,7 +1531,7 @@ func (a *Agent) runReActLoop(
 			// keeps its partial answer like a user stop: the user already
 			// watched the text stream in, so it must survive in the
 			// transcript next to the honest error below.
-			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr) || llm.IsToolSchemaLimit(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -1578,6 +1573,12 @@ func (a *Agent) runReActLoop(
 					}
 					a.refreshConversationContextUsage(true)
 				}
+			}
+			// A schema validation refusal cannot be repaired by replaying the
+			// same request or compacting the conversation. Any partial answer
+			// has been persisted above.
+			if llm.IsToolSchemaLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.toolSchemaLimitError(streamErr, toolDefs)
 			}
 			if errors.Is(streamErr, context.Canceled) {
 				// If output was already streamed, treat as a clean user-stop regardless.

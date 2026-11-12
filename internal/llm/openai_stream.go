@@ -150,6 +150,7 @@ func streamErrorSnippet(payload []byte) string {
 type streamServerError struct {
 	code       int
 	msg        string
+	diagnostic string
 	emitted    bool
 	retryAfter time.Duration
 }
@@ -662,6 +663,21 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if streamErr != nil {
+		if IsToolSchemaLimit(streamErr) && (strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "") {
+			// A provider can report a request refusal in-band after deltas.
+			// Preserve what the caller already saw; unfinished tool builders
+			// stay out of the transcript just as they do after a truncation.
+			return &Response{
+				Content:           fullContent,
+				Reasoning:         reasoningBuf.String(),
+				UsageKnown:        usageKnown,
+				UsageIncomplete:   !usageKnown,
+				InputTokens:       inputTokens,
+				OutputTokens:      outputTokens,
+				CachedInputTokens: cachedInputTokens,
+				ReasoningTokens:   reasoningTokens,
+			}, fmt.Errorf("openai stream: %w", streamErr)
+		}
 		if IsStreamTruncated(streamErr) || IsStreamStalled(streamErr) {
 			// Keep the user-visible output the caller already saw, like the
 			// cancellation branch below. Unfinished tool-call builders are dropped
