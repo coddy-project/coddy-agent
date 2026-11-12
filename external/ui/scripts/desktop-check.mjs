@@ -245,7 +245,12 @@ logger:
     BIN,
     ["serve", "--home", remoteHome, "--cwd", workspace, "--log-level", "warn"],
     {
-      env: { PATH: `${binDir}:${process.env.PATH}`, HOME: root, TMPDIR: root },
+      env: {
+        PATH: `${binDir}:${process.env.PATH}`,
+        HOME: root,
+        TMPDIR: root,
+        CODDY_HOME: remoteHome,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -267,6 +272,7 @@ function startDesktop() {
         HOME: root,
         TMPDIR: root,
         CODDY_DESKTOP_BROWSER: fakeWindow,
+        CODDY_HOME: home,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -697,7 +703,7 @@ async function main() {
   }
   await first
     .locator("[data-testid='nav-settings']")
-    .click({ modifiers: ["Control"] });
+    .click({ modifiers: ["ControlOrMeta"] });
   await page.waitForFunction(
     () => document.querySelectorAll("#strip .tab").length === 2,
   );
@@ -708,7 +714,7 @@ async function main() {
     return frame?.contentWindow.location.hash === "#/settings";
   });
   await closeSecondTab();
-  ok("Ctrl+click opens the same routes in tabs too");
+  ok("Ctrl/Cmd+click opens the same routes in tabs too");
 
   console.log("a delayed folder answer does not steal the current tab");
   let releaseWorkspace;

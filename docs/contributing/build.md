@@ -254,6 +254,20 @@ The command itself needs `http` and `ui` beside `desktop` - it opens on the SPA 
 missing any of the three answers `coddy desktop` with the line that names the tags. What it is and
 how it behaves: [Desktop window](../surfaces/desktop.md).
 
+For a native macOS window, build on macOS with the Xcode command-line tools and cgo. The window
+needs macOS 14 or later and a GUI session. It uses handwritten Objective-C bindings to the system
+Cocoa and WebKit frameworks, with no Go module dependency.
+
+```bash
+CGO_ENABLED=1 make build TAGS="http ui desktop desktop.native"
+./build/coddy desktop --window native
+```
+
+`auto` prefers this backend when built in and falls back to a browser when the macOS version or
+GUI session is unavailable. Other platforms and builds with `CGO_ENABLED=0` keep the native stub even when the sub-tag is set. The
+release tag set and release workflow do not enable this backend. The macOS native CI job builds it
+and opens and drives a real WKWebView window.
+
 The browser checks of the shell (`npm run check:desktop` in `external/ui`) drive the real binary:
 tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart.
 
@@ -370,6 +384,7 @@ Order does not matter for these tags.
 | **`swarm`** | Stateless relay that aggregates nodes, started by **`coddy serve`** under **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../external/swarm) |
 | **`metrics`** | Prometheus exporter, started by **`coddy serve`** under **`metrics.enable`** (off by default); serves **`/metrics`** on a port of its own | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../external/metrics) |
 | **`desktop`** | The desktop window: the **`coddy desktop`** command, the tab shell the HTTP server mounts at `/desktop/` for the process that opened a window, and the browser backend that opens it. Needs **`http`** and **`ui`** beside it; in **`FULL_TAGS`**, and out of the container image | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../external/desktop) |
+| **`desktop.native`** | Cocoa/WKWebView window on macOS 14+. Requires **`desktop`**, cgo and Xcode command-line tools; the command also needs **`http`** and **`ui`**. Not in **`FULL_TAGS`** or release builds | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../external/desktop) |
 
 **`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination. The `cli` job also starts the built binary and drives the console through a real pty (`examples/cli/cli_e2e_startup.py`), and the **Telegram stand (tgfake)** job runs the Telegram bot against the release binary of [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; the binary it runs is built with `gateway metrics`, and the script scrapes the exporter after the chat). The **Docker image** job builds the runtime image for **`linux/amd64`** and **`linux/arm64`**, the platforms a release pushes, and checks that each variant carries a binary of its own platform (**`make check-image`**, see [Checking the platforms of the image](../getting-started/docker.md#checking-the-platforms-of-the-image)). **`make test-race`** runs the whole tree under the Go race detector with every tag but `ui`; CI runs it on every pull request in the **Race detector** job, and `GOFLAGS=-count=3 make test-race` repeats every test locally for a race that shows up rarely. Two groups can be run on their own: **`make test-cache`** is the prompt-cache group (the `features/prompt_cache_*.feature` specs and the `TestPromptCache*` tests, part of `make test`: what every request sends the provider, held byte for byte across a session), and **`make test-perf`** is the performance group (the benchmarks of the `perf_test.go` files, never part of `make test`: timings of the work a turn repeats and the context a session over this repository's own rules costs, as `system-tokens`, `request-tokens` and `duplicate-rules`).
 

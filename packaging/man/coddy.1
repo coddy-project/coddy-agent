@@ -190,17 +190,21 @@ the gateways, the relay, the scheduler - the way
 does, so the same site the window drives is reachable from other machines. The page is a
 tab strip with one chat per tab; a second launch while a window is open hands
 that window its tabs instead of serving twice, and closing the window ends the
-run. On an X11 session the window carries no system frame: the strip is its
+run. A macOS build with cgo and the desktop.native tag can use Cocoa/WKWebView
+instead; it needs macOS 14 or later and a graphical session. Release builds
+keep the browser backend. On X11 and native macOS the window carries no system frame: the strip is its
 title bar and holds the window's own buttons, a menu of the desktop's switches
 (open at login, the tray icon, start minimised, the system frame) and the
 chords
 .BR Ctrl+T ", " Ctrl+W ", " Ctrl+R " and " Ctrl+Tab ,
-taken from the browser at the X server. Elsewhere the window keeps the frame
-its desktop gives it.
+taken from the browser at the X server on X11. The native macOS window sends
+its keys directly to the strip, including Cmd letter and digit chords.
+Other browser windows keep the frame their desktop gives them.
 .BI \-\-window " auto|browser|native"
-picks the backend,
+picks the backend; auto tries the compiled native backend and falls back to
+the browser if the required macOS version or graphical session is unavailable.
 .BI \-\-browser " NAME|PATH"
-the browser (else
+chooses the browser (else
 .IR CODDY_DESKTOP_BROWSER ),
 .B \-\-frame
 keeps the system title bar, and

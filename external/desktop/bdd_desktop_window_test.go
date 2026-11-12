@@ -93,7 +93,9 @@ func helperBrowser(t *testing.T) desktop.BrowserCommand {
 type windowState struct {
 	t *testing.T
 
-	home string
+	home        string
+	nativeURL   chan string
+	nativeClose chan struct{}
 	// recordPath is where the fake browser writes the argv it was started
 	// with; closePath is the file whose appearance closes the window.
 	recordPath string
@@ -758,6 +760,47 @@ func (s *windowState) launch() error {
 	return s.waitForWindow()
 }
 
+func (s *windowState) launchNative() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.nativeURL = make(chan string, 1)
+	s.nativeClose = make(chan struct{})
+	s.runErr = make(chan error, 1)
+	opts := s.options()
+	opts.Window = desktop.WindowNative
+	go func() {
+		s.runErr <- desktop.RunWithNativeOpener(ctx, opts, func(ctx context.Context, _ desktop.Options, url string) error {
+			s.nativeURL <- url
+			select {
+			case <-s.nativeClose:
+			case <-ctx.Done():
+			}
+			return nil
+		})
+	}()
+	return nil
+}
+
+func (s *windowState) nativeOpenedRememberedShell() error {
+	select {
+	case url := <-s.nativeURL:
+		port, err := desktop.ReadPort(s.home)
+		if err != nil {
+			return err
+		}
+		if want := "http://127.0.0.1:" + strconv.Itoa(port) + shell.Prefix; url != want {
+			return fmt.Errorf("native window opened %q, wanted %q", url, want)
+		}
+		return s.runsOnThePortOfTheLastLaunch()
+	case err := <-s.runErr:
+		return fmt.Errorf("native run ended before opening: %v", err)
+	case <-time.After(10 * time.Second):
+		return errors.New("native window did not open")
+	}
+}
+
+func (s *windowState) closeNative() error { close(s.nativeClose); return nil }
+
 func (s *windowState) waitForWindow() error {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
@@ -1108,6 +1151,9 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a configuration that also enables the swarm relay and the scheduler$`, st.configWithRelayAndScheduler)
 
 			sc.Step(`^the operator opens the desktop$`, st.opensTheDesktop)
+			sc.Step(`^the operator opens the native desktop$`, st.launchNative)
+			sc.Step(`^the native window is opened on the tab shell of the remembered port$`, st.nativeOpenedRememberedShell)
+			sc.Step(`^the native window closes$`, st.closeNative)
 			sc.Step(`^the operator opens the desktop again$`, st.opensTheDesktopAgain)
 			sc.Step(`^the window closes$`, st.windowCloses)
 			sc.Step(`^the desktop decides what to run$`, st.decidesWhatToRun)

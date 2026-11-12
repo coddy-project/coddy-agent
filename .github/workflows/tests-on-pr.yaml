@@ -477,6 +477,35 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+  # A real Cocoa loop and WKWebView, rather than only a cgo cross-build.
+  # Releases keep the browser backend and do not enable desktop.native.
+  desktop-native-macos:
+    name: Native desktop window (macOS)
+    runs-on: macos-latest
+    env:
+      CGO_ENABLED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build the native window
+        run: make build TAGS='http ui desktop desktop.native'
+
+      - name: Open and drive a real WKWebView window
+        run: env -u USER go test -tags 'desktop desktop.native' ./external/desktop -run '^TestNativeWindowIntegration$' -count=1
+
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
   # this proves the packaging, not the binary, and skipping the npm step keeps

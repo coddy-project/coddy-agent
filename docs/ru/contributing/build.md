@@ -181,6 +181,21 @@ make desktop            # build/coddy с релизным набором тег�
 любого из трёх отвечает на `coddy desktop` строкой с перечислением тегов. Что это такое и как себя
 ведёт: [Окно на рабочем столе](../surfaces/desktop.md).
 
+Для нативного окна macOS соберите программу на macOS с инструментами командной строки Xcode и
+cgo. Окну нужна macOS 14 или новее и графическая сессия. Оно использует написанные вручную привязки
+Objective-C к системным фреймворкам Cocoa и WebKit, без зависимости от Go-модуля.
+
+```bash
+CGO_ENABLED=1 make build TAGS="http ui desktop desktop.native"
+./build/coddy desktop --window native
+```
+
+`auto` выбирает этот бэкенд, если он собран, и переходит к браузеру, если версия macOS или
+графическая сессия не подходят. На
+других платформах и при `CGO_ENABLED=0` остаётся нативная заглушка даже с указанным подтегом.
+Релизный набор тегов и релизный workflow этот бэкенд не включают. Задание CI для нативного окна
+macOS собирает его, открывает настоящее окно WKWebView и управляет им.
+
 Браузерные проверки оболочки (`npm run check:desktop` в `external/ui`) гоняют настоящий бинарник:
 вкладки, аккорды, ссылки наружу, меню и список вкладок, переживающий перезапуск.
 
@@ -271,6 +286,7 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 | **`swarm`** | Релей без состояния, который объединяет узлы и запускается **`coddy serve`** при **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../../external/swarm) |
 | **`metrics`** | Экспортёр Prometheus, который запускает **`coddy serve`** при **`metrics.enable`** (по умолчанию выключен); отдаёт **`/metrics`** на отдельном порту | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../../external/metrics) |
 | **`desktop`** | Окно на рабочем столе: команда **`coddy desktop`**, оболочка вкладок, которую HTTP-сервер монтирует на `/desktop/` для процесса, открывшего окно, и бэкенд браузера, который его открывает. Рядом нужны **`http`** и **`ui`**; входит в **`FULL_TAGS`** и не входит в образ контейнера | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../../external/desktop) |
+| **`desktop.native`** | Окно Cocoa/WKWebView на macOS 14+. Требует **`desktop`**, cgo и инструменты командной строки Xcode; команде также нужны **`http`** и **`ui`**. Не входит в **`FULL_TAGS`** или релизные сборки | [`docs/surfaces/desktop.md`](../surfaces/desktop.md) · [`external/desktop/`](../../../external/desktop) |
 
 **`make test`** - экспресс-прогон, то есть всё дерево один раз со всеми необязательными модулями (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop`**). **`make test-matrix`** перебирает все комбинации (список **`TEST_TAG_SETS`** в [`Makefile`](../../../Makefile)); CI прогоняет эту матрицу на каждом пул-реквесте, по заданию на комбинацию. Задание `cli` к тому же запускает собранный бинарник и управляет консолью через настоящий pty (`examples/cli/cli_e2e_startup.py`), а задание **Telegram stand (tgfake)** запускает Telegram-бота против релизного бинарника [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; запускаемый им бинарник собран с `gateway metrics`, и после чата скрипт снимает метрики экспортёра). Задание **Docker image** собирает образ рантайма для **`linux/amd64`** и **`linux/arm64`**, платформ, которые публикует релиз, и проверяет, что в каждом варианте лежит бинарник его собственной платформы (**`make check-image`**, см. [Проверка платформ образа](../getting-started/docker.md#проверка-платформ-образа)). **`make test-race`** прогоняет всё дерево под детектором гонок Go со всеми тегами, кроме `ui`; CI запускает его на каждом пул-реквесте в задании **Race detector**, а `GOFLAGS=-count=3 make test-race` локально повторяет каждый тест, чтобы поймать редко проявляющуюся гонку. Две группы можно запускать отдельно. **`make test-cache`** - группа кэша промптов (спецификации `features/prompt_cache_*.feature` и тесты `TestPromptCache*`, входят в `make test`; они проверяют, что каждый запрос отправляет провайдеру, байт в байт на протяжении сессии), а **`make test-perf`** - группа производительности (бенчмарки файлов `perf_test.go`, никогда не входят в `make test`; они измеряют время работы, которую повторяет каждый ход, и стоимость контекста сессии над собственными правилами этого репозитория в виде `system-tokens`, `request-tokens` и `duplicate-rules`).
 
@@ -335,4 +351,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=fe32871583c47efa -->
+<!-- docsgen:source sha256=64badfb006e3142b -->

@@ -3,10 +3,16 @@
 package desktop
 
 import (
+	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
+
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // The window ships with the release binary.
@@ -115,4 +121,29 @@ func sameTags(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestNativeTagWithoutCgoKeepsTheStub(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "go", "list", "-json", "-tags", "desktop desktop.native", ".")
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "CGO_ENABLED=") && !strings.HasPrefix(entry, "USER=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+	platform.AdaptCommand(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list without cgo: %v", err)
+	}
+	var pkg struct {
+		GoFiles  []string
+		CgoFiles []string
+	}
+	if err := json.Unmarshal(output, &pkg); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(pkg.GoFiles, "native_stub.go") || contains(pkg.CgoFiles, "native_darwin.go") {
+		t.Fatalf("without cgo: GoFiles=%v CgoFiles=%v", pkg.GoFiles, pkg.CgoFiles)
+	}
 }

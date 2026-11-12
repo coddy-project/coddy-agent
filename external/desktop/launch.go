@@ -34,6 +34,9 @@ const DefaultReadyTimeout = 30 * time.Second
 
 // Options are what a run needs. Home and Serve are required.
 type Options struct {
+	// nativeOpen is the opener seam used by the launcher specification.
+	nativeOpen func(context.Context, Options, string) error
+
 	// Home is the agent home. The remembered port and the window's browser
 	// profile live under it.
 	Home string
