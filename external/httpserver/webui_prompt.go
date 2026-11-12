@@ -36,7 +36,7 @@ const webUISurfacePrompt = "## Answering in the Coddy web UI\n\n" +
 	"None of this is visible to the person, and nothing about it belongs in the answer itself."
 
 const webUIWorktreePrompt = "## Working in a git worktree\n\n" +
-	"The operator enabled the web UI's Worktree checkbox. Do all implementation work in a dedicated git worktree on a separate feature branch. If the session is not already in that worktree, call `worktree_open` with the feature branch before editing. Do not create or switch branches in the main checkout. Creating and switching branches there is allowed only when the checkbox is off."
+	"The web UI's Worktree option is active. Do all implementation work in a dedicated git worktree on a separate feature branch. If the session is not already in that worktree, call `worktree_open` with the feature branch before editing. Do not create or switch branches in the main checkout. Creating and switching branches there is allowed only when the checkbox is off."
 
 // surfacePromptFromHTTP returns the surface system prompt a request's metadata
 // asks for, or "" when it names no surface this server knows.
