@@ -23,6 +23,7 @@ type httpStatusError struct {
 	status     int
 	header     http.Header
 	body       string
+	diagnostic string
 	retryAfter time.Duration
 }
 
@@ -108,7 +109,7 @@ func IsTransientProviderError(err error) bool {
 	}
 	// The same request asks the same thing again, whatever status carried the
 	// refusal.
-	if IsContextOverflow(err) {
+	if IsContextOverflow(err) || IsClientToolLimit(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	var reset *QuotaResetError

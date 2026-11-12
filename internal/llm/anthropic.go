@@ -145,16 +145,17 @@ func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, to
 	}
 	resp, err := p.client.Messages.New(ctx, params, option.WithRequestTimeout(anthropicBlockingTimeout(params.MaxTokens)))
 	if err != nil {
-		return nil, fmt.Errorf("anthropic complete: %w", err)
+		return nil, withToolSchemaRequest(fmt.Errorf("anthropic complete: %w", err), params, true)
 	}
 	return p.parseResponse(*resp)
 }
 
-func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
 	params, err := p.requestParams(messages, tools)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = withToolSchemaRequest(retErr, params, true) }()
 
 	stream := p.client.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
