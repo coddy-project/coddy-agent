@@ -274,7 +274,7 @@ func TestRequestOptionsValidateAndApply(t *testing.T) {
 		"zero cap":                    {"openai", RequestOptions{MaxTokens: intp(0)}, "max_tokens must be a positive integer"},
 		"openai temperature too high": {"openai", RequestOptions{Temperature: floatp(2.01)}, "between 0 and 2"},
 		"anthropic temperature 1.01":  {"anthropic", RequestOptions{Temperature: floatp(1.01)}, "between 0 and 1"},
-		"codex cap":                   {"codex", RequestOptions{MaxTokens: intp(64)}, "max_tokens is not supported by a codex model"},
+		"codex cap":                   {"codex", RequestOptions{MaxTokens: intp(64)}, ""},
 		"codex temperature":           {"codex", RequestOptions{Temperature: floatp(0)}, "temperature is not supported by a codex model"},
 	} {
 		err := tc.opts.Validate(tc.providerType, "test-model")

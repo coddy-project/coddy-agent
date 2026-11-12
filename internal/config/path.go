@@ -571,6 +571,11 @@ func configSecretPath(path []string) bool {
 	if len(path) == 0 {
 		return false
 	}
+	for _, part := range path {
+		if strings.EqualFold(part, "backup_codes") {
+			return true
+		}
+	}
 	// A default header of http_request goes to every destination the tool
 	// reaches, and nothing tells a credential among them from a User-Agent:
 	// every value is kept from the model, the way an MCP server's header

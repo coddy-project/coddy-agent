@@ -342,6 +342,60 @@ func parseRetryInDelay(err error) (time.Duration, bool) {
 	return time.Duration(secs * float64(time.Second)), true
 }
 
+// resetInRE matches the relative reset phrase a 429 can carry instead of a
+// Retry-After header: Devin's chat endpoint sends no header at all and
+// writes the moment into its message ("Your limit will reset in 1 hour 28
+// minutes (at Nov 7 01:01 UTC)"). The words between the limit and its reset
+// must stay inside one sentence, and the preposition must be "in", so
+// NeuralDeep's absolute "Limit resets at: ... UTC" is left to
+// parseLimitResetDelay and an ordinary sentence holding "in 5 minutes"
+// never becomes a pause.
+var resetInRE = regexp.MustCompile(`(?i)\blimits?\b[^.;]{0,40}?\bresets?\s+in\s+((?:[0-9]+\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)[\s,]*(?:and\s+)?)+)`)
+
+// resetUnitRE reads one "<n> <unit>" pair of that phrase.
+var resetUnitRE = regexp.MustCompile(`(?i)([0-9]+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)`)
+
+// resetInMax bounds what the phrase may name. A quota window is a month at
+// the very most, so anything past this is a misread rather than a pause
+// worth reporting, and the ladder's own backoff takes the call instead.
+const resetInMax = 31 * 24 * time.Hour
+
+func parseResetInDelay(err error) (time.Duration, bool) {
+	if err == nil {
+		return 0, false
+	}
+	m := resetInRE.FindStringSubmatch(err.Error())
+	if len(m) != 2 {
+		return 0, false
+	}
+	var total time.Duration
+	for _, pair := range resetUnitRE.FindAllStringSubmatch(m[1], -1) {
+		n, convErr := strconv.Atoi(pair[1])
+		if convErr != nil || n < 0 {
+			return 0, false
+		}
+		var unit time.Duration
+		switch strings.ToLower(pair[2])[0] {
+		case 'h':
+			unit = time.Hour
+		case 'm':
+			unit = time.Minute
+		default:
+			unit = time.Second
+		}
+		// Checked before the multiplication: a number large enough to
+		// overflow a Duration would otherwise come back as a short pause.
+		if time.Duration(n) > (resetInMax-total)/unit {
+			return 0, false
+		}
+		total += time.Duration(n) * unit
+	}
+	if total <= 0 {
+		return 0, false
+	}
+	return total, true
+}
+
 // responseHeadersFromError digs the response headers out of a wrapped SDK
 // error. Coddy owns retries (features/llm_retry_ownership.feature), so the
 // header parsing the SDKs would have done lives here instead.
@@ -398,7 +452,8 @@ func parseRetryAfterHeaders(err error) (time.Duration, bool) {
 
 // serverRetryDelay extracts the pause the server asked for, in priority
 // order: response headers, the absolute "Limit resets at: ... UTC" body
-// phrase, the relative "retry in Ns" body phrase.
+// phrase, the relative "retry in Ns" body phrase, and the relative "limit
+// will reset in 1 hour 28 minutes" one.
 func serverRetryDelay(err error) (time.Duration, bool) {
 	var streamErr *streamServerError
 	if errors.As(err, &streamErr) && streamErr.retryAfter > 0 {
@@ -407,10 +462,17 @@ func serverRetryDelay(err error) (time.Duration, bool) {
 	if d, ok := parseRetryAfterHeaders(err); ok {
 		return d, true
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) && raw.retryAfter > 0 {
+		return raw.retryAfter, true
+	}
 	if d, ok := parseLimitResetDelay(err); ok {
 		return d, true
 	}
 	if d, ok := parseRetryInDelay(err); ok {
+		return d, true
+	}
+	if d, ok := parseResetInDelay(err); ok {
 		return d, true
 	}
 	return 0, false
@@ -450,7 +512,7 @@ func isRetryableLLMError(err error) bool {
 	// way. Typed statuses already keep it out of the switch below, but an
 	// error that reached this far as text is read for a status by its digits,
 	// and "your messages resulted in 4500 tokens" holds a "500 ".
-	if IsContextOverflow(err) || IsToolSchemaLimit(err) {
+	if IsContextOverflow(err) || IsClientToolLimit(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	// Ahead of the deadline gate: a dial that ran out of time matches

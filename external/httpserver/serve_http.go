@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -32,50 +33,11 @@ const shutdownGrace = 10 * time.Second
 // running, which is what lets a conversation started in a chat be opened in a
 // browser while it is still going.
 func Serve(ctx context.Context, opts Options) error {
-	if opts.Cfg == nil || opts.Mgr == nil || opts.Log == nil {
-		return errors.New("httpserver: Cfg, Mgr and Log are required")
+	s, cleanup, err := configuredServer(ctx, opts)
+	if err != nil {
+		return err
 	}
-	log := opts.Log
-	llm.LogCodexAuthNotices(log, opts.Cfg)
-	llm.LogDevinAuthNotices(log, opts.Cfg)
-	opts.Cfg.LogUnsentModelSettings(log)
-	opts.Cfg.LogUnknownToolsetTools(log)
-	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
-
-	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
-	if home := s.activeCfg().Paths.Home; strings.TrimSpace(home) != "" {
-		if err := wallpaper.EnsureDefaults(ctx, home); err != nil {
-			log.Warn("wallpaper defaults initialization failed", "error", err)
-		}
-	}
-	s.SetDetachedPrompts(opts.DetachedPrompts)
-	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
-	s.SetUnbuiltSections(opts.UnbuiltSections)
-	s.SetStatus(opts.Status)
-	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
-		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
-	}
-	// A form nobody can pass is refused here, in the terminal that typed the
-	// command, rather than discovered by an operator staring at a sign-in screen
-	// that rejects the password they are sure of.
-	if pol := s.loginPolicyNow(); pol.broken {
-		return errors.New("httpserver.login.enable is true but no account is configured: " +
-			"set httpserver.login.user and password_hash (`coddy serve set-password`), " +
-			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
-	}
-	if opts.OnServer != nil {
-		opts.OnServer(s)
-		defer opts.OnServer(nil)
-	}
-	// A notifying task wakes the agent. In `coddy serve` the
-	// runtime owns the waker and this server is where a woken turn runs when
-	// no chat owns the session; on its own the server attaches a waker itself.
-	if opts.Wakes != nil {
-		withdrawWakes := opts.Wakes.AddWakeSurface(s, agent.WakeHost)
-		defer withdrawWakes()
-	} else {
-		s.AttachBackgroundWaker()
-	}
+	defer cleanup()
 
 	// From here on the server's own configuration is the one to read: New
 	// caught up with any replacement the manager made after opts.Cfg was
@@ -86,11 +48,7 @@ func Serve(ctx context.Context, opts Options) error {
 	authOn := tokenOn || loginOn
 	effHost, _, _ := net.SplitHostPort(opts.ListenAddr)
 	if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
-		log.Warn("HTTP API is reachable without authentication",
-			"addr", opts.ListenAddr,
-			"hint", "sign-in for the browser: `coddy serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
-				"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
-				"httpserver.allow_insecure: true silences this")
+		logWarnOpenListener(s.log, opts.ListenAddr)
 	}
 	// CORS that admits pages nobody listed - allow_loopback or "*" - lets a
 	// page in a browser read this API, and without a credential that is every
@@ -98,7 +56,7 @@ func Serve(ctx context.Context, opts Options) error {
 	// or, with "*", every page anywhere. The bind address does not matter: a
 	// loopback bind is exactly where such pages reach.
 	if !authOn && !cfg.HTTPServer.AllowInsecure && cfg.HTTPServer.CORS.OpenToUnlistedOrigins() {
-		log.Warn("CORS admits pages nobody listed and the API asks for no credential",
+		s.log.Warn("CORS admits pages nobody listed and the API asks for no credential",
 			"addr", opts.ListenAddr,
 			"hint", "httpserver.cors.allow_loopback or allowed_origins: [\"*\"] is only as safe as the credential behind the API: "+
 				"set a token (httpserver.auth_token / --auth-token / "+TokenEnvVar+") or run `coddy serve set-password`; "+
@@ -110,7 +68,7 @@ func Serve(ctx context.Context, opts Options) error {
 	// presents a bearer token. Closing the door with only a password would lock
 	// those out on the next call they make, so it is said plainly here.
 	if loginOn && !tokenOn {
-		log.Info("web sign-in is on and no bearer token is set",
+		s.log.Info("web sign-in is on and no bearer token is set",
 			"note", "API clients (coddy --remote, coddy acp --remote, a swarm relay mounting this node, scripts) authenticate with a token, not the form",
 			"hint", "set httpserver.auth_token / --auth-token / "+TokenEnvVar+" if anything but a browser talks to this server")
 	}
@@ -118,19 +76,104 @@ func Serve(ctx context.Context, opts Options) error {
 	// Joining a relay is what makes this agent reachable from a swarm. It runs
 	// alongside the listener rather than before it, because the relay may dial
 	// straight back and should find the API already up.
-	stopSwarm := startSwarmJoins(ctx, cfg, opts.Home, s.Handler(), log)
+	stopSwarm := startSwarmJoins(ctx, cfg, opts.Home, s.Handler(), s.log)
 	defer stopSwarm()
 
-	srv := httpx.NewServer(opts.ListenAddr, s.Handler())
+	handler := s.Handler()
+	if opts.DesktopWindow != nil {
+		// The desktop window is a local authority even when the public API's
+		// configuration intentionally admits other origins.
+		handler = DesktopOriginGuard(handler)
+	}
+	srv := httpx.NewServer(opts.ListenAddr, handler)
 	errs := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", opts.ListenAddr, "auth", authOn)
+		s.log.Info("listening", "addr", opts.ListenAddr, "auth", authOn)
 		errs <- srv.ListenAndServe()
 	}()
 
+	return waitHTTPServer(ctx, srv, s, errs)
+}
+
+// LocalHandler builds the same API and SPA for the process-private IPC
+// listener. It deliberately does not join a swarm: the public listener, when
+// enabled, owns those registrations, and a second set would duplicate them.
+func LocalHandler(ctx context.Context, opts Options) (http.Handler, func(), error) {
+	s, cleanup, err := configuredServer(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.Handler(), cleanup, nil
+}
+
+// configuredServer is the listener-independent half of Serve. The cleanup
+// withdraws every registration and drains the server after its listener shuts.
+func configuredServer(ctx context.Context, opts Options) (*Server, func(), error) {
+	if opts.Cfg == nil || opts.Mgr == nil || opts.Log == nil {
+		return nil, nil, errors.New("httpserver: Cfg, Mgr and Log are required")
+	}
+	log := opts.Log
+	llm.LogCodexAuthNotices(log, opts.Cfg)
+	llm.LogDevinAuthNotices(log, opts.Cfg)
+	opts.Cfg.LogUnsentModelSettings(log)
+	opts.Cfg.LogUnknownToolsetTools(log)
+	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
+
+	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
+	s.turnMirror = opts.Mirror
+	if home := s.activeCfg().Paths.Home; strings.TrimSpace(home) != "" {
+		if err := wallpaper.EnsureDefaults(ctx, home); err != nil {
+			log.Warn("wallpaper defaults initialization failed", "error", err)
+		}
+	}
+	s.SetNoAuth(opts.NoAuth)
+	s.SetNoAuthHeader(opts.NoAuthHeader)
+	s.SetDesktopWindow(opts.DesktopWindow)
+	s.SetDetachedPrompts(opts.DetachedPrompts)
+	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
+	s.SetUnbuiltSections(opts.UnbuiltSections)
+	s.SetStatus(opts.Status)
+	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
+		return nil, nil, fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
+	}
+	// A form nobody can pass is refused here, in the terminal that typed the
+	// command, rather than discovered by an operator staring at a sign-in screen
+	// that rejects the password they are sure of.
+	if pol := s.loginPolicyNow(); pol.broken {
+		return nil, nil, errors.New("httpserver.login.enable is true but no account is configured: " +
+			"set httpserver.login.user and password_hash (`coddy serve set-password`), " +
+			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
+	}
+	withdrawWakes := func() {}
+	if opts.Wakes != nil {
+		withdrawWakes = opts.Wakes.AddWakeSurface(s, agent.WakeHost)
+	} else {
+		s.AttachBackgroundWaker()
+	}
+	cleanup := func() {
+		withdrawWakes()
+		if opts.OnServer != nil {
+			opts.OnServer(nil)
+		}
+		s.Drain()
+	}
+	if opts.OnServer != nil {
+		opts.OnServer(s)
+	}
+	return s, cleanup, nil
+}
+
+func logWarnOpenListener(log *slog.Logger, addr string) {
+	log.Warn("HTTP API is reachable without authentication",
+		"addr", addr,
+		"hint", "sign-in for the browser: `coddy serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
+			"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
+			"httpserver.allow_insecure: true silences this")
+}
+
+func waitHTTPServer(ctx context.Context, srv *http.Server, s *Server, errs <-chan error) error {
 	select {
 	case err := <-errs:
-		s.Drain()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -139,11 +182,8 @@ func Serve(ctx context.Context, opts Options) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 		err := srv.Shutdown(shutdownCtx)
-		// Drain after the listener is closed, so nothing new can enter the
-		// pools this is emptying.
-		s.Drain()
 		if errors.Is(err, context.DeadlineExceeded) {
-			log.Warn("HTTP shutdown timed out, closing anyway", "grace", shutdownGrace)
+			s.log.Warn("HTTP shutdown timed out, closing anyway", "grace", shutdownGrace)
 			_ = srv.Close()
 			return nil
 		}

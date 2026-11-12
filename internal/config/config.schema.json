@@ -86,7 +86,7 @@
               "boolean",
               "null"
             ],
-            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). For type kimi, subscription usage reads /usages and Platform has no usage source. Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin, GET {api_base}/limits for type openai). For type kimi, subscription usage reads /usages and Platform has no usage source. Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
           },
           "acp": {
@@ -381,7 +381,7 @@
         },
         "wait_for_limit_reset": {
           "type": "boolean",
-          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",
+          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget, in a Retry-After header or in the text of the 429 itself; the turn lock and the client stream stay open while it waits, so it is off by default.",
           "default": false
         },
         "wait_for_limit_reset_max_ms": {
@@ -1283,6 +1283,18 @@
           "default": 0,
           "minimum": 0
         },
+        "max_client_tools": {
+          "type": "integer",
+          "description": "Most tools a client may offer a direct model on POST /v1/chat/completions and POST /v1/responses. 0 means the built-in 128, OpenAI's own limit. More are refused with 400 and the too_many_tools error, which names the count and this setting. Raise it for a client whose MCP servers offer more; a provider with a limit of its own still applies it.",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_client_tool_schema_bytes": {
+          "type": "integer",
+          "description": "Largest parameters schema of one client tool on POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 256 KiB. A larger one is refused with 400 and the tool_parameters_too_large error.",
+          "default": 0,
+          "minimum": 0
+        },
         "auth_token": {
           "type": "string",
           "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote.",
@@ -1320,10 +1332,24 @@
               "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here.",
               "default": ""
             },
+            "totp_secret": {
+              "type": "string",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrollment accepts Base32 or Base16 and stores canonical Base32. Written in the web UI under Settings, Authentication, which shows a QR code and saves the key only after code verification; empty means the password alone signs in, and removing the key there empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "default": ""
+            },
+            "backup_codes": {
+              "type": "object",
+              "description": "Opaque generation identifier and SHA-256 hashes of the recovery codes for the web account. Plaintext codes are shown only when issued, and GET /coddy/config never returns their hashes.",
+              "additionalProperties": false,
+              "properties": {
+                "generation": {"type": "string", "description": "Identifier of the current recovery-code set."},
+                "hashes": {"type": "array", "description": "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored.", "items": {"type": "string"}}
+              }
+            },
             "session_ttl_hours": {
               "type": "integer",
-              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
-              "default": 0,
+              "description": "How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked.",
+              "default": 24,
               "minimum": 0
             }
           }

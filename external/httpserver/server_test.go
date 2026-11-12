@@ -201,7 +201,7 @@ func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{
 			{Name: "openai", Type: "openai", APIKey: "k"},
-			{Name: "hub", Type: "openai", APIKey: "k", APIBase: listing.URL},
+			{Name: "hub", Type: "openai", UsageLimitsPanel: new(bool), APIKey: "k", APIBase: listing.URL},
 		},
 		Agent: config.Agent{Model: "openai/gpt-4o"},
 		Models: []config.ModelEntry{
@@ -331,7 +331,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/fetch", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info"} {
+	for _, must := range []string{"/v1/models", "/v1/models/{id}", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/fetch", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -3204,7 +3204,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	}
 }
 
-func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
+func TestResponsesInlineFilesRefusedForNonMultimodalDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, sessRoot := testHTTPServerPersist(t)
 	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
@@ -3222,30 +3222,26 @@ func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
 	}
-
-	var userMsg *llm.Message
-	for i := range cp.seen {
-		if cp.seen[i].Role == llm.RoleUser {
-			userMsg = &cp.seen[i]
-		}
+	var refusal struct {
+		Error struct {
+			Param string `json:"param"`
+		} `json:"error"`
 	}
-	if userMsg == nil {
-		t.Fatal("no user message found")
-	}
-	if len(userMsg.ImageParts) != 0 {
-		t.Fatalf("non-multimodal provider received %d image parts", len(userMsg.ImageParts))
-	}
-
-	store := &session.FileStore{Root: sessRoot}
-	snap, err := store.ReadSnapshot(sid)
-	if err != nil {
+	if err := json.Unmarshal(b, &refusal); err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 0 {
-		t.Fatalf("non-multimodal history retained image parts: %+v", snap.Messages)
+	if refusal.Error.Param != "inline_files" {
+		t.Fatalf("error.param = %q, want inline_files: %s", refusal.Error.Param, b)
+	}
+	if cp.seen != nil {
+		t.Fatalf("the provider was called for a refused request: %+v", cp.seen)
+	}
+
+	if _, err := os.Stat(filepath.Join(sessRoot, sid)); !os.IsNotExist(err) {
+		t.Fatalf("a refused request left a session behind: %v", err)
 	}
 }
 
@@ -3382,13 +3378,13 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	}
 }
 
-func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
-	var imageParts []llm.ImagePart
+func TestResponsesInlineFilesRefusedForNonMultimodalAgentModel(t *testing.T) {
+	called := false
 	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
-		imageParts = st.TakePendingImageParts()
+		called = true
 		return string(acp.StopReasonEndTurn), nil
 	}
-	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	_, srv, sessRoot := testHTTPServerPersistWithRunner(t, runner)
 	srv.activeCfg().Models[0].Multimodal = true
 	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
 		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
@@ -3404,11 +3400,150 @@ func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
 	}
-	if len(imageParts) != 0 {
-		t.Fatalf("non-multimodal agent runner received %d image parts", len(imageParts))
+	if called {
+		t.Fatal("the agent runner was called for a refused request")
+	}
+	var refusal struct {
+		Error struct {
+			Param string `json:"param"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(b, &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal.Error.Param != "inline_files" {
+		t.Fatalf("error.param = %q, want inline_files: %s", refusal.Error.Param, b)
+	}
+	entries, err := os.ReadDir(sessRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a refused profile request left %d session(s) behind", len(entries))
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", "sess_named_image_refusal")
+	res, err = ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a new named session: want 400, got %d: %s", res.StatusCode, b)
+	}
+	if _, err := os.Stat(filepath.Join(sessRoot, "sess_named_image_refusal")); !os.IsNotExist(err) {
+		t.Fatalf("a refused named request left a session behind: %v", err)
+	}
+}
+
+func TestResponsesInlineFilesRefusalDoesNotApplyProfileSettings(t *testing.T) {
+	called := false
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		called = true
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	cfg := srv.activeCfg()
+	cfg.Models = append(cfg.Models,
+		config.ModelEntry{Model: "openai/text-only"},
+		config.ModelEntry{Model: "openai/vision", Multimodal: true},
+	)
+	st, err := srv.mgr.EnsureHTTPSession(context.Background(), "vision-refusal", "/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applySessionYAMLModel(cfg, st, "openai/vision"); err != nil {
+		t.Fatal(err)
+	}
+	settingsVersion := st.PublishedSettingsVersion()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	body := fmt.Sprintf(`{"model":"agent","input":"inspect","metadata":{"model":"openai/text-only","settingsVersion":%d},"inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`, settingsVersion)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", "vision-refusal")
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+	if got := effectiveYAMLModel(cfg, st); got != "openai/vision" {
+		t.Fatalf("a refused request changed the session model to %q", got)
+	}
+	if called {
+		t.Fatal("the agent runner was called for a refused request")
+	}
+}
+
+func TestResponsesInlineFilesPreserveSessionRefusals(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	_, childID := subagentChildFixture(t, srv.mgr, "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	payload := `{"model":"agent","input":"inspect","inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`
+	for _, tc := range []struct {
+		name, sessionID string
+		status          int
+		wantBody        string
+	}{
+		{name: "invalid session header", sessionID: "not a session", status: http.StatusBadRequest, wantBody: "invalid X-Coddy-Session-ID"},
+		{name: "read-only child", sessionID: childID, status: http.StatusConflict, wantBody: "subagent sessions are read-only transcripts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("X-Coddy-Session-ID", tc.sessionID)
+			res, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != tc.status || !strings.Contains(string(b), tc.wantBody) {
+				t.Fatalf("status %d body %s, want %d containing %q", res.StatusCode, b, tc.status, tc.wantBody)
+			}
+		})
+	}
+}
+
+func TestResponsesInlineFilesRefusalDoesNotResumeStoredSession(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	const sessionID = "stored-image-refusal"
+	if _, err := srv.mgr.EnsureHTTPSession(context.Background(), sessionID, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	srv.mgr.ForgetLiveSession(sessionID)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	payload := `{"model":"agent","input":"inspect","inline_files":[{"name":"x.png","data_url":"data:image/png;base64,iVBORw0KGgo="}],"stream":false}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Coddy-Session-ID", sessionID)
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+	if st := srv.mgr.SessionByID(sessionID); st != nil {
+		t.Fatal("a refused request resumed and registered the stored session")
 	}
 }
 
@@ -5326,7 +5461,7 @@ func TestOpenAIContentReadsStringsNullAndParts(t *testing.T) {
 
 func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 	weather := `[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]`
-	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil)
+	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil, clientToolLimitsOf(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5337,7 +5472,7 @@ func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 		t.Fatalf("schema = %#v", tools[0].InputSchema)
 	}
 	// No parameters: an empty object schema, which every provider accepts.
-	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil)
+	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil, clientToolLimitsOf(nil))
 	if err != nil || len(tools) != 1 {
 		t.Fatalf("tools = %+v, err = %v", tools, err)
 	}
@@ -5345,20 +5480,20 @@ func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 		t.Fatalf("default schema = %#v", tools[0].InputSchema)
 	}
 	// tool_choice "none" withholds the tools; anything else leaves them offered.
-	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`)); err != nil || tools != nil {
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`), clientToolLimitsOf(nil)); err != nil || tools != nil {
 		t.Fatalf("tool_choice none: tools = %+v, err = %v", tools, err)
 	}
 	// Withheld tools are still read: a broken list is refused whatever the choice.
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`)); err == nil {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`), clientToolLimitsOf(nil)); err == nil {
 		t.Fatal("tool_choice none must not hide a broken tool list")
 	}
-	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`)); err != nil || len(tools) != 1 {
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`), clientToolLimitsOf(nil)); err != nil || len(tools) != 1 {
 		t.Fatalf("tool_choice object: tools = %+v, err = %v", tools, err)
 	}
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil, clientToolLimitsOf(nil)); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
 		t.Fatalf("unknown tool type: err = %v", err)
 	}
-	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil, clientToolLimitsOf(nil)); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
 		t.Fatalf("nameless tool: err = %v", err)
 	}
 }
@@ -5405,22 +5540,13 @@ func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
 		t.Fatalf("tool_choice none still offered %+v", capture.tools)
 	}
 
-	// A picture reaches the model only when the model is configured multimodal;
-	// otherwise the text goes and the picture is dropped rather than flattened.
-	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}],"stream":false}`); code != http.StatusOK {
-		t.Fatalf("image: %d %s", code, body)
-	}
-	last := capture.seen[len(capture.seen)-1]
-	if last.Content != "look" {
-		t.Fatalf("user text = %q, want the text part alone", last.Content)
-	}
-	if want := configuredModelMultimodal(srv.activeCfg(), model); (len(last.ImageParts) > 0) != want {
-		t.Fatalf("image parts = %d, multimodal = %v", len(last.ImageParts), want)
-	}
+	// Pictures for a model that takes none, in the history and in the last
+	// message, are TestChatCompletionsImagesForModelWithoutMultimodal's.
 
 	// What the endpoint refuses, and why.
 	for name, tc := range map[string]struct{ body, want string }{
 		"unknown part":            {`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"input_audio"}]}]}`, `unsupported content part type "input_audio"`},
+		"image for a text model":  {`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`, model + " takes no images"},
 		"unknown tool":            {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`, `unsupported tool type "web_search"`},
 		"tool result for profile": {`{"model":"agent","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":"done"}]}`, "last message must be user"},
 		"tool result without id":  {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"tool","content":"done"}]}`, "tool message requires tool_call_id"},
@@ -5504,11 +5630,11 @@ func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
 	}
 
 	// Bounds: the tool count, a schema's size, the pictures per message and a picture's size.
-	tools := strings.Repeat(weather+",", maxClientTools) + weather
+	tools := strings.Repeat(weather+",", defaultMaxClientTools) + weather
 	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + tools + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 128 tools") {
 		t.Fatalf("too many tools: %d %s", code, body)
 	}
-	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", maxClientToolSchemaBytes) + `"}}}`
+	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", defaultMaxClientToolSchemaBytes) + `"}}}`
 	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + big + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "parameters exceed") {
 		t.Fatalf("huge schema: %d %s", code, body)
 	}
@@ -5702,7 +5828,7 @@ func directOptionsTestServer(t *testing.T) (*Server, *httptest.Server, *recordin
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: root},
 		Providers: []config.ProviderConfig{
-			{Name: "local", Type: "openai", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: backendTS.URL, APIKey: "k"},
 			{Name: "claude", Type: "anthropic", APIBase: backendTS.URL, APIKey: "k"},
 			{Name: "codex", Type: "codex"},
 		},
@@ -5734,7 +5860,7 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 		"openai temperature above 2": {"local/llama-3.1-8b", `"temperature":2.5`, "temperature must be between 0 and 2"},
 		"negative temperature":       {"local/llama-3.1-8b", `"temperature":-0.1`, "temperature must be between 0 and 2"},
 		"anthropic temperature 1.5":  {"claude/claude-3-5-haiku", `"temperature":1.5`, "temperature must be between 0 and 1"},
-		"codex max_tokens":           {"codex/gpt-5.5", `"max_tokens":256`, "max_tokens is not supported by a codex model"},
+		"codex zero max_tokens":      {"codex/gpt-5.5", `"max_tokens":0`, "max_tokens must be a positive integer"},
 		"codex temperature":          {"codex/gpt-5.5", `"temperature":0.5`, "temperature is not supported by a codex model"},
 		"level the model lacks":      {"local/o4-mini", `"reasoning_effort":"minimal"`, `reasoning_effort "minimal" is not offered by model "local/o4-mini" (offered: low, medium, high)`},
 		"level on a plain model":     {"local/llama-3.1-8b", `"reasoning_effort":"low"`, `model "local/llama-3.1-8b" offers no reasoning levels`},
@@ -5755,6 +5881,9 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 			if sid := res.Header.Get("X-Coddy-Session-ID"); sid != "" {
 				t.Fatalf("%s (stream %v): a refused request created session %s", name, stream, sid)
 			}
+			if ignored := res.Header.Get("X-Coddy-Ignored-Params"); ignored != "" {
+				t.Fatalf("%s (stream %v): refused request reports ignored params %q", name, stream, ignored)
+			}
 		}
 	}
 	if n := len(backend.requests); n != 0 {
@@ -5762,6 +5891,43 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 	}
 	if entries, _ := os.ReadDir(sessRoot); len(entries) != 0 {
 		t.Fatalf("refused requests left %d session bundles behind", len(entries))
+	}
+}
+
+func TestDirectOutputCapCompatibilityReportsOnlyCodex(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		model      string
+		path       string
+		body       string
+		wantIgnore string
+	}{
+		{name: "chat max_tokens", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"stream":false}`, wantIgnore: "max_tokens"},
+		{name: "chat max_completion_tokens stream", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":64,"stream":true}`, wantIgnore: "max_completion_tokens"},
+		{name: "chat both names", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"max_completion_tokens":64,"stream":false}`, wantIgnore: "max_tokens, max_completion_tokens"},
+		{name: "responses max_output_tokens", model: "codex/gpt-5.5", path: "/v1/responses", body: `{"model":"codex/gpt-5.5","input":"hi","max_output_tokens":64,"stream":false}`, wantIgnore: "max_output_tokens"},
+		{name: "responses max_output_tokens stream", model: "codex/gpt-5.5", path: "/v1/responses", body: `{"model":"codex/gpt-5.5","input":"hi","max_output_tokens":64,"stream":true}`, wantIgnore: "max_output_tokens"},
+		{name: "openai cap is enforced", model: "local/llama-3.1-8b", path: "/v1/chat/completions", body: `{"model":"local/llama-3.1-8b","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"stream":false}`, wantIgnore: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, ts, _, _ := directOptionsTestServer(t)
+			provider := &responsesStubProvider{
+				chunks: []llm.StreamChunk{{TextDelta: "Hi."}},
+				reply:  &llm.Response{Content: "Hi.", StopReason: "end_turn", InputTokens: 5, OutputTokens: 2, UsageKnown: true},
+			}
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return provider, nil }
+			res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", res.StatusCode, raw)
+			}
+			if got := res.Header.Get("X-Coddy-Ignored-Params"); got != tc.wantIgnore {
+				t.Fatalf("X-Coddy-Ignored-Params = %q, want %q: %s", got, tc.wantIgnore, raw)
+			}
+		})
 	}
 }
 
@@ -6680,5 +6846,102 @@ func TestPermissionAnswerRejectIsAChoiceNotADismissal(t *testing.T) {
 		if permission.Approved(got) {
 			t.Fatalf("%s: a refusal reads as an approval", tc.body)
 		}
+	}
+}
+
+// TestChatCompletionsImagesForModelWithoutMultimodal holds the two sides of
+// issue #584 for a direct model that reads no images: a picture in the message
+// being asked about is refused before any session exists, a picture in the
+// replayed history is dropped and the request goes on, and a model configured
+// multimodal gets both.
+func TestChatCompletionsImagesForModelWithoutMultimodal(t *testing.T) {
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	cfg := srv.activeCfg()
+	cfg.Models = append(cfg.Models, config.ModelEntry{Model: "openai/gpt-4o-vision", Multimodal: true})
+	capture := &passthroughCaptureProvider{}
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return capture, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	const picture = `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`
+	lastWithPicture := `[{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]}]`
+	historyWithPicture := `[{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]},{"role":"assistant","content":"a square"},{"role":"user","content":"and now?"}]`
+	historyThenLastPicture := `[{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":[{"type":"text","text":"look"},` + picture + `]}]`
+	post := func(model, messages string) (int, string) {
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"`+model+`","messages":`+messages+`,"stream":false}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	sessions := func() int {
+		entries, err := os.ReadDir(sessRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	imagesOfUserMessage := func(text string) int {
+		for _, m := range capture.seen {
+			if m.Role == llm.RoleUser && m.Content == text {
+				return len(m.ImageParts)
+			}
+		}
+		t.Fatalf("no user message %q reached the provider: %+v", text, capture.seen)
+		return 0
+	}
+
+	// A text model, a picture in the last message: refused, nothing persisted.
+	before := sessions()
+	code, body := post("openai/gpt-4o", lastWithPicture)
+	var refusal struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Param   string `json:"param"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal([]byte(body), &refusal)
+	if code != http.StatusBadRequest || refusal.Error.Type != "invalid_request_error" || refusal.Error.Param != "messages[0].content" {
+		t.Fatalf("last message picture for a text model: %d %s, want 400 invalid_request_error on messages[0].content", code, body)
+	}
+	if !strings.Contains(refusal.Error.Message, "openai/gpt-4o takes no images") || !strings.Contains(refusal.Error.Message, "multimodal") {
+		t.Fatalf("error.message = %q, want the model named and multimodal mentioned", refusal.Error.Message)
+	}
+	if capture.seen != nil {
+		t.Fatalf("the provider was called for a refused request: %+v", capture.seen)
+	}
+	if after := sessions(); after != before {
+		t.Fatalf("a refused request left %d session(s) behind", after-before)
+	}
+	code, body = post("openai/gpt-4o", historyThenLastPicture)
+	_ = json.Unmarshal([]byte(body), &refusal)
+	if code != http.StatusBadRequest || refusal.Error.Param != "messages[2].content" {
+		t.Fatalf("last message picture after history: %d %s, want 400 on messages[2].content", code, body)
+	}
+
+	// The same text model, the picture in the replayed history: dropped, the turn runs.
+	if code, body := post("openai/gpt-4o", historyWithPicture); code != http.StatusOK {
+		t.Fatalf("history picture for a text model: %d %s", code, body)
+	}
+	if n := imagesOfUserMessage("look"); n != 0 {
+		t.Fatalf("the replayed history carried %d image part(s) to a text model", n)
+	}
+
+	// A multimodal model gets the picture in either place.
+	capture.seen = nil
+	if code, body := post("openai/gpt-4o-vision", lastWithPicture); code != http.StatusOK {
+		t.Fatalf("last message picture for a vision model: %d %s", code, body)
+	}
+	if n := imagesOfUserMessage("look"); n != 1 {
+		t.Fatalf("the vision model got %d image part(s) in the last message, want 1", n)
+	}
+	capture.seen = nil
+	if code, body := post("openai/gpt-4o-vision", historyWithPicture); code != http.StatusOK {
+		t.Fatalf("history picture for a vision model: %d %s", code, body)
+	}
+	if n := imagesOfUserMessage("look"); n != 1 {
+		t.Fatalf("the vision model got %d image part(s) in the history, want 1", n)
 	}
 }

@@ -163,12 +163,9 @@ func (p *kimiAnthropicProvider) request(ctx context.Context, messages []Message,
 	if err != nil {
 		return nil, fmt.Errorf("kimi anthropic encode: %w", err)
 	}
-	resp, err := p.transport.do(ctx, bytes.NewReader(data), p.input.ReasoningEffort != "")
+	resp, err := p.transport.do(ctx, bytes.NewReader(data), p.input.ReasoningEffort != "", "kimi anthropic")
 	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, withToolSchemaRequest(kimiStatusError("kimi anthropic", resp), body, true)
+		return nil, withToolSchemaRequest(err, body, true)
 	}
 	return resp, nil
 }

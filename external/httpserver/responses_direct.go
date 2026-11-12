@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -62,18 +63,23 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeOpenAIValidationError(w, "inline_files require a final user message", "inline_files")
 		return
 	}
-	tools, err := responsesToolsToLLM(req.Tools, req.ToolChoice)
+	tools, err := responsesToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(cfg))
 	if err != nil {
-		param := "tools"
-		if strings.Contains(err.Error(), "tool_choice") {
-			param = "tool_choice"
-		}
-		writeOpenAIValidationError(w, err.Error(), param)
+		writeClientToolError(w, err)
 		return
 	}
 	opts, err := responsesGenerationOptions(cfg, req.Model, &req)
 	if err != nil {
 		writeOpenAIValidationError(w, err.Error(), responsesOptionParam(err))
+		return
+	}
+	if req.MaxOutputTokens != nil {
+		if ignored := directIgnoredOutputCap(cfg, req.Model, "max_output_tokens"); ignored != "" {
+			w.Header().Set(coddyIgnoredParamsHeader, ignored)
+		}
+	}
+	if len(req.InlineFiles) > 0 && !configuredModelMultimodal(cfg, req.Model) {
+		writeOpenAIValidationError(w, fmt.Sprintf("%s takes no images: inline_files need a model configured multimodal", req.Model), "inline_files")
 		return
 	}
 	if req.Instructions != nil && *req.Instructions != "" {

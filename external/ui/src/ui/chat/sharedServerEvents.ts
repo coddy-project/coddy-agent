@@ -1,4 +1,4 @@
-import type { CoddyEnv } from "../env/remoteEnv";
+import { getEnv, type CoddyEnv } from "../env/remoteEnv";
 import {
   subscribeServerEvents,
   type ServerEventsHandlers,
@@ -85,6 +85,17 @@ const DEFAULT_ACK_TIMEOUT_MS = 5000;
 export function serverEventsScope(env: CoddyEnv): string {
   if (env.mode !== "remote") return `coddy-events/${PROTOCOL}/local`;
   return `coddy-events/${PROTOCOL}/remote/${env.baseUrl}/${fingerprint(env.token)}`;
+}
+
+/**
+ * installSessionScopeBridge lets the desktop shell group iframes by the same
+ * environment and credential scope as their event streams. Reading the
+ * function calls getEnv again, so an in-place environment switch is visible
+ * immediately while the token itself stays inside the SPA.
+ */
+export function installSessionScopeBridge(): void {
+  const w = window as Window & { __coddySessionScope?: () => string };
+  w.__coddySessionScope = () => serverEventsScope(getEnv());
 }
 
 // FNV-1a: stable and dependency-free. crypto.subtle is not an option, it exists

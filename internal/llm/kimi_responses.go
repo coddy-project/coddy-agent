@@ -87,12 +87,9 @@ func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []To
 	if err != nil {
 		return nil, err
 	}
-	resp, err := p.transport.Do(ctx, bytes.NewReader(b))
+	resp, err := p.transport.do(ctx, bytes.NewReader(b), false, "kimi responses")
 	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, withToolSchemaRequest(kimiStatusError("kimi responses", resp), body, false)
+		return nil, withToolSchemaRequest(err, body, false)
 	}
 	return resp, nil
 }

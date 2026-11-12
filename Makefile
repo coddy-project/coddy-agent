@@ -1,8 +1,8 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 #     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -13,13 +13,14 @@
 #     cli      interactive console TUI (bare `coddy` on a terminal; see external/cli/)
 #     swarm    stateless relay that aggregates nodes (coddy serve; see external/swarm/)
 #     metrics  Prometheus exporter, off by default (coddy serve; see external/metrics/)
+#     desktop  `coddy desktop`, the web UI in a window of this machine (needs http and ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="gateway metrics"
-#             make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+#             make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
 #   VERSION / REVISION / LDFLAGS   embedded version string and commit (see print-version, print-revision).
 
@@ -45,8 +46,16 @@ BUILD_DIR := build
 GOEXE := $(shell go env GOEXE)
 BINARY := $(BUILD_DIR)/coddy$(GOEXE)
 
-# Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser
+# Joining a space-separated tag list with commas, for `go test -tags=`.
+empty :=
+space := $(empty) $(empty)
+comma := ,
+
+# Default tag set for `make install` when build/coddy is missing. One set
+# everywhere: the release binaries, the packages, the Homebrew formula and the
+# container image (Dockerfile BUILD_TAGS) all build from it, so a `coddy` is
+# the same program wherever it came from.
+FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser desktop
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -116,6 +125,24 @@ android:
 		GOOS=android GOARCH=$$arch CGO_ENABLED=1 CC=$$cc go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/coddy-android-$$arch ./cmd/coddy/; \
 	done
 
+# ---- Desktop window ----
+#
+# `coddy desktop` is a verb of the ordinary binary, so there is nothing of its
+# own to build: this target is `make build` with the shipped tag set, which
+# carries the window. It stays because it is what the documentation, the
+# browser check and the packaging script name.
+#
+# The window is a Chromium-family browser in app mode on every platform that
+# has one. Linux is the one where it is also driven: X11 takes the system
+# frame off, cuts the corners, moves the window with the bar and grabs the
+# chords the browser would answer itself, and a DBus tray carries the icon.
+# macOS and Windows get the window with the frame their desktop gives it.
+DESKTOP_TAGS := $(FULL_TAGS)
+DESKTOP_TAGS_CSV := $(subst $(space),$(comma),$(strip $(DESKTOP_TAGS)))
+
+desktop:
+	$(MAKE) build TAGS="$(DESKTOP_TAGS)"
+
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
 	@echo $(VERSION)
@@ -182,6 +209,16 @@ deb:
 rpm:
 	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
 
+# The desktop application is a package of its own, `coddy-desktop`, and it
+# carries no binary: it installs the menu entry and the icon that put Coddy in
+# the application launcher, and depends on `coddy`, whose `desktop` verb is
+# the window. A server that only runs `coddy serve` installs the agent alone.
+deb-desktop:
+	scripts/build-desktop-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats deb
+
+rpm-desktop:
+	scripts/build-desktop-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
+
 brew:
 	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
 
@@ -238,8 +275,6 @@ models-catalog-check:
 # docs/nav.yaml, the embedded config schema and the --help output of a full-tag
 # binary. docs-check regenerates into memory and fails on drift, on a page missing
 # from nav.yaml, on a broken relative link or anchor, and on an asset nothing uses.
-# docs-changelog additionally refreshes docs/getting-started/changelog.md from the
-# GitHub Releases (needs gh and network).
 docs:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
 	go run ./cmd/docsgen -write -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
@@ -282,10 +317,6 @@ site-docs-check:
 docs-stamp:
 	go run ./cmd/docsgen -stamp $(if $(filter 1 true yes,$(UNCHANGED)),-unchanged) $(PAGES)
 
-docs-changelog:
-	$(MAKE) build TAGS="$(FULL_TAGS)"
-	go run ./cmd/docsgen -changelog -write -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
-
 # The skills Coddy carries inside its binary (internal/skills/bundled). Those
 # that live in their own repositories are vendored rather than fetched at
 # runtime: skills-vendor refreshes the copies from the upstreams named in
@@ -318,9 +349,6 @@ test-opencode-rules:
 # (.github/workflows/tests-on-pr.yaml reads the list through
 # print-test-tag-sets, so this variable is the only place it is written down).
 # Locally, reach for a single combination instead: go test -tags=<set> ./...
-empty :=
-space := $(empty) $(empty)
-comma := ,
 FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
 
 # Every tagged combination the tree is tested under, comma-joined. The untagged
@@ -354,6 +382,9 @@ TEST_TAG_SETS := \
 	gateway,metrics \
 	browser \
 	http,browser \
+	desktop \
+	http,desktop \
+	http,ui,desktop \
 	$(FULL_TAGS_CSV)
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
@@ -479,7 +510,9 @@ check-windows:
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
 	GOOS=windows go vet -tags=metrics ./...
 	GOOS=windows go vet -tags=browser ./...
-	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser ./...
+	GOOS=windows go vet -tags=desktop ./...
+	GOOS=windows go vet -tags=http,desktop ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop ./...
 
 # Type-check the Android build without a device, test files included.
 #
@@ -514,6 +547,9 @@ LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
 
 print-full-tags:
 	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-desktop-tags:
+	@printf '%s\n' "$(DESKTOP_TAGS_CSV)"
 
 print-lint-tags-no-ui:
 	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"

@@ -106,12 +106,6 @@ pages:
     en:
       title: "Troubleshooting"
       summary: "What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build."
-  getting-started/changelog.md:
-    title: "История изменений"
-    summary: "Описания каждого опубликованного релиза, сгенерированные из GitHub Releases."
-    en:
-      title: "Changelog"
-      summary: "Release notes of every published version, generated from GitHub Releases."
   surfaces/console.md:
     title: "Консоль (TUI)"
     summary: "coddy без аргументов в терминале, раскладка экрана, клавиши, слэш-команды, локальная оболочка, режим печати и удалённый режим."
@@ -124,6 +118,12 @@ pages:
     en:
       title: "Web UI"
       summary: "The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages."
+  surfaces/desktop.md:
+    title: "Окно на рабочем столе"
+    summary: "coddy desktop, веб-интерфейс как окно приложения с чатами по вкладкам, запоминаемый порт, клавиши и что даёт окну каждая платформа."
+    en:
+      title: "Desktop window"
+      summary: "coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window."
   surfaces/editors.md:
     title: "Редакторы (ACP)"
     summary: "Zed, VS Code, Obsidian и скрипты как ACP-клиенты coddy acp и что у них общего с другими интерфейсами."

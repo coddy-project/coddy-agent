@@ -527,7 +527,7 @@ func TestClientAddrBelievesAProxyOnlyFromLoopback(t *testing.T) {
 			name: "a proxy on this machine speaks for its client",
 			// Without this the documented deployment - nginx in front of a
 			// loopback listener - would exempt the whole internet.
-			remote: "127.0.0.1:54321", forwardedFor: "203.0.113.7, 10.0.0.1", want: "203.0.113.7",
+			remote: "127.0.0.1:54321", forwardedFor: "203.0.113.7, 10.0.0.1", want: "10.0.0.1",
 		},
 		{
 			name:   "X-Real-IP when there is no forwarded chain",

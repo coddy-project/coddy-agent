@@ -1633,6 +1633,13 @@ func (a *Agent) runReActLoop(
 				}
 				return string(acp.StopReasonRefused), a.contextOverflowError(streamErr, estimateAtSend, overflowCompacted)
 			}
+			// The provider refused the tools the request offered. Nothing is
+			// sent again: which tools a model is offered is the operator's to
+			// decide, so the turn ends saying how many went out, how many the
+			// provider takes and the ways to send fewer (client_tool_limit.go).
+			if llm.IsClientToolLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.clientToolLimitError(streamErr, len(toolDefs))
+			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
 				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)

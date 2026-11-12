@@ -28,14 +28,15 @@ func TestQueueModeJSONRoundTripAndValidation(t *testing.T) {
 	}
 }
 
-func TestUISchemaOmitsHTTPServerFromUI(t *testing.T) {
+func TestUISchemaOmitsHTTPListenerFromUI(t *testing.T) {
 	doc := config.UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})
 	if !ok {
 		t.Fatal("properties")
 	}
-	if _, ok := props["httpserver"]; ok {
-		t.Fatal("httpserver must not be exposed in UI schema")
+	httpProps := props["httpserver"].(map[string]interface{})["properties"].(map[string]interface{})
+	if len(httpProps) != 1 || httpProps["login"] == nil {
+		t.Fatal("only account settings belong in the UI schema")
 	}
 }
 
@@ -69,7 +70,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "httpserver", "sessions", "prompts", "instructions",
 	}
 	if !reflect.DeepEqual(ord, want) {
 		t.Fatalf("root order:\n got %v\nwant %v", ord, want)

@@ -8,7 +8,7 @@ import (
 )
 
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
-// HTTPServer is omitted; listen bind is controlled via CLI, not this form.
+// The HTTP section exposes account settings, not listener or bearer controls.
 func UISchemaJSON() ([]byte, error) {
 	return UISchemaJSONHiding()
 }
@@ -306,7 +306,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+			"Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
 			true),
 		"acp": acpProviderSchema(),
 	}
@@ -963,12 +963,22 @@ func UISchemaMap() map[string]interface{} {
 	// process (the logger, the metrics exporter and the browser extension, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
+	password := strProp("Password", "Set a new sign-in password; leave empty to keep the existing password.")
+	password["writeOnly"] = true
+	props["httpserver"] = objectSchema("Account", "Web sign-in account", map[string]interface{}{
+		"login": objectSchema("Sign-in", "", map[string]interface{}{
+			"enable":            boolProp("Enable sign-in", "Require a web sign-in."),
+			"user":              strProp("User", "The account name."),
+			"password":          password,
+			"session_ttl_hours": intProp("Session duration", "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie."),
+		}, []string{"enable", "user", "password", "session_ttl_hours"}, nil),
+	}, []string{"login"}, nil)
 	rootOrder := []string{
 		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "httpserver", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{
@@ -997,8 +1007,6 @@ func toIfaceOrder(keys []string) []interface{} {
 // sections of its own. They still round-trip through GET/PUT /coddy/config,
 // so hiding one here never drops it from the saved document.
 //
-//	httpserver - the surface the UI itself is served from; editing it there
-//	             would let the page cut its own connection.
 //	mcp        - project_trust is edited in the MCP servers tab (POST
 //	             /coddy/mcp/project-trust), next to the servers the policy
 //	             governs; idle_timeout_seconds is set in the file and survives
@@ -1013,12 +1021,11 @@ func toIfaceOrder(keys []string) []interface{} {
 //	revision   - not a setting: it names the configuration a GET document was
 //	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
-	"httpserver": {},
-	"mcp":        {},
-	"swarm":      {},
-	"rules":      {},
-	"ui":         {},
-	"revision":   {},
+	"mcp":      {},
+	"swarm":    {},
+	"rules":    {},
+	"ui":       {},
+	"revision": {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

@@ -14,6 +14,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+const coddyIgnoredParamsHeader = "X-Coddy-Ignored-Params"
+
 // directACPRefusal refuses a direct completion of a model a local ACP agent
 // serves: the call carries the caller's own messages and tools, and the agent
 // answers inside a Coddy session only. The handlers ask before they create a
@@ -163,6 +165,13 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 			}
 		}
 	}
+	// models[].max_tokens is the bound the row advertises as
+	// max_output_tokens: it caps a request that asks for more, the same as it
+	// supplies one to a request that names none (issue #579).
+	if opts.MaxTokens != nil && ent != nil && ent.MaxTokens > 0 && *opts.MaxTokens > ent.MaxTokens {
+		bound := ent.MaxTokens
+		opts.MaxTokens = &bound
+	}
 	level := ""
 	if req.ReasoningEffort != nil {
 		level = strings.TrimSpace(*req.ReasoningEffort)
@@ -185,6 +194,24 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 		return llm.RequestOptions{}, fmt.Errorf("reasoning_effort %q is not offered by model %q (offered: %s)", level, model, strings.Join(levels, ", "))
 	}
 	return opts, opts.Validate(providerType, apiModel)
+}
+
+// directIgnoredOutputCap names output-cap fields that a Codex backend cannot
+// enforce. The caller reports them instead of rejecting an otherwise portable
+// OpenAI request or claiming that the cap reached the provider.
+func directIgnoredOutputCap(cfg *config.Config, model string, parameters ...string) string {
+	if len(parameters) == 0 || cfg == nil {
+		return ""
+	}
+	entry := cfg.FindModelEntry(model)
+	if entry == nil {
+		return ""
+	}
+	provider := cfg.FindProvider(entry.ProviderName())
+	if provider == nil || provider.Type != "codex" {
+		return ""
+	}
+	return strings.Join(parameters, ", ")
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM

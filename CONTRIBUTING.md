@@ -14,7 +14,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 git clone https://github.com/coddy-project/coddy-agent
 cd coddy-agent
 make hooks      # once per clone: git commit runs the gate in .githooks/pre-commit
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ./build/coddy -v
 ```
 
@@ -32,7 +32,7 @@ On Windows the `Makefile` targets need a Unix-like shell: run them from Git Bash
 | `make build TAGS=http` | the HTTP API and `/docs` for `coddy serve`, no npm step |
 | `make build TAGS=cli` | the interactive console, bare `coddy` on a terminal |
 | `make build TAGS="http ui"` | the API plus the embedded SPA; `ui-build` runs first |
-| `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"` | the full set (`FULL_TAGS` in the `Makefile`): what the releases, the Docker image and the packages ship |
+| `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"` | the full set (`FULL_TAGS` in the `Makefile`): what the releases, the Docker image and the packages ship |
 
 A subsystem enabled in `config.yaml` but not compiled into the binary is a startup error naming the tag. The tag reference, `make install`, `make print-version` and the distribution packages (`make deb`, `make rpm`, `make brew`) are in [docs/contributing/build.md](docs/contributing/build.md).
 

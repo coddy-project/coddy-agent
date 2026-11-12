@@ -80,7 +80,7 @@ func (s *upstreamStatusState) providerAnswers(status int, message string) error 
 	model := config.ModelEntry{Model: "local/llama-3.1-8b"}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: cwd},
-		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{model},
 		Agent:     config.Agent{Model: model.Model},
 	}

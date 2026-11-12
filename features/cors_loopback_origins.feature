@@ -29,3 +29,14 @@ Feature: A laptop's page on any loopback port may call a remote coddy serve
     When the running server's configuration is replaced with CORS allowing loopback origins
     And a page at "http://localhost:5173" requests "/v1/models" with the token
     Then the response allows the origin "http://localhost:5173"
+
+  Scenario: A desktop window may be allowed without allowing every loopback page
+    Given a coddy HTTP server with token "remote-secret" whose CORS lists only "http://127.0.0.1:49152"
+    When a page at "http://127.0.0.1:49152" sends a preflight for GET "/v1/models"
+    Then the preflight is answered with 204
+    And the response allows the origin "http://127.0.0.1:49152"
+    When a page at "http://127.0.0.1:49152" requests "/v1/models" with the token
+    Then the request succeeds
+    And the response allows the origin "http://127.0.0.1:49152" and varies by origin
+    When a page at "http://127.0.0.1:49153" requests "/v1/models" with the token
+    Then the response allows no origin

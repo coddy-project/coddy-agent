@@ -96,12 +96,9 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 	if err != nil {
 		return nil, fmt.Errorf("kimi chat encode: %w", err)
 	}
-	resp, err := p.transport.Do(ctx, bytes.NewReader(data))
+	resp, err := p.transport.do(ctx, bytes.NewReader(data), false, "kimi chat")
 	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, withToolSchemaRequest(kimiStatusError("kimi chat", resp), body, false)
+		return nil, withToolSchemaRequest(err, body, false)
 	}
 	return resp, nil
 }

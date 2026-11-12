@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,6 +71,17 @@ type Server struct {
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
 
+	// desktopWindow is what the tab shell of a desktop window drives
+	// (httpserver.Options.DesktopWindow). Nil everywhere else.
+	desktopWindow any
+
+	// noAuth serves without any credential, whatever the configuration says
+	// (httpserver.Options.NoAuth). Set once, before the server serves.
+	noAuth bool
+	// noAuthHeader permits that choice per request on the authenticated local
+	// IPC server only (Options.NoAuthHeader).
+	noAuthHeader string
+
 	// unbuiltSections are the settings sections the form leaves out
 	// (Options.UnbuiltSections).
 	unbuiltSections []string
@@ -98,6 +110,9 @@ type Server struct {
 	browserEndpoint browser.Mounted
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
+	// totpGuard keeps a one-time code from opening a second session.
+	totpGuard  webauth.TOTPReplayGuard
+	challenges challengeStore
 	// served remembers the configurations GET /coddy/config handed out, so a
 	// PUT is measured against what its client read (config_revisions.go).
 	served *configapi.Revisions
@@ -112,6 +127,10 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	// turnMirror fans turns this server starts out to the other surfaces of
+	// the process. Nil means this server's own composer relay only.
+	turnMirror session.TurnMirror
 
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
@@ -278,10 +297,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		Log: log,
 	})
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
+	s.mux.HandleFunc("GET /v1/models/{id...}", s.handleModelGet)
+	s.mux.HandleFunc("GET /v1/limits", s.handleV1Limits)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
 	s.mux.HandleFunc("/v1/models", openAIMethodNotAllowed("GET, HEAD"))
+	s.mux.HandleFunc("/v1/models/{id...}", openAIMethodNotAllowed("GET, HEAD"))
+	s.mux.HandleFunc("/v1/limits", openAIMethodNotAllowed("GET, HEAD"))
 	s.mux.HandleFunc("/v1/chat/completions", openAIMethodNotAllowed("POST"))
 	s.mux.HandleFunc("/v1/responses", openAIMethodNotAllowed("POST"))
 	s.mux.HandleFunc("/v1/responses/{id}", openAIMethodNotAllowed("GET, HEAD"))
@@ -378,6 +401,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		Region:            rm.Region,
 		Model:             rm.Model,
 		KimiMetadata:      rm.KimiMetadata,
+		KimiIdentity:      rm.KimiIdentity,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
 		UserAgent:         rm.UserAgent,
@@ -412,6 +436,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		Region:            rm.Region,
 		Model:             rm.Model,
 		KimiMetadata:      rm.KimiMetadata,
+		KimiIdentity:      rm.KimiIdentity,
 		APIKey:            rm.APIKey,
 		BaseURL:           rm.BaseURL,
 		UserAgent:         rm.UserAgent,
@@ -446,27 +471,233 @@ func (s *Server) Handler() http.Handler {
 	return gzipJSON(s.openAIErrors(s.corsMiddleware(s.openServerGuard(s.authGate(s.mux)))))
 }
 
+// modelObj is one row of GET /v1/models and the body of GET /v1/models/{id}:
+// OpenAI's Model object plus what a client needs to size a request on it
+// (issue #579).
+type modelObj struct {
+	ID               string `json:"id"`
+	Object           string `json:"object"`
+	Created          int64  `json:"created"`
+	OwnedBy          string `json:"owned_by"`
+	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+	ContextLength    int    `json:"context_length,omitempty"`
+	// MaxOutputTokens is the bound on completion tokens a request on this
+	// row runs under: models[].max_tokens, which applies when the request
+	// names no cap of its own and clamps one that asks for more. Absent for
+	// a row without a configured bound and on a codex model, whose backend
+	// takes no output cap.
+	MaxOutputTokens int  `json:"max_output_tokens,omitempty"`
+	Multimodal      bool `json:"multimodal,omitempty"`
+	// SupportedParameters is the request parameter names the endpoint takes
+	// on this row (OpenRouter's supported_parameters), so a client knows what
+	// it may send instead of learning it from a 400. The structural fields
+	// every request carries (model, messages, stream) are left out.
+	SupportedParameters []string `json:"supported_parameters"`
+	ReasoningLevels     []string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault    string   `json:"reasoning_default,omitempty"`
+	// Default marks the row a session that selected no model runs on,
+	// so a client (the remote console) shows the model that will run.
+	Default bool `json:"default,omitempty"`
+	// Toolset is the toolsets[] preset the model names (models[].toolset):
+	// what a new chat on it is offered until it picks another.
+	Toolset string `json:"toolset,omitempty"`
+	// Limits is what a request on this row may carry, so a client sizes
+	// one before it sends it instead of losing a turn to a 400.
+	Limits modelLimits `json:"limits"`
+}
+
+// profileParameters is what a profile row (agent, plan, ask) accepts of the
+// request beside model, messages and stream across both dialects:
+// metadata.reasoning is how its level is picked, attachments and inline_files
+// are the coddy extensions POST /v1/responses takes for a profile, and the
+// generation parameters are refused everywhere.
+var profileParameters = []string{"attachments", "inline_files", "metadata", "stream_options"}
+
+// supportedParametersFor is the union of what POST /v1/chat/completions and
+// POST /v1/responses accept on the model's row, in both request dialects
+// (the set validateChatParameters and responsesAllowedFields admit minus what
+// RequestOptions.Validate refuses for the provider type): max_tokens and
+// max_completion_tokens name the chat cap, max_output_tokens the Responses
+// one, reasoning_effort the chat reasoning level and reasoning the Responses
+// one. Coddy's own names are served, never the upstream listing's: the
+// endpoint refuses the names it does not know. Left out: the structural
+// model/messages/input/stream, store (only store: false passes, a no-op)
+// and attachments, which a direct request refuses.
+func supportedParametersFor(cfg *config.Config, ent *config.ModelEntry) []string {
+	if ent == nil || cfg.ModelRunsACPAgent(ent.Model) {
+		// A model served by an acp agent refuses a direct completion
+		// wholesale, so no parameter of it is supported.
+		return []string{}
+	}
+	params := []string{
+		"inline_files",
+		"instructions",
+		"max_completion_tokens",
+		"max_output_tokens",
+		"max_tokens",
+		"metadata",
+		"stream_options",
+		"temperature",
+		"tool_choice",
+		"tools",
+		"top_p",
+	}
+	providerType := providerTypeOf(cfg, ent)
+	if providerType == "codex" {
+		// A Codex backend accepts output-cap fields for OpenAI-client
+		// compatibility but ignores them (reported by X-Coddy-Ignored-Params),
+		// so only temperature is unsupported here.
+		params = slices.DeleteFunc(params, func(p string) bool { return p == "temperature" })
+	}
+	if providerType != "openai" {
+		// Only an openai provider carries top_p; every other type refuses it.
+		params = slices.DeleteFunc(params, func(p string) bool { return p == "top_p" })
+	}
+	if !ent.Multimodal {
+		// A text-only model refuses inline_files (the request is rejected
+		// with a 400), the way attachments is refused for a direct row.
+		params = slices.DeleteFunc(params, func(p string) bool { return p == "inline_files" })
+	}
+	if len(cfg.ReasoningChoicesFor(ent)) > 0 {
+		// reasoning_effort (chat) and reasoning.effort (responses) must name
+		// one of reasoning_levels; a model that offers none refuses them, so
+		// they are listed only where they can pass.
+		params = append(params, "reasoning", "reasoning_effort")
+	}
+	slices.Sort(params)
+	return params
+}
+
+// providerTypeOf is the providers[].type of the provider a model row names,
+// or "" when the provider is unknown.
+func providerTypeOf(cfg *config.Config, ent *config.ModelEntry) string {
+	if cfg == nil || ent == nil {
+		return ""
+	}
+	if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
+		return prov.Type
+	}
+	return ""
+}
+
+// profileRow builds the GET /v1/models row of a session profile (agent, plan,
+// ask): the window and the output bound of the model an unconfigured session
+// resolves to, no generation parameters, no client tools.
+func (s *Server) profileRow(cfg *config.Config, mode session.Mode, limits modelLimits) modelObj {
+	window := config.DefaultContextWindowTokens
+	maxOutput := 0
+	params := slices.Clone(profileParameters)
+	if cfg != nil {
+		// ResolveModelID falls back to models[0] for an unlisted agent.model,
+		// exactly the model the session would run, so the whole row describes
+		// one model.
+		ref := session.ResolveModelID(cfg, "")
+		window = s.contextWindowFor(cfg, ref)
+		ent := cfg.FindModelEntry(ref)
+		if ent != nil && providerTypeOf(cfg, ent) != "codex" && !cfg.ModelRunsACPAgent(ref) {
+			maxOutput = ent.MaxTokens
+		}
+		if ent == nil || !ent.Multimodal {
+			// The request path refuses inline_files on a text-only model
+			// with a 400, the way the direct row drops it too.
+			params = slices.DeleteFunc(params, func(p string) bool { return p == "inline_files" })
+		}
+	}
+	return modelObj{
+		ID:               string(mode),
+		Object:           "model",
+		Created:          0,
+		OwnedBy:          ownedByCoddySession,
+		MaxContextTokens: window,
+		ContextLength:    window,
+		MaxOutputTokens:  maxOutput,
+		// A profile runs coddy's own tools and refuses the client's, so
+		// the two tool bounds say nothing about it; its images are bounded
+		// like any other row's.
+		Limits:              limits.withoutClientTools(),
+		SupportedParameters: params,
+	}
+}
+
+// directRow builds the GET /v1/models row of a configured models[] entry.
+func (s *Server) directRow(cfg *config.Config, ent *config.ModelEntry, mid string, limits modelLimits, defaultModel string) modelObj {
+	window := s.contextWindowFor(cfg, mid)
+	rowLimits := limits
+	if !ent.Multimodal {
+		rowLimits = limits.withoutPictures()
+	}
+	maxOutput := ent.MaxTokens
+	if providerTypeOf(cfg, ent) == "codex" {
+		// A codex backend takes no output cap, so models[].max_tokens bounds
+		// nothing on it (Config.UnsentModelSettings) and no bound is
+		// advertised.
+		maxOutput = 0
+	} else if cfg.ModelRunsACPAgent(mid) {
+		// A model served by an acp agent refuses a direct completion
+		// wholesale, so no bound a request could run under is advertised.
+		maxOutput = 0
+	}
+	return modelObj{
+		ID:                  mid,
+		Object:              "model",
+		Created:             0,
+		OwnedBy:             ent.ProviderName(),
+		MaxContextTokens:    window,
+		ContextLength:       window,
+		MaxOutputTokens:     maxOutput,
+		Multimodal:          ent.Multimodal,
+		SupportedParameters: supportedParametersFor(cfg, ent),
+		ReasoningLevels:     cfg.ReasoningChoicesFor(ent),
+		ReasoningDefault:    cfg.DefaultReasoningLevelFor(ent),
+		Default:             defaultModel != "" && mid == defaultModel,
+		Toolset:             ent.Toolset,
+		Limits:              rowLimits,
+	}
+}
+
+// findModelRow answers the row GET /v1/models/{id} serves: a profile id, then
+// a configured model entry.
+func (s *Server) findModelRow(cfg *config.Config, id string) (modelObj, bool) {
+	limits := modelLimitsOf(clientToolLimitsOf(cfg))
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
+		if string(mode) == id {
+			return s.profileRow(cfg, mode, limits), true
+		}
+	}
+	if cfg == nil {
+		return modelObj{}, false
+	}
+	if ent := cfg.FindModelEntry(id); ent != nil {
+		return s.directRow(cfg, ent, strings.TrimSpace(ent.Model), limits, session.ResolveModelID(cfg, "")), true
+	}
+	return modelObj{}, false
+}
+
+func (s *Server) handleModelGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cfg := s.activeCfg()
+	if cfg != nil && s.mgr != nil {
+		// The same bounded wait as the listing, for this row alone; a
+		// profile's window belongs to the model an unconfigured session
+		// resolves to, not to an entry named after the profile.
+		ref := id
+		if httpModelIsCoddyProfile(id) {
+			ref = session.ResolveModelID(cfg, "")
+		}
+		s.mgr.AwaitContextWindows(r.Context(), cfg, []string{ref}, session.ContextWindowWait)
+	}
+	if row, ok := s.findModelRow(cfg, id); ok {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(row)
+		return
+	}
+	writeUnknownModelError(w)
+}
+
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	// The mux's "GET" pattern admits GET and HEAD, so a method check would
 	// 404 the HEAD the fallback's Allow header advertises; the body net/http
 	// discards for HEAD is the same work a GET costs.
-	type modelObj struct {
-		ID               string   `json:"id"`
-		Object           string   `json:"object"`
-		Created          int64    `json:"created"`
-		OwnedBy          string   `json:"owned_by"`
-		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
-		ContextLength    int      `json:"context_length,omitempty"`
-		Multimodal       bool     `json:"multimodal,omitempty"`
-		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-		ReasoningDefault string   `json:"reasoning_default,omitempty"`
-		// Default marks the row a session that selected no model runs on,
-		// so a client (the remote console) shows the model that will run.
-		Default bool `json:"default,omitempty"`
-		// Toolset is the toolsets[] preset the model names (models[].toolset):
-		// what a new chat on it is offered until it picks another.
-		Toolset string `json:"toolset,omitempty"`
-	}
 	out := struct {
 		Object string     `json:"object"`
 		Data   []modelObj `json:"data"`
@@ -490,19 +721,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			s.mgr.AwaitContextWindows(r.Context(), cfg, refs, session.ContextWindowWait)
 		}
 	}
-	profileWindow := config.DefaultContextWindowTokens
-	if cfg != nil {
-		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
-	}
+	limits := modelLimitsOf(clientToolLimitsOf(cfg))
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
-		out.Data = append(out.Data, modelObj{
-			ID:               string(mode),
-			Object:           "model",
-			Created:          0,
-			OwnedBy:          ownedByCoddySession,
-			MaxContextTokens: profileWindow,
-			ContextLength:    profileWindow,
-		})
+		out.Data = append(out.Data, s.profileRow(cfg, mode, limits))
 	}
 	if cfg != nil {
 		// The same resolution a session applies to an empty selection:
@@ -515,20 +736,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			if mid == "" {
 				continue
 			}
-			window := s.contextWindowFor(cfg, mid)
-			out.Data = append(out.Data, modelObj{
-				ID:               mid,
-				Object:           "model",
-				Created:          0,
-				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: window,
-				ContextLength:    window,
-				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
-				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
-				Default:          defaultModel != "" && mid == defaultModel,
-				Toolset:          ent.Toolset,
-			})
+			out.Data = append(out.Data, s.directRow(cfg, ent, mid, limits, defaultModel))
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -614,20 +822,18 @@ func (c openAIToolCall) argumentsJSON() (string, error) {
 	return string(raw), nil
 }
 
-// Bounds on what a client may hand a direct model. OpenAI itself takes up to
-// 128 tools; a schema or a picture past these sizes is not a request coddy
-// should carry to a provider or keep under the session's assets.
-const (
-	maxClientTools           = 128
-	maxClientToolSchemaBytes = 256 << 10
-	maxImagePartsPerMessage  = 16
-)
+// Bounds on the pictures a client may hand a direct model: past these a
+// request is not one coddy should carry to a provider or keep under the
+// session's assets. The bounds on its tools are configurable
+// (client_tool_limits.go).
+const maxImagePartsPerMessage = 16
 
 // maxImagePartBytes bounds one image_url payload.
 const maxImagePartBytes = 20 << 20
 
-// dropImageParts strips the pictures off a history bound for a model that
-// takes none.
+// dropImageParts strips the pictures off a replayed history bound for a model
+// that takes none. The pictures of the last message are decided elsewhere: a
+// direct model refuses them, a profile turn leaves them out of the prompt.
 func dropImageParts(msgs []llm.Message) {
 	for i := range msgs {
 		msgs[i].ImageParts = nil
@@ -696,10 +902,24 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// behind. A profile turn never reads them.
 	var clientTools []llm.ToolDefinition
 	var genOpts llm.RequestOptions
+	// Read once: the refusal below and the history drop further down decide
+	// on the same answer, whatever a config reload does in between.
+	directMultimodal := configuredModelMultimodal(s.activeCfg(), model)
 	if !httpModelIsCoddyProfile(model) {
-		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		// A picture in the message the client asks about needs a model that
+		// reads pictures. Refused like OpenAI refuses it, before a session is
+		// touched, instead of a 200 whose answer is about a picture the model
+		// never saw (issue #584). Pictures in the replayed history are dropped
+		// further down: that conversation may have begun on a vision model.
+		if len(last.ImageParts) > 0 && !directMultimodal {
+			writeOpenAIValidationError(w,
+				fmt.Sprintf("%s takes no images: image_url parts need a model configured multimodal", model),
+				fmt.Sprintf("messages[%d].content", len(req.Messages)-1))
+			return
+		}
+		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(s.activeCfg()))
 		if err != nil {
-			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
+			writeClientToolError(w, err)
 			return
 		}
 		// Refused here for the same reason: an option the provider cannot
@@ -712,6 +932,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
+		}
+		switch {
+		case req.MaxTokens != nil && req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens", "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
 		}
 		if err := directACPRefusal(s.activeCfg(), model); err != nil {
 			writeErrorReply(w, err)
@@ -815,6 +1049,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
+		// The local relay already exists, so this server's registration in the
+		// runtime is a no-op while every other HTTP surface mirrors the turn.
+		mirrored, releaseMirror := session.Mirror(s.turnMirror, sessionID, bridge)
+		defer releaseMirror()
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
@@ -826,7 +1064,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Prompt:     prompt,
 			ImageParts: promptImages,
 			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
-		}, bridge, promptOpts)
+		}, mirrored, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
@@ -890,9 +1128,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
-	if !configuredModelMultimodal(s.activeCfg(), model) {
+	// The last message carries no picture here: one for a model that takes
+	// none was refused above. The replayed history may, and loses them.
+	if !directMultimodal {
 		dropImageParts(prefix)
-		last.ImageParts = nil
 	}
 	if len(last.ImageParts) > 0 {
 		if err := session.SavePartsToAssets(last.ImageParts, st.GetPersistedSessionDir()); err != nil {
@@ -1177,8 +1416,8 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 // withholds them, once they have been read - a broken tool list is refused
 // whatever the choice, so a client learns about it before it switches the
 // tools on. Unsupported choices are rejected before this function is called.
-func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
-	tools, err := parseOpenAITools(rawTools)
+func openAIToolsToLLM(rawTools, rawChoice json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
+	tools, err := parseOpenAITools(rawTools, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -1192,7 +1431,7 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 }
 
 // parseOpenAITools reads an OpenAI tools array into the providers' definitions.
-func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
+func parseOpenAITools(rawTools json.RawMessage, limits clientToolLimits) ([]llm.ToolDefinition, error) {
 	trimmed := bytes.TrimSpace(rawTools)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -1208,8 +1447,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 	if err := json.Unmarshal(trimmed, &tools); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
-	if len(tools) > maxClientTools {
-		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	if len(tools) > limits.tools {
+		return nil, tooManyClientTools(len(tools), limits.tools)
 	}
 	out := make([]llm.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
@@ -1220,8 +1459,8 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 		if name == "" {
 			return nil, fmt.Errorf("tool without a function name")
 		}
-		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
-			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
+		if len(t.Function.Parameters) > limits.schemaBytes {
+			return nil, clientToolParametersTooLarge(name, len(t.Function.Parameters), limits.schemaBytes)
 		}
 		// A function's parameters are a JSON Schema object; anything else is
 		// refused rather than decoded into an arbitrary value.
@@ -1371,6 +1610,34 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := r.Context()
+	sessionID := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if len(body.InlineFiles) > 0 {
+		var preflight *session.State
+		loadFailed := false
+		if sessionID == "" {
+			preflight = s.mgr.NewEphemeralState()
+		} else {
+			loaded, loadErr := s.mgr.PreviewHTTPSession(sessionID)
+			if loadErr != nil {
+				loadFailed = true
+			} else {
+				preflight = loaded
+			}
+		}
+		if !loadFailed {
+			if preflight == nil {
+				preflight = s.mgr.NewEphemeralState()
+			}
+			if rejectSubagentTurn(w, preflight) {
+				return
+			}
+			cfg := s.activeCfg()
+			if model, ok := profileModelForImageCheck(cfg, preflight, body.Metadata); ok && !configuredModelMultimodal(cfg, model) {
+				writeOpenAIValidationError(w, fmt.Sprintf("%s takes no images: inline_files need a model configured multimodal", model), "inline_files")
+				return
+			}
+		}
+	}
 	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
@@ -1429,7 +1696,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		effectiveModel = effectiveYAMLModel(s.activeCfg(), st)
 	}
 	if !configuredModelMultimodal(s.activeCfg(), effectiveModel) {
-		inlineFiles = nil
+		if len(inlineFiles) > 0 {
+			writeOpenAIValidationError(w, "the selected model takes no images: inline_files need a model configured multimodal", "inline_files")
+			return
+		}
 	}
 
 	if httpModelIsCoddyProfile(model) {
@@ -1475,6 +1745,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
+		mirrored, releaseMirror := session.Mirror(s.turnMirror, sid, bridge)
+		defer releaseMirror()
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		// A turn from the side panel of Coddy for Browser names the tab it
@@ -1503,7 +1775,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, mirrored, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
