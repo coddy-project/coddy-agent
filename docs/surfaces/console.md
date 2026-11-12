@@ -342,7 +342,8 @@ Top to bottom:
   gives way first, then the model is cut.
   The right side of the second line shows while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
-  read from the Codex backend's usage endpoint; `devin`, read from the
+  read from the Codex backend's usage endpoint; `openai`, read with
+  `GET {api_base}/limits` from the row's own `api_base`; `devin`, read from the
   seat-management status RPC):
   `Pro • 3h 3% • week 7% • wallet -1 229 ₽`,
   the plan, each metered window as percent **used**, and the account's own

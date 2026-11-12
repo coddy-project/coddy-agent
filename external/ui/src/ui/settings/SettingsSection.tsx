@@ -108,7 +108,12 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 // Provider types with an account-usage source server-side
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
 // means something only for them, so the other types do not show it.
-const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+const USAGE_PANEL_PROVIDER_TYPES = new Set([
+  "neuraldeep",
+  "codex",
+  "devin",
+  "openai",
+]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,

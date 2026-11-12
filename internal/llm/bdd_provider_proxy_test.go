@@ -8,7 +8,8 @@ package llm
 // provider makes is driven: neuraldeep completions, models, usage and the
 // device-auth endpoints; codex streams, catalog, usage, token refresh,
 // device sign-in and the login apply; devin JWT mints, catalog, chat, usage
-// and the PKCE exchange; openai and anthropic completions and model lists.
+// and the PKCE exchange; openai and anthropic completions and model lists,
+// and the openai account-usage read.
 // The model server counts the requests that reach it directly. The
 // environment's proxy is stood in through the environmentProxy seam: net/http
 // reads HTTPS_PROXY once per process and never proxies a loopback address,
@@ -569,6 +570,26 @@ func (s *providerProxyState) askOpenCodeAccount(name string) error {
 	return err
 }
 
+func (s *providerProxyState) askOpenAIEverything(name string) error {
+	if err := s.askCompletionAndModels(name); err != nil {
+		return err
+	}
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	payload, err := OpenAIUsageForProvider(ctx, config.ProviderConfig{Name: name, Type: row.typ, APIBase: s.model.srv.URL + "/v1", APIKey: "k", Proxy: row.setting})
+	if err != nil {
+		return fmt.Errorf("%s: account usage: %w", name, err)
+	}
+	if payload.Neural == nil || payload.Neural.Tier != "pro" {
+		return fmt.Errorf("%s: account usage payload = %+v, want neural tier pro", name, payload)
+	}
+	return nil
+}
+
 // Kimi's fixed production endpoints are replaced only on these test objects.
 // The HTTP client still uses the real provider proxy selection logic.
 func (s *providerProxyState) kimiRequests(name, mode string) error {
@@ -1002,6 +1023,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
+		sc.Step(`^"([^"]*)" is asked for a completion, its model list and its account usage$`, s.askOpenAIEverything)
 		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)
 		sc.Step(`^"([^"]*)" signs in an OpenCode account, refreshes it, lists models and chats$`, s.askOpenCodeAccount)
 		sc.Step(`^"([^"]*)" signs in, refreshes, lists subscription models, reads usage and chats with all three streams$`, s.askKimiSubscription)

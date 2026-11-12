@@ -201,7 +201,7 @@ func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{
 			{Name: "openai", Type: "openai", APIKey: "k"},
-			{Name: "hub", Type: "openai", APIKey: "k", APIBase: listing.URL},
+			{Name: "hub", Type: "openai", UsageLimitsPanel: new(bool), APIKey: "k", APIBase: listing.URL},
 		},
 		Agent: config.Agent{Model: "openai/gpt-4o"},
 		Models: []config.ModelEntry{
@@ -5828,7 +5828,7 @@ func directOptionsTestServer(t *testing.T) (*Server, *httptest.Server, *recordin
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: root},
 		Providers: []config.ProviderConfig{
-			{Name: "local", Type: "openai", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: backendTS.URL, APIKey: "k"},
 			{Name: "claude", Type: "anthropic", APIBase: backendTS.URL, APIKey: "k"},
 			{Name: "codex", Type: "codex"},
 		},
