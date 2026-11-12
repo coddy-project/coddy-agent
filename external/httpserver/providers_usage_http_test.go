@@ -24,7 +24,7 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 		Providers: []config.ProviderConfig{
 			{Name: "neuraldeep", Type: "neuraldeep"},
 			{Name: "nd-quiet", Type: "neuraldeep", UsageLimitsPanel: &off},
-			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
+			{Name: "stub", Type: "anthropic", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{{Model: "neuraldeep/qwen", MaxTokens: 100, MaxContextTokens: 1000}},
 		Agent:  config.Agent{Model: "neuraldeep/qwen"},
@@ -60,7 +60,7 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	if usage == nil || usage["provider"] != "neuraldeep" || usage["error"] != "unauthorized" {
 		t.Fatalf("no credential usage = %v", out["usage"])
 	}
-	if status, out = get("/coddy/providers/stub/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["provider"] != "stub" || out["providerType"] != "openai" {
+	if status, out = get("/coddy/providers/stub/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["provider"] != "stub" || out["providerType"] != "anthropic" {
 		t.Fatalf("unsupported: status=%d body=%v", status, out)
 	}
 	if _, has := out["disabled"]; has {

@@ -600,8 +600,10 @@ define; a client that ignores unknown kinds keeps working.
   child), once the provider has a usage source and the row's panel is on
   (`providers[].usage_limits_panel`, default true); the types with a source
   today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex`
-  (the Codex backend's usage endpoint) and `devin` (the seat-management
-  status RPC). The snapshot is account-wide
+  (the Codex backend's usage endpoint), `devin` (the seat-management
+  status RPC) and `openai` (`GET {api_base}/limits` of the row's own
+  `api_base`, in NeuralDeep schema-1 form or with the `coddy` member another
+  Coddy adds). The snapshot is account-wide
   and cached by the manager (20 s, a 15 s floor between reads); relative
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential

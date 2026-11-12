@@ -194,7 +194,7 @@ func (s *openAIResponsesState) startServer() error {
 	s.backendTS = httptest.NewServer(s.backend)
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
-		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}, {Model: "local/qwen3-text"}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
 	}

@@ -1857,7 +1857,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
             type: {
               type: "string",
               title: "Provider type",
-              enum: ["openai", "codex"],
+              enum: ["anthropic", "codex"],
             },
             usage_limits_panel: {
               type: "boolean",
@@ -1884,7 +1884,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
     );
   }
 
-  const { unmount } = render(<TypedHarness type="openai" />);
+  const { unmount } = render(<TypedHarness type="anthropic" />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   expect(
     screen.queryByRole("switch", { name: "Usage limits panel" }),
