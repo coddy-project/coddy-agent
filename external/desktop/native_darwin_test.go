@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,6 +64,11 @@ func testNativeWindowIntegration(t *testing.T, mode string) {
 	if out, err := compile.CombinedOutput(); err != nil {
 		t.Fatalf("compile window probe: %v: %s", err, out)
 	}
+	// The first exec of a new binary waits for its Gatekeeper scan, which took
+	// 5 s behind another scan on a busy host: pay it before any 5 s window.
+	if err := nativeTestCommand(ctx, probe, "0").Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
+		t.Fatalf("start window probe: %v", err)
+	}
 	downloads := filepath.Join(helperHome, "Downloads")
 	if err := os.MkdirAll(downloads, 0700); err != nil {
 		t.Fatal(err)
@@ -84,24 +90,22 @@ func testNativeWindowIntegration(t *testing.T, mode string) {
 	if mode == "terminate" {
 		// The parent sends quit; waiting for a quit sender inside the target could
 		// deadlock its normal exit while the sender awaits the termination reply.
-		readyErr := func() error {
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				if _, err := os.Stat(ready); err == nil {
-					return nil
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-ticker.C:
-				}
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, err := os.Stat(ready); err == nil {
+				break
 			}
-		}()
-		if readyErr != nil {
-			_ = cmd.Process.Kill()
-			<-done
-			t.Fatalf("native helper never became ready for termination: %v\n%s", readyErr, output.String())
+			select {
+			case err := <-done:
+				// A failed drive ends the helper: report it now, not at the deadline.
+				t.Fatalf("native helper exited before it was ready for termination: %v\n%s", err, output.String())
+			case <-ctx.Done():
+				_ = cmd.Process.Kill()
+				<-done
+				t.Fatalf("native helper never became ready for termination: %v\n%s", ctx.Err(), output.String())
+			case <-ticker.C:
+			}
 		}
 		quit := nativeTestCommand(ctx, probe, fmt.Sprint(cmd.Process.Pid), "terminate")
 		if out, err := quit.CombinedOutput(); err != nil || string(out) != "1" {
@@ -128,10 +132,24 @@ func nativeWindowIntegration() error {
 	defer cancel()
 	handle := NewWindowHandle()
 	reports := make(chan nativePageReport, 64)
+	// The driver asks for every page report: /report answers with the number
+	// of the next ask, and the page then sends the report for it. No fresh
+	// report waits on a page timer, which WebKit throttles while it considers
+	// the page hidden: behind another window a 50 ms timer fired every 250 ms.
+	var askMu sync.Mutex
+	asked, nextAsk := 0, make(chan struct{})
+	ask := func() int {
+		askMu.Lock()
+		defer askMu.Unlock()
+		asked++
+		close(nextAsk)
+		nextAsk = make(chan struct{})
+		return asked
+	}
 	driver := make(chan error, 1)
 	serverStopped := make(chan struct{})
 	go func() {
-		err := driveNativeWindow(ctx, handle, reports)
+		err := driveNativeWindow(ctx, handle, ask, reports)
 		driver <- err
 		if err != nil {
 			cancel()
@@ -166,12 +184,19 @@ for (const [path, download] of [['/download-anchor','native-download.txt'],['/at
  const a=document.createElement('a'); a.href=path; if(download) a.download=download;
  document.body.appendChild(a); setTimeout(()=>a.click(),download ? 500 : 1000);
 }
+// A link whose response becomes a download cancels the document's pending
+// loads in WebKit (fetch rejects with "Load failed"): send the report again.
+let asked = 0, retries = 0;
 async function report() {
- await fetch('/report', {method:'POST', body:JSON.stringify({at:Date.now(),x:screenX,y:screenY,
- outerWidth,outerHeight,innerWidth,innerHeight,visibility:document.visibilityState,notification,notificationClick})});
- setTimeout(report, 50);
+ for (;;) {
+  try {
+   const answer = await fetch('/report', {method:'POST', body:JSON.stringify({asked,retries,x:screenX,y:screenY,
+   outerWidth,outerHeight,innerWidth,innerHeight,visibility:document.visibilityState,notification,notificationClick})});
+   asked = Number(await answer.text());
+  } catch (error) { retries++; await new Promise(resolve => setTimeout(resolve, 50)); }
+ }
 }
-report(); document.addEventListener('visibilitychange', report);
+report();
 </script>`))
 			})
 			mux.HandleFunc("/download-anchor", func(w http.ResponseWriter, _ *http.Request) {
@@ -191,9 +216,27 @@ report(); document.addEventListener('visibilitychange', report);
 				}
 				select {
 				case reports <- report:
-				default:
+				case <-r.Context().Done():
+					return
+				case <-ctx.Done():
+					return
 				}
-				w.WriteHeader(http.StatusNoContent)
+				for {
+					askMu.Lock()
+					n, next := asked, nextAsk
+					askMu.Unlock()
+					if n > report.Asked {
+						_, _ = fmt.Fprint(w, n)
+						return
+					}
+					select {
+					case <-next:
+					case <-r.Context().Done():
+						return
+					case <-ctx.Done():
+						return
+					}
+				}
 			})
 			srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 			go func() { _ = srv.Serve(ln) }()
@@ -221,34 +264,43 @@ report(); document.addEventListener('visibilitychange', report);
 
 // Reports come from the actual WKWebView, rather than a native state accessor.
 type nativePageReport struct {
+	Asked, Retries                                   int
 	X, Y                                             int
 	OuterWidth, OuterHeight, InnerWidth, InnerHeight int
 	Visibility                                       string
 	Notification                                     string
 	NotificationClick                                string
-	At                                               int64
 }
 
-func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan nativePageReport) error {
-	pageAfter := func(label string, after int64, timeout time.Duration) (nativePageReport, error) {
+func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int, reports <-chan nativePageReport) error {
+	// page asks for reports until one satisfies done (nil: the first). Each
+	// answers an ask made after the call, so none predates it.
+	page := func(label string, timeout time.Duration, done func(nativePageReport) bool) (nativePageReport, error) {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
-		for {
+		var last nativePageReport
+		for n := ask(); ; {
 			select {
 			case report := <-reports:
-				if report.At >= after {
+				if report.Asked < n {
+					continue
+				}
+				if done == nil || done(report) {
 					return report, nil
 				}
+				last = report
+				time.Sleep(50 * time.Millisecond)
+				n = ask()
 			case <-timer.C:
-				return nativePageReport{}, fmt.Errorf("%s: no fresh WKWebView report", label)
+				return last, fmt.Errorf("%s: no fresh WKWebView report matched within %s; last: %+v", label, timeout, last)
 			case <-ctx.Done():
-				return nativePageReport{}, ctx.Err()
+				return last, ctx.Err()
 			}
 		}
 	}
 	// A cold WebKit process on a shared CI runner can take longer to start.
 	// Once loaded, each action must still produce a fresh report within 5 s.
-	if _, err := pageAfter("loaded page", 0, 60*time.Second); err != nil {
+	if _, err := page("loaded page", 60*time.Second, nil); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -277,7 +329,8 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	report, err := pageAfter("notification probe", time.Now().Add(time.Second).UnixMilli(), 5*time.Second)
+	// The page's permission request races a one-second timeout.
+	report, err := page("notification probe", 5*time.Second, func(r nativePageReport) bool { return r.Notification != "pending" })
 	if err != nil {
 		return err
 	}
@@ -332,11 +385,11 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		page, err := pageAfter(label, time.Now().UnixMilli(), 5*time.Second)
+		report, err := page(label, 5*time.Second, nil)
 		if err != nil {
 			return frame, err
 		}
-		fmt.Printf("%s: window=%+v page=%+v\n", label, frame, page)
+		fmt.Printf("%s: window=%+v page=%+v\n", label, frame, report)
 		return frame, nil
 	}
 	initial, err := observe("activate initial window", handle.Activate, func(f nativeObservedFrame) bool { return f.OnScreen })
