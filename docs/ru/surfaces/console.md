@@ -484,4 +484,4 @@ coddy hooks untrust <file> [--cwd DIR]
 
 Модель отрисовки TUI и визуальный дизайн перенесены из [`pi-mono`](https://github.com/badlogic/pi-mono), а именно из `packages/tui` и интерактивного режима `packages/coding-agent` (MIT License, Copyright (c) 2025 Mario Zechner), коммит `b1efcf7d7`. Реализация на Go в `external/cli/tui` написана заново и независимо по документированному поведению.
 
-<!-- docsgen:source sha256=06b3e282acda5d98 -->
+<!-- docsgen:source sha256=908329d40e51e695 -->
