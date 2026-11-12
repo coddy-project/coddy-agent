@@ -384,7 +384,7 @@ func TestResponsesDirectGenerationOptions(t *testing.T) {
 	// provider; the stub factory below means its address is never dialed.
 	srv.ReplaceConfig(&config.Config{
 		Paths:     srv.activeCfg().Paths,
-		Providers: []config.ProviderConfig{{Name: "openai", Type: "openai", APIBase: "http://127.0.0.1:1", APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: "openai", Type: "openai", UsageLimitsPanel: new(bool), APIBase: "http://127.0.0.1:1", APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "openai/gpt-4o"}},
 		Agent:     config.Agent{Model: "openai/gpt-4o"},
 	})

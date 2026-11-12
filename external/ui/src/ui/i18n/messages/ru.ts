@@ -591,7 +591,7 @@ export const messagesRu: Record<string, string> = {
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
+    "Показывать использование квоты аккаунта этого провайдера NeuralDeep, Codex, Devin или OpenAI-совместимого API здесь, в футере консоли и в /usage, читая его эндпоинт лимитов (GET {api_base}/limits для OpenAI-совместимых строк). Выключено скрывает панель и прекращает эти запросы для данной строки.",
 
   "settings.schema.providers.acp.label": "ACP-агент",
   "settings.schema.providers.acp.desc":

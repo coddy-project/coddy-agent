@@ -109,7 +109,7 @@ func (s *directOptionsState) startServer(maxTokens int, temperature float64) err
 	s.backend = &recordingOpenAIBackend{}
 	s.backendTS = httptest.NewServer(s.backend)
 	return s.serve(
-		[]config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		[]config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		config.ModelEntry{Model: "local/llama-3.1-8b", MaxTokens: maxTokens, Temperature: temperature})
 }
 
@@ -117,7 +117,7 @@ func (s *directOptionsState) startReasoningServer(model, level string) error {
 	s.backend = &recordingOpenAIBackend{}
 	s.backendTS = httptest.NewServer(s.backend)
 	return s.serve(
-		[]config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		[]config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		config.ModelEntry{Model: model, ReasoningDefault: level})
 }
 

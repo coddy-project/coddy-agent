@@ -573,7 +573,7 @@ export const messagesEn: Record<string, string> = {
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+    "Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
 
   "settings.schema.providers.acp.label": "ACP agent",
   "settings.schema.providers.acp.desc":

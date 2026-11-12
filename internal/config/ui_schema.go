@@ -306,7 +306,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+			"Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
 			true),
 		"acp": acpProviderSchema(),
 	}

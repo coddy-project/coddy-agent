@@ -96,6 +96,34 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/v1/limits": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Account usage limits of a provider",
+					"description": "The account quota behind a provider row, in the NeuralDeep hub's schema-1 shape (**`schema`**, **`tier`**, **`chat`** windows, **`decision`**, **`wallet`**, **`key`**) that NeuralDeep clients already read from **`GET {api_base}/limits`**, plus a **`coddy`** member carrying the whole provider usage update Coddy serves on its own surfaces (**GET /coddy/providers/{name}/usage**, the **provider_usage** events), so windows schema-1 cannot express survive in the same answer. " +
+						"**`provider`** names the provider row, **`model`** any **`id`** from **`GET /v1/models`** whose row is meant; with neither, the provider of the default model is used, or the one usage-capable row when the default has none. **`refresh=1`** bypasses the usage cache; a fresh read still waits out the pacing floor. " +
+						"**404** when the named provider or model is unknown or has no usage source (an upstream without a limits endpoint is marked unsupported after a single probe, so it is not asked on every read); **502** when the upstream read fails with nothing cached.",
+					"operationId": "getLimits",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "provider", "in": "query", "schema": map[string]interface{}{"type": "string"}, "description": "Provider row name to read the usage of."},
+						map[string]interface{}{"name": "model", "in": "query", "schema": map[string]interface{}{"type": "string"}, "description": "A model `id` from `GET /v1/models`; the provider behind it is read."},
+						map[string]interface{}{"name": "refresh", "in": "query", "schema": map[string]interface{}{"type": "string"}, "description": "`1`/`true`/`yes` bypasses the usage cache and asks for a fresh read; the read still waits out the pacing floor."},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The provider's account usage",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+									},
+								},
+							},
+						},
+						"404": map[string]interface{}{"description": "Unknown provider or model, or a provider with no usage source"},
+						"502": map[string]interface{}{"description": "The upstream usage read failed with nothing cached"},
+					},
+				},
+			},
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",

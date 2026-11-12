@@ -640,6 +640,7 @@ test("a field of a provider or model row is indexed once per row, under that row
   expect(rowsOf("providers:api_key_command")).toContain("devin");
   expect(rowsOf("providers:api_key_command")).not.toContain("codex");
   expect(rowsOf("providers:usage_limits_panel")).toEqual([
+    "openai",
     "neuraldeep",
     "codex",
     "devin",

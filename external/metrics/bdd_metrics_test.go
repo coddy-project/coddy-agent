@@ -170,7 +170,7 @@ func (s *exporterState) providerWithModel(provider, model string) error {
 	}))
 
 	next := *s.rt.Cfg()
-	next.Providers = []config.ProviderConfig{{Name: provider, Type: "openai", APIBase: s.model.URL + "/v1", APIKey: "sk-stub"}}
+	next.Providers = []config.ProviderConfig{{Name: provider, Type: "openai", APIBase: s.model.URL + "/v1", APIKey: "sk-stub", UsageLimitsPanel: new(bool)}}
 	next.Models = []config.ModelEntry{{Model: model, MaxContextTokens: 131072}}
 	next.Agent.Model = model
 	s.rt.ReplaceConfig(&next)
