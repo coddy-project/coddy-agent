@@ -54,7 +54,7 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 		Run  string
 		With map[string]string
 	}
-	var workflow struct {
+	type workflowFile struct {
 		Jobs map[string]struct {
 			RunsOn string `yaml:"runs-on"`
 			Env    map[string]string
@@ -62,12 +62,13 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 			Steps  []step
 		}
 	}
+	var workflow workflowFile
 	if err := yaml.Unmarshal(b, &workflow); err != nil {
 		t.Fatal(err)
 	}
 	mac := workflow.Jobs["macos-archives"]
-	if mac.RunsOn != "macos-latest" || mac.Env["CGO_ENABLED"] != "1" || mac.Env["MACOSX_DEPLOYMENT_TARGET"] != "13.0" {
-		t.Fatalf("Darwin releases must use a macOS cgo builder with the supported deployment minimum: %+v", mac)
+	if mac.RunsOn != "macos-latest" {
+		t.Fatalf("Darwin releases must use a macOS builder: %+v", mac)
 	}
 	var build string
 	var uploaded bool
@@ -77,9 +78,31 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 			uploaded = true
 		}
 	}
-	for _, contract := range []string{"make -s print-darwin-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${DARWIN_TAGS}\""} {
-		if !strings.Contains(build, contract) {
-			t.Errorf("Darwin archive builder lost %q", contract)
+	if !strings.Contains(build, "scripts/build-darwin-archives.sh") {
+		t.Error("release must call the shared Darwin archive builder")
+	}
+	pr, err := os.ReadFile("../../.github/workflows/tests-on-pr.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prWorkflow workflowFile
+	if err := yaml.Unmarshal(pr, &prWorkflow); err != nil {
+		t.Fatal(err)
+	}
+	var prBuild string
+	for _, step := range prWorkflow.Jobs["test-macos"].Steps {
+		prBuild += step.Run + "\n"
+	}
+	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || !strings.Contains(prBuild, "-run '^TestNative'") {
+		t.Error("the macOS PR job must build the release archives and run all native tests")
+	}
+	script, err := os.ReadFile("../../scripts/build-darwin-archives.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"make -s print-darwin-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${DARWIN_TAGS}\"", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=13.0", "-Werror=unguarded-availability-new", "--no-xattrs", "--no-mac-metadata", "COPYFILE_DISABLE=1", "mktemp -d", "trap "} {
+		if !strings.Contains(string(script), contract) {
+			t.Errorf("shared Darwin archive builder lost %q", contract)
 		}
 	}
 	if !uploaded {

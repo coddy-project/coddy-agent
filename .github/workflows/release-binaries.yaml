@@ -37,11 +37,6 @@ jobs:
   macos-archives:
     name: Build macOS release archives
     runs-on: macos-latest
-    env:
-      CGO_ENABLED: "1"
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
-      # Set the compiler minimum too: Go invokes clang without SDK defaults.
-      CGO_CFLAGS: "-mmacosx-version-min=13.0 -Werror=unguarded-availability-new"
     outputs:
       tag: ${{ steps.git_tag.outputs.tag }}
       sha: ${{ steps.gate.outputs.sha }}
@@ -127,30 +122,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.git_tag.outputs.tag }}
-          COPYFILE_DISABLE: "1"
-        run: |
-          set -euo pipefail
-          DIST="${GITHUB_WORKSPACE}/dist"
-          DARWIN_TAGS="$(make -s print-darwin-tags)"
-          LDFLAGS="-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}"
-          mkdir -p "$DIST"
-          for arch in arm64 amd64; do
-            stem="coddy_${VERSION}_darwin_${arch}"
-            bindir="$DIST/_staging/$stem"
-            mkdir -p "$bindir"
-            cc="clang -arch arm64"
-            if [ "$arch" = "amd64" ]; then cc="clang -arch x86_64"; fi
-            GOOS=darwin GOARCH="$arch" CC="$cc" go build \
-              -tags="${DARWIN_TAGS}" -trimpath -ldflags "$LDFLAGS" \
-              -o "$bindir/coddy" ./cmd/coddy/
-            cp packaging/man/coddy.1 "$bindir/coddy.1"
-            cp packaging/completions/coddy.bash "$bindir/coddy.bash"
-            cp packaging/completions/coddy.zsh "$bindir/coddy.zsh"
-            file "$bindir/coddy"
-            xcrun vtool -show-build "$bindir/coddy"
-            tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" coddy coddy.1 coddy.bash coddy.zsh
-          done
-          rm -rf "$DIST/_staging"
+        run: scripts/build-darwin-archives.sh --version "$VERSION" --out dist
 
       - name: Upload macOS archives for the publisher
         if: steps.gate.outputs.skip != 'true'

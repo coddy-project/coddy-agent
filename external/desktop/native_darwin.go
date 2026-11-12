@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // Cocoa's application loop must stay on the process's initial thread. The
@@ -49,7 +52,7 @@ func openNativeWindow(ctx context.Context, opts Options, url string) error {
 	if err := os.MkdirAll(store, 0o700); err != nil {
 		return err
 	}
-	identifier, err := nativeStoreID(store)
+	identifier, err := nativeStoreID(store, opts.Log)
 	if err != nil {
 		return err
 	}
@@ -187,19 +190,20 @@ func coddy_native_geometry(callback C.uintptr_t, ptr unsafe.Pointer, action, x, 
 	}
 }
 
-func nativeStoreID(dir string) (string, error) {
+func nativeStoreID(dir string, log *slog.Logger) (string, error) {
 	path := filepath.Join(dir, "id")
-	if b, err := os.ReadFile(path); err == nil {
+	b, err := os.ReadFile(path)
+	if err == nil {
 		value := strings.TrimSpace(string(b))
-		if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
-			return "", errors.New("desktop: invalid WebKit store identifier")
+		if len(value) == 36 && value[8] == '-' && value[13] == '-' && value[18] == '-' && value[23] == '-' {
+			if decoded, decodeErr := hex.DecodeString(strings.ReplaceAll(value, "-", "")); decodeErr == nil && len(decoded) == 16 {
+				return value, nil
+			}
 		}
-		if _, err := hex.DecodeString(strings.ReplaceAll(value, "-", "")); err != nil {
-			return "", fmt.Errorf("desktop: invalid WebKit store identifier: %w", err)
-		}
-		return value, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		err = errors.New("invalid WebKit store identifier")
+	}
+	if !errors.Is(err, os.ErrNotExist) && log != nil {
+		log.Warn("the WebKit store identifier could not be used; creating a new store", "path", path, "error", err)
 	}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
@@ -208,7 +212,7 @@ func nativeStoreID(dir string) (string, error) {
 	id[6] = (id[6] & 0x0f) | 0x40
 	id[8] = (id[8] & 0x3f) | 0x80
 	value := fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
-	if err := os.WriteFile(path, []byte(value+"\n"), 0o600); err != nil {
+	if _, err := platform.WritePrivateFileReplacing(path, []byte(value+"\n")); err != nil {
 		return "", err
 	}
 	return value, nil

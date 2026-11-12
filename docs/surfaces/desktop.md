@@ -49,9 +49,9 @@ The surface costs 0.44 MiB in a binary that already carries the HTTP server and 
 which is why it is a verb rather than a second program to install and update, and why every build
 has it - the release archives, the packages, the Homebrew formula and the container image alike.
 
-macOS release archives run on macOS 13 or later and include the Cocoa/WKWebView backend.
+macOS release archives include the Cocoa/WKWebView backend.
 The native window needs macOS 14 or later for a persistent WebKit store isolated to the agent home,
-and a GUI session. On macOS 13, `auto` falls back to a Chromium-family browser.
+and a GUI session. On older macOS versions, `auto` falls back to a Chromium-family browser.
 Linux, Windows and macOS builds without the native backend need Chrome, Chromium, Edge, Brave,
 Vivaldi or Yandex Browser. Firefox has no application mode.
 Building the native backend from source needs cgo and the Xcode command-line tools.
@@ -321,6 +321,7 @@ Two consequences:
 - starting the application while a window is already open does not serve a second time. The second
   launch sees the desktop already running and asks it for a window.
 
+A second browser launch hands its tabs to the existing window.
 A second native launch opens another window on the running server. Its shell window controls
 still address the original window; use that original window for move, resize and close controls.
 Closing the second window ends only that launch.
@@ -367,7 +368,7 @@ The window opens on all three. What differs is how much of it the system lets Co
 
 | | Linux (X11) | Linux (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
-| The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on macOS 13 | yes |
+| The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on older macOS | yes |
 | No system frame, the strip as the title bar | yes | no | native only | no |
 | Rounded corners, drag by the strip, its own buttons | yes | no | native only | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
@@ -392,9 +393,9 @@ file inputs and the system browser for HTTP(S) links opened in a new window. The
 `Cmd`+`C`, `Cmd`+`V`, `Cmd`+`X`, `Cmd`+`A` and `Cmd`+`Z`; `Cmd`+`Q` closes the window and ends the
 run. Downloads from an HTML `download` link or an attachment response go to the standard Downloads
 folder. A duplicate name receives a numeric suffix, so an existing file is kept.
-The macOS release archives include this backend, built with cgo and `desktop.native`. The binary's
-minimum is macOS 13; the native window's minimum is macOS 14 because its isolated persistent data
-store uses `WKWebsiteDataStore.dataStoreForIdentifier`. `auto` uses the browser backend on macOS 13.
+The macOS release archives include this backend, built with cgo and `desktop.native`. The native
+window needs macOS 14 because its isolated persistent data store uses
+`WKWebsiteDataStore.dataStoreForIdentifier`. `auto` uses the browser backend on older macOS versions.
 This build adds no tray icon, signing, notarisation or application bundle.
 
 On Windows, `coddy` remains a console program, so the console window it was started from stays

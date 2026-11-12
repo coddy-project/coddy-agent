@@ -137,7 +137,7 @@ developer command run without it switches the mode on for good.
 
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
 **`darwin`** and **`linux`** archives carry those files beside the binary. It declares
-**`depends_on macos: :ventura`** because the Go 1.27 toolchain builds binaries that need macOS 13. A
+**`depends_on macos: :monterey`**: Go 1.25 and later build binaries that need macOS 12. A
 **`postflight_steps`** step removes the quarantine attribute Homebrew sets on the download from the
 binary, which is ad-hoc signed and not notarised, so Gatekeeper does not stop its first run. It
 recommends **`tmux`** in its **`caveats`** rather than declaring it: a cask's **`depends_on`** has no
@@ -425,11 +425,12 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`SHA256SUMS`** | Checksums for every archive and package above |
 | **`SHA256SUMS.minisig`** | The signature of that list ([Signing releases](#signing-releases)) |
 
-One `macos-latest` job builds both Darwin architectures with cgo, the system Cocoa and WebKit
-frameworks, and `DARWIN_TAGS` from the Makefile. The Intel build uses `clang -arch x86_64` on the
-Apple Silicon runner. `MACOSX_DEPLOYMENT_TARGET=13.0` and the compiler's matching minimum keep
-both binaries compatible with macOS 13, the minimum of the Go 1.27 toolchain selected by `go.mod`.
-The native window remains gated on macOS 14; `auto` uses a browser on macOS 13.
+Both the release job and the macOS PR job run `scripts/build-darwin-archives.sh`. It builds both
+Darwin architectures with cgo, the system Cocoa and WebKit frameworks, and `DARWIN_TAGS` from
+the Makefile. The Intel build uses `clang -arch x86_64`. The script sets
+`MACOSX_DEPLOYMENT_TARGET=13.0` and the matching compiler flag, checks API availability at compile
+time, and excludes macOS metadata from the archives. The native window needs macOS 14;
+`auto` uses a browser on older macOS versions.
 The Ubuntu job downloads the two archives before packaging, rendering the cask, checksumming and
 signing the assets. Archive names, their four members and the signed checksum format stay the same.
 

@@ -3,15 +3,18 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +42,7 @@ func TestNativeWindowIntegration(t *testing.T) {
 }
 
 func testNativeWindowIntegration(t *testing.T, mode string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	cmd := nativeTestCommand(ctx, os.Args[0], "-test.run=^TestNativeWindowIntegration$")
 	cmd.Env = nil
@@ -121,7 +124,7 @@ func nativeWindowIntegration() error {
 	if home == "" {
 		return errors.New("native helper requires its temporary CODDY_HOME")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	handle := NewWindowHandle()
 	reports := make(chan nativePageReport, 64)
@@ -227,8 +230,8 @@ type nativePageReport struct {
 }
 
 func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan nativePageReport) error {
-	pageAfter := func(label string, after int64) (nativePageReport, error) {
-		timer := time.NewTimer(5 * time.Second)
+	pageAfter := func(label string, after int64, timeout time.Duration) (nativePageReport, error) {
+		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		for {
 			select {
@@ -243,7 +246,9 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 			}
 		}
 	}
-	if _, err := pageAfter("loaded page", 0); err != nil {
+	// A cold WebKit process on a shared CI runner can take longer to start.
+	// Once loaded, each action must still produce a fresh report within 5 s.
+	if _, err := pageAfter("loaded page", 0, 60*time.Second); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -272,7 +277,7 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	report, err := pageAfter("notification probe", time.Now().Add(time.Second).UnixMilli())
+	report, err := pageAfter("notification probe", time.Now().Add(time.Second).UnixMilli(), 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -327,7 +332,7 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, reports <-chan
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		page, err := pageAfter(label, time.Now().UnixMilli())
+		page, err := pageAfter(label, time.Now().UnixMilli(), 5*time.Second)
 		if err != nil {
 			return frame, err
 		}
@@ -434,3 +439,81 @@ int main(int argc, const char **argv) {
   return 0;
  }
 }`
+
+func TestNativeStoreID(t *testing.T) {
+	const valid = "cce93143-8f03-4809-b8b7-9e9773ae25ed"
+	for _, tc := range []struct {
+		name, content string
+		mode          os.FileMode
+		exists        bool
+		preserved     bool
+	}{
+		{name: "missing"},
+		{name: "valid", content: valid + "\n", mode: 0o640, exists: true, preserved: true},
+		{name: "empty", mode: 0o600, exists: true},
+		{name: "malformed", content: "not-a-uuid", mode: 0o600, exists: true},
+		{name: "invalid hex", content: "zce93143-8f03-4809-b8b7-9e9773ae25ed", mode: 0o600, exists: true},
+		{name: "extra separators", content: "--e93143-8f03-4809-b8b7-9e9773ae25ed", mode: 0o600, exists: true},
+		{name: "unreadable", content: valid, mode: 0, exists: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "id")
+			if tc.exists {
+				if err := os.WriteFile(path, []byte(tc.content), tc.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.name == "unreadable" {
+				if _, err := os.ReadFile(path); err == nil {
+					t.Skip("the current user can read mode-000 files")
+				}
+			}
+			var warnings bytes.Buffer
+			log := slog.New(slog.NewTextHandler(&warnings, nil))
+			id, err := nativeStoreID(dir, log)
+			if err != nil {
+				t.Fatalf("recover the WebKit store identifier: %v", err)
+			}
+			if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(id) {
+				t.Fatalf("not a UUID v4: %q", id)
+			}
+			if tc.preserved && id != valid {
+				t.Fatalf("valid identifier changed to %q", id)
+			}
+			if tc.exists && !tc.preserved && id == tc.content {
+				t.Fatal("unusable identifier was not replaced")
+			}
+			if tc.exists && !tc.preserved {
+				if !strings.Contains(warnings.String(), "level=WARN") || !strings.Contains(warnings.String(), path) {
+					t.Fatalf("recovery warning must name the identifier path: %q", warnings.String())
+				}
+			} else if warnings.Len() != 0 {
+				t.Fatalf("unexpected warning: %s", warnings.String())
+			}
+			got, err := os.ReadFile(path)
+			if err != nil || string(got) != id+"\n" {
+				t.Fatalf("persisted identifier = %q, error = %v", got, err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantMode := os.FileMode(0o600)
+			if tc.preserved {
+				wantMode = tc.mode
+			}
+			if info.Mode().Perm() != wantMode {
+				t.Fatalf("identifier permissions = %o, want %o", info.Mode().Perm(), wantMode)
+			}
+			again, err := nativeStoreID(dir, log)
+			if err != nil || again != id {
+				t.Fatalf("identifier did not survive reread: %q, %v", again, err)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) != 1 || entries[0].Name() != "id" {
+				t.Fatalf("temporary files left behind: %v, %v", entries, err)
+			}
+		})
+	}
+}
