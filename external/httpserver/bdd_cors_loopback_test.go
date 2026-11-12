@@ -184,3 +184,18 @@ func TestCORSLoopbackFeature(t *testing.T) {
 		t.Fatal("cors loopback feature failed")
 	}
 }
+
+func TestCORSExposesIgnoredParameters(t *testing.T) {
+	st := &corsLoopbackState{}
+	if err := st.start("token", config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}); err != nil {
+		t.Fatal(err)
+	}
+	defer st.reset()
+	if err := st.requestWithToken("http://127.0.0.1:54321", "/v1/models"); err != nil {
+		t.Fatal(err)
+	}
+	exposed := st.header.Get("Access-Control-Expose-Headers")
+	if !strings.Contains(exposed, "X-Coddy-Ignored-Params") {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Coddy-Ignored-Params", exposed)
+	}
+}
