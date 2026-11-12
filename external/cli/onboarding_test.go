@@ -570,3 +570,42 @@ func TestKimiCatalogCanonicalDefaultsAndUnknownCapabilities(t *testing.T) {
 		t.Fatalf("invalid region accepted: %v", cmds)
 	}
 }
+
+func TestProviderSetupPasteStaysInTheValuePrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefill, body, want, submittedWant string
+	}{
+		{"API key", "", "sk-pasted", "sk-pasted", "sk-pasted"},
+		{"API key with newline", "", "sk-pasted\r\n", "sk-pasted\n", "sk-pasted"},
+		{"API base URL", "https://", "example.test/v1", "https://example.test/v1", "https://example.test/v1"},
+		{"command", "", "provider --acp", "provider --acp", "provider --acp"},
+		{"model", "", "deepseek/model", "deepseek/model", "deepseek/model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newValuePromptModal(newTheme("dark"), tc.name, "", tc.prefill, func() {})
+			a := &App{modal: m, editor: tui.NewEditor(nil, tui.EditorTheme{}, 0)}
+			a.editor.SetText("unsent prompt")
+			submitted := false
+			m.OnDone = func(text string, ok bool) {
+				submitted = true
+				if !ok || text != tc.submittedWant {
+					t.Fatalf("answer = %q, confirmed = %v; want %q", text, ok, tc.submittedWant)
+				}
+			}
+			a.handlePaste([]byte(tc.body))
+			if got := m.editor.Text(); got != tc.want {
+				t.Fatalf("value prompt = %q, want %q", got, tc.want)
+			}
+			if submitted {
+				t.Fatal("paste submitted the value before confirmation")
+			}
+			if got := a.editor.Text(); got != "unsent prompt" {
+				t.Fatalf("paste changed the hidden prompt: %q", got)
+			}
+			m.HandleInput([]byte("\r"))
+			if !submitted {
+				t.Fatal("enter did not submit the pasted value")
+			}
+		})
+	}
+}

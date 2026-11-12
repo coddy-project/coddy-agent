@@ -1656,8 +1656,8 @@ func (a *App) refreshServerCommands(cmds []acp.AvailableCommand) {
 }
 
 // handlePaste routes bracketed-paste bodies: the editor when no modal is
-// open, the question modal's custom editor when it is typing, and dropped
-// otherwise (pastes must never leak into a hidden editor behind a modal).
+// open, or the question, docs, or value-prompt modal. Other modals drop
+// pastes so they never leak into a hidden editor.
 func (a *App) handlePaste(body []byte) {
 	if a.modal == nil {
 		a.editor.InsertPaste(string(body))
@@ -1668,6 +1668,9 @@ func (a *App) handlePaste(body []byte) {
 	}
 	if dm, ok := a.modal.(*docsModal); ok {
 		dm.InsertPaste(string(body))
+	}
+	if vm, ok := a.modal.(*valuePromptModal); ok {
+		vm.InsertPaste(string(body))
 	}
 }
 

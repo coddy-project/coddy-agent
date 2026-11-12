@@ -100,6 +100,10 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^config\.yaml runs the provider "([^"]*)" as a command$`, s.configRunsProviderAsCommand)
 	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
 	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
+	sc.Step(`^the operator pastes "([^"]*)" and confirms it$`, s.operatorPastesProviderValue)
+	sc.Step(`^the operator pastes the stand-in server's address and confirms it$`, func() error {
+		return s.operatorPastesProviderValue(s.compatibleServer.URL + "/v1")
+	})
 }
 
 // providerPickerListsInOrder reads the picker's rows off the frame: every
@@ -169,6 +173,16 @@ func (s *cliTUIState) operatorPicksFromTheList(label string) error {
 // operatorAnswers types one line into the open value prompt and sends it.
 func (s *cliTUIState) operatorAnswers(text string) error {
 	s.typeText(text)
+	s.press("\r")
+	return nil
+}
+
+// operatorPastesProviderValue waits for the pasted text before confirming it.
+func (s *cliTUIState) operatorPastesProviderValue(text string) error {
+	s.app.OnTerminalPaste([]byte(text))
+	if err := s.waitScreen(text, 5*time.Second); err != nil {
+		return err
+	}
 	s.press("\r")
 	return nil
 }
