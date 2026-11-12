@@ -67,6 +67,35 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/v1/models/{id}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Retrieve one model row",
+					"description": "Returns the single listing entry for **`{id}`** - a profile (**`agent`**, **`plan`**, **`ask`**) or a configured **`models[].model`** selector, the same object **`GET /v1/models`** serves in **`data`**. An id with a slash (**`local/qwen3-1.7b`**) works plain or percent-escaped (**`local%2Fqwen3-1.7b`**). **404** in the OpenAI error shape for an id the listing does not know.",
+					"operationId": "retrieveModel",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"description": "The model id as `GET /v1/models` lists it, slashes included or percent-escaped.",
+							"schema":      map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The model row",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/Model",
+									},
+								},
+							},
+						},
+						"404": openAIErrorResponseRef(),
+					},
+				},
+			},
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
@@ -4513,69 +4542,81 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"object": map[string]string{"type": "string", "example": "list"},
 						"data": map[string]interface{}{
-							"type": "array",
-							"items": map[string]interface{}{
-								"type": "object",
-								"properties": map[string]interface{}{
-									"id":       map[string]string{"type": "string"},
-									"object":   map[string]string{"type": "string", "example": "model"},
-									"created":  map[string]string{"type": "integer", "format": "int64"},
-									"owned_by": map[string]string{"type": "string", "example": "coddy"},
-									"max_context_tokens": map[string]string{
-										"type":        "integer",
-										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
-									},
-									"context_length": map[string]string{
-										"type":        "integer",
-										"description": "The same window as `max_context_tokens`, under the name OpenAI-compatible clients read (OpenRouter's spelling).",
-									},
-									"multimodal": map[string]string{"type": "boolean"},
-									"reasoning_levels": map[string]interface{}{
-										"type":        "array",
-										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
-									},
-									"reasoning_default": map[string]string{
-										"type":        "string",
-										"description": "Reasoning level pre-selected for new chats with this model. Omitted when none is configured.",
-									},
-									"toolset": map[string]string{
-										"type":        "string",
-										"description": "The `toolsets[]` preset this model names (`models[].toolset`): the tools a session on it is offered until it picks another. Omitted when the model names none.",
-									},
-									"default": map[string]string{
-										"type":        "boolean",
-										"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first `models[]` row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
-									},
-									"limits": map[string]interface{}{
-										"type":        "object",
-										"description": "What a request on this row may carry, so a client sizes one before it sends it instead of being refused with **400**. The two tool bounds are the server's configured `httpserver.max_client_tools` and `httpserver.max_client_tool_schema_bytes`; the picture bounds are built in.",
-										"properties": map[string]interface{}{
-											"client_tools": map[string]string{
-												"type":        "boolean",
-												"description": "Whether this row takes the client's own `tools` at all. False on `agent`, `plan` and `ask`, which run coddy's tools and reject the client's; the two tool bounds are then left out rather than advertised as bounds that never apply.",
-											},
-											"tools": map[string]string{
-												"type":        "integer",
-												"description": "Most tools one request may offer. Refused with **400** and `error.code` `too_many_tools` past it. Present only when `client_tools` is true.",
-											},
-											"tool_schema_bytes": map[string]string{
-												"type":        "integer",
-												"description": "Largest `parameters` schema of one tool, in bytes. Refused with **400** and `error.code` `tool_parameters_too_large` past it. Present only when `client_tools` is true.",
-											},
-											"images_per_message": map[string]string{
-												"type":        "integer",
-												"description": "Most `image_url` parts one message may carry. `0` on a direct row whose model is not configured `multimodal`: a picture in the last message is refused with **400**, and pictures of the replayed history are dropped.",
-											},
-											"image_bytes": map[string]string{
-												"type":        "integer",
-												"description": "Longest `image_url` string, in bytes; a data URL carries the picture itself.",
-											},
-										},
-										"required": []string{"client_tools", "images_per_message", "image_bytes"},
-									},
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/Model"},
+						},
+					},
+				},
+				"Model": map[string]interface{}{
+					"type":        "object",
+					"description": "One row of GET /v1/models and the answer of GET /v1/models/{id}: OpenAI's Model object plus what a client needs to size a request on the row.",
+					"properties": map[string]interface{}{
+						"id":       map[string]string{"type": "string"},
+						"object":   map[string]string{"type": "string", "example": "model"},
+						"created":  map[string]string{"type": "integer", "format": "int64"},
+						"owned_by": map[string]string{"type": "string", "example": "coddy"},
+						"max_context_tokens": map[string]string{
+							"type":        "integer",
+							"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of the model an unconfigured session resolves to.",
+						},
+						"context_length": map[string]string{
+							"type":        "integer",
+							"description": "The same window as `max_context_tokens`, under the name OpenAI-compatible clients read (OpenRouter's spelling).",
+						},
+						"max_output_tokens": map[string]string{
+							"type":        "integer",
+							"description": "The bound on completion tokens a request on this row runs under: `models[].max_tokens`, which supplies the cap when the request names none and clamps `max_tokens`/`max_completion_tokens`/`max_output_tokens` that asks for more. On a profile row, the bound of the model an unconfigured session resolves to; a request on a profile takes no output cap of its own. Omitted for a row without a configured bound, on a model behind a `type: codex` provider whose backend takes no output cap, and on a model served by an `acp` agent, where no direct request can run under it.",
+						},
+						"multimodal": map[string]string{"type": "boolean"},
+						"supported_parameters": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]string{"type": "string"},
+							"description": "The request parameter names the two endpoints accept on this row, in both dialects (OpenRouter's supported_parameters convention): what a client may send instead of learning it from a **400**. The structural fields every request carries (`model`, `messages`, `input`, `stream`) are left out, and `store` is unlisted because only `store: false` passes. " +
+								"A profile row (`agent`, `plan`, `ask`) takes `attachments`, `inline_files`, `metadata` and `stream_options`; a direct row takes `metadata`, `stream_options` and the generation parameters its provider type accepts - `max_tokens` and `max_completion_tokens` (chat dialect), `max_output_tokens` (Responses), `temperature`, `instructions`, `tools`, `tool_choice`, `top_p` (only behind a `type: openai` provider), `inline_files` (only on a multimodal row) and `reasoning_effort` plus `reasoning` (only when the row lists `reasoning_levels`) - minus the caps and temperature on `type: codex` models, whose backend takes neither, and everything on a model served by an `acp` agent, which refuses a direct completion wholesale.",
+						},
+						"reasoning_levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
+						},
+						"reasoning_default": map[string]string{
+							"type":        "string",
+							"description": "Reasoning level pre-selected for new chats with this model. Omitted when none is configured.",
+						},
+						"toolset": map[string]string{
+							"type":        "string",
+							"description": "The `toolsets[]` preset this model names (`models[].toolset`): the tools a session on it is offered until it picks another. Omitted when the model names none.",
+						},
+						"default": map[string]string{
+							"type":        "boolean",
+							"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first `models[]` row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
+						},
+						"limits": map[string]interface{}{
+							"type":        "object",
+							"description": "What a request on this row may carry, so a client sizes one before it sends it instead of being refused with **400**. The two tool bounds are the server's configured `httpserver.max_client_tools` and `httpserver.max_client_tool_schema_bytes`; the picture bounds are built in.",
+							"properties": map[string]interface{}{
+								"client_tools": map[string]string{
+									"type":        "boolean",
+									"description": "Whether this row takes the client's own `tools` at all. False on `agent`, `plan` and `ask`, which run coddy's tools and reject the client's; the two tool bounds are then left out rather than advertised as bounds that never apply.",
+								},
+								"tools": map[string]string{
+									"type":        "integer",
+									"description": "Most tools one request may offer. Refused with **400** and `error.code` `too_many_tools` past it. Present only when `client_tools` is true.",
+								},
+								"tool_schema_bytes": map[string]string{
+									"type":        "integer",
+									"description": "Largest `parameters` schema of one tool, in bytes. Refused with **400** and `error.code` `tool_parameters_too_large` past it. Present only when `client_tools` is true.",
+								},
+								"images_per_message": map[string]string{
+									"type":        "integer",
+									"description": "Most `image_url` parts one message may carry. `0` on a direct row whose model is not configured `multimodal`: a picture in the last message is refused with **400**, and pictures of the replayed history are dropped.",
+								},
+								"image_bytes": map[string]string{
+									"type":        "integer",
+									"description": "Longest `image_url` string, in bytes; a data URL carries the picture itself.",
 								},
 							},
+							"required": []string{"client_tools", "images_per_message", "image_bytes"},
 						},
 					},
 				},
