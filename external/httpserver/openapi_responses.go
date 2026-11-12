@@ -31,7 +31,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 	schemas["OpenAIResponsesInputItem"] = union(userMessage, assistantMessage, functionCall, functionOutput, reasoning)
 	tool := obj(map[string]any{"type": enum("function"), "name": str(), "description": str(), "parameters": map[string]any{"type": "object", "additionalProperties": true}, "strict": map[string]any{"type": "boolean", "enum": []bool{false}, "description": "Only false is supported; true is rejected rather than ignored."}}, "type", "name")
 	schemas["OpenAIResponsesFunctionTool"] = tool
-	metadata := map[string]any{"type": "object", "additionalProperties": true, "description": "Caller metadata. metadata.model is reserved for profile requests and is rejected on direct models."}
+	metadata := map[string]any{"type": "object", "additionalProperties": true, "description": "Caller metadata. metadata.model is reserved for profile requests and is rejected on direct models. With surface webui, worktree true adds a turn-only instruction to work in a dedicated git worktree and keep branch changes out of the main checkout."}
 	directProperties := map[string]any{
 		"model":        map[string]any{"type": "string", "description": "A configured provider/model id from GET /v1/models; not agent, plan or ask.", "not": enum("agent", "plan", "ask")},
 		"input":        union(str(), array(ref("OpenAIResponsesInputItem"))),
