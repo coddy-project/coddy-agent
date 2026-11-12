@@ -55,12 +55,21 @@ type recordingPermissionSender struct {
 }
 
 type todoSnapshotSender struct {
+	mu      sync.Mutex
 	updates []interface{}
 }
 
 func (s *todoSnapshotSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.updates = append(s.updates, update)
 	return nil
+}
+
+func (s *todoSnapshotSender) snapshot() []interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]interface{}(nil), s.updates...)
 }
 
 func (*todoSnapshotSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
@@ -249,7 +258,7 @@ func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 	}
 
 	var completed acp.ToolCallStatusUpdate
-	for _, update := range sender.updates {
+	for _, update := range sender.snapshot() {
 		candidate, ok := update.(acp.ToolCallStatusUpdate)
 		if ok && candidate.Status == "completed" {
 			completed = candidate
