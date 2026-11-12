@@ -124,10 +124,17 @@ func TestToolSchemaLimitGoogleRejectsUnknownToolsGroup(t *testing.T) {
 }
 
 func TestToolSchemaLimitGoogleSnakeCaseAttribution(t *testing.T) {
-	cause := &httpStatusError{status: 400, body: "tools[0].function_declarations[0].parameters: schema exceeds maximum allowed size"}
-	err := withToolSchemaRequest(cause, json.RawMessage(`{"tools":[{"functionDeclarations":[{"name":"docs__search"}]}]}`), false)
-	if detail := ToolSchemaLimitDetailOf(err, []ToolDefinition{{Name: "docs__search"}}); detail.Tool != "docs__search" {
-		t.Fatalf("snake-case declaration not attributed: %#v", detail)
+	for _, parameter := range []string{"parameters", "parameters_json_schema"} {
+		t.Run(parameter, func(t *testing.T) {
+			cause := &httpStatusError{status: 400, body: "tools[0].function_declarations[0]." + parameter + ": schema exceeds maximum allowed size"}
+			err := withToolSchemaRequest(cause, json.RawMessage(`{"tools":[{"functionDeclarations":[{"name":"docs__search"}]}]}`), false)
+			if !IsToolSchemaLimit(err) {
+				t.Fatal("snake-case schema refusal not classified")
+			}
+			if detail := ToolSchemaLimitDetailOf(err, []ToolDefinition{{Name: "docs__search"}}); detail.Tool != "docs__search" {
+				t.Fatalf("snake-case declaration not attributed: %#v", detail)
+			}
+		})
 	}
 }
 
