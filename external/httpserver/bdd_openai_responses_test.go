@@ -131,6 +131,12 @@ func (b *responsesRecordingBackend) last() string {
 	return b.requests[len(b.requests)-1]
 }
 
+func (b *responsesRecordingBackend) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.requests)
+}
+
 type openAIResponsesState struct {
 	root      string
 	cwd       string
@@ -189,7 +195,7 @@ func (s *openAIResponsesState) startServer() error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
-		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}},
+		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}, {Model: "local/qwen3-text"}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
 	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
@@ -232,6 +238,17 @@ func (s *openAIResponsesState) post(body string) error {
 
 func (s *openAIResponsesState) postsStringInput(model, input string) error {
 	return s.post(fmt.Sprintf(`{"model":%q,"input":%q,"stream":false}`, model, input))
+}
+
+func (s *openAIResponsesState) postsInlineImage(model string) error {
+	return s.post(fmt.Sprintf(`{"model":%q,"input":"inspect","inline_files":[{"name":"pixel.png","data_url":%q}],"stream":false}`, model, queueFeatureImage))
+}
+
+func (s *openAIResponsesState) noUpstreamRequest() error {
+	if n := s.backend.count(); n != 0 {
+		return fmt.Errorf("%d request(s) reached the upstream, want none", n)
+	}
+	return nil
 }
 
 func (s *openAIResponsesState) streamsStringInput(model, input string) error {
@@ -501,6 +518,9 @@ func initializeOpenAIResponsesScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a coddy server whose direct model is a recording stub with tool calling$`, s.startServer)
 	sc.Step(`^an OpenAI client posts "([^"]+)" to the Responses API with input "([^"]+)"$`, s.postsStringInput)
+	sc.Step(`^an OpenAI client posts "([^"]+)" to the Responses API with an inline image$`, s.postsInlineImage)
+	sc.Step(`^the answer is a 400 naming "([^"]+)"$`, s.answerIs400For)
+	sc.Step(`^no request reached the Responses upstream$`, s.noUpstreamRequest)
 	sc.Step(`^an OpenAI client streams "([^"]+)" over the Responses API with input "([^"]+)"$`, s.streamsStringInput)
 	sc.Step(`^an OpenAI client streams "([^"]+)" over the Responses API with a "([^"]+)" tool$`, s.streamsWithTool)
 	sc.Step(`^the client streams the tool result for that call over the Responses API$`, s.streamsToolResult)

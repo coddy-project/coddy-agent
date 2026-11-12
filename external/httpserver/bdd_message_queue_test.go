@@ -285,6 +285,23 @@ func (s *queueHTTPState) postsWithImageAfterTurn(text string) error {
 	return s.call(http.MethodPost, "", body)
 }
 
+func (s *queueHTTPState) modelTakesNoImages() error {
+	s.srv.activeCfg().Models[0].Multimodal = false
+	return nil
+}
+
+func (s *queueHTTPState) postsInlineImageAndText(text string) error {
+	return s.postsWithImageAfterTurn(text)
+}
+
+func (s *queueHTTPState) refusesImageWith(code string) error {
+	errObj, _ := s.lastBody["error"].(map[string]interface{})
+	if s.lastStatus != http.StatusBadRequest || errObj["code"] != code {
+		return fmt.Errorf("queue answered %d %v, want 400 %s", s.lastStatus, s.lastBody, code)
+	}
+	return nil
+}
+
 // answeredAfterTurnWithImage checks the stored message: its mode, and its
 // image named and described rather than carried.
 func (s *queueHTTPState) answeredAfterTurnWithImage() error {
@@ -651,6 +668,9 @@ func initializeMessageQueueHTTPScenario(sc *godog.ScenarioContext) {
 		return s.readingQueueListsSteer("compare with this screenshot")
 	})
 	sc.Step(`^the answer hands back the message with its image$`, s.answerHandsBackImage)
+	sc.Step(`^the session model takes no images$`, s.modelTakesNoImages)
+	sc.Step(`^a follow-up is posted over HTTP with an inline image and text "([^"]+)"$`, s.postsInlineImageAndText)
+	sc.Step(`^the queue refuses the image with "([^"]+)"$`, s.refusesImageWith)
 }
 
 func TestMessageQueueHTTPFeature(t *testing.T) {

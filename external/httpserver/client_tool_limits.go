@@ -74,6 +74,14 @@ func (l modelLimits) withoutClientTools() modelLimits {
 	return l
 }
 
+// withoutPictures is the same bounds for a direct row whose model reads no
+// pictures: a picture in its last message is refused (issue #584), so it
+// advertises room for none.
+func (l modelLimits) withoutPictures() modelLimits {
+	l.ImagesPerMessage = 0
+	return l
+}
+
 // clientToolError is a refused tool list that knows what to answer about
 // itself: param is the error.param of the field it concerns, "tools" when
 // empty, and code the error.code, which only a broken bound has.

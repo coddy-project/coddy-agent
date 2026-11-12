@@ -542,6 +542,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			window := s.contextWindowFor(cfg, mid)
+			rowLimits := limits
+			if !ent.Multimodal {
+				rowLimits = limits.withoutPictures()
+			}
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
@@ -554,7 +558,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
 				Toolset:          ent.Toolset,
-				Limits:           limits,
+				Limits:           rowLimits,
 			})
 		}
 	}
@@ -650,8 +654,9 @@ const maxImagePartsPerMessage = 16
 // maxImagePartBytes bounds one image_url payload.
 const maxImagePartBytes = 20 << 20
 
-// dropImageParts strips the pictures off a history bound for a model that
-// takes none.
+// dropImageParts strips the pictures off a replayed history bound for a model
+// that takes none. The pictures of the last message are decided elsewhere: a
+// direct model refuses them, a profile turn leaves them out of the prompt.
 func dropImageParts(msgs []llm.Message) {
 	for i := range msgs {
 		msgs[i].ImageParts = nil
@@ -720,7 +725,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// behind. A profile turn never reads them.
 	var clientTools []llm.ToolDefinition
 	var genOpts llm.RequestOptions
+	// Read once: the refusal below and the history drop further down decide
+	// on the same answer, whatever a config reload does in between.
+	directMultimodal := configuredModelMultimodal(s.activeCfg(), model)
 	if !httpModelIsCoddyProfile(model) {
+		// A picture in the message the client asks about needs a model that
+		// reads pictures. Refused like OpenAI refuses it, before a session is
+		// touched, instead of a 200 whose answer is about a picture the model
+		// never saw (issue #584). Pictures in the replayed history are dropped
+		// further down: that conversation may have begun on a vision model.
+		if len(last.ImageParts) > 0 && !directMultimodal {
+			writeOpenAIValidationError(w,
+				fmt.Sprintf("%s takes no images: image_url parts need a model configured multimodal", model),
+				fmt.Sprintf("messages[%d].content", len(req.Messages)-1))
+			return
+		}
 		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice, clientToolLimitsOf(s.activeCfg()))
 		if err != nil {
 			writeClientToolError(w, err)
@@ -918,9 +937,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
-	if !configuredModelMultimodal(s.activeCfg(), model) {
+	// The last message carries no picture here: one for a model that takes
+	// none was refused above. The replayed history may, and loses them.
+	if !directMultimodal {
 		dropImageParts(prefix)
-		last.ImageParts = nil
 	}
 	if len(last.ImageParts) > 0 {
 		if err := session.SavePartsToAssets(last.ImageParts, st.GetPersistedSessionDir()); err != nil {
@@ -1399,6 +1419,34 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := r.Context()
+	sessionID := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if len(body.InlineFiles) > 0 {
+		var preflight *session.State
+		loadFailed := false
+		if sessionID == "" {
+			preflight = s.mgr.NewEphemeralState()
+		} else {
+			loaded, loadErr := s.mgr.PreviewHTTPSession(sessionID)
+			if loadErr != nil {
+				loadFailed = true
+			} else {
+				preflight = loaded
+			}
+		}
+		if !loadFailed {
+			if preflight == nil {
+				preflight = s.mgr.NewEphemeralState()
+			}
+			if rejectSubagentTurn(w, preflight) {
+				return
+			}
+			cfg := s.activeCfg()
+			if model, ok := profileModelForImageCheck(cfg, preflight, body.Metadata); ok && !configuredModelMultimodal(cfg, model) {
+				writeOpenAIValidationError(w, fmt.Sprintf("%s takes no images: inline_files need a model configured multimodal", model), "inline_files")
+				return
+			}
+		}
+	}
 	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
@@ -1457,7 +1505,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		effectiveModel = effectiveYAMLModel(s.activeCfg(), st)
 	}
 	if !configuredModelMultimodal(s.activeCfg(), effectiveModel) {
-		inlineFiles = nil
+		if len(inlineFiles) > 0 {
+			writeOpenAIValidationError(w, "the selected model takes no images: inline_files need a model configured multimodal", "inline_files")
+			return
+		}
 	}
 
 	if httpModelIsCoddyProfile(model) {
