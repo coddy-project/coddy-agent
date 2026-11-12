@@ -189,6 +189,9 @@ type openAIPassthroughState struct {
 	concurrentFirstStatus  int
 	concurrentSecondStatus int
 	concurrentSecondBody   string
+	// outputCap becomes models[].max_tokens of the multimodal model in
+	// startServer, so a scenario sets the row's configured output bound.
+	outputCap int
 }
 
 const passthroughConcurrencyModel = "local/qwen3-1.7b"
@@ -293,6 +296,7 @@ func (s *openAIPassthroughState) reset() error {
 	s.sseBody, s.jsonBody, s.refusedBody = "", "", ""
 	s.refusedStatus = 0
 	s.frames = nil
+	s.outputCap = 0
 	return nil
 }
 
@@ -328,7 +332,7 @@ func (s *openAIPassthroughState) startServer() error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
-		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true}, {Model: "local/qwen3-text"}},
+		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Multimodal: true, MaxTokens: s.outputCap}, {Model: "local/qwen3-text"}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
 	}
 	cfg.Tools.PermissionMode = config.PermModeBypass

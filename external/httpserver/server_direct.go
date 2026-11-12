@@ -165,6 +165,13 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 			}
 		}
 	}
+	// models[].max_tokens is the bound the row advertises as
+	// max_output_tokens: it caps a request that asks for more, the same as it
+	// supplies one to a request that names none (issue #579).
+	if opts.MaxTokens != nil && ent != nil && ent.MaxTokens > 0 && *opts.MaxTokens > ent.MaxTokens {
+		bound := ent.MaxTokens
+		opts.MaxTokens = &bound
+	}
 	level := ""
 	if req.ReasoningEffort != nil {
 		level = strings.TrimSpace(*req.ReasoningEffort)
