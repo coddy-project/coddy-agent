@@ -601,7 +601,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *A refresh that failed keeps the cached list under a warning*
 
-- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
+- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled. With the checkbox enabled, every turn carries **`metadata.worktree: true`**, which adds a turn-only system instruction to work in a dedicated worktree on a separate feature branch and not to create or switch branches in the main checkout. Without the checkbox that instruction is absent, so branch work in the main checkout remains allowed.
 - **History folder grouping** uses the main checkout path returned as `repoRoot` on each git session row. A conversation in `main` and conversations in its worktrees appear under one project heading, while each session keeps its own cwd. See [Git worktrees](../features/worktrees.md).
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.

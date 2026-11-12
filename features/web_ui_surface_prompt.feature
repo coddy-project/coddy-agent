@@ -3,10 +3,20 @@ Feature: The web UI tells the model what it draws
   turn sent from it carries a system prompt block saying so, for that turn
   only, so the agent answers with a diagram or a formula when one says it
   better. Other clients of the same API keep the plain prompt.
+  When the operator enables Worktree, the turn also says that branch work
+  belongs in a dedicated worktree rather than the main checkout.
 
   Scenario: A turn from the web UI carries the web UI's block
     Given a Coddy HTTP server with a recording agent
     When the web UI sends "draw the request path" to /v1/responses
     Then the turn's system prompt includes "## Answering in the Coddy web UI"
     And the block names mermaid fences and LaTeX formulas
+    And the session keeps no trace of the block after the turn
+
+  Scenario: The worktree checkbox tells the agent where branch work belongs
+    Given a Coddy HTTP server with a recording agent
+    When the web UI sends "implement the request" with worktree enabled to /v1/responses
+    Then the turn's system prompt includes "## Working in a git worktree"
+    And the turn's system prompt includes "a dedicated git worktree on a separate feature branch"
+    And the turn's system prompt includes "Do not create or switch branches in the main checkout"
     And the session keeps no trace of the block after the turn
