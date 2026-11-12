@@ -17,6 +17,13 @@ Feature: Opening Coddy as a desktop window
     And that port is written down for the next launch
     And the browser is opened on the tab shell of that port, in a profile of its own
 
+  Scenario: The native window opens the remembered shell and closing it ends the run
+    Given a machine where Coddy has opened a desktop window before
+    When the operator opens the native desktop
+    Then the native window is opened on the tab shell of the remembered port
+    When the native window closes
+    Then the run ends and the HTTP surface stops with it
+
   Scenario: The next launch comes back to the same port
     Given a machine where Coddy has opened a desktop window before
     When the operator opens the desktop

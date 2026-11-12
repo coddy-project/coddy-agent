@@ -167,7 +167,8 @@ brew install coddy-project/coddy-agent/coddy
 The cask lives in Coddy's own tap, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
 and every release updates it. The command adds the tap, trusts this one cask and installs the
 **`coddy`** binary from the macOS archive of the latest release, plus **`man coddy`** and the bash and zsh
-completions. It needs macOS 12 or later. It does not install **`tmux`**: its caveats, printed after
+completions. On macOS 14 or later, `coddy desktop` opens a native Cocoa/WKWebView
+window without an installed browser; on older releases it uses a Chromium-family browser. It does not install **`tmux`**: its caveats, printed after
 the install and by **`brew info --cask coddy`**, recommend **`brew install tmux`** for a console
 session that outlives the terminal. They also give the two lines for **`~/.zshrc`** that make zsh load
 the completion: the zsh macOS ships runs no **`compinit`**, and without it Tab does not complete

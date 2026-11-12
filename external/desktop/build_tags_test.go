@@ -3,10 +3,18 @@
 package desktop
 
 import (
+	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
+
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The window ships with the release binary.
@@ -27,6 +35,97 @@ func TestTheReleaseTagSetCarriesTheWindow(t *testing.T) {
 		if !contains(full, tag) {
 			t.Errorf("the shipped tag set has no %q, so the release binary has no window: %v", tag, full)
 		}
+	}
+}
+
+// Darwin releases add the native backend without changing other platforms.
+func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
+	full := makeVariable(t, "FULL_TAGS")
+	darwin := makeVariable(t, "DARWIN_TAGS")
+	if contains(full, "desktop.native") || !sameTags(darwin, append(full, "desktop.native")) {
+		t.Fatalf("platform tag sets: full=%v darwin=%v", full, darwin)
+	}
+	b, err := os.ReadFile("../../.github/workflows/release-binaries.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type step struct {
+		Uses string
+		Run  string
+		With map[string]string
+	}
+	type workflowFile struct {
+		Jobs map[string]struct {
+			RunsOn string `yaml:"runs-on"`
+			Env    map[string]string
+			Needs  string
+			Steps  []step
+		}
+	}
+	var workflow workflowFile
+	if err := yaml.Unmarshal(b, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	mac := workflow.Jobs["macos-archives"]
+	if mac.RunsOn != "macos-latest" {
+		t.Fatalf("Darwin releases must use a macOS builder: %+v", mac)
+	}
+	var build string
+	var uploaded bool
+	for _, step := range mac.Steps {
+		build += step.Run + "\n"
+		if strings.HasPrefix(step.Uses, "actions/upload-artifact@") && step.With["name"] == "macos-release-archives" {
+			uploaded = true
+		}
+	}
+	if !strings.Contains(build, "scripts/build-darwin-archives.sh") {
+		t.Error("release must call the shared Darwin archive builder")
+	}
+	pr, err := os.ReadFile("../../.github/workflows/tests-on-pr.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prWorkflow workflowFile
+	if err := yaml.Unmarshal(pr, &prWorkflow); err != nil {
+		t.Fatal(err)
+	}
+	var prBuild string
+	for _, step := range prWorkflow.Jobs["test-macos"].Steps {
+		prBuild += step.Run + "\n"
+	}
+	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || !strings.Contains(prBuild, "-run '^TestNative'") {
+		t.Error("the macOS PR job must build the release archives and run all native tests")
+	}
+	script, err := os.ReadFile("../../scripts/build-darwin-archives.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"make -s print-darwin-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${DARWIN_TAGS}\"", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=13.0", "-Werror=unguarded-availability-new", "--no-xattrs", "--no-mac-metadata", "COPYFILE_DISABLE=1", "mktemp -d", "trap "} {
+		if !strings.Contains(string(script), contract) {
+			t.Errorf("shared Darwin archive builder lost %q", contract)
+		}
+	}
+	if !uploaded {
+		t.Error("Darwin archive builder no longer uploads its archives")
+	}
+	publisher := workflow.Jobs["release-binaries"]
+	if publisher.Needs != "macos-archives" {
+		t.Error("publisher must wait for the Darwin archive builder")
+	}
+	downloaded := false
+	for _, step := range publisher.Steps {
+		if strings.HasPrefix(step.Uses, "actions/download-artifact@") && step.With["name"] == "macos-release-archives" {
+			downloaded = true
+		}
+		if strings.Contains(step.Run, "build_target linux amd64") && !downloaded {
+			t.Error("publisher must download Darwin archives before packaging and checksumming")
+		}
+		if strings.Contains(step.Run, "build_target darwin") {
+			t.Error("publisher must not cross-build Darwin without cgo")
+		}
+	}
+	if !downloaded {
+		t.Error("publisher no longer downloads the Darwin archives")
 	}
 }
 
@@ -115,4 +214,35 @@ func sameTags(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestNativeTagWithoutCgoKeepsTheStub(t *testing.T) {
+	withoutCgo := func(args ...string) *exec.Cmd {
+		cmd := exec.CommandContext(context.Background(), "go", args...)
+		for _, entry := range os.Environ() {
+			if !strings.HasPrefix(entry, "CGO_ENABLED=") && !strings.HasPrefix(entry, "USER=") {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+		platform.AdaptCommand(cmd)
+		return cmd
+	}
+	if out, err := withoutCgo("build", "-o", os.DevNull, "-tags", "desktop desktop.native", ".").CombinedOutput(); err != nil {
+		t.Fatalf("the package does not build with desktop.native and no cgo: %v\n%s", err, out)
+	}
+	output, err := withoutCgo("list", "-json", "-tags", "desktop desktop.native", ".").Output()
+	if err != nil {
+		t.Fatalf("go list without cgo: %v", err)
+	}
+	var pkg struct {
+		GoFiles  []string
+		CgoFiles []string
+	}
+	if err := json.Unmarshal(output, &pkg); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(pkg.GoFiles, "native_stub.go") || contains(pkg.CgoFiles, "native_darwin.go") {
+		t.Fatalf("without cgo: GoFiles=%v CgoFiles=%v", pkg.GoFiles, pkg.CgoFiles)
+	}
 }

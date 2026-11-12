@@ -169,7 +169,8 @@ brew install coddy-project/coddy-agent/coddy
 Cask лежит в собственном тапе Coddy, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
 и каждый релиз его обновляет. Команда добавляет тап, доверяет этому одному cask и ставит бинарник
 **`coddy`** из архива для macOS последнего релиза, а также **`man coddy`** и автодополнения bash и zsh.
-Нужна macOS 12 или новее. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
+На macOS 14 или новее `coddy desktop` открывает нативное окно
+Cocoa/WKWebView без установленного браузера, на более старых версиях - браузер семейства Chromium. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
 и командой **`brew info --cask coddy`**, рекомендуют **`brew install tmux`** для консольной сессии,
 которая переживает терминал. Ещё они дают две строки для **`~/.zshrc`**, с которыми zsh загружает
 автодополнение. zsh из поставки macOS не запускает **`compinit`**, и без него Tab не дополняет
@@ -300,4 +301,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=45b2fa2b21c1f2c8 -->
+<!-- docsgen:source sha256=c6cd8c236b3807ee -->

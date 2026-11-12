@@ -34,13 +34,12 @@ env:
   GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop"
 
 jobs:
-  release-binaries:
-    name: Build and publish release assets
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  macos-archives:
+    name: Build macOS release archives
+    runs-on: macos-latest
     outputs:
       tag: ${{ steps.git_tag.outputs.tag }}
+      sha: ${{ steps.gate.outputs.sha }}
       skip: ${{ steps.gate.outputs.skip }}
 
     steps:
@@ -90,7 +89,9 @@ jobs:
           TAG="${{ steps.git_tag.outputs.tag }}"
           git fetch origin main --tags
           TAG_SHA="$(git rev-parse "${TAG}^{commit}")"
+          echo "sha=${TAG_SHA}" >> "$GITHUB_OUTPUT"
           if git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            git checkout --force "$TAG_SHA"
             echo "Tag ${TAG} is on main."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
@@ -117,16 +118,73 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: make ui-build
 
-      - name: Cross-compile release binaries, build packages, render the cask
+      - name: Build both macOS archives with Cocoa and WebKit
         if: steps.gate.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.git_tag.outputs.tag }}
+        run: scripts/build-darwin-archives.sh --version "$VERSION" --out dist
+
+      - name: Upload macOS archives for the publisher
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-release-archives
+          path: dist/coddy_*_darwin_*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  release-binaries:
+    name: Build and publish release assets
+    runs-on: ubuntu-latest
+    needs: macos-archives
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ needs.macos-archives.outputs.tag }}
+      skip: ${{ needs.macos-archives.outputs.skip }}
+
+    steps:
+      - name: Checkout the resolved release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.macos-archives.outputs.sha }}
+          allow-unsafe-pr-checkout: true
+
+      - name: Set up Go
+        if: needs.macos-archives.outputs.skip != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        if: needs.macos-archives.outputs.skip != 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build UI assets for go:embed
+        if: needs.macos-archives.outputs.skip != 'true'
+        run: make ui-build
+
+      - name: Download the macOS release archives
+        if: needs.macos-archives.outputs.skip != 'true'
+        uses: actions/download-artifact@v6
+        with:
+          name: macos-release-archives
+          path: dist
+
+      - name: Cross-compile release binaries, build packages, render the cask
+        if: needs.macos-archives.outputs.skip != 'true'
+        env:
+          VERSION: ${{ needs.macos-archives.outputs.tag }}
           GO_BUILD_TAGS: ${{ env.GO_BUILD_TAGS }}
         run: |
           set -euo pipefail
           DIST="${GITHUB_WORKSPACE}/dist"
           LDFLAGS="-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}"
-          rm -rf "$DIST"
           mkdir -p "$DIST"
 
           build_target() {
@@ -176,8 +234,6 @@ jobs:
           build_target android arm64
           build_target android amd64
           build_target windows amd64
-          build_target darwin amd64
-          build_target darwin arm64
 
           # The deb and rpm wrap the Linux binaries built above rather than
           # compiling their own: packaging must not double the slowest step of
@@ -205,10 +261,10 @@ jobs:
       # or mismatched secret stops publication (docs/contributing/build.md,
       # Signing releases). A fork without a secret may publish unsigned.
       - name: Sign the digest list
-        if: steps.gate.outputs.skip != 'true'
+        if: needs.macos-archives.outputs.skip != 'true'
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          TAG: ${{ steps.git_tag.outputs.tag }}
+          TAG: ${{ needs.macos-archives.outputs.tag }}
         run: |
           if [ -z "$RELEASE_SIGNING_KEY" ]; then
             if [ "$GITHUB_REPOSITORY" = "coddy-project/coddy-agent" ]; then
@@ -221,11 +277,11 @@ jobs:
           fi
 
       - name: Upload assets to GitHub Release
-        if: steps.gate.outputs.skip != 'true'
+        if: needs.macos-archives.outputs.skip != 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.git_tag.outputs.tag }}
-          name: ${{ steps.git_tag.outputs.tag }}
+          tag_name: ${{ needs.macos-archives.outputs.tag }}
+          name: ${{ needs.macos-archives.outputs.tag }}
           generate_release_notes: true
           files: |
             dist/*
@@ -238,9 +294,9 @@ jobs:
       # write to that one repository and nothing else; the script never takes
       # the tap back to an older release, so re-running an old tag is safe.
       - name: Publish the cask to the Homebrew tap
-        if: steps.gate.outputs.skip != 'true' && github.repository == 'coddy-project/coddy-agent'
+        if: needs.macos-archives.outputs.skip != 'true' && github.repository == 'coddy-project/coddy-agent'
         env:
-          VERSION: ${{ steps.git_tag.outputs.tag }}
+          VERSION: ${{ needs.macos-archives.outputs.tag }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

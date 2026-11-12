@@ -188,19 +188,27 @@ also runs every surface the configuration enables - the public HTTP surface,
 the gateways, the relay, the scheduler - the way
 .B serve
 does, so the same site the window drives is reachable from other machines. The page is a
-tab strip with one chat per tab; a second launch while a window is open hands
-that window its tabs instead of serving twice, and closing the window ends the
-run. On an X11 session the window carries no system frame: the strip is its
+tab strip with one chat per tab. A second browser launch hands its tabs to the
+existing window. A second native launch opens another window on the running
+server. Its shell window controls still address the original window; use that
+original window for move, resize and close controls.
+Closing the second window ends only that launch. Closing the original window ends
+the desktop run. A macOS build with cgo and the desktop.native tag can use Cocoa/WKWebView
+instead; macOS release archives include it. The native window needs macOS 14 for
+isolated persistent WebKit stores and a graphical session. Auto falls back to a
+browser on older macOS versions. On X11 and native macOS the window carries no system frame: the strip is its
 title bar and holds the window's own buttons, a menu of the desktop's switches
 (open at login, the tray icon, start minimised, the system frame) and the
 chords
 .BR Ctrl+T ", " Ctrl+W ", " Ctrl+R " and " Ctrl+Tab ,
-taken from the browser at the X server. Elsewhere the window keeps the frame
-its desktop gives it.
+taken from the browser at the X server on X11. The strip also handles Alt letter and digit chords,
+and in the native macOS window the Cmd letter and digit chords as well.
+Other browser windows keep the frame their desktop gives them.
 .BI \-\-window " auto|browser|native"
-picks the backend,
+picks the backend; auto tries the compiled native backend and falls back to
+the browser if the required macOS version or graphical session is unavailable.
 .BI \-\-browser " NAME|PATH"
-the browser (else
+chooses the browser (else
 .IR CODDY_DESKTOP_BROWSER ),
 .B \-\-frame
 keeps the system title bar, and

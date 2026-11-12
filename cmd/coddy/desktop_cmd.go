@@ -2,10 +2,10 @@
 
 // `coddy desktop` opens Coddy as a window on this machine.
 //
-// The window is the operator's Chromium-family browser in app mode, in a
-// profile of its own, over an HTTP surface started on a loopback port the
-// agent home remembers; the page it opens on is a tab strip with one chat per
-// tab (external/desktop/shell). The whole of Coddy is behind it - the same
+// The window uses Cocoa/WKWebView on macOS with desktop.native and cgo, or
+// a Chromium-family browser in app mode with its own profile, over a loopback
+// HTTP surface whose port the agent home remembers. The page is a tab strip
+// with one chat per tab (external/desktop/shell). The whole of Coddy is behind it - the same
 // binary, the same configuration, the same session store - so a window is
 // another way in, not a smaller Coddy.
 //
@@ -20,8 +20,9 @@
 // is new. A second 72 MiB artefact to ship, package and update was the larger
 // cost by far.
 //
-// The native window around the system WebView arrives with the desktop.native
-// tag, which needs cgo.
+// macOS release archives include desktop.native and cgo. The binary starts on
+// macOS 13; the native window needs macOS 14 for isolated persistent WebKit
+// stores, and auto falls back to a browser on older systems.
 
 package main
 
@@ -73,7 +74,7 @@ func runDesktopWindow(args []string) error {
 	browser := fs.String("browser", "", "browser to open the window with, by name on PATH or by path (else "+desktop.BrowserEnvVar+", else the first Chromium-family browser installed)")
 	logLevel := fs.String("log-level", "", "log level: debug|info|warn|error (default from config)")
 	newChat := fs.Bool("new-chat", false, "open a new chat in --cwd. A desktop already running is asked for the chat rather than a second one being started, which is what a row of the application menu naming a recent workspace does")
-	framed := fs.Bool("frame", false, "keep the system title bar and borders. Without it the window is a bare rectangle and the tab strip is its title bar: it carries the window's own buttons and is what you drag it by (X11 sessions; elsewhere the frame stays)")
+	framed := fs.Bool("frame", false, "keep the system title bar and borders. Without it the window is a bare rectangle and the tab strip is its title bar: it carries the window's own buttons and is what you drag it by (X11 or native macOS; elsewhere the frame stays)")
 	keepAuth := fs.Bool("auth", false, "ask for the credential the configuration carries (a token, the sign-in form). By default the window asks for nothing: it binds loopback for the person who started it, and a form in a window they opened themselves proves nothing")
 	testConfig := config.AddCheckFlag(fs)
 

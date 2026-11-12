@@ -1,4 +1,4 @@
-.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-darwin-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -56,6 +56,9 @@ comma := ,
 # container image (Dockerfile BUILD_TAGS) all build from it, so a `coddy` is
 # the same program wherever it came from.
 FULL_TAGS := http ui scheduler memory cli gateway swarm metrics browser desktop
+
+# Darwin release archives add Cocoa/WKWebView; other targets keep FULL_TAGS.
+DARWIN_TAGS := $(FULL_TAGS) desktop.native
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -547,6 +550,9 @@ LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
 
 print-full-tags:
 	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-darwin-tags:
+	@printf '%s\n' "$(subst $(space),$(comma),$(strip $(DARWIN_TAGS)))"
 
 print-desktop-tags:
 	@printf '%s\n' "$(DESKTOP_TAGS_CSV)"

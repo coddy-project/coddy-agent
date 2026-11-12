@@ -477,6 +477,27 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      - name: Set up Node for the desktop window
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build both macOS release archives with the native desktop window
+        run: |
+          set -euo pipefail
+          make ui-build
+          out=$(mktemp -d)
+          trap 'rm -rf "$out"' EXIT
+          scripts/build-darwin-archives.sh --out "$out"
+
+      # A real Cocoa loop and WKWebView, rather than only a cgo cross-build.
+      - name: Open and drive a real WKWebView window
+        env:
+          CGO_ENABLED: "1"
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+          CGO_CFLAGS: "-mmacosx-version-min=13.0 -Werror=unguarded-availability-new"
+        run: env -u USER go test -tags 'desktop desktop.native' ./external/desktop -run '^TestNative' -count=1
+
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
   # this proves the packaging, not the binary, and skipping the npm step keeps

@@ -227,3 +227,9 @@ func (w *ShellWindow) Opened() []string {
 	defer w.mu.Unlock()
 	return append([]string(nil), w.opened...)
 }
+
+// RunWithNativeOpener drives the launcher with a native window stand-in.
+func RunWithNativeOpener(ctx context.Context, opts Options, open func(context.Context, Options, string) error) error {
+	opts.nativeOpen = open
+	return Run(ctx, opts)
+}
