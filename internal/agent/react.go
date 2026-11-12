@@ -1531,6 +1531,12 @@ func (a *Agent) runReActLoop(
 			// keeps its partial answer like a user stop: the user already
 			// watched the text stream in, so it must survive in the
 			// transcript next to the honest error below.
+			if llm.IsToolSchemaLimit(streamErr) && response == nil {
+				// Some adapters report an in-band refusal with no response
+				// object after deltas. The buffers are the same output the
+				// caller already saw, so preserve them independently of the SDK.
+				response = &llm.Response{Content: answerBuf.String(), Reasoning: reasoningBuf.String()}
+			}
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr) || llm.IsToolSchemaLimit(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,27 @@ func TestToolSchemaLimitKeepsPartialAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertPartialSchemaAnswer(t, p)
+}
+
+type partialSchemaProvider struct{ err error }
+
+func (p *partialSchemaProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, p.err
+}
+
+func (p *partialSchemaProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	onChunk(llm.StreamChunk{TextDelta: "partial answer"})
+	return nil, p.err
+}
+
+func TestToolSchemaLimitKeepsPartialAnswerWithoutProviderResponse(t *testing.T) {
+	cause := errors.New("tools.function.parameters: schema exceeds maximum allowed size")
+	assertPartialSchemaAnswer(t, &partialSchemaProvider{err: cause})
+}
+
+func assertPartialSchemaAnswer(t *testing.T, p llm.Provider) {
+	t.Helper()
 	ag := overflowRunAgent(t, p, 128000)
 	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "hello"}})
 	if err == nil || stop != string(acp.StopReasonRefused) || !llm.IsToolSchemaLimit(err) {

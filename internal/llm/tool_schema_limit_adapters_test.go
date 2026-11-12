@@ -122,3 +122,27 @@ func TestToolSchemaLimitGoogleRejectsUnknownToolsGroup(t *testing.T) {
 		t.Fatalf("unknown tools group attributed to %q", detail.Tool)
 	}
 }
+
+func TestToolSchemaLimitGoogleSnakeCaseAttribution(t *testing.T) {
+	cause := &httpStatusError{status: 400, body: "tools[0].function_declarations[0].parameters: schema exceeds maximum allowed size"}
+	err := withToolSchemaRequest(cause, json.RawMessage(`{"tools":[{"functionDeclarations":[{"name":"docs__search"}]}]}`), false)
+	if detail := ToolSchemaLimitDetailOf(err, []ToolDefinition{{Name: "docs__search"}}); detail.Tool != "docs__search" {
+		t.Fatalf("snake-case declaration not attributed: %#v", detail)
+	}
+}
+
+func TestToolSchemaLimitGoogleDisplayBodyStaysBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `{"error":{"message":%q}}`, "ordinary validation failure "+strings.Repeat("x", 1000))
+	}))
+	defer server.Close()
+	p := &opencodeGoogleProvider{input: ProviderInput{Model: "fixture"}, client: server.Client(), base: server.URL}
+	_, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hello"}}, nil)
+	if IsToolSchemaLimit(err) {
+		t.Fatal("ordinary validation failure misclassified")
+	}
+	if count := strings.Count(err.Error(), "x"); count > 512 {
+		t.Fatalf("display body exceeds its previous bound: %d", count)
+	}
+}

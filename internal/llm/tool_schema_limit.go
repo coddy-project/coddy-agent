@@ -13,7 +13,7 @@ import (
 // context window. Require both a tool-schema location and an explicit size or
 // complexity refusal. In particular, Anthropic's bare compilation error also
 // applies to output formats and does not establish that tools were rejected.
-var toolSchemaLocation = regexp.MustCompile(`(?i)\b(?:tools?(?:\[[0-9]+\]|\.[0-9]+)?\.(?:function\.)?(?:parameters|input_schema)|tools?(?:\[[0-9]+\]|\.[0-9]+)?\.function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parametersJsonSchema|function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parameters|tool schemas?\b|schema for (?:function|tool) ['"])`)
+var toolSchemaLocation = regexp.MustCompile(`(?i)\b(?:tools?(?:\[[0-9]+\]|\.[0-9]+)?\.(?:function\.)?(?:parameters|input_schema)|tools?(?:\[[0-9]+\]|\.[0-9]+)?\.function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parameters(?:JsonSchema)?|function[_]?declarations(?:\[[0-9]+\]|\.[0-9]+)?\.parameters|tool schemas?\b|schema for (?:function|tool) ['"])`)
 
 var toolSchemaLimitPhrases = []string{
 	"schema exceeds maximum allowed size",
@@ -85,8 +85,12 @@ func toolSchemaDiagnostic(err error) string {
 		text = stream.diagnostic
 	}
 	var raw *httpStatusError
-	if errors.As(err, &raw) && raw.body != "" {
-		text = raw.body
+	if errors.As(err, &raw) {
+		if raw.diagnostic != "" {
+			text = raw.diagnostic
+		} else if raw.body != "" {
+			text = raw.body
+		}
 	}
 	var fields struct {
 		Message, Param string
@@ -180,7 +184,7 @@ var (
 	toolSchemaFunction    = regexp.MustCompile(`(?i)schema for (?:function|tool) ['"]([a-zA-Z0-9_-]{1,128})['"]`)
 	toolSchemaDepth       = regexp.MustCompile(`(?i)schema depth exceeds maximum limit of ([0-9]{1,9})\b`)
 	toolSchemaIndex       = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.(?:function\.)?(?:parameters|input_schema)\b`)
-	toolSchemaGoogleIndex = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.function[_]?declarations(?:\[([0-9]+)\]|\.([0-9]+))\.parametersJsonSchema\b`)
+	toolSchemaGoogleIndex = regexp.MustCompile(`(?i)\btools(?:\[([0-9]+)\]|\.([0-9]+))\.function[_]?declarations(?:\[([0-9]+)\]|\.([0-9]+))\.parameters(?:JsonSchema)?\b`)
 	toolSchemaSafeName    = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 )
 

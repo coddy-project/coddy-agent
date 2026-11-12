@@ -23,6 +23,7 @@ type httpStatusError struct {
 	status     int
 	header     http.Header
 	body       string
+	diagnostic string
 	retryAfter time.Duration
 }
 
