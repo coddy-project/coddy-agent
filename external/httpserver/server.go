@@ -540,11 +540,10 @@ func supportedParametersFor(cfg *config.Config, ent *config.ModelEntry) []string
 	}
 	providerType := providerTypeOf(cfg, ent)
 	if providerType == "codex" {
-		// The Codex backend takes no output cap and no temperature
-		// (RequestOptions.Validate refuses them before the call).
-		params = slices.DeleteFunc(params, func(p string) bool {
-			return p == "max_tokens" || p == "max_completion_tokens" || p == "max_output_tokens" || p == "temperature"
-		})
+		// A Codex backend accepts output-cap fields for OpenAI-client
+		// compatibility but ignores them (reported by X-Coddy-Ignored-Params),
+		// so only temperature is unsupported here.
+		params = slices.DeleteFunc(params, func(p string) bool { return p == "temperature" })
 	}
 	if providerType != "openai" {
 		// Only an openai provider carries top_p; every other type refuses it.
@@ -929,6 +928,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
+		}
+		switch {
+		case req.MaxTokens != nil && req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens", "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
 		}
 		if err := directACPRefusal(s.activeCfg(), model); err != nil {
 			writeErrorReply(w, err)

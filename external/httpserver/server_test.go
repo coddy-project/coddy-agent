@@ -5860,7 +5860,7 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 		"openai temperature above 2": {"local/llama-3.1-8b", `"temperature":2.5`, "temperature must be between 0 and 2"},
 		"negative temperature":       {"local/llama-3.1-8b", `"temperature":-0.1`, "temperature must be between 0 and 2"},
 		"anthropic temperature 1.5":  {"claude/claude-3-5-haiku", `"temperature":1.5`, "temperature must be between 0 and 1"},
-		"codex max_tokens":           {"codex/gpt-5.5", `"max_tokens":256`, "max_tokens is not supported by a codex model"},
+		"codex zero max_tokens":      {"codex/gpt-5.5", `"max_tokens":0`, "max_tokens must be a positive integer"},
 		"codex temperature":          {"codex/gpt-5.5", `"temperature":0.5`, "temperature is not supported by a codex model"},
 		"level the model lacks":      {"local/o4-mini", `"reasoning_effort":"minimal"`, `reasoning_effort "minimal" is not offered by model "local/o4-mini" (offered: low, medium, high)`},
 		"level on a plain model":     {"local/llama-3.1-8b", `"reasoning_effort":"low"`, `model "local/llama-3.1-8b" offers no reasoning levels`},
@@ -5881,6 +5881,9 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 			if sid := res.Header.Get("X-Coddy-Session-ID"); sid != "" {
 				t.Fatalf("%s (stream %v): a refused request created session %s", name, stream, sid)
 			}
+			if ignored := res.Header.Get("X-Coddy-Ignored-Params"); ignored != "" {
+				t.Fatalf("%s (stream %v): refused request reports ignored params %q", name, stream, ignored)
+			}
 		}
 	}
 	if n := len(backend.requests); n != 0 {
@@ -5888,6 +5891,43 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 	}
 	if entries, _ := os.ReadDir(sessRoot); len(entries) != 0 {
 		t.Fatalf("refused requests left %d session bundles behind", len(entries))
+	}
+}
+
+func TestDirectOutputCapCompatibilityReportsOnlyCodex(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		model      string
+		path       string
+		body       string
+		wantIgnore string
+	}{
+		{name: "chat max_tokens", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"stream":false}`, wantIgnore: "max_tokens"},
+		{name: "chat max_completion_tokens stream", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":64,"stream":true}`, wantIgnore: "max_completion_tokens"},
+		{name: "chat both names", model: "codex/gpt-5.5", path: "/v1/chat/completions", body: `{"model":"codex/gpt-5.5","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"max_completion_tokens":64,"stream":false}`, wantIgnore: "max_tokens, max_completion_tokens"},
+		{name: "responses max_output_tokens", model: "codex/gpt-5.5", path: "/v1/responses", body: `{"model":"codex/gpt-5.5","input":"hi","max_output_tokens":64,"stream":false}`, wantIgnore: "max_output_tokens"},
+		{name: "responses max_output_tokens stream", model: "codex/gpt-5.5", path: "/v1/responses", body: `{"model":"codex/gpt-5.5","input":"hi","max_output_tokens":64,"stream":true}`, wantIgnore: "max_output_tokens"},
+		{name: "openai cap is enforced", model: "local/llama-3.1-8b", path: "/v1/chat/completions", body: `{"model":"local/llama-3.1-8b","messages":[{"role":"user","content":"hi"}],"max_tokens":64,"stream":false}`, wantIgnore: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, ts, _, _ := directOptionsTestServer(t)
+			provider := &responsesStubProvider{
+				chunks: []llm.StreamChunk{{TextDelta: "Hi."}},
+				reply:  &llm.Response{Content: "Hi.", StopReason: "end_turn", InputTokens: 5, OutputTokens: 2, UsageKnown: true},
+			}
+			srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return provider, nil }
+			res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", res.StatusCode, raw)
+			}
+			if got := res.Header.Get("X-Coddy-Ignored-Params"); got != tc.wantIgnore {
+				t.Fatalf("X-Coddy-Ignored-Params = %q, want %q: %s", got, tc.wantIgnore, raw)
+			}
+		})
 	}
 }
 

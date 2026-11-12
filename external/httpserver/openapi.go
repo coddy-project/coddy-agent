@@ -139,6 +139,12 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Completion JSON with `usage` when provider token counts are known, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
+							"headers": map[string]interface{}{
+								"X-Coddy-Ignored-Params": map[string]interface{}{
+									"description": "Comma-separated request output-cap fields accepted but not enforced by a codex backend (max_tokens and/or max_completion_tokens). Absent when every supplied cap is enforced.",
+									"schema":      map[string]interface{}{"type": "string", "example": "max_tokens"},
+								},
+							},
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -4572,7 +4578,7 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]string{"type": "string"},
 							"description": "The request parameter names the two endpoints accept on this row, in both dialects (OpenRouter's supported_parameters convention): what a client may send instead of learning it from a **400**. The structural fields every request carries (`model`, `messages`, `input`, `stream`) are left out, and `store` is unlisted because only `store: false` passes. " +
-								"A profile row (`agent`, `plan`, `ask`) takes `attachments`, `inline_files`, `metadata` and `stream_options`; a direct row takes `metadata`, `stream_options` and the generation parameters its provider type accepts - `max_tokens` and `max_completion_tokens` (chat dialect), `max_output_tokens` (Responses), `temperature`, `instructions`, `tools`, `tool_choice`, `top_p` (only behind a `type: openai` provider), `inline_files` (only on a multimodal row) and `reasoning_effort` plus `reasoning` (only when the row lists `reasoning_levels`) - minus the caps and temperature on `type: codex` models, whose backend takes neither, and everything on a model served by an `acp` agent, which refuses a direct completion wholesale.",
+								"A profile row (`agent`, `plan`, `ask`) takes `attachments`, `inline_files`, `metadata` and `stream_options`; a direct row takes `metadata`, `stream_options` and the generation parameters its provider type accepts - `max_tokens` and `max_completion_tokens` (chat dialect), `max_output_tokens` (Responses), `temperature`, `instructions`, `tools`, `tool_choice`, `top_p` (only behind a `type: openai` provider), `inline_files` (only on a multimodal row) and `reasoning_effort` plus `reasoning` (only when the row lists `reasoning_levels`) - minus temperature on `type: codex` models (their output caps are accepted but not enforced and are reported by `X-Coddy-Ignored-Params`), and everything on a model served by an `acp` agent, which refuses a direct completion wholesale.",
 						},
 						"reasoning_levels": map[string]interface{}{
 							"type":        "array",

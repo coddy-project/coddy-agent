@@ -141,7 +141,7 @@ func TestSupportedParametersRows(t *testing.T) {
 		{"agent", []string{"attachments", "metadata", "stream_options"}, []string{"inline_files", "max_tokens", "max_output_tokens", "temperature", "tools", "reasoning", "reasoning_effort"}},
 		{"local/qwen3-1.7b", []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "temperature", "top_p", "tools", "tool_choice", "reasoning", "reasoning_effort", "metadata", "stream_options", "instructions"}, []string{"attachments", "store", "inline_files"}},
 		{"local/llama-3", nil, []string{"reasoning", "reasoning_effort", "inline_files"}},
-		{"codex/gpt-5.5", []string{"reasoning", "reasoning_effort", "tools", "instructions"}, []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "temperature", "top_p", "inline_files"}},
+		{"codex/gpt-5.5", []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "reasoning", "reasoning_effort", "tools", "instructions"}, []string{"temperature", "top_p", "inline_files"}},
 		{"claude/claude-sonnet-4-6", []string{"max_tokens", "max_output_tokens", "temperature"}, []string{"top_p", "inline_files"}},
 	} {
 		params := paramsOf(tc.id)
