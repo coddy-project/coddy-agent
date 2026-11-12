@@ -110,6 +110,12 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Completion JSON with `usage` when provider token counts are known, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
+							"headers": map[string]interface{}{
+								"X-Coddy-Ignored-Params": map[string]interface{}{
+									"description": "Comma-separated request output-cap fields accepted but not enforced by a codex backend (max_tokens and/or max_completion_tokens). Absent when every supplied cap is enforced.",
+									"schema":      map[string]interface{}{"type": "string", "example": "max_tokens"},
+								},
+							},
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{

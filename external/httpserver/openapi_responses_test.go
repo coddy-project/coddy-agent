@@ -85,3 +85,16 @@ func TestOpenAPIChatReasoningFieldsNullable(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAPIDirectModelsDocumentIgnoredOutputCaps(t *testing.T) {
+	raw, err := json.Marshal(openAPISpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses"} {
+		field := "paths." + path + ".post.responses.200.headers.X-Coddy-Ignored-Params.schema.type"
+		if got := gjson.GetBytes(raw, field).String(); got != "string" {
+			t.Errorf("%s ignored-params header schema type = %q, want string", path, got)
+		}
+	}
+}

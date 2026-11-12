@@ -756,6 +756,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 			return
 		}
+		switch {
+		case req.MaxTokens != nil && req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens", "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxCompletionTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_completion_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		case req.MaxTokens != nil:
+			if ignored := directIgnoredOutputCap(s.activeCfg(), model, "max_tokens"); ignored != "" {
+				w.Header().Set(coddyIgnoredParamsHeader, ignored)
+			}
+		}
 		if err := directACPRefusal(s.activeCfg(), model); err != nil {
 			writeErrorReply(w, err)
 			return

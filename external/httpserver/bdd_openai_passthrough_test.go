@@ -182,6 +182,7 @@ type openAIPassthroughState struct {
 	sseBody                string
 	frames                 []sseFrame
 	jsonBody               string
+	responseHeader         http.Header
 	refusedStatus          int
 	refusedBody            string
 	concurrentFirstAnswer  string
@@ -379,6 +380,7 @@ func (s *openAIPassthroughState) stream(body string) error {
 		return fmt.Errorf("Content-Type = %q, want an SSE stream", ct)
 	}
 	s.sseBody = string(raw)
+	s.responseHeader = res.Header
 	s.frames = parseSSEFrames(s.sseBody)
 	if len(s.frames) == 0 || s.frames[len(s.frames)-1].data != "[DONE]" {
 		return fmt.Errorf("stream was not terminated with [DONE]: %s", s.sseBody)

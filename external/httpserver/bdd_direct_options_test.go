@@ -178,6 +178,11 @@ func (s *directOptionsState) streamsWithOptions(model string, maxTokens int, tem
 		model, maxTokens, temperature))
 }
 
+func (s *directOptionsState) streamsWithOutputCap(model string, maxTokens int) error {
+	return s.pass.stream(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"max_tokens":%d,"stream":true}`,
+		model, maxTokens))
+}
+
 func (s *directOptionsState) streamsWithoutOptions(model string) error {
 	return s.pass.stream(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"stream":true}`, model))
 }
@@ -245,6 +250,26 @@ func (s *directOptionsState) modelStillConfigured(maxTokens int, temperature flo
 	return nil
 }
 
+func (s *directOptionsState) answerReportsIgnored(param string) error {
+	if got := s.pass.responseHeader.Get("X-Coddy-Ignored-Params"); got != param {
+		return fmt.Errorf("X-Coddy-Ignored-Params = %q, want %q", got, param)
+	}
+	return nil
+}
+
+func (s *directOptionsState) codexUpstreamCarriedNoOutputCap() error {
+	last := s.codex.last()
+	if last == "" {
+		return fmt.Errorf("no request reached the Codex provider")
+	}
+	for _, field := range []string{"max_output_tokens", "max_tokens", "max_completion_tokens"} {
+		if got := gjson.Get(last, field); got.Exists() {
+			return fmt.Errorf("Codex upstream carried %s = %s: %s", field, got.Raw, last)
+		}
+	}
+	return nil
+}
+
 func initializeDirectOptionsScenario(sc *godog.ScenarioContext) {
 	s := &directOptionsState{}
 	var prevCodexBase string
@@ -266,9 +291,12 @@ func initializeDirectOptionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the JSON answer reports reasoning_effort "([^"]+)"$`, s.jsonAnswerReportsReasoning)
 	sc.Step(`^a coddy server whose direct model is configured with max_tokens (\d+) and temperature ([\d.]+)$`, s.startServer)
 	sc.Step(`^an OpenAI client streams "([^"]+)" with max_tokens (\d+) and temperature ([\d.]+)$`, s.streamsWithOptions)
+	sc.Step(`^an OpenAI client streams "([^"]+)" with max_tokens (\d+)$`, s.streamsWithOutputCap)
 	sc.Step(`^an OpenAI client streams "([^"]+)" without generation options$`, s.streamsWithoutOptions)
 	sc.Step(`^the upstream request carried max_tokens (\d+) and temperature ([\d.]+)$`, s.upstreamCarried)
 	sc.Step(`^the model is still configured with max_tokens (\d+) and temperature ([\d.]+)$`, s.modelStillConfigured)
+	sc.Step(`^the answer reports that "([^"]+)" was ignored$`, s.answerReportsIgnored)
+	sc.Step(`^the Codex upstream request carried no output cap$`, s.codexUpstreamCarriedNoOutputCap)
 }
 
 func TestDirectCompletionOptions(t *testing.T) {
