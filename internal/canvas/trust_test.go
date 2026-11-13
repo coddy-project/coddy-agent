@@ -346,3 +346,29 @@ func TestAPageTakenOffTheBoardLeavesTheReceipt(t *testing.T) {
 		t.Fatalf("held %v, want the page the file brought back", got)
 	}
 }
+
+// A page the person let run leaves the receipt when it leaves the board, as a
+// page Coddy put there does: the approval does not outlive the frame, so the
+// page asks again when the file brings it back.
+func TestAnApprovedPageTakenOffTheBoardLeavesTheReceipt(t *testing.T) {
+	ref := checkoutBoard(t, config.ProjectTrustAsk)
+	trustAll(t, ref)
+	if got := held(t, ref); len(got) != 0 {
+		t.Fatalf("held %v right after the approval", got)
+	}
+	if _, err := Remove(ref, "bbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatal(err)
+	}
+	recs := ref.Trust.Store.Records(ref.Workspace)
+	if len(recs) != 1 || strings.Join(recs[0].Approved, ",") != "site/index.html" {
+		t.Fatalf("records %+v, want the approval of the page still on the board only", recs)
+	}
+	// The file brings the page back: it is not the page that was approved.
+	editFile(t, ref, func(s string) string {
+		return strings.Replace(s, `"nodes":[`,
+			`"nodes":[{"id":"cccccccccccccccc","type":"file","file":"site/about.html","x":1400,"y":0,"width":390,"height":844},`, 1)
+	})
+	if got := held(t, ref); strings.Join(got, ",") != "site/about.html" {
+		t.Fatalf("held %v, want the page the file brought back", got)
+	}
+}

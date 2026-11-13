@@ -326,9 +326,11 @@ func (s *TrustStore) pages(workspace, file string) (shown, approved map[string]b
 	if key == "" || file == "" {
 		return shown, approved
 	}
-	mu := s.lock()
-	mu.Lock()
-	defer mu.Unlock()
+	// No lock: a write replaces the file with os.Rename, so a reader sees the
+	// whole of one version or the whole of the other, never a torn file - the
+	// same guarantee a reader in another process already relies on. Taking the
+	// store mutex here would serialise every file request of every frame of
+	// every session behind one read.
 	for _, rec := range s.read().Workspaces[key] {
 		if rec.File != file {
 			continue
@@ -346,9 +348,7 @@ func (s *TrustStore) pages(workspace, file string) (shown, approved map[string]b
 // Records returns the receipts recorded for a project, sorted by file.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
 	key := mcp.TrustWorkspace(workspace)
-	mu := s.lock()
-	mu.Lock()
-	defer mu.Unlock()
+	// A pure read, unlocked for the reason pages gives.
 	out := append([]TrustRecord(nil), s.read().Workspaces[key]...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
@@ -392,38 +392,55 @@ func (s *TrustStore) edit(workspace, file string, fn func(*TrustRecord)) error {
 	return s.write(tf)
 }
 
+// onBoardSet is the lookup of the pages a board shows now.
+func onBoardSet(onBoard []string) map[string]bool {
+	keep := make(map[string]bool, len(onBoard))
+	for _, p := range onBoard {
+		keep[p] = true
+	}
+	return keep
+}
+
+// keepPages drops the pages a board no longer shows. Both halves of a receipt
+// are trimmed alike: a page the person let run leaves with its frame just as
+// one Coddy put there does, or an approval would outlive the board and a page
+// the file brings back later would run unasked.
+func keepPages(pages []string, keep map[string]bool) ([]string, bool) {
+	kept := pages[:0:0]
+	for _, p := range pages {
+		if keep[p] {
+			kept = append(kept, p)
+		}
+	}
+	return kept, len(kept) != len(pages)
+}
+
 // Show records pages Coddy put on a board: they run from now on. onBoard are
 // the pages the board shows after the change: a page recorded before that is
 // no longer on it is dropped, so the receipt never outgrows the board, and a
 // page that comes back through the file asks again.
 func (s *TrustStore) Show(workspace, file string, onBoard []string, pages ...string) error {
-	keep := map[string]bool{}
-	for _, p := range onBoard {
+	keep := onBoardSet(onBoard)
+	for _, p := range pages {
 		keep[p] = true
 	}
 	return s.edit(workspace, file, func(rec *TrustRecord) {
-		next := append([]string(nil), pages...)
-		for _, p := range rec.Shown {
-			if keep[p] {
-				next = append(next, p)
-			}
-		}
-		rec.Shown = uniqueSorted(next)
+		shown, _ := keepPages(rec.Shown, keep)
+		rec.Shown = uniqueSorted(append(shown, pages...))
+		rec.Approved, _ = keepPages(rec.Approved, keep)
 	})
 }
 
-// Prune drops from this checkout's receipt of a board the pages Coddy put on
-// it that the board no longer shows. A board without a receipt keeps none.
+// Prune drops from this checkout's receipt of a board the pages the board no
+// longer shows, whether Coddy put them there or the person let them run. A
+// board without a receipt keeps none.
 func (s *TrustStore) Prune(workspace, file string, onBoard []string) error {
 	checkout := mcp.CanonicalWorkspace(workspace)
 	key := mcp.TrustWorkspace(workspace)
 	if key == "" {
 		return nil
 	}
-	keep := map[string]bool{}
-	for _, p := range onBoard {
-		keep[p] = true
-	}
+	keep := onBoardSet(onBoard)
 	release, err := s.transaction()
 	if err != nil {
 		return err
@@ -435,14 +452,11 @@ func (s *TrustStore) Prune(workspace, file string, onBoard []string) error {
 		if rec.File != file || mcp.ReceiptCheckout(rec.Checkout, key) != checkout {
 			continue
 		}
-		kept := rec.Shown[:0:0]
-		for _, p := range rec.Shown {
-			if keep[p] {
-				kept = append(kept, p)
-			}
-		}
-		if len(kept) != len(rec.Shown) {
-			tf.Workspaces[key][i].Shown = kept
+		shown, movedShown := keepPages(rec.Shown, keep)
+		approved, movedApproved := keepPages(rec.Approved, keep)
+		if movedShown || movedApproved {
+			tf.Workspaces[key][i].Shown = shown
+			tf.Workspaces[key][i].Approved = approved
 			changed = true
 		}
 	}
