@@ -1,9 +1,11 @@
 package gitws
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +25,7 @@ func TestCreateAndSwitchWithoutGit(t *testing.T) {
 	if err := CreateAndSwitch(dir, "main"); err == nil {
 		t.Fatal("replaced an existing branch")
 	}
-	if _, err := History(dir, 0, 100); !errors.Is(err, ErrNeedsGitBinary) {
+	if _, err := History(context.Background(), dir, 0, 100); !errors.Is(err, ErrNeedsGitBinary) {
 		t.Fatalf("history error = %v", err)
 	}
 }
@@ -31,7 +33,7 @@ func TestCreateAndSwitchWithoutGit(t *testing.T) {
 func TestHistoryEmptyAndDetachedHEAD(t *testing.T) {
 	empty := t.TempDir()
 	mustGit(t, empty, "init", "-b", "main")
-	page, err := History(empty, 0, 100)
+	page, err := History(context.Background(), empty, 0, 100)
 	if err != nil || len(page.Commits) != 0 {
 		t.Fatalf("empty history = %+v %v", page, err)
 	}
@@ -39,7 +41,7 @@ func TestHistoryEmptyAndDetachedHEAD(t *testing.T) {
 	mustGit(t, dir, "checkout", "--detach")
 	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "commit", "--allow-empty", "-m", "Detached commit")
 	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "tag", "-a", "release", "-m", "Annotated release")
-	page, err = History(dir, 0, 100)
+	page, err = History(context.Background(), dir, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func TestHistoryIncludesMergeParentsAndRefs(t *testing.T) {
 	mustGit(t, dir, "checkout", "main")
 	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "merge", "--no-ff", "feature/login", "-m", "Merge feature")
 	mustGit(t, dir, "tag", "v1")
-	page, err := History(dir, 0, 2)
+	page, err := History(context.Background(), dir, 0, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +99,36 @@ func TestHistoryIncludesMergeParentsAndRefs(t *testing.T) {
 	if len(page.Commits[0].Refs) < 3 {
 		t.Fatalf("refs = %v", page.Commits[0].Refs)
 	}
-	next, err := History(dir, 2, 2)
+	next, err := History(context.Background(), dir, 2, 2)
 	if err != nil || len(next.Commits) != 1 || next.HasMore {
 		t.Fatalf("next = %+v, %v", next, err)
+	}
+}
+
+func TestHistoryLeavesOutStashAndNotes(t *testing.T) {
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "draft.txt"), []byte("draft"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "add", "draft.txt")
+	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "stash")
+	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "notes", "add", "-m", "a note", "HEAD")
+	page, err := History(context.Background(), dir, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Commits) != 1 {
+		t.Fatalf("commits = %+v", page.Commits)
+	}
+	for _, row := range page.Commits {
+		if strings.Contains(row.Subject, "WIP on") || strings.Contains(row.Subject, "index on") || strings.Contains(row.Subject, "Notes added") {
+			t.Fatalf("service commit in the graph: %+v", row)
+		}
+	}
+	if got := mustGit(t, dir, "stash", "list"); got == "" {
+		t.Fatal("the stash disappeared")
+	}
+	if got := mustGit(t, dir, "notes", "list"); got == "" {
+		t.Fatal("the notes disappeared")
 	}
 }

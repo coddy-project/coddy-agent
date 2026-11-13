@@ -3,13 +3,21 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 )
+
+// workspaceGraphTimeout bounds a history read the way the branch refresh is
+// bounded: --topo-order walks the whole graph for every page, and a read must
+// not hold a handler for good on a huge repository.
+var workspaceGraphTimeout = 20 * time.Second
 
 // coddyWorkspaceBranchesPost serves the start screen, before a session exists.
 // Session clients use POST /sessions/{id}/workspace and its workspace lock.
@@ -57,8 +65,14 @@ func (s *Server) coddyWorkspaceGraphGet(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, errorJSON("invalid history page"), http.StatusBadRequest)
 		return
 	}
-	page, err := gitws.History(cwd, offset, limit)
+	ctx, cancel := context.WithTimeout(r.Context(), workspaceGraphTimeout)
+	defer cancel()
+	page, err := gitws.History(ctx, cwd, offset, limit)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			http.Error(w, errorJSON("reading the git history timed out"), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
 		return
 	}

@@ -1,8 +1,10 @@
 package gitws
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -64,9 +66,28 @@ type HistoryPage struct {
 	HasMore bool     `json:"has_more"`
 }
 
-// History reads a bounded topological page from all branches and HEAD, including
-// detached HEAD. It never fetches or changes the working copy.
-func History(dir string, offset, limit int) (HistoryPage, error) {
+// historyRun runs one git command of a history read. Unlike runGit it keeps
+// stderr out of the output: the NUL record protocol must not see a warning
+// line, and what git printed still reaches the error.
+func historyRun(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runGitRawContext(ctx, dir, args...)
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// History reads a bounded topological page of every local branch, remote
+// branch and tag, plus HEAD when it names a commit - so a detached HEAD is
+// in. refs/stash and refs/notes are left out on purpose: their commits
+// ("WIP on ...", a notes tree) are bookkeeping, and --all would walk them in
+// unlabeled. It never fetches or changes the working copy, and ends when ctx
+// does.
+func History(ctx context.Context, dir string, offset, limit int) (HistoryPage, error) {
 	page := HistoryPage{Commits: []Commit{}}
 	if !IsRepo(dir) {
 		return page, ErrNotRepository
@@ -78,17 +99,17 @@ func History(dir string, offset, limit int) (HistoryPage, error) {
 		return page, fmt.Errorf("invalid history page")
 	}
 	// An unborn repository has no commits, but is still a valid graph.
-	head, _ := runGit(dir, "rev-parse", "--verify", "HEAD")
-	args := []string{"log", "--all", "--topo-order", "--date-order", "--no-show-signature", "--format=%H%x00%P%x00%s%x00%an%x00%aI", "--skip=" + strconv.Itoa(offset), "-n", strconv.Itoa(limit + 1)}
+	head, _ := historyRun(ctx, dir, "rev-parse", "--verify", "HEAD")
+	args := []string{"log", "--branches", "--remotes", "--tags", "--topo-order", "--date-order", "--no-show-signature", "--format=%H%x00%P%x00%s%x00%an%x00%aI", "--skip=" + strconv.Itoa(offset), "-n", strconv.Itoa(limit + 1)}
 	if head != "" {
 		args = append(args, "HEAD")
 	}
-	out, err := runGit(dir, args...)
+	out, err := historyRun(ctx, dir, args...)
 	if err != nil {
 		return page, err
 	}
 	labels := map[string][]string{}
-	refs, err := runGit(dir, "for-each-ref", "--format=%(objectname)%00%(*objectname)%00%(refname)", "refs/heads", "refs/remotes", "refs/tags")
+	refs, err := historyRun(ctx, dir, "for-each-ref", "--format=%(objectname)%00%(*objectname)%00%(refname)", "refs/heads", "refs/remotes", "refs/tags")
 	if err != nil {
 		return page, err
 	}

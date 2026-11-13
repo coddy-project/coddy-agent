@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func (s *wsFeatureState) createBranch(branch string) error {
@@ -83,5 +84,22 @@ func TestWorkspaceDraftCreatesBranchImmediately(t *testing.T) {
 		if s.status != http.StatusBadRequest {
 			t.Fatalf("%s = %d", query, s.status)
 		}
+	}
+}
+
+func TestWorkspaceGraphTimesOut(t *testing.T) {
+	s := newWorkspaceFetchState(t)
+	mustStep(t, s.gitRepo("repo", "main"))
+	mustStep(t, s.sessionRootedAt("repo"))
+	saved := workspaceGraphTimeout
+	workspaceGraphTimeout = time.Nanosecond
+	t.Cleanup(func() { workspaceGraphTimeout = saved })
+	mustStep(t, s.requestGitGraph())
+	if s.status != http.StatusBadRequest {
+		t.Fatalf("timeout status = %d", s.status)
+	}
+	message, _ := s.body["error"].(map[string]interface{})["message"].(string)
+	if message != "reading the git history timed out" {
+		t.Fatalf("timeout message = %q", message)
 	}
 }
