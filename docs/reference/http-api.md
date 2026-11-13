@@ -434,6 +434,15 @@ Reads, uploads and deletions use the [normal API authentication policy](#authent
 | `404` | Missing picture, link or another non-regular file. |
 | `415` | Invalid or unrecognized image header. |
 | `500` | Gallery or picture storage failure. Error messages contain no filesystem paths. |
+### Prompt suggestions
+
+The composer reads **`GET /coddy/sessions/{id}/prompt-suggestion`** after a turn.
+It returns `{"object":"coddy.prompt_suggestion","sessionId":"...","text":"..."}`;
+`text` is empty when suggestions are disabled, suppressed, or unavailable.
+**`POST /coddy/sessions/{id}/prompt-suggestion/outcome`** with `{"accepted":true}`
+records acceptance; `false` records an unused suggestion. Repeated unused suggestions
+reduce their frequency after the initial grace period. `agent.prompt_suggestions`
+defaults to `true`; setting it to `false` stops the extra model calls.
 
 ### System status
 

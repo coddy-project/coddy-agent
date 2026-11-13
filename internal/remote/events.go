@@ -115,9 +115,14 @@ func (h *Handler) applyEventFrame(f sseFrame) {
 	switch f.event {
 	case "ready":
 		h.finishDetachedPromptSnapshot()
+		// A reconnect can have missed a config change or a server restart.
+		h.sendConfigReloaded()
 		// A reconnect replays starts only. REST also recovers an end or a
 		// queue change missed while the connection was down.
 		h.refreshKnownSessions()
+		return
+	case "config_reloaded":
+		h.sendConfigReloaded()
 		return
 	case "turn_started", "turn_ended":
 		var payload struct {

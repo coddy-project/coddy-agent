@@ -172,6 +172,7 @@ type AgentJSON struct {
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
 	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	PromptSuggestions      *bool  `json:"prompt_suggestions,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -594,6 +595,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(c.Agent.PromptSuggestions),
 	}
 	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
@@ -856,6 +858,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(j.Agent.PromptSuggestions),
 	}
 	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {

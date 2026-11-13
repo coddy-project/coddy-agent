@@ -843,6 +843,30 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 ) (string, error) {
+	// What the last provider answer of this turn reported about its own cost,
+	// which is what says whether a side call over the same context would be
+	// read back from the provider's cache (session.PromptSuggestionUsage).
+	var lastUsage session.PromptSuggestionUsage
+	defer func() {
+		st, ok := a.state.(interface {
+			SetPromptSuggestionFork(session.PromptSuggestionFork)
+		})
+		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
+			return
+		}
+		// The turn's own messages, tools and provider input: the side call
+		// repeats this request with one message appended, so it reads the
+		// prompt cache the turn wrote instead of paying for the history
+		// again. The turn-context block is left out - it is request-only
+		// and sits past the cache mark, so it costs its tokens on every
+		// side call and tells a prediction nothing.
+		st.SetPromptSuggestionFork(session.PromptSuggestionFork{
+			Messages: withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage),
+			Tools:    toolDefs,
+			Input:    transport.in,
+			Usage:    lastUsage,
+		})
+	}()
 	var totalInputTokens, totalOutputTokens int
 	allUsageKnown := true
 	statsWritable := true
@@ -1667,6 +1691,12 @@ func (a *Agent) runReActLoop(
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
 		usageKnown := response.UsageKnown || (!response.UsageIncomplete && (response.InputTokens > 0 || response.OutputTokens > 0))
+		lastUsage = session.PromptSuggestionUsage{
+			InputTokens:       response.InputTokens,
+			CachedInputTokens: response.CachedInputTokens,
+			OutputTokens:      response.OutputTokens,
+			Known:             usageKnown,
+		}
 		if !transport.agent && usageKnown {
 			// An agent's input count measures its own context (its system
 			// prompt, its tools, their results), not this transcript.
@@ -3142,6 +3172,11 @@ type llmTransport struct {
 	// first-token timer, whose budget the agent's start, handshake and the
 	// replay of a history into a new session would spend.
 	agent bool
+	// in is the input this transport's provider was built from, reasoning
+	// level included. A side call over the same context (the prompt
+	// suggestion) reuses it, so its request differs from the turn's in
+	// nothing the provider's prompt cache keys on.
+	in llm.ProviderInput
 }
 
 // getProvider creates the LLM provider for the given mode.
@@ -3176,6 +3211,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		key:       modelID + "|" + reasoning,
 		rev:       rev,
 		agent:     rm.ProviderType == "acp",
+		in:        in,
 	}, nil
 }
 

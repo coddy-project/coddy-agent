@@ -119,6 +119,10 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+	// promptSuggestionSide tracks the follow-up prompt suggestion calls in
+	// flight and their last answers (prompt_suggestion.go): one call per
+	// session at a time, one cached answer per conversation revision.
+	promptSuggestionSide promptSuggestionSide
 	// queueObservers fan every message queue change out to the surfaces that
 	// have clients of their own (manager_queue.go).
 	queueObserverMu  sync.Mutex
@@ -583,6 +587,7 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 	previousTrust, _ := m.mcpTrust.Swap(next.MCP.ResolvedProjectTrust()).(string)
 	m.skillsLoad = skills.NewLoader(next.Skills.SearchDirs())
 	m.cfgAt.Store(next)
+	m.resetPromptSuggestions()
 	// The global servers the pool keeps follow the configuration: a server
 	// added or switched on starts, one removed, switched off or redeclared
 	// is let go once no session holds it. A changed mcp.idle_timeout_seconds

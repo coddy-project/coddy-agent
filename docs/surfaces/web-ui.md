@@ -238,6 +238,32 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 ## Settings: boolean switch fields
 
+**ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
+It is enabled by default. After a turn, Coddy repeats that turn's own request: the
+main system prompt, the complete history with tool calls and results, the tool
+definitions and the same model and reasoning level, with the suggestion instruction
+appended as a request-only user message. A provider that caches prompts therefore
+reads the history back from its cache instead of paying for it again. Tools
+are never executed and nothing enters the transcript. Two turns get no suggestion
+at all: one that ended while this tab was hidden, since its composer shows the
+hint to nobody, and one the provider did not serve from its cache, since the side
+call would then read the whole history at the input price. **Tab** or **Right** copies
+the suggestion into the draft. The suggestion stays as the placeholder while
+you edit. Clearing the draft shows the same suggestion again, including after accepting
+and editing it. Sending a message, starting another turn or switching context retires it.
+Set `agent.prompt_suggestions: false`
+in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
+the web UI and consoles connected to this server, including `--remote` clients.
+The change applies without restarting Coddy.
+
+![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
+
+*The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*
+
+![Prompt suggestions enabled in ReAct loop settings](../assets/web-ui/prompt-suggestions-on-dark-1280.png)
+
+*Prompt suggestions enabled by default in ReAct loop settings, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestions-on-dark-390.png).*
+
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control and a label cell on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, the **Gateways → Telegram** flags) and the **Skills → Skill auto-discovery** row.
 - The label sits level with the switch (vertical centres match within 1px, 8px gap), and the field's description is the (i) right after the label, as on every other field.
 - The label is a real **`<label for>`**: clicking the text toggles the switch; clicking the (i) only opens the description. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
