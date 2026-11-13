@@ -183,6 +183,18 @@ func (a *Agent) runPreToolUseHooks(ctx context.Context, tc *llm.ToolCall, mode s
 	return res, true
 }
 
+// runToolExecuteHooks lets one synchronous handler execute the call externally.
+// The agent invokes this event only after PreToolUse and the permission gate.
+func (a *Agent) runToolExecuteHooks(ctx context.Context, tc llm.ToolCall, mode string) (hooks.Outcome, bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventToolExecute) {
+		return hooks.Outcome{}, false
+	}
+	out := r.Run(ctx, hooks.ToolEvent(hooks.EventToolExecute, tc.Name, hooks.ToolInput(tc.InputJSON), tc.ID))
+	a.reportHookOutcome(hooks.EventToolExecute, out)
+	return out, true
+}
+
 // runPostToolUseHooks fires PostToolUse after a successful call or
 // PostToolUseFailure after a failed one and returns the feedback to append
 // to the model-facing result ("" when there is none).
@@ -272,26 +284,47 @@ const hookNotificationPermissionPrompt = "permission_prompt"
 // message, so the transcript says where it came from.
 const stopHookPrefix = session.StopHookPrefix
 
-// runUserPromptHooks fires UserPromptSubmit before the prompt becomes a
-// message. A rejected prompt is reported with its reason; context the hooks
-// hand over is kept for this turn's system prompt.
+// runUserPromptHooks fires FirstPrompt (once per session, for the first user
+// message) and UserPromptSubmit before the prompt becomes a message. A
+// rejected prompt is reported with its reason. UserPromptSubmit context is
+// kept for this turn's system prompt; FirstPrompt context rides in the
+// turn-scoped block so the session's cached system prompt stays unchanged.
 func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (reason string, rejected bool) {
 	r := a.hooksFor(mode)
-	if r == nil || !r.HasHandlers(hooks.EventUserPromptSubmit) {
+	if r == nil {
 		return "", false
 	}
 	// The prompt is not a message yet; the payload counts it as the turn
 	// it is about to start.
+	first := session.CountUserTurns(a.state.GetMessages()) == 0
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()) + 1)
-	out := r.Run(ctx, hooks.PromptEvent(prompt))
-	a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
-	switch {
-	case out.Stop:
-		return stopReasonOr(out.StopReason), true
-	case out.Blocked():
-		return reasonOr(out.Reason, "rejected by a hook"), true
+	var contexts []string
+	// FirstPrompt is the context-enrichment hook: it runs once per session,
+	// at the moment the first message goes out (not at session creation, when
+	// the working state may not exist yet).
+	if first && r.HasHandlers(hooks.EventFirstPrompt) {
+		fout := r.Run(ctx, hooks.FirstPromptEvent(prompt))
+		a.reportHookOutcome(hooks.EventFirstPrompt, fout)
+		switch {
+		case fout.Stop:
+			return stopReasonOr(fout.StopReason), true
+		case fout.Blocked():
+			return reasonOr(fout.Reason, "rejected by a hook"), true
+		}
+		a.firstPromptContext = append(a.firstPromptContext, fout.Context...)
 	}
-	a.turnHookContext = strings.Join(out.Context, "\n")
+	if r.HasHandlers(hooks.EventUserPromptSubmit) {
+		out := r.Run(ctx, hooks.PromptEvent(prompt))
+		a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
+		switch {
+		case out.Stop:
+			return stopReasonOr(out.StopReason), true
+		case out.Blocked():
+			return reasonOr(out.Reason, "rejected by a hook"), true
+		}
+		contexts = append(contexts, out.Context...)
+	}
+	a.turnHookContext = strings.Join(contexts, "\n")
 	return "", false
 }
 
@@ -446,6 +479,41 @@ func (a *Agent) runNotificationHooks(ctx context.Context, mode, kind string, tc 
 		"tool_use_id": tc.ID,
 	}))
 	a.reportHookOutcome(hooks.EventNotification, out)
+}
+
+// addAssistantMessage remembers the answer produced by this Run before
+// persisting it. TurnEnd uses that value instead of a transcript index, which
+// an in-turn compaction can invalidate.
+func (a *Agent) addAssistantMessage(msg llm.Message) {
+	if strings.TrimSpace(msg.Content) != "" {
+		a.turnEndAssistantText = msg.Content
+	}
+	a.state.AddMessage(msg)
+}
+
+// runQuestionHooks fires Question when the question tool is about to ask its
+// questions; the payload carries the questions and their options so a
+// notification hook can show exactly what the user is about to be asked. The
+// outcome is observational.
+func (a *Agent) runQuestionHooks(ctx context.Context, mode string, tc llm.ToolCall) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventQuestion) {
+		return
+	}
+	out := r.Run(ctx, hooks.QuestionEvent(tc.ID, hooks.ToolInput(tc.InputJSON)))
+	a.reportHookOutcome(hooks.EventQuestion, out)
+}
+
+// runTurnEndHooks fires TurnEnd when the turn finished and the agent waits for
+// the user's next message - the notification source for "the agent is done".
+// The outcome is observational.
+func (a *Agent) runTurnEndHooks(ctx context.Context, mode, stopReason, lastAssistant string) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventTurnEnd) {
+		return
+	}
+	out := r.Run(ctx, hooks.TurnEndEvent(stopReason, lastAssistant))
+	a.reportHookOutcome(hooks.EventTurnEnd, out)
 }
 
 // sameToolArgs reports whether two argument documents describe the same call.

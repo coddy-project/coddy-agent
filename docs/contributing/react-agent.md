@@ -129,8 +129,10 @@ See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
-checklist after the history; its block carries the one section no template prints, the running
-background tasks, and is left out when there is none.
+checklist after the history. Its block still carries every other applicable section the template
+does not print: git workspace facts, running background tasks, surface turn context and the
+one-time enrichment of a `FirstPrompt` hook on the requests of the first turn. It is omitted only
+when none of those sections applies.
 
 ### The other half: result eviction
 
