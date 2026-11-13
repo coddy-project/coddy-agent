@@ -189,11 +189,13 @@ func writeFrames(b *strings.Builder, bd board.Board) {
 }
 
 // heldNote says why some pages of a board do not run: the board came with the
-// workspace, and only the person can let them run.
+// workspace, and only the person can let them run. Under deny it names no way
+// around the policy: the operator set it, and a note that told the model how
+// to release a page anyway would be the instruction an injected page needs.
 func heldNote(bd board.Board) string {
 	if bd.Policy() == config.ProjectTrustDeny {
 		return "The pages marked as waiting came with the workspace's board and do not run: tools.canvas.project_trust is deny. " +
-			"Show a page with " + ToolShow + " to run it.\n"
+			"Only the operator can change that, in the configuration. Do not try to run these pages another way.\n"
 	}
 	return "The pages marked as waiting came with the workspace's board: they run once the person trusts the board's pages from a " +
 		"waiting frame in the web UI. Showing a page with " + ToolShow + " runs that page alone.\n"

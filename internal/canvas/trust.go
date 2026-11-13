@@ -438,9 +438,13 @@ func onBoardSet(onBoard []string) map[string]bool {
 }
 
 // keepPages drops the pages a board no longer shows. Both halves of a receipt
-// are trimmed alike: a page the person let run leaves with its frame just as
-// one Coddy put there does, or an approval would outlive the board and a page
-// the file brings back later would run unasked.
+// are trimmed alike, so a receipt stays the size of the board as Coddy last
+// wrote it: a page the person let run leaves with its frame just as one Coddy
+// put there does. A page the file itself drops - a branch, Obsidian - is
+// trimmed at the next change Coddy makes to that board and not before, which
+// costs nothing: a receipt names a path and never what the page holds, so a
+// page the file brings back at an approved path is the page that was
+// approved, exactly as one edited in place is.
 func keepPages(pages []string, keep map[string]bool) ([]string, bool) {
 	kept := pages[:0:0]
 	for _, p := range pages {
