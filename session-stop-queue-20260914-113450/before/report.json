@@ -1,0 +1,82 @@
+{
+  "phase": "before",
+  "base": "http://127.0.0.1:44861",
+  "screenshots": [
+    "remote-tui-queue-dark-1280.png",
+    "shared-queue-dark-1280.png",
+    "shared-queue-dark-390.png",
+    "cancel-refused-dark-1280.png",
+    "cancel-refused-dark-390.png",
+    "busy-after-refused-cancel-dark-1280.png",
+    "shared-turn-stopped-dark-1280.png"
+  ],
+  "sessionId": "sess_ed50ba144e17d7e03bf6ec6c853a06ef2515",
+  "queueCountAfterRemoteSubmit": 1,
+  "layout": [
+    {
+      "viewport": 1280,
+      "documentWidth": 1280,
+      "boxes": {
+        ".chat-header": {
+          "left": 222,
+          "right": 1142,
+          "width": 920,
+          "height": 56
+        },
+        ".messages-inner": {
+          "left": 222,
+          "right": 1142,
+          "width": 920,
+          "height": 112.6875
+        },
+        ".composer-card": {
+          "left": 222,
+          "right": 1142,
+          "width": 920,
+          "height": 182.09375
+        },
+        "#btn-send": {
+          "left": 1087,
+          "right": 1129,
+          "width": 42,
+          "height": 42
+        }
+      }
+    },
+    {
+      "viewport": 390,
+      "documentWidth": 390,
+      "boxes": {
+        ".chat-header": {
+          "left": 14,
+          "right": 376,
+          "width": 362,
+          "height": 56
+        },
+        ".messages-inner": {
+          "left": 14,
+          "right": 376,
+          "width": 362,
+          "height": 157.375
+        },
+        ".composer-card": {
+          "left": 14,
+          "right": 376,
+          "width": 362,
+          "height": 212.1875
+        },
+        "#btn-send": {
+          "left": 321,
+          "right": 363,
+          "width": 42,
+          "height": 42
+        }
+      }
+    }
+  ],
+  "serverActiveAfterRefusedCancel": true,
+  "stopVisibleAfterRefusedCancel": false,
+  "pageErrors": [],
+  "serverActiveAfterStop": false,
+  "queueEmptyAfterStop": true
+}
