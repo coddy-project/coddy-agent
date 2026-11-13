@@ -130,7 +130,8 @@
 
           <div></div>
           <div class="box amber">the person sends a prompt <small>built-ins like /compact run first</small></div>
-          <div class="box amber ev">UserPromptSubmit</div>
+          <div class="box amber ev">FirstPrompt <small>then UserPromptSubmit</small></div>
+          <div class="what">FirstPrompt enriches every request of the first turn through <code>turn_context</code>; both may reject the prompt before it is saved</div>
           <div class="what">
             <b class="no">reject</b>: never saved, no model call; or <b class="ctx">context</b> for this turn's
             <code>## Hook context</code> block
@@ -152,7 +153,12 @@
           <div class="box amber ev">Notification <small>permission_prompt</small></div>
           <div class="what">observational: give it <code>async: true</code> so the prompt is not delayed</div>
 
-          <div class="box core" id="t-run">the tool runs</div>
+          <div class="box amber ev">ToolExecute <small>after the permission gate</small></div>
+          <div class="what"><code>handled</code>: the first external executor answers; local dispatch runs only without handled, block, stop or cancellation</div>
+
+          <div class="box amber ev">Question <small>only when the local question tool will ask</small></div>
+
+          <div class="box core" id="t-run">the external or local result is returned</div>
           <div class="box amber ev">PostToolUse <small>or PostToolUseFailure</small></div>
           <div class="what">
             <code>Hook feedback</code> and <code>Hook context</code> appended to the result; nothing is undone
@@ -179,6 +185,10 @@
             <b class="no">block</b>: the reason goes back as a <code>[Stop hook]</code> user message and the loop goes
             on, at most <code>hooks.stop_loop_limit</code> (5) times
           </div>
+
+          <div></div>
+          <div class="box amber ev">TurnEnd <small>after every exit from Run</small></div>
+          <div class="what">observational: carries the stop reason and the assistant text produced by this turn</div>
         </div>
         <p class="note muted" style="margin: 12px 0 0">
           Inside a child session every event fires for the child's own turn, with a <code>subagent</code> block in the
@@ -259,11 +269,12 @@
             <div class="box blue">
               the fields apply
               <small><code>permissionDecision</code>, <code>updatedInput</code>, <code>additionalContext</code>,
-                <code>decision</code>, <code>continue: false</code>, <code>systemMessage</code></small>
+                <code>decision</code>, <code>continue: false</code>, <code>systemMessage</code>,
+                <code>handled</code>, <code>toolResult</code>, <code>toolError</code></small>
             </div>
             <div class="code">0, text</div>
             <div class="box gray" style="color: var(--ink-2)">
-              context for SessionStart and UserPromptSubmit only
+              context for SessionStart, FirstPrompt and UserPromptSubmit only
             </div>
             <div class="code">2</div>
             <div class="box red">block: the JSON reason, else stderr</div>
@@ -283,7 +294,7 @@
         <ul class="mini" style="margin-top: 10px">
           <li>they run one after another in catalog order, your file first; each sees the input the previous one
             rewrote;</li>
-          <li>all of them run even after a deny, so an audit hook sees every call;</li>
+          <li>policy and audit hooks all run after a deny; ToolExecute stops after handled, denial, block, stop or cancellation;</li>
           <li>every <code>additionalContext</code> is kept in order, each text capped at
             <code>hooks.max_output_chars</code> (10,000);</li>
           <li><code>async: true</code> is started and not awaited: it never decides, at most 8 run at once.</li>

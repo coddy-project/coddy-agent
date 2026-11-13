@@ -16,9 +16,17 @@ import (
 
 // Event names use the Claude Code spelling so a definition ports both ways.
 const (
-	EventSessionStart       = "SessionStart"
-	EventUserPromptSubmit   = "UserPromptSubmit"
-	EventPreToolUse         = "PreToolUse"
+	EventSessionStart = "SessionStart"
+	// EventFirstPrompt fires once per session, before the first user message
+	// becomes a message: the place to enrich the context with the working
+	// state (what is open in the editor, the state of the checkout) at the
+	// moment the first message goes out. Same contract as UserPromptSubmit.
+	EventFirstPrompt      = "FirstPrompt"
+	EventUserPromptSubmit = "UserPromptSubmit"
+	EventPreToolUse       = "PreToolUse"
+	// EventToolExecute runs after PreToolUse and the permission gate. Its
+	// handler may execute the call externally and return its result.
+	EventToolExecute        = "ToolExecute"
 	EventPostToolUse        = "PostToolUse"
 	EventPostToolUseFailure = "PostToolUseFailure"
 	EventStop               = "Stop"
@@ -27,13 +35,22 @@ const (
 	EventPreCompact         = "PreCompact"
 	EventPostCompact        = "PostCompact"
 	EventNotification       = "Notification"
+	// EventQuestion fires when the question tool is about to ask; its payload
+	// carries the questions and their options, so a notification hook can show
+	// exactly what the user is about to be asked. Observational.
+	EventQuestion = "Question"
+	// EventTurnEnd fires when the turn finished and the agent waits for the
+	// user's next message. Observational - the notification source.
+	EventTurnEnd = "TurnEnd"
 )
 
 // Events lists every event Coddy fires, in the order the catalog shows them.
 var Events = []string{
 	EventSessionStart,
+	EventFirstPrompt,
 	EventUserPromptSubmit,
 	EventPreToolUse,
+	EventToolExecute,
 	EventPostToolUse,
 	EventPostToolUseFailure,
 	EventStop,
@@ -42,6 +59,8 @@ var Events = []string{
 	EventPreCompact,
 	EventPostCompact,
 	EventNotification,
+	EventQuestion,
+	EventTurnEnd,
 }
 
 // KnownEvent reports whether name is an event Coddy fires.
@@ -177,9 +196,15 @@ func Parse(data []byte) (*Definition, error) {
 				if warn != "" {
 					def.Warnings = append(def.Warnings, fmt.Sprintf("event %s group %d hook %d: %s", name, gi, hi, warn))
 				}
+				if name == EventToolExecute && h.Async {
+					def.Warnings = append(def.Warnings, fmt.Sprintf("event %s group %d hook %d: async is not supported and was skipped; an external executor must be synchronous", name, gi, hi))
+					continue
+				}
 				group.Handlers = append(group.Handlers, h)
 			}
-			def.Events[name] = append(def.Events[name], group)
+			if len(group.Handlers) > 0 {
+				def.Events[name] = append(def.Events[name], group)
+			}
 		}
 	}
 	return def, nil
