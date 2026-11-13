@@ -2,6 +2,29 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "git.createMenu": "Create and switch to new branch…",
+  "git.createTitle": "Create and switch to a new branch",
+  "git.createDescription":
+    "Create a new local branch from the current HEAD and switch to it immediately after it succeeds.",
+  "git.branchName": "Branch name",
+  "git.branchPlaceholder": "For example, feature/git-branch-switcher",
+  "git.headOnly": "Create and switch from the current HEAD only.",
+  "git.createAction": "Create and switch",
+  "git.creating": "Creating…",
+  "git.createFailed": "Could not create the branch.",
+  "git.graph": "Git Graph",
+  "git.refresh": "Refresh graph",
+  "git.graphColumn": "Graph",
+  "git.description": "Description",
+  "git.date": "Date",
+  "git.author": "Author",
+  "git.commit": "Commit",
+  "git.empty": "No commits yet.",
+  "git.loading": "Loading history…",
+  "git.loadMore": "Load more",
+  "git.commitCount": "Commits shown: {count}",
+  "git.graphFailed": "Could not load Git history.",
+
   "settings.section.httpserver.label": "Authentication",
   "settings.section.httpserver.desc": "Web sign-in protection",
   "settings.auth.removeTotp": "Remove TOTP",

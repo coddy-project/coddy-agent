@@ -35,6 +35,7 @@ vi.mock("./chat/ChatScreen", () => ({
     onWorktreeToggle?: () => void;
     onWorkspacePickFolder?: (path: string) => void;
     onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+    onWorkspaceCreateBranch?: (branch: string) => Promise<void>;
     onWorkspaceRefreshBranches?: () => Promise<{ status: string } | null>;
   }) => (
     <>
@@ -76,6 +77,15 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onWorkspacePickBranch?.("feat/fresh", false)}
       >
         pick branch
+      </button>
+      <button
+        type="button"
+        data-testid="create-branch"
+        onClick={() =>
+          void props.onWorkspaceCreateBranch?.("feature/new").catch(() => {})
+        }
+      >
+        create
       </button>
       <button
         type="button"
@@ -224,6 +234,52 @@ function mountApp() {
 }
 
 const state = () => screen.getByTestId("workspace-state");
+
+test("creating a branch on home switches immediately in the selected folder", async () => {
+  history.replaceState(null, "", "/#/");
+  writeLastWorkspaceDir(PICKED);
+  const passthrough = fetchMock.getMockImplementation()!;
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fetchMock.mockImplementation(async (input, init) => {
+    if (String(input).startsWith("/coddy/workspace/branches?")) {
+      await held;
+      return json({
+        path: PICKED,
+        name: "picked",
+        branch: "feature/new",
+        is_git_repo: true,
+        is_worktree: false,
+      });
+    }
+    return passthrough(input, init);
+  });
+  try {
+    mountApp();
+    await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
+    fireEvent.click(screen.getByTestId("create-branch"));
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(state().getAttribute("data-branch")).toBe("feature/new"),
+    );
+    const request = fetchMock.mock.calls.find(([url]) =>
+      String(url).startsWith("/coddy/workspace/branches?"),
+    )!;
+    expect(String(request[0])).toContain(encodeURIComponent(PICKED));
+    expect(JSON.parse(String(request[1]?.body))).toEqual({
+      branch: "feature/new",
+    });
+  } finally {
+    fetchMock.mockImplementation(passthrough);
+  }
+});
 
 test("a desktop new-chat handoff wins over the shared last-picked folder once", async () => {
   writeLastWorkspaceDir(PICKED);

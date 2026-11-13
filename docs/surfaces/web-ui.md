@@ -633,6 +633,24 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, the refresh behind the open branch list, the warning, remote rows, modal, lock), **`App.workspaceHome.test.tsx`** (which folder a refresh is asked for, and that a branch picked during it stays the choice), the scenario of the branch list during a refresh in **`features/web_ui_menus.feature`**; backend behavior is specified executable in **`features/workspace_switching.feature`** (godog), the fetch itself in **`internal/gitws/remotes_test.go`** (every remote, prune, nothing local touched, the refspec guard, the deadline, both git backends).
 
+### Branch creation and Git Graph
+
+The branch menu offers **Create and switch to new branch…**. Enter a branch name and choose **Create and switch**. Coddy creates a local branch at the checkout's current HEAD and switches immediately, before the first message. This action uses the current checkout even when the worktree checkbox is on. Git keeps uncommitted files when it can; an invalid or existing name leaves the dialog open with the error.
+
+![The create branch dialog in the dark theme](../assets/web-ui/git-branch-create-open-dark-1280.png)
+
+**Git Graph** in the same menu opens the commit history. After a conversation starts, click the branch name on the plate over the composer to open the graph. Creating or switching branches through the plate stays locked once the conversation starts.
+
+The graph shows branch and merge lines, HEAD, local and remote branch labels, tags, commit descriptions, dates, authors and short hashes. It reads 100 commits at a time; **Load more** adds older commits, and **Refresh graph** starts again from the newest ones. It reads local history without fetching or changing the checkout and requires the git executable.
+
+![Git Graph with a merge and branch labels in the dark theme](../assets/web-ui/git-graph-open-dark-1280.png)
+
+On a phone the table scrolls horizontally inside the window. The title and close control stay in view. Both dialogs use the shared theme tokens and support Escape, keyboard focus within the dialog, and focus returning to the branch control.
+
+![Git Graph on a narrow screen](../assets/web-ui/git-graph-open-dark-390.png)
+
+Run `npm run check:git` in `external/ui` after building with `http,ui`. The check uses an isolated repository and no LLM, drives both dialogs on wide and narrow screens in light and dark themes, and checks transcript alignment. Set `CODDY_ENGINE=webkit` to run it in WebKit.
+
 ## Session list
 
 ![History grouped by folder, with a plus on the heading](../assets/sessions-history-grouping-dark-1280.png)

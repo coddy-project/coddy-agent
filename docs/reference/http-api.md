@@ -645,6 +645,14 @@ make build TAGS="http ui"
 
 For a manual gateway check against a disposable **`coddy serve`** process, **`examples/test_httpserver.sh`** runs the Python demos under **`examples/httpserver/`** (see **`examples/README.md`**). Steps that call chat or responses expect a working **`models`** backend.
 
+## Git branches and history
+
+| Method | Route | Contract |
+|---|---|---|
+| POST | `/coddy/workspace/branches?path=...` | Before a session exists, creates and switches to a local branch at the current HEAD. Body `{"branch":"feature/new"}`. The folder defaults to the server cwd. Returns the workspace context; invalid JSON or a session header gives 400, git failures including an existing name give 409. |
+| POST | `/coddy/sessions/{id}/workspace` | With `{"branch":"feature/new","create":true}`, creates and switches in the session's current checkout, then reloads its workspace context. Cannot be combined with `path` or `worktree:true` (400). The existing conversation and active-turn locks apply (409). |
+| GET | `/coddy/workspace/graph` | Read-only topological history of all refs and HEAD, including detached HEAD. `path` overrides the folder from `X-Coddy-Session-ID` or the server default. `offset` is 0-100000 (default 0), `limit` is 1-500 (default 100). Returns `commits` (`hash`, `parents`, `subject`, `author`, RFC 3339 `date`, `refs`) and `has_more`. An unborn repository returns an empty list. Requires git; invalid pagination, a non-repository or unavailable git gives 400. No fetch. Restart pagination after the repository changes. |
+
 ## Session workspace previews
 
 These routes use the workspace of **`{id}`**, loaded from persistence when needed.
