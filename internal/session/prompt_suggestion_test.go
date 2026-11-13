@@ -55,7 +55,7 @@ func newSuggestionTestManager(t *testing.T, respond func(http.ResponseWriter, *h
 func setSuggestionTestFork(t *testing.T, m *Manager, st *State) {
 	t.Helper()
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, MessagesForLLM(st.GetMessages())...)
-	st.SetPromptSuggestionFork(messages, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, suggestionTestInput(t, m))
+	st.SetPromptSuggestionFork(PromptSuggestionFork{Messages: messages, Tools: []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, Input: suggestionTestInput(t, m)})
 }
 
 // suggestionTestInput stands in for what a turn stores on the fork: the input
@@ -361,7 +361,7 @@ func TestPromptSuggestionUsesMainContextFork(t *testing.T) {
 	}
 	tools := []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}
 	st.ReplaceMessagesWithoutPersist(mainContext[1:])
-	st.SetPromptSuggestionFork(mainContext, tools, suggestionTestInput(t, m))
+	st.SetPromptSuggestionFork(PromptSuggestionFork{Messages: mainContext, Tools: tools, Input: suggestionTestInput(t, m)})
 
 	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
 	if err != nil || text != "run the tests" {

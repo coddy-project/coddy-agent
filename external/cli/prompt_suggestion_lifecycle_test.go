@@ -55,7 +55,7 @@ func newPromptSuggestionConsole(t *testing.T, providerURL string) (*App, *sessio
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		DisableStream: !rm.Stream, RetryDisabled: true,
 	}
-	state.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, input)
+	state.SetPromptSuggestionFork(session.PromptSuggestionFork{Messages: fork, Tools: []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, Input: input})
 	return app, state
 }
 

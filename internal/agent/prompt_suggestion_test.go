@@ -31,7 +31,8 @@ func TestPromptCachePromptSuggestionForkMatchesMainRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	messages, tools, forkInput, rev, ok := st.PromptSuggestionFork()
+	fork, rev, ok := st.PromptSuggestionFork()
+	messages, tools, forkInput := fork.Messages, fork.Tools, fork.Input
 	if !ok {
 		t.Fatal("completed turn did not store its suggestion fork")
 	}

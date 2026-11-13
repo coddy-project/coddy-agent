@@ -20,6 +20,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import {
   fetchPromptSuggestion,
+  promptSuggestionsWatched,
   reportPromptSuggestionOutcome,
 } from "./chat/promptSuggestion";
 import { useStableHandler } from "./components/useStableHandler";
@@ -1199,6 +1200,9 @@ export function App() {
     // turn with nothing to suggest clears what an older turn left.
     if (!viewing) return;
     retirePromptSuggestion();
+    // Nobody is looking: a hidden tab shows its composer to no one, so the
+    // side call would be paid for and never read. The next turn asks again.
+    if (!promptSuggestionsWatched()) return;
     const request = new AbortController();
     promptSuggestionRequestRef.current = request;
     const generation = turnActivity.generation(sid);

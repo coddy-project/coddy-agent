@@ -843,9 +843,13 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 ) (string, error) {
+	// What the last provider answer of this turn reported about its own cost,
+	// which is what says whether a side call over the same context would be
+	// read back from the provider's cache (session.PromptSuggestionUsage).
+	var lastUsage session.PromptSuggestionUsage
 	defer func() {
 		st, ok := a.state.(interface {
-			SetPromptSuggestionFork([]llm.Message, []llm.ToolDefinition, llm.ProviderInput)
+			SetPromptSuggestionFork(session.PromptSuggestionFork)
 		})
 		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
 			return
@@ -856,8 +860,12 @@ func (a *Agent) runReActLoop(
 		// again. The turn-context block is left out - it is request-only
 		// and sits past the cache mark, so it costs its tokens on every
 		// side call and tells a prediction nothing.
-		fork := withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage)
-		st.SetPromptSuggestionFork(fork, toolDefs, transport.in)
+		st.SetPromptSuggestionFork(session.PromptSuggestionFork{
+			Messages: withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage),
+			Tools:    toolDefs,
+			Input:    transport.in,
+			Usage:    lastUsage,
+		})
 	}()
 	var totalInputTokens, totalOutputTokens int
 	allUsageKnown := true
@@ -1683,6 +1691,12 @@ func (a *Agent) runReActLoop(
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
 		usageKnown := response.UsageKnown || (!response.UsageIncomplete && (response.InputTokens > 0 || response.OutputTokens > 0))
+		lastUsage = session.PromptSuggestionUsage{
+			InputTokens:       response.InputTokens,
+			CachedInputTokens: response.CachedInputTokens,
+			OutputTokens:      response.OutputTokens,
+			Known:             usageKnown,
+		}
 		if !transport.agent && usageKnown {
 			// An agent's input count measures its own context (its system
 			// prompt, its tools, their results), not this transcript.

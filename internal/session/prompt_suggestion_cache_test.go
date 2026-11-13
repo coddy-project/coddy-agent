@@ -59,10 +59,16 @@ func TestPromptCacheSuggestionReusesTheTurnsPrefix(t *testing.T) {
 			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "fix the bug"})
 			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: answer})
 			fork := append([]llm.Message{{Role: llm.RoleSystem, Content: strings.Repeat("You are Coddy. ", 200)}}, MessagesForLLM(st.GetMessages())...)
-			st.SetPromptSuggestionFork(fork, nil, llm.ProviderInput{
-				Name: "a", Type: "anthropic", Model: "model", APIKey: "test",
-				BaseURL: server.URL, ProxyURL: "none", MaxTokens: 8192,
-				ReasoningEffort: tc.reasoning, DisableStream: true, RetryDisabled: true,
+			st.SetPromptSuggestionFork(PromptSuggestionFork{
+				Messages: fork,
+				Input: llm.ProviderInput{
+					Name: "a", Type: "anthropic", Model: "model", APIKey: "test",
+					BaseURL: server.URL, ProxyURL: "none", MaxTokens: 8192,
+					ReasoningEffort: tc.reasoning, DisableStream: true, RetryDisabled: true,
+				},
+				// A turn the provider served from its cache, which is what
+				// makes the side call worth making at all.
+				Usage: PromptSuggestionUsage{InputTokens: 20000, CachedInputTokens: 19800, OutputTokens: 60, Known: true},
 			})
 			m := &Manager{sessions: map[string]*State{st.ID: st}}
 			m.cfgAt.Store(cfg)
@@ -117,12 +123,84 @@ func TestPromptCacheSuggestionReusesTheTurnsPrefix(t *testing.T) {
 func TestPromptSuggestionWithoutTheTurnsInputIsSuppressed(t *testing.T) {
 	m, st, calls := newSuggestionTestManager(t, answerSuggestion)
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, MessagesForLLM(st.GetMessages())...)
-	st.SetPromptSuggestionFork(messages, nil, llm.ProviderInput{})
+	st.SetPromptSuggestionFork(PromptSuggestionFork{Messages: messages})
 	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
 	if text != "" || !IsPromptSuggestionSuppressed(err) {
 		t.Fatalf("fork without a provider input: text=%q err=%v", text, err)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("fork without a provider input reached the provider %d times", calls.Load())
+	}
+}
+
+// A turn the provider processed rather than read back from its cache makes the
+// side call over the same context cost the whole history at the input price.
+// Such a turn gets no suggestion, the way Claude Code suppresses one as
+// cache_cold. The reading applies only where a zero means an empty cache
+// rather than a silent provider.
+func TestPromptSuggestionSkipsATurnTheCacheDidNotServe(t *testing.T) {
+	cases := []struct {
+		name         string
+		providerType string
+		usage        PromptSuggestionUsage
+		wantCold     bool
+	}{
+		{
+			name: "cache served the turn", providerType: "anthropic",
+			usage:    PromptSuggestionUsage{InputTokens: 120000, CachedInputTokens: 119000, OutputTokens: 200, Known: true},
+			wantCold: false,
+		},
+		{
+			name: "cold cache over the bound", providerType: "anthropic",
+			usage:    PromptSuggestionUsage{InputTokens: 120000, CachedInputTokens: 0, OutputTokens: 200, Known: true},
+			wantCold: true,
+		},
+		{
+			name: "a short turn nothing was cached for", providerType: "anthropic",
+			usage:    PromptSuggestionUsage{InputTokens: 900, OutputTokens: 60, Known: true},
+			wantCold: false,
+		},
+		{
+			name: "a cache write of its own under the bound", providerType: "anthropic",
+			usage:    PromptSuggestionUsage{InputTokens: 9000, CachedInputTokens: 0, OutputTokens: 200, Known: true},
+			wantCold: false,
+		},
+		{
+			name: "usage the provider did not report", providerType: "anthropic",
+			usage:    PromptSuggestionUsage{InputTokens: 120000},
+			wantCold: false,
+		},
+		{
+			name: "a provider that says nothing about its cache", providerType: "openai",
+			usage:    PromptSuggestionUsage{InputTokens: 120000, CachedInputTokens: 0, OutputTokens: 200, Known: true},
+			wantCold: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := promptSuggestionCacheCold(tc.providerType, tc.usage); got != tc.wantCold {
+				t.Fatalf("promptSuggestionCacheCold(%q, %+v) = %v, want %v", tc.providerType, tc.usage, got, tc.wantCold)
+			}
+		})
+	}
+}
+
+// The gate decides before the provider is reached: a turn the cache did not
+// serve costs no side call at all.
+func TestPromptSuggestionColdCacheTurnReachesNoProvider(t *testing.T) {
+	m, st, calls := newSuggestionTestManager(t, answerSuggestion)
+	fork, _, ok := st.PromptSuggestionFork()
+	if !ok {
+		t.Fatal("the harness left no fork")
+	}
+	fork.Input.Type = "anthropic"
+	fork.Usage = PromptSuggestionUsage{InputTokens: 60000, CachedInputTokens: 0, OutputTokens: 300, Known: true}
+	st.SetPromptSuggestionFork(fork)
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if text != "" || !IsPromptSuggestionSuppressed(err) {
+		t.Fatalf("cold cache: text=%q err=%v", text, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("cold cache reached the provider %d times", calls.Load())
 	}
 }

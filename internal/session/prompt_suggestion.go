@@ -81,7 +81,30 @@ const (
 	promptSuggestionMaxTokens = 1024
 	// promptSuggestionCacheFor is how long one turn's answer stays reusable.
 	promptSuggestionCacheFor = 5 * time.Minute
+	// promptSuggestionColdTokens is how much a turn may have paid full price
+	// or a cache write for and still be worth a side call over the same
+	// context. Above it the suggestion would read the whole history again at
+	// the input price, which no two-to-twelve word prediction is worth. The
+	// bound and the reading of the turn's usage are Claude Code's (2.1.311:
+	// input_tokens + cache_creation_input_tokens + output_tokens against
+	// 10000, suppressed as cache_cold).
+	promptSuggestionColdTokens = 10000
 )
+
+// promptSuggestionCacheCold reports whether the turn that just ended was paid
+// for rather than read back from the provider's prompt cache.
+//
+// It reads the turn's own usage, so it applies only where a zero means "the
+// provider served nothing from its cache" rather than "the provider said
+// nothing about its cache". The Messages API always reports both cache
+// counters; most OpenAI-compatible servers report neither, and there a long
+// session would otherwise lose the feature over numbers nobody sent.
+func promptSuggestionCacheCold(providerType string, usage PromptSuggestionUsage) bool {
+	if providerType != "anthropic" || !usage.Known {
+		return false
+	}
+	return usage.uncachedTokens() > promptSuggestionColdTokens
+}
 
 // promptSuggestionReasons reports whether a turn's reasoning level asks the
 // model to think, which is what ties the request's thinking parameters - and
@@ -298,37 +321,62 @@ func (s *promptSuggestionStore) update(fn func(*promptSuggestionState)) promptSu
 	return st
 }
 
+// PromptSuggestionFork is what a completed turn leaves for its side call: the
+// request it sent, the input its provider was built from, and what the
+// provider reported that request cost.
+type PromptSuggestionFork struct {
+	Messages []llm.Message
+	Tools    []llm.ToolDefinition
+	Input    llm.ProviderInput
+	Usage    PromptSuggestionUsage
+}
+
+// PromptSuggestionUsage is the usage of the turn's last provider answer, which
+// says whether the side call over the same context would be served from the
+// provider's prompt cache or paid for in full.
+type PromptSuggestionUsage struct {
+	InputTokens       int
+	CachedInputTokens int
+	OutputTokens      int
+	// Known marks usage the provider actually reported; without it the gate
+	// that reads these numbers does not apply.
+	Known bool
+}
+
+// uncachedTokens is what the turn paid full price or a cache write for: the
+// whole prompt minus what came back from the cache, plus the answer.
+func (u PromptSuggestionUsage) uncachedTokens() int {
+	return max(u.InputTokens-u.CachedInputTokens, 0) + u.OutputTokens
+}
+
 type promptSuggestionFork struct {
-	messages []llm.Message
-	tools    []llm.ToolDefinition
-	input    llm.ProviderInput
-	rev      uint64
+	fork PromptSuggestionFork
+	rev  uint64
 }
 
 // SetPromptSuggestionFork keeps the provider context of the completed turn for
-// its side call: its messages, its tools and the input its provider was built
-// from. The snapshot belongs to the live session and is never stored.
-func (s *State) SetPromptSuggestionFork(messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput) {
+// its side call. The snapshot belongs to the live session and is never stored.
+func (s *State) SetPromptSuggestionFork(fork PromptSuggestionFork) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.promptSuggestionFork = &promptSuggestionFork{
-		messages: append([]llm.Message(nil), messages...),
-		tools:    append([]llm.ToolDefinition(nil), tools...),
-		input:    in,
-		rev:      s.msgRev,
-	}
+	fork.Messages = append([]llm.Message(nil), fork.Messages...)
+	fork.Tools = append([]llm.ToolDefinition(nil), fork.Tools...)
+	s.promptSuggestionFork = &promptSuggestionFork{fork: fork, rev: s.msgRev}
 }
 
-// PromptSuggestionFork returns the completed turn's provider context, the
-// input its provider was built from and the history revision it belongs to.
-func (s *State) PromptSuggestionFork() ([]llm.Message, []llm.ToolDefinition, llm.ProviderInput, uint64, bool) {
+// PromptSuggestionFork returns the completed turn's fork and the history
+// revision it belongs to.
+func (s *State) PromptSuggestionFork() (PromptSuggestionFork, uint64, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	fork := s.promptSuggestionFork
-	if fork == nil {
-		return nil, nil, llm.ProviderInput{}, 0, false
+	held := s.promptSuggestionFork
+	if held == nil {
+		return PromptSuggestionFork{}, 0, false
 	}
-	return append([]llm.Message(nil), fork.messages...), append([]llm.ToolDefinition(nil), fork.tools...), fork.input, fork.rev, true
+	out := held.fork
+	out.Messages = append([]llm.Message(nil), out.Messages...)
+	out.Tools = append([]llm.ToolDefinition(nil), out.Tools...)
+	return out, held.rev, true
 }
 
 // promptSuggestionSide is one manager's in-flight and cached suggestions, one
@@ -430,7 +478,7 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 		// assistant messages hides suggestions after the first ordinary turn.
 		return "", errPromptSuggestionSuppressed
 	}
-	forkMessages, forkTools, forkInput, forkRev, ok := st.PromptSuggestionFork()
+	fork, forkRev, ok := st.PromptSuggestionFork()
 	if !ok || forkRev != rev {
 		return "", errPromptSuggestionSuppressed
 	}
@@ -461,7 +509,7 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 			side.call = map[string]*promptSuggestionCall{}
 		}
 		side.call[sessionID] = call
-		go m.completePromptSuggestion(callCtx, cfg, st, forkMessages, forkTools, forkInput, call)
+		go m.completePromptSuggestion(callCtx, cfg, st, fork, call)
 	}
 	call.waiters++
 	side.mu.Unlock()
@@ -481,9 +529,9 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 	}
 }
 
-func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput, call *promptSuggestionCall) {
+func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, fork PromptSuggestionFork, call *promptSuggestionCall) {
 	defer call.cancel()
-	text, err := m.runPromptSuggestion(ctx, cfg, st, messages, tools, in)
+	text, err := m.runPromptSuggestion(ctx, cfg, st, fork)
 	side := &m.promptSuggestionSide
 	side.mu.Lock()
 	defer side.mu.Unlock()
@@ -508,7 +556,15 @@ func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Conf
 // completion over the main context fork, re-issuing the turn's own provider
 // input so the request differs from the turn's in nothing but its last
 // message.
-func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput) (string, error) {
+func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, fork PromptSuggestionFork) (string, error) {
+	in := fork.Input
+	if promptSuggestionCacheCold(in.Type, fork.Usage) {
+		// The turn itself was not served from the cache, so the side call over
+		// the same context would pay full price for the whole history. Claude
+		// Code suppresses the suggestion on the same reading of the turn's
+		// usage, at the same bound.
+		return "", errPromptSuggestionSuppressed
+	}
 	m.promptSuggestionSide.storeMu.Lock()
 	store := &promptSuggestionStore{home: cfg.Paths.Home}
 	state := store.load()
@@ -558,8 +614,8 @@ func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, s
 	// cache mark on the turn's last real message, which is the prefix the
 	// operator's next turn starts from, instead of writing a prefix ending in
 	// an instruction no later request repeats.
-	out := append(append([]llm.Message(nil), messages...), llm.Message{Role: llm.RoleUser, Content: promptSuggestionInstruction, Ephemeral: true})
-	response, err := provider.Complete(ctx, out, tools)
+	out := append(append([]llm.Message(nil), fork.Messages...), llm.Message{Role: llm.RoleUser, Content: promptSuggestionInstruction, Ephemeral: true})
+	response, err := provider.Complete(ctx, out, fork.Tools)
 	if err != nil {
 		return "", err
 	}

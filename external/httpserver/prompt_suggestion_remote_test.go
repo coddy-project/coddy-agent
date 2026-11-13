@@ -86,7 +86,7 @@ func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 				APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 				DisableStream: !rm.Stream, RetryDisabled: true,
 			}
-			st.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, input)
+			st.SetPromptSuggestionFork(session.PromptSuggestionFork{Messages: fork, Tools: []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, Input: input})
 			before := st.MessagesRev()
 			srv := New(cfg, mgr, log, home)
 			defer srv.Drain()

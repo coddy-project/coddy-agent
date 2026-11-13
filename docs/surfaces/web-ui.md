@@ -244,7 +244,10 @@ main system prompt, the complete history with tool calls and results, the tool
 definitions and the same model and reasoning level, with the suggestion instruction
 appended as a request-only user message. A provider that caches prompts therefore
 reads the history back from its cache instead of paying for it again. Tools
-are never executed and nothing enters the transcript. **Tab** or **Right** copies
+are never executed and nothing enters the transcript. Two turns get no suggestion
+at all: one that ended while this tab was hidden, since its composer shows the
+hint to nobody, and one the provider did not serve from its cache, since the side
+call would then read the whole history at the input price. **Tab** or **Right** copies
 the suggestion into the draft. The suggestion stays as the placeholder while
 you edit. Clearing the draft shows the same suggestion again, including after accepting
 and editing it. Sending a message, starting another turn or switching context retires it.

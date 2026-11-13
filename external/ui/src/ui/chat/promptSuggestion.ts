@@ -14,6 +14,17 @@ export type PromptSuggestionAnswer = {
   text: string;
 };
 
+/**
+ * Whether anyone is looking at this tab. A hidden tab's composer shows the
+ * suggestion to nobody, and the side call it would make is a second request
+ * over the whole turn's context, so the turn that ends there is left without
+ * one; the next turn asks again. Claude Code gates the same call on the
+ * terminal being focused.
+ */
+export function promptSuggestionsWatched(doc: Document = document): boolean {
+  return doc.visibilityState !== "hidden";
+}
+
 export async function fetchPromptSuggestion(
   sessionId: string,
   fetchImpl: typeof fetch = fetch,

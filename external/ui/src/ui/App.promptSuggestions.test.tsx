@@ -132,6 +132,18 @@ async function openRunningChat() {
       });
       await waitFor(() => expect(requests).toHaveLength(1));
     },
+    async endQuietly() {
+      active = false;
+      await emit("turn_ended", {
+        object: "coddy.turn_event",
+        sessionId: SID,
+        phase: "ended",
+        at: "2026-10-30T10:00:00Z",
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+    },
     async start() {
       active = true;
       await emit("turn_started", {
@@ -192,4 +204,18 @@ test("editing and clearing a draft retains the finished turn's suggestion", asyn
   expect(chat.requests).toHaveLength(1);
   await chat.start();
   expect(screen.getByTestId("offered-suggestion").textContent).toBe("");
+});
+
+test("a hidden tab asks for no suggestion", async () => {
+  const chat = await openRunningChat();
+  const hidden = vi
+    .spyOn(document, "visibilityState", "get")
+    .mockReturnValue("hidden");
+  await chat.endQuietly();
+  expect(chat.requests).toHaveLength(0);
+  // The same end on a visible tab does ask, so it is the gate that stopped it.
+  hidden.mockRestore();
+  await chat.start();
+  await chat.end();
+  expect(chat.requests).toHaveLength(1);
 });

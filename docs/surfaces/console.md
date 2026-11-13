@@ -411,7 +411,11 @@ reasoning, the call reserves up to 1024 output tokens, including reasoning, so a
 model such as OpenCode's `beam-free` can finish before producing the hint; where
 it did ask for reasoning, the turn's own output bound stays, because Anthropic
 derives the thinking budget from `max_tokens` and a request whose thinking
-parameters differ from the turn's reads none of its cached history. Suggestions
+parameters differ from the turn's reads none of its cached history. A turn the
+provider did not serve from its cache gets no suggestion at all: Coddy reads the
+turn's own usage, and over 10000 tokens of it processed rather than read back the
+side call is not worth making. The reading applies where a provider reports what
+it served from its cache, which the Messages API always does. Suggestions
 are enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
 disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
 With `--remote`, the console fetches the hint from the server and reports whether

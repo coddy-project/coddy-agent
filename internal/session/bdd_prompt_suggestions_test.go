@@ -43,7 +43,7 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 					{Role: llm.RoleAssistant, Content: "completed the last step"},
 				}
 				state.ReplaceMessagesWithoutPersist(mainContext[1:])
-				state.SetPromptSuggestionFork(mainContext, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, suggestionTestInput(t, mgr))
+				state.SetPromptSuggestionFork(PromptSuggestionFork{Messages: mainContext, Tools: []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, Input: suggestionTestInput(t, mgr)})
 				before, answers = state.GetMessages(), nil
 			})
 			sc.Step(`^the prediction request inherits the complete main context$`, func() error {

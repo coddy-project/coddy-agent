@@ -68,3 +68,31 @@ The shared English cases cover cleaning, normal replies, slash commands, empty/m
 responses, errors, word/length bounds, multiple sentences, formatting, evaluative
 text and assistant voice. Existing console Gherkin and lifecycle tests cover the
 visible behavior and the intentional first-reply/Russian extensions.
+
+## Later: the cache gate was adopted
+
+Recorded 2026-11-13 against Claude Code **2.1.311**, read the same way from the
+installed binary. The gate the table above lists as not copied is now Coddy's,
+with the same bound and the same reading of the turn's usage.
+
+```js
+var C = 1e4;
+function O(e) {
+  let n = e.message.usage, t = (n.input_tokens ?? 0) + (n.output_tokens ?? 0);
+  if (t > C) return "uncached";
+  let o = n.cache_creation_input_tokens ?? 0;
+  if (t + o <= C) return null;
+  return k("tengu_chomp_thaw", false) ? null : "cache_write";
+}
+```
+
+`session.promptSuggestionCacheCold` reads the same numbers off `llm.Response`
+(`InputTokens` carries the cache counters, `CachedInputTokens` is the read part,
+so `InputTokens - CachedInputTokens + OutputTokens` is what the turn paid full
+price or a cache write for) and applies only to a provider whose zero means an
+empty cache rather than silence about one.
+
+The surrounding module holds no timer: upstream has no idle or debounce delay
+before the side call either, and its other gate on whether anyone is looking is
+terminal focus (`unfocused`, `bg_unattached`), which the web UI answers with the
+tab's visibility.
