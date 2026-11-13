@@ -18,6 +18,16 @@ describe("providerAPIKeyEnvVarName", () => {
 });
 
 describe("providerApiKeyFieldPlaceholder", () => {
+  it("does not advertise an environment key for Kimi Code", () => {
+    expect(providerApiKeyFieldPlaceholder("kimi", "kimi", "subscription")).toBe(
+      "",
+    );
+    expect(providerApiKeyFieldPlaceholder("kimi", "kimi", "")).toBe("");
+    expect(
+      providerApiKeyFieldPlaceholder("kimi", "kimi", "platform"),
+    ).toContain("KIMI_API_KEY");
+  });
+
   it("embeds the env name for valid provider names", () => {
     expect(providerApiKeyFieldPlaceholder("rpa")).toMatch(/\$\{RPA_API_KEY\}/);
   });

@@ -9,6 +9,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,9 +56,30 @@ func (s *retryAfterState) cleanup() {
 }
 
 func (s *retryAfterState) aProviderWhoseUpstreamRateLimits(providerType, header, value string) error {
+	// The body deliberately carries no reset phrase of its own, so only the
+	// header can explain the pause.
+	return s.rateLimitedProvider(providerType, "rate limit reached", func(h http.Header) {
+		h.Set(header, value)
+	})
+}
+
+// aProviderWhoseUpstreamRateLimitsInProse answers the 429 with no retry
+// header at all and names the pause in the message, the way Devin's chat
+// endpoint does.
+func (s *retryAfterState) aProviderWhoseUpstreamRateLimitsInProse(providerType, message string) error {
+	return s.rateLimitedProvider(providerType, message, nil)
+}
+
+func (s *retryAfterState) rateLimitedProvider(providerType, message string, setHeaders func(http.Header)) error {
 	success, successType := retryAfterOpenAICompletion, "application/json"
 	if providerType == "anthropic" {
 		success, successType = retryAfterAnthropicCompletion, "text/event-stream"
+	}
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]string{"message": message, "type": "rate_limit_error", "code": "429"},
+	})
+	if err != nil {
+		return fmt.Errorf("encode the 429 body: %w", err)
 	}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.Lock()
@@ -67,11 +89,11 @@ func (s *retryAfterState) aProviderWhoseUpstreamRateLimits(providerType, header,
 
 		w.Header().Set("Content-Type", "application/json")
 		if first {
-			// The body deliberately carries neither "Limit resets at:" nor a
-			// "retry in Ns" phrase, so only the header can explain the pause.
-			w.Header().Set(header, value)
+			if setHeaders != nil {
+				setHeaders(w.Header())
+			}
 			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":{"message":"rate limit reached","type":"rate_limit_error","code":"429"}}`))
+			_, _ = w.Write(body)
 			return
 		}
 		w.Header().Set("Content-Type", successType)
@@ -173,6 +195,7 @@ func initializeRetryAfterScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^an "([^"]+)" provider whose upstream responds 429 with header "([^"]+)" set to "([^"]+)" and then succeeds$`, s.aProviderWhoseUpstreamRateLimits)
+	sc.Step(`^an "([^"]+)" provider whose upstream responds 429 with the message "(.+)" and then succeeds$`, s.aProviderWhoseUpstreamRateLimitsInProse)
 	sc.Step(`^a completion is requested$`, s.aCompletionIsRequested)
 	sc.Step(`^the call succeeds after (\d+) upstream requests$`, s.theCallSucceedsAfterUpstreamRequests)
 	sc.Step(`^at least (\d+) ms pass between the two upstream requests$`, s.atLeastMsPassBetweenRequests)

@@ -47,7 +47,7 @@ const (
 // liveStatus is the current step of a running turn. counts says the step shows a clock
 // of its own after the phrase. The turn's clock leads the line and covers the model's
 // own phases - waiting, thinking, responding - so only a step that runs something other
-// than the model (a tool call, the memory run) counts; a step blocked on the operator
+// than the model (a tool call) counts; a step blocked on the operator
 // never does, because a climbing counter there would be a lie.
 // step identifies the step the phrase belongs to and is never rendered: two calls in a
 // row can share a phrase ("Reading a file" twice), and without it the second one would
@@ -464,7 +464,7 @@ type generationStatusLine struct {
 // the operator pressed enter - and the server's for a turn it only attached to.
 func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
 	if u.Completed {
-		if u.TokensPerSecond != nil {
+		if u.OutputTokens > 0 || u.TokensPerSecond != nil {
 			// A late queued follow-up runs again under the same admitted turn.
 			// Its cumulative caption replaces the earlier run's, at the tail.
 			for _, child := range a.chat.Children() {
@@ -473,8 +473,14 @@ func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
 					break
 				}
 			}
+			// A turn with no generation window to measure (an agent behind an
+			// acp row) keeps the line and leaves the speed off it.
+			caption := tui.FormatTokenCount(u.OutputTokens) + " " + plural(u.OutputTokens, "token", "tokens")
+			if u.TokensPerSecond != nil {
+				caption += " · " + formatGenerationSpeed(*u.TokensPerSecond) + " tok/s"
+			}
 			a.chat.AddChild(&generationStatusLine{
-				statusLine: newStatusLine(a.theme, roleDim, tui.FormatTokenCount(u.OutputTokens)+" "+plural(u.OutputTokens, "token", "tokens")+" · "+formatGenerationSpeed(*u.TokensPerSecond)+" tok/s"),
+				statusLine: newStatusLine(a.theme, roleDim, caption),
 				startedAt:  u.StartedAt,
 			})
 		}

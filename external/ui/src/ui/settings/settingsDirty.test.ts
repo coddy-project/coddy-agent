@@ -90,6 +90,56 @@ test("the revision a document carries is not an edit", () => {
   );
 });
 
+test("server-side TOTP enrollment metadata is not an unsaved edit", () => {
+  const before = {
+    httpserver: {
+      login: {
+        user: "operator",
+        session_ttl_hours: 24,
+        totp_configured: false,
+        backup_codes_configured: false,
+        backup_codes_count: 0,
+        backup_codes_generation: "",
+      },
+    },
+  };
+  const after = {
+    httpserver: {
+      login: {
+        user: "operator",
+        session_ttl_hours: 24,
+        totp_configured: true,
+        backup_codes_configured: true,
+        backup_codes_count: 10,
+        backup_codes_generation: "new-generation",
+      },
+    },
+  };
+  expect(settingsFormDirty(before, after, schema)).toBe(false);
+  expect(
+    settingsFormDirty(
+      before,
+      {
+        httpserver: {
+          login: { ...after.httpserver.login, session_ttl_hours: 12 },
+        },
+      },
+      schema,
+    ),
+  ).toBe(true);
+  expect(
+    settingsFormDirty(
+      before,
+      {
+        httpserver: {
+          login: { ...after.httpserver.login, password: "new-password" },
+        },
+      },
+      schema,
+    ),
+  ).toBe(true);
+});
+
 test("a header named with an empty value is an edit: an empty value leaves the header out", () => {
   const withHeader = {
     ...base,

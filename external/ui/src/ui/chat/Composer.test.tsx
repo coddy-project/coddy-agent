@@ -388,6 +388,76 @@ test("Tab key selects first slash command from picker", async () => {
   vi.unstubAllGlobals();
 });
 
+// Regression: while a turn ran, the skills picker drew its rows and took a
+// click, but every key of it was refused, so Tab fell through to the browser
+// and moved the focus to the attach control instead of completing the name.
+test("Tab completes a skill name while a turn runs", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "nd-search", description: "Search the web" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  const onQueue = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+        generating
+        onQueue={onQueue}
+        onStop={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "/nd-", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeTruthy();
+  });
+
+  fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/nd-search ");
+  });
+  // The key belonged to the picker, so it never reached the queue.
+  expect(onQueue).not.toHaveBeenCalled();
+  expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
 test("composer highlights only the active slash draft at caret", () => {
   const s = "asdfasf /find-skills asdfasdf";
   render(
@@ -719,8 +789,15 @@ test("generating shows stop and calls onStop", () => {
   expect(stopped).toBe(true);
 });
 
-test("context tooltip percent and Max context follow cap when model max changes", () => {
-  const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
+// The tip is one line: how much of the window is used, and the two numbers
+// that say it. The five lines it used to be - input, output, total and the
+// window - repeated the popover the ring opens, badly.
+test("the context tip is the percent and the tokens, and follows the model's window", () => {
+  const usage = {
+    inputTokens: 800000,
+    outputTokens: 200000,
+    totalTokens: 1000000,
+  };
   const { rerender } = render(
     <Composer
       value=""
@@ -736,8 +813,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
     />,
   );
   const tip = () => screen.getByRole("tooltip").textContent ?? "";
-  expect(tip()).toMatch(/1\.0% context used/);
-  expect(tip()).toMatch(/Max context 100000/);
+  expect(tip()).toBe("1.0% \u00b7 1.0k / 100k");
 
   rerender(
     <Composer
@@ -753,8 +829,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
       onSend={() => {}}
     />,
   );
-  expect(tip()).toMatch(/10\.0% context used/);
-  expect(tip()).toMatch(/Max context 10000/);
+  expect(tip()).toBe("10.0% \u00b7 1.0k / 10.0k");
 });
 
 test("context tooltip hidden until pointer leaves ring after closing breakdown", () => {
@@ -868,6 +943,66 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
   const c = 2 * Math.PI * 12;
   const off = Number.parseFloat(fg!.getAttribute("stroke-dashoffset") || "0");
   expect(off).toBeCloseTo(c * (1 - 23787 / 128000), 1);
+});
+
+// The tip counts the same tokens the ring fills by: the context window, not
+// the session's cumulative usage. With 820k lifetime tokens in a 128k window
+// holding ~24k, the line used to read "19% · 820k / 128k" (issue #732).
+test("the context tip counts the window's tokens, not cumulative usage", () => {
+  const breakdown = {
+    systemPrompt: 851,
+    toolDefinitions: 1950,
+    rules: 14867,
+    skills: 45,
+    mcp: 0,
+    subagents: 0,
+    conversation: 6074,
+    estimatedTotal: 23787,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "18.6% · 23.7k / 128k",
+  );
+});
+
+test("the context tip does not use lifetime tokens when the window is unknown", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "Context usage unavailable · max 128k",
+  );
 });
 
 test("context meter fill width reflects usage percent", () => {
@@ -3508,3 +3643,87 @@ test("the pencil on an attached picture marks it up in place", async () => {
     restore();
   }
 });
+
+test("the prompt suggestion shows dim and Tab takes it into the draft", () => {
+  const onChange = vi.fn();
+  const onAccepted = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+      onPromptSuggestionAccepted={onAccepted}
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenCalledWith("run the tests");
+  expect(onAccepted).toHaveBeenCalledTimes(1);
+});
+
+test("a draft hides the prompt suggestion from Tab", () => {
+  const onChange = vi.fn();
+  render(
+    <Composer
+      value="already typing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).not.toHaveBeenCalledWith("run the tests");
+});
+
+test.each(["Tab", "ArrowRight"])(
+  "the composer preserves its suggestion through editing and clearing - %s",
+  (key) => {
+    const onSend = vi.fn();
+    const onAccepted = vi.fn();
+    function EditableComposer() {
+      const [value, onChange] = useState("");
+      return (
+        <Composer
+          value={value}
+          isEmpty={false}
+          mode="agent"
+          modes={["agent", "plan"]}
+          onModeChange={() => {}}
+          onChange={onChange}
+          onSend={onSend}
+          promptSuggestion="run the tests"
+          onPromptSuggestionAccepted={onAccepted}
+        />
+      );
+    }
+    render(<EditableComposer />);
+    const ta = document.getElementById("composer") as HTMLTextAreaElement;
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "my own follow-up" } });
+    expect(ta.value).toBe("my own follow-up");
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.keyDown(ta, { key });
+    expect(ta.value).toBe("run the tests");
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    fireEvent.change(ta, { target: { value: "run the tests and explain" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.value).toBe("");
+    expect(ta.placeholder).toBe("run the tests");
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);

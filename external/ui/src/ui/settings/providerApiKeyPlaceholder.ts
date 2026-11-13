@@ -12,7 +12,12 @@ export function providerAPIKeyEnvVarName(providerName: string): string {
 }
 
 /** Placeholder for the provider api_key field; updates with the sibling provider name. */
-export function providerApiKeyFieldPlaceholder(providerName: string): string {
+export function providerApiKeyFieldPlaceholder(
+  providerName: string,
+  providerType = "",
+  providerMode = "",
+): string {
+  if (providerType === "kimi" && providerMode !== "platform") return "";
   const env = providerAPIKeyEnvVarName(providerName);
   if (env) {
     // Build "${ENV}" with string concat so minifiers never treat "${...}" as a template slot.

@@ -200,7 +200,7 @@ func (s *askModeE2EState) startServer(script string) error {
 
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
-		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "local/stub"}},
 		Agent:     config.Agent{Model: "local/stub"},
 	}

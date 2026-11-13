@@ -24,7 +24,6 @@ export type LiveStatusKind =
   | "question"
   | "tool"
   | "thinking"
-  | "memory"
   | "writing"
   | "waiting"
   | "preparing";
@@ -64,13 +63,13 @@ export type LiveStatus = {
 /**
  * Whether a step shows a clock of its own after the phrase. The turn's clock leads the
  * line and covers the model's own phases - waiting, thinking, writing - so only a step
- * that runs something other than the model (a tool call, the memory run) keeps a second
+ * that runs something other than the model (a tool call) keeps a second
  * one. The two operator gates never count: nothing runs while the operator decides.
  */
 export function stepShowsItsOwnClock(
   kind: LiveStatusKind | undefined,
 ): boolean {
-  return kind === "tool" || kind === "memory";
+  return kind === "tool";
 }
 
 /** Waiting longer than this reads as "slower than usual". */
@@ -226,7 +225,6 @@ const PREPARING: LiveStatus = { kind: "waiting", key: WAITING_KEY };
 
 type ToolItem = Extract<TranscriptItem, { type: "tool_call" }>;
 type ThinkingItem = Extract<TranscriptItem, { type: "thinking" }>;
-type MemoryItem = Extract<TranscriptItem, { type: "memory_run" }>;
 
 /**
  * Current live status for a running turn. Scans backward and stops at the last
@@ -239,7 +237,6 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
   let toolRunning: ToolItem | null = null;
   let toolPending: ToolItem | null = null;
   let thinking: ThinkingItem | null = null;
-  let memory: MemoryItem | null = null;
   // The turn's newest row is answer text: whatever runs next has not shown up yet,
   // so the model is still writing it.
   let writing = false;
@@ -263,11 +260,7 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
           writing = true;
           sawStep = true;
         }
-      } else if (
-        it.type === "tool_call" ||
-        it.type === "thinking" ||
-        it.type === "memory_run"
-      ) {
+      } else if (it.type === "tool_call" || it.type === "thinking") {
         sawStep = true;
       }
     }
@@ -305,11 +298,6 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
           typeof it.durationMs === "number"
         ) {
           waitingFrom = it.startedAtMs + it.durationMs;
-        }
-        break;
-      case "memory_run":
-        if (!memory && it.status === "started") {
-          memory = it;
         }
         break;
       default:
@@ -368,20 +356,6 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
       step: thinking.id,
       ...(typeof thinking.startedAtMs === "number"
         ? { startedAtMs: thinking.startedAtMs }
-        : {}),
-      ...turn,
-    };
-  }
-
-  // Below tool/thinking on purpose: the memory run keeps going in the background
-  // after the main model has moved on, and the model's own step is the news then.
-  if (memory) {
-    return {
-      kind: "memory",
-      key: "status.memory",
-      step: memory.taskId ?? memory.id,
-      ...(typeof memory.startedAtMs === "number"
-        ? { startedAtMs: memory.startedAtMs }
         : {}),
       ...turn,
     };

@@ -11,11 +11,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +84,14 @@ type pcFeatureState struct {
 	st         *session.State
 	ag         *Agent
 	provider   *pcScriptProvider
+
+	// The scripted provider above is handed []llm.Message and never builds a
+	// request, so the cache marks a provider puts on one are invisible to it.
+	// The Anthropic-shaped scenarios run against this server instead and keep
+	// the request bodies it was sent.
+	marksSrv    *httptest.Server
+	marksMu     sync.Mutex
+	marksBodies []string
 }
 
 func (s *pcFeatureState) reset() error {
@@ -104,6 +116,13 @@ func (s *pcFeatureState) close() {
 	s.tmpDirs = nil
 	s.st = nil
 	s.ag = nil
+	if s.marksSrv != nil {
+		s.marksSrv.Close()
+		s.marksSrv = nil
+	}
+	s.marksMu.Lock()
+	s.marksBodies = nil
+	s.marksMu.Unlock()
 }
 
 func (s *pcFeatureState) tempDir() (string, error) {
@@ -494,6 +513,126 @@ func (s *pcFeatureState) transcriptHasNoTurnContext() error {
 	return nil
 }
 
+// sessionOnAnthropicShapedProvider opens a session on a provider of
+// Anthropic's shape, answering from retryBudgetSSE, and records every request
+// body it is sent. The cache marks live on the serialized request, so this is
+// the only view of the suite that can see them at all.
+func (s *pcFeatureState) sessionOnAnthropicShapedProvider() error {
+	if err := s.reset(); err != nil {
+		return err
+	}
+	replies := []string{"tool", "answer"}
+	s.marksSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		s.marksMu.Lock()
+		index := len(s.marksBodies)
+		s.marksBodies = append(s.marksBodies, string(body))
+		s.marksMu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, retryBudgetSSE(replies[min(index, len(replies)-1)], index))
+	}))
+	stream := true
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fixture", Type: "anthropic", APIBase: s.marksSrv.URL, APIKey: "fixture-only", Proxy: "none"}},
+		Models:    []config.ModelEntry{{Model: "fixture/model", MaxTokens: 100, Stream: &stream}},
+		Agent:     config.Agent{Model: "fixture/model", MaxTurns: 10},
+		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	s.cfg = cfg
+	s.st = &session.State{ID: "sess_bdd_pcache_marks", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: s.sessionDir}
+	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
+	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	return nil
+}
+
+// callsAToolThenAnswers is a turn of two steps, so the suite sees more than
+// one request and can watch the rolling mark move between them.
+func (s *pcFeatureState) callsAToolThenAnswers() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err := s.ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "go"}})
+	return err
+}
+
+func (s *pcFeatureState) recordedRequests() []string {
+	s.marksMu.Lock()
+	defer s.marksMu.Unlock()
+	return append([]string(nil), s.marksBodies...)
+}
+
+func (s *pcFeatureState) twoCacheMarksPerRequest() error {
+	bodies := s.recordedRequests()
+	if len(bodies) < 2 {
+		return fmt.Errorf("expected at least two requests, got %d", len(bodies))
+	}
+	for i, raw := range bodies {
+		marks, err := cacheMarks(raw)
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
+		}
+		if len(marks) != 2 {
+			return fmt.Errorf("request %d carries %d cache marks (%v), want two", i, len(marks), marks)
+		}
+		if marks[0] != "system" {
+			return fmt.Errorf("request %d does not mark its system prompt: %v", i, marks)
+		}
+	}
+	return nil
+}
+
+func (s *pcFeatureState) noCacheMarkOnTheTurnContext() error {
+	for i, raw := range s.recordedRequests() {
+		marks, err := cacheMarks(raw)
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
+		}
+		n, err := requestMessageCount(raw)
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
+		}
+		trailing := fmt.Sprintf("messages[%d]", n-1)
+		for _, m := range marks {
+			if m == trailing {
+				return fmt.Errorf("request %d marks its turn context block, which no later request repeats", i)
+			}
+		}
+	}
+	return nil
+}
+
+// theMarkFollowsTheConversation is the rolling half of the mechanism: the
+// system mark stays where it is, and the other one moves to the newest turn
+// the next request will carry again, so each request writes a cache entry over
+// everything the one before it already cached.
+func (s *pcFeatureState) theMarkFollowsTheConversation() error {
+	bodies := s.recordedRequests()
+	if len(bodies) < 2 {
+		return fmt.Errorf("expected at least two requests, got %d", len(bodies))
+	}
+	previous := -1
+	for i, raw := range bodies {
+		marks, err := cacheMarks(raw)
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
+		}
+		var at int
+		if _, err := fmt.Sscanf(marks[len(marks)-1], "messages[%d]", &at); err != nil {
+			return fmt.Errorf("request %d marks no message of the conversation: %v", i, marks)
+		}
+		if i > 0 && at <= previous {
+			return fmt.Errorf("the mark of request %d sits at message %d, no further than request %d's at %d", i, at, i-1, previous)
+		}
+		previous = at
+	}
+	return nil
+}
+
 func initializePromptCacheScenario(sc *godog.ScenarioContext) {
 	s := &pcFeatureState{}
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
@@ -511,6 +650,11 @@ func initializePromptCacheScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user asks again, and the model answers straight away$`, s.askAgainAnswerStraightAway)
 	sc.Step(`^the operator compacts the conversation$`, s.operatorCompacts)
 	sc.Step(`^the workspace AGENTS\.md is rewritten to say "([^"]*)"$`, s.rewriteAgentsMD)
+	sc.Step(`^an agent session on a provider of Anthropic's shape$`, s.sessionOnAnthropicShapedProvider)
+	sc.Step(`^the model calls a tool, then answers$`, s.callsAToolThenAnswers)
+	sc.Step(`^every request carries two cache marks, one of them on the system prompt$`, s.twoCacheMarksPerRequest)
+	sc.Step(`^no request marks its turn context block$`, s.noCacheMarkOnTheTurnContext)
+	sc.Step(`^the other mark moves to the newest turn with every request$`, s.theMarkFollowsTheConversation)
 
 	sc.Step(`^every request of that turn carries the same system message$`, s.sameSystemMessageEveryRequest)
 	sc.Step(`^every request repeats the previous one up to its turn context block$`, s.requestsGrowByAppendOnly)

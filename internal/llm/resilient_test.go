@@ -99,6 +99,57 @@ func TestParseLimitResetDelay(t *testing.T) {
 	}
 }
 
+// The messages are real Devin 429 answers (GetChatMessage, server.codeium.com):
+// the endpoint sends no Retry-After and names the moment the window reopens in
+// its own prose only.
+func TestParseResetInDelay(t *testing.T) {
+	const devinPrefix = "devin chat: HTTP 429 resource_exhausted: Reached free model rate limit. " +
+		"Upgrade to Max for higher limits, or switch to a different model. "
+	for name, tc := range map[string]struct {
+		msg  string
+		want time.Duration
+	}{
+		"seconds":    {devinPrefix + "Your limit will reset in 17 seconds (at 23:01 UTC).", 17 * time.Second},
+		"minutes":    {devinPrefix + "Your limit will reset in 3 minutes (at 23:01 UTC).", 3 * time.Minute},
+		"one minute": {devinPrefix + "Your limit will reset in 1 minute (at 01:01 UTC).", time.Minute},
+		"hours and minutes": {devinPrefix + "Your limit will reset in 1 hour 28 minutes (at Nov 7 01:01 UTC). " +
+			"(trace ID: 6aee5b2a000000003a2048a0d7479f21)", time.Hour + 28*time.Minute},
+		"whole hour": {devinPrefix + "Your limit will reset in 1 hour (at 01:01 UTC).", time.Hour},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, ok := parseResetInDelay(errors.New(tc.msg))
+			if !ok {
+				t.Fatalf("no pause parsed from %q", tc.msg)
+			}
+			if d != tc.want {
+				t.Fatalf("delay = %v, want %v", d, tc.want)
+			}
+			// The whole chain must reach the same answer: the wrapper reads
+			// the pause through serverRetryDelay, never the parser directly.
+			if got, ok := serverRetryDelay(errors.New(tc.msg)); !ok || got != tc.want {
+				t.Fatalf("serverRetryDelay = %v, present = %v, want %v", got, ok, tc.want)
+			}
+		})
+	}
+	for name, msg := range map[string]string{
+		// NeuralDeep names an absolute moment with the same words up to the
+		// preposition; reading it as a relative pause would invent one.
+		"resets at, not in": `Rate limit exceeded for api_key: x. Limit type: requests. ` +
+			`Current limit: 5, Remaining: 0. Limit resets at: 2026-05-23 10:20:14 UTC`,
+		// A sentence boundary between the two words is not one phrase.
+		"another sentence":   "Reached free model rate limit. The reset in question happens in 5 minutes.",
+		"no duration":        "Your limit will reset in a little while.",
+		"unrelated duration": "The build finished in 3 minutes.",
+		"absurd duration":    "Your limit will reset in 99999999999 hours.",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if d, ok := parseResetInDelay(errors.New(msg)); ok {
+				t.Fatalf("parsed %v from %q, want no pause", d, msg)
+			}
+		})
+	}
+}
+
 func TestResilientProviderRetries429UntilSuccess(t *testing.T) {
 	var calls atomic.Int32
 	inner := &stubProvider{
@@ -671,7 +722,7 @@ func TestAnthropicHTTP529IsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+	provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 	})
 	resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
@@ -710,7 +761,7 @@ func TestAnthropicHTTPLaneFailureStaysTransient(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, ""), ProviderInput{
+			provider := applyResilientWrap(newAnthropicProvider("test-model", "k", srv.URL, nil, 0, 0, "", ""), ProviderInput{
 				RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
 			})
 			_, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})

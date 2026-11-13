@@ -34,6 +34,12 @@
      control and the jump stand on the card, not on the wrap, so they subtract
      it. */
   --coddy-composer-wrap-pad: 14px;
+  /* One gap for everything stacked over the composer card: between two queued
+     messages, and between the lowest block of the stack - a queued message, the
+     first-use question, the edit banner, the usage notice - and the card under
+     it. The stack read as crooked while the rows stood 4px apart and the last
+     of them 6px over the card. */
+  --coddy-composer-stack-gap: 4px;
 }
 
 @media (min-width: 761px) {

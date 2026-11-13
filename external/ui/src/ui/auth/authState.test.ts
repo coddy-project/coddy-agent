@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let respond: (url: string, init?: RequestInit) => Response = () =>
   ({ ok: true, status: 200, json: async () => ({}) }) as Response;
 const seen: { url: string; method: string }[] = [];
+const posts: { url: string; body: string }[] = [];
 let envMode: "local" | "remote" = "local";
 let unauthorizedCb: (() => void) | null = null;
 // hang, when set, is the answer the next call waits on, so a test can look at
@@ -28,6 +29,9 @@ vi.mock("../env/remoteEnv", async (importOriginal) => {
     localFetch: (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       seen.push({ url, method: init?.method ?? "GET" });
+      if (typeof init?.body === "string") {
+        posts.push({ url, body: init.body });
+      }
       if (hang) {
         return hang;
       }
@@ -42,6 +46,7 @@ const {
   signIn,
   signOut,
   snapshotAuth,
+  verifySignIn,
 } = await import("./authState");
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -55,6 +60,7 @@ function jsonResponse(status: number, body: unknown): Response {
 beforeEach(() => {
   resetAuthStateForTests();
   seen.length = 0;
+  posts.length = 0;
   envMode = "local";
   hang = null;
 });
@@ -78,12 +84,30 @@ describe("refreshAuthState", () => {
       authRequired: true,
       authenticated: true,
       user: "operator",
+      secondFactor: "",
+      rememberAvailable: true,
       telegramRefused: false,
       telegramProblem: "",
       loaded: true,
     });
     expect(snapshotAuth()).toEqual(state);
     expect(seen[0]?.url).toBe("/coddy/auth/me");
+  });
+
+  it("reads whether the form asks for a one-time code", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        auth_required: true,
+        authenticated: false,
+        second_factor: "totp",
+      });
+    expect((await refreshAuthState()).secondFactor).toBe("totp");
+    resetAuthStateForTests();
+    respond = () =>
+      jsonResponse(200, { login_required: true, second_factor: "sms" });
+    // A factor this page cannot ask for is not one it pretends to.
+    expect((await refreshAuthState()).secondFactor).toBe("");
   });
 
   it("treats a server without the route as one that wants no sign-in", async () => {
@@ -152,6 +176,75 @@ describe("signIn", () => {
     const res = await signIn("operator", "correct-horse");
     expect(res.ok).toBe(false);
     expect(res.status).toBe(0);
+  });
+
+  it("returns a second-factor challenge without claiming a session", async () => {
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      throw new Error("the challenge must not refresh authentication");
+    };
+    const res = await signIn("operator", "correct-horse");
+    expect(res).toMatchObject({
+      ok: true,
+      status: 200,
+      challenge: "challenge-1",
+    });
+    expect(seen).toEqual([{ url: "/coddy/auth/login", method: "POST" }]);
+    expect(snapshotAuth().authenticated).toBe(false);
+  });
+});
+
+describe("verifySignIn", () => {
+  it("posts the challenge and one-time code to the verify route", async () => {
+    respond = (url) => {
+      if (url === "/coddy/auth/login/verify") {
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: true,
+        user: "operator",
+      });
+    };
+    const res = await verifySignIn("challenge-1", "123456");
+    expect(res.ok).toBe(true);
+    expect(posts).toEqual([
+      {
+        url: "/coddy/auth/login/verify",
+        body: JSON.stringify({ challenge: "challenge-1", code: "123456" }),
+      },
+    ]);
+    expect(snapshotAuth().authenticated).toBe(true);
+  });
+
+  it("accepts a formatted backup code through the same route", async () => {
+    respond = (url) => {
+      if (url === "/coddy/auth/login/verify") {
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: true,
+        user: "operator",
+      });
+    };
+    await verifySignIn("challenge-1", "8F3K-92M Q7X");
+    expect(JSON.parse(posts[0]!.body)).toEqual({
+      challenge: "challenge-1",
+      code: "8F3K-92M Q7X",
+    });
+  });
+
+  it("returns a refusal without retrying the consumed challenge", async () => {
+    respond = () => jsonResponse(401, { error: "invalid or used challenge" });
+    const res = await verifySignIn("challenge-1", "000000");
+    expect(res).toMatchObject({ ok: false, status: 401 });
+    expect(seen).toEqual([{ url: "/coddy/auth/login/verify", method: "POST" }]);
   });
 });
 

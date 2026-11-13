@@ -150,6 +150,13 @@ export function ChatScreen(props: {
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
+  /**
+   * The follow-up prompt suggestion of the finished turn, passed through to
+   * the composer: shown dim in the empty field, taken with Tab.
+   */
+  promptSuggestion?: string | null;
+  /** Fires when the composer took the suggestion into the draft. */
+  onPromptSuggestionAccepted?: () => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. */
@@ -209,6 +216,9 @@ export function ChatScreen(props: {
   onOpenFiles?: () => void;
   /** The Files window is open. */
   filesOpen?: boolean;
+  /** Opens the terminal window of the chat. */
+  onOpenTerminal?: () => void;
+  terminalOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -368,6 +378,9 @@ export function ChatScreen(props: {
           rowGap: px(column, "row-gap") || 10,
           contentEndAboveBlockEnd:
             underContent - px(host.parentElement, "padding-bottom"),
+          // On desktop the tail sat one small step too far above the docked
+          // composer. The stacked shell keeps its established spacing.
+          endGapReductionPx: mobileDocScroll ? 0 : 5,
         }),
       );
     };
@@ -1122,6 +1135,12 @@ export function ChatScreen(props: {
                           ? {
                               onOpenFiles: openFiles,
                               filesOpen: props.filesOpen === true,
+                              ...(props.onOpenTerminal
+                                ? {
+                                    onOpenTerminal: props.onOpenTerminal,
+                                    terminalOpen: props.terminalOpen === true,
+                                  }
+                                : {}),
                             }
                           : {}),
                       }
@@ -1210,6 +1229,13 @@ export function ChatScreen(props: {
                   cardTop={workspaceBar}
                   value={props.draft}
                   isEmpty={false}
+                  promptSuggestion={props.promptSuggestion ?? null}
+                  {...(props.onPromptSuggestionAccepted
+                    ? {
+                        onPromptSuggestionAccepted:
+                          props.onPromptSuggestionAccepted,
+                      }
+                    : {})}
                   providerUsage={props.providerUsage ?? null}
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}

@@ -127,6 +127,13 @@ type Message struct {
 	// turn-context block the agent appends after the history. A provider
 	// that keeps the conversation on its side (acp) sends it with the prompt
 	// and leaves it out of what it remembers having sent.
+	//
+	// Such a message is always a RoleUser one at the end of the slice, and the
+	// prompt-cache marks depend on it: trailingEphemeral counts them here and
+	// the Anthropic provider applies that count to the messages it built, one
+	// per message. An Ephemeral message of another role, or one that a
+	// provider folds into its neighbour, would move the tail mark onto a turn
+	// no later request repeats.
 	Ephemeral bool `json:"-"`
 	// AgentTools, on an assistant message, are the tool calls the agent
 	// behind an acp model ran on its own side while it wrote this answer,
@@ -159,6 +166,16 @@ type AgentToolCall struct {
 	// OutputLines is how many lines the output had when a stored message
 	// keeps only its first ones; 0 when it keeps all of it.
 	OutputLines int `json:"output_lines,omitempty"`
+	// TextOffset is how much of the answer the agent had written when it
+	// announced this call, in characters of Message.Content (runes, not
+	// bytes: a surface counts the answer in characters). An agent writes a
+	// line, runs a tool, writes the next line; the whole of it is one
+	// assistant message, so without this a surface rebuilding the turn from
+	// the transcript can only draw every call before the whole answer. A
+	// surface splits the answer at these offsets and puts each call where it
+	// happened. Zero on a call announced before any text, and on a message
+	// stored before the offsets were kept.
+	TextOffset int `json:"text_offset,omitempty"`
 }
 
 type Artifact struct {
@@ -263,11 +280,16 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name    string
-	Type    string
-	Model   string
-	APIKey  string
-	BaseURL string
+	Name         string
+	Type         string
+	Mode         string
+	Region       string
+	KimiIdentity string
+	Model        string
+	KimiMetadata *config.KimiModelMetadata
+	APIKey       string
+	BaseURL      string
+	UserAgent    string
 	// ProxyURL is the row's providers[].proxy setting as written: empty or
 	// "inherit" follows the environment's proxy, "none" connects directly,
 	// and a proxy URL goes through that proxy (config.ParseProxySetting).
@@ -401,18 +423,18 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		op.tempSet = p.TemperatureSet
 		op.topP = p.TopP
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":
-		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		ap.tempSet = p.TemperatureSet
 		ap.blocking = p.DisableStream
 		inner = ap
 	case "neuraldeep":
-		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, "")
 		op.tempSet = p.TemperatureSet
 		op.modelParams = p.SupportedParameters
 		inner = op
@@ -435,6 +457,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
 		inner = newDevinProvider(p, hc)
+	case "kimi":
+		inner, err = newKimiLazyProvider(p)
+		if err != nil {
+			return nil, err
+		}
 	case "acp":
 		// A local agent over stdio: no HTTP client of Coddy's carries its
 		// requests; the row's proxy reaches the agent as its environment.

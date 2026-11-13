@@ -275,6 +275,15 @@
   flex-shrink: 0;
 }
 
+/* A finger is wider than a cursor, and the control beside the ring stops the
+   turn: 10px between the two is a miss away from stopping a turn somebody
+   only meant to read the context of. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .composer-bar-actions {
+    gap: 20px;
+  }
+}
+
 /* Context meter: same tooltip styling as narrow rail (see .rail-tip) */
 .composer-context-tip-host {
   position: relative;
@@ -315,6 +324,46 @@
   z-index: 3;
 }
 
+/* The plate and the card share one shadow owner at rest and while a tip is
+   up. Moving it between them made its top edge jump by the plate's height.
+   The queue and the banners above the panel keep their own. */
+.composer-panel {
+  border-radius: 12px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.composer-panel .composer-card {
+  box-shadow: none;
+}
+
+@media (hover: hover) {
+  .composer-panel:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    border-radius: 12px;
+    box-shadow: var(--coddy-glass-panel-shadow);
+  }
+}
+
+.composer-panel:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  border-radius: 12px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+@media (hover: hover) {
+  .composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    box-shadow: none;
+  }
+}
+
+.composer-card:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  box-shadow: none;
+}
+
 .composer-context-tip-host.composer-context-tip-suppressed:hover .rail-tip,
 .composer-context-tip-host.composer-context-tip-suppressed:focus-visible
   .rail-tip {
@@ -334,13 +383,22 @@
   top: auto;
   bottom: calc(100% + 12px);
   transform: translateX(-50%);
-  white-space: pre-line;
-  min-width: 220px;
+  /* One line that fits itself: the tip said five things and needed a floor
+     of its own, and now it is "20.1% · 201k / 1M". */
+  white-space: nowrap;
+  min-width: 0;
+  width: max-content;
   max-width: min(320px, calc(100vw - 32px));
   padding: 10px 14px;
   font-weight: 500;
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
-  box-shadow: var(--coddy-tip-shadow);
+  /* No shadow at all. The tip stands 12px above the ring it belongs to, and
+     any shadow of the rail's shape reaches past that gap: the downward one
+     (10px down over 28px of blur) washed grey over the ring and the bar, and
+     cast upward it still spilled under its own bottom edge. The tip is an
+     opaque plate with a border, which is what tells it from the transcript;
+     nothing is drawn under it. */
+  box-shadow: none;
 }

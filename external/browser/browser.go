@@ -42,6 +42,15 @@ const (
 	APICallPattern     = "POST /coddy/browser/v1/call"
 )
 
+// APISetupPattern is what the settings screen reads while a person connects a
+// browser: whether a key is set and which browsers are on the socket right
+// now, so the form can say "waiting for the extension" and then "connected"
+// without the person reloading anything. It carries no key and no tab, so it
+// is not gated on browser.serve_remote the way the two routes above are: it
+// tells a holder of this server's credentials only what that holder is about
+// to configure.
+const APISetupPattern = "GET /coddy/browser/setup"
+
 // MountOptions are what the endpoint is mounted with.
 type MountOptions struct {
 	// Key is the extension key of the live configuration, "" while

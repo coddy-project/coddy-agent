@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Coddy
+GenericName=Coding agent
+Comment=Coddy agent in a window
+Exec=coddy desktop
+Icon=coddy-desktop
+Terminal=false
+Categories=Development;IDE;
+Keywords=coddy;agent;llm;ai;coding;assistant;
+StartupNotify=true
+# What the task bar matches the window against. The window is a browser in
+# application mode, whose WM_CLASS would otherwise be derived from the address
+# it opens, and the task bar would find the browser's entry and draw the
+# browser's icon with the browser's menu over it. The launcher starts the
+# browser with --class=coddy-desktop (external/desktop/browser.go, WindowClass)
+# so that this line matches, and a test holds the two together.
+StartupWMClass=coddy-desktop

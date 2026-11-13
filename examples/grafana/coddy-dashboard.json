@@ -1989,7 +1989,7 @@
       "type": "timeseries",
       "title": "Provider quota used",
       "id": 25,
-      "description": "Share of each usage window of the provider accounts, from the cache of the session manager (providers with a usage reader: neuraldeep, codex, devin). The dashed line is the 90% of CoddyProviderQuotaHigh.",
+      "description": "Share of each usage window of the provider accounts, from the cache of the session manager (providers with a usage reader: neuraldeep, codex, devin, openai). The dashed line is the 90% of CoddyProviderQuotaHigh.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

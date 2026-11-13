@@ -29,3 +29,14 @@ Feature: Coddy honors server-requested retry pauses
     When a completion is requested
     Then the call fails after 1 upstream request with a quota reset error
     And the reported pause is at least 600 s
+
+  Scenario: A 429 that names its reset in prose instead of a header is honoured
+    Devin's chat endpoint sends no Retry-After at all: the moment the window
+    reopens is written into the message ("Your limit will reset in 20
+    minutes"). Reading headers alone left that pause invisible, so the ladder
+    burnt its retries inside the same window, the turn died on the raw 429,
+    and agent.wait_for_limit_reset never saw a reset to wait for.
+    Given an "openai" provider whose upstream responds 429 with the message "Reached free model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in 20 minutes (at 01:01 UTC)." and then succeeds
+    When a completion is requested
+    Then the call fails after 1 upstream request with a quota reset error
+    And the reported pause is at least 1190 s

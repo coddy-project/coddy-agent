@@ -29,6 +29,7 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenBackgroundTasks?: () => void;
     onOpenEdits?: () => void;
     onOpenFiles?: () => void;
+    onOpenTerminal?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -51,6 +52,13 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onOpenFiles?.()}
       >
         Open files
+      </button>
+      <button
+        type="button"
+        data-testid="open-terminal"
+        onClick={() => props.onOpenTerminal?.()}
+      >
+        Open terminal
       </button>
     </div>
   ),
@@ -97,6 +105,14 @@ async function baseFetch(input: RequestInfo | URL, init?: RequestInit) {
         },
       ],
       totals: { files: 1, additions: 1, deletions: 0 },
+    });
+  }
+  if (path === `/coddy/sessions/${SID}/terminal`) {
+    return json({
+      object: "coddy.terminal",
+      shell: "/bin/bash",
+      output: "",
+      running: true,
     });
   }
   if (path.includes("/workspace/tree")) {
@@ -207,6 +223,37 @@ test("the background tasks open in the dock with no tab strip", async () => {
   const panel = await screen.findByTestId("bgtasks-panel");
   expect(within(panel).getByText(t("tasks.panelTitle"))).toBeTruthy();
   expect(document.querySelector('[role="tablist"]')).toBeNull();
+});
+
+test("the terminal opens in a window of its own and closes by its own control", async () => {
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  const terminal = await screen.findByTestId("terminal-panel");
+  expect(terminal.getAttribute("role")).toBe("dialog");
+  // A window over the chat, not a row of the composer block under it.
+  expect(terminal.closest('[data-testid="chat-screen-stub"]')).toBeNull();
+  expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(within(terminal).getByRole("textbox")).toBeTruthy();
+  fireEvent.click(within(terminal).getByLabelText(t("terminal.close")));
+  await waitFor(() =>
+    expect(screen.queryByTestId("terminal-panel")).toBeNull(),
+  );
+});
+
+test("the terminal stays open while the files and the tasks come and go", async () => {
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  await screen.findByTestId("terminal-panel");
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("open-files"));
+  await screen.findByTestId("files-view");
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  // Escape belongs to the layers of the chat; the window outlives them.
+  pressEscape();
+  await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
 });
 
 test("the files open in a window over the chat, not in the dock, and Escape closes it", async () => {

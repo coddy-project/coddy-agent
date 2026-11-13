@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { FieldLabel } from "./FieldHint";
 import type { OverrideTexts } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -50,8 +56,38 @@ export function OpenCodeAuthField(props: {
   proxy?: string;
   hasExplicitKey: boolean;
   texts: OverrideTexts;
+  /**
+   * Lets one primary action outside this field drive the sign-in: `action`
+   * receives a description of it on every change (its label, whether it can
+   * run, and how to run it) and `hideAction` keeps this field from drawing a
+   * button of its own. A modal shows one primary action at a time, so the
+   * picker renders it once, in its actions row, instead of beside this field
+   * and again at the foot.
+   */
+  action?: (
+    state: {
+      label: string;
+      disabled: boolean;
+      /** The sign-in is running: the label is a wait, not an invitation. */
+      pending: boolean;
+      run: () => void;
+    } | null,
+  ) => void;
+  hideAction?: boolean | undefined;
+  /**
+   * Onboarding: the account line and what a sign-in in flight needs, nothing
+   * else. The advisory notes and the sign-out belong to the settings screen,
+   * where a row is tuned; in a first-run dialog they are chrome around the
+   * one fact that matters - the account is connected.
+   */
+  accountOnly?: boolean | undefined;
+
+  onConnectedChange?: (connected: boolean) => void;
 }) {
   const { t } = useT();
+
+  // What the outside primary would do right now. A layout effect so the
+  // picker's button and this field never disagree within a paint.
   const name = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(name)}/opencode-auth`;
   const [status, setStatus] = useState<AuthStatus>({ connected: false });
@@ -60,6 +96,11 @@ export function OpenCodeAuthField(props: {
   const [error, setError] = useState("");
   const generation = useRef(0);
   const deviceRef = useRef<HTMLDivElement | null>(null);
+  const onConnectedChange = props.onConnectedChange;
+
+  useLayoutEffect(() => {
+    onConnectedChange?.(status.connected);
+  }, [status.connected, onConnectedChange]);
 
   useEffect(() => {
     const mine = ++generation.current;
@@ -203,12 +244,55 @@ export function OpenCodeAuthField(props: {
     (props.hasExplicitKey ||
       ["api_key", "api_key_command", "env"].includes(status.source || ""));
 
+  const publish = props.action;
+  // A ref keeps `run` the same function across renders, so the effect below
+  // publishes only when what the action says or does actually changes. A
+  // fresh object every render would be a new state in the picker every
+  // render, which is a loop React stops with "maximum update depth".
+  const signInRef = useRef(signIn);
+  signInRef.current = signIn;
+  const run = useCallback(() => void signInRef.current(), []);
+  const actionLabel = loading
+    ? t("openCodeAuth.waiting")
+    : t("openCodeAuth.signIn");
+  const actionDisabled = !name || loading;
+  useLayoutEffect(() => {
+    if (!publish) return;
+    publish(
+      status.connected
+        ? null
+        : {
+            label: actionLabel,
+            disabled: actionDisabled,
+            pending: loading,
+            run,
+          },
+    );
+    return () => publish(null);
+  }, [publish, status.connected, actionLabel, actionDisabled, loading, run]);
+
+  // With the action drawn elsewhere and nothing else to say - no label, no
+  // account, no device code, no error - this field renders nothing at all.
+  // An empty box still took a row of the form's column and pushed what
+  // follows a gap further down.
+  if (
+    props.hideAction &&
+    !status.connected &&
+    !login &&
+    !error &&
+    !props.texts.second
+  ) {
+    return null;
+  }
+
   return (
     <div className="settings-row" data-testid="opencode-auth-field">
-      <FieldLabel
-        label={props.texts.second}
-        description={props.texts.secondDesc}
-      />
+      {props.texts.second ? (
+        <FieldLabel
+          label={props.texts.second}
+          description={props.texts.secondDesc}
+        />
+      ) : null}
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
           {t("openCodeAuth.connected", {
@@ -216,7 +300,7 @@ export function OpenCodeAuthField(props: {
           })}
         </p>
       ) : null}
-      {shadowed ? (
+      {!props.accountOnly && shadowed ? (
         <p className="settings-field-desc" data-testid="opencode-auth-shadowed">
           {!props.hasExplicitKey && status.source === "env"
             ? t("openCodeAuth.shadowedByEnv", {
@@ -225,7 +309,9 @@ export function OpenCodeAuthField(props: {
             : t("openCodeAuth.shadowedByKey")}
         </p>
       ) : null}
-      {login?.user_code && login.verification_url ? (
+      {/* The code and its page belong to a sign-in still running: a connected
+          row says so and nothing else (CodexAuthField). */}
+      {!status.connected && login?.user_code && login.verification_url ? (
         <div className="codex-auth-device" ref={deviceRef}>
           <p className="settings-field-desc">{t("openCodeAuth.enterCode")}</p>
           <code className="codex-auth-code">{login.user_code}</code>
@@ -242,28 +328,30 @@ export function OpenCodeAuthField(props: {
           ) : null}
         </div>
       ) : null}
-      <div className="codex-auth-actions">
-        {status.connected || login?.status === "pending" ? (
-          <button
-            type="button"
-            className="settings-btn settings-btn-danger"
-            disabled={loading && !login}
-            onClick={() => void signOut()}
-          >
-            {t("openCodeAuth.signOut")}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="settings-btn settings-btn-primary"
-            data-testid="opencode-auth-sign-in"
-            disabled={!name || loading}
-            onClick={() => void signIn()}
-          >
-            {loading ? t("openCodeAuth.waiting") : t("openCodeAuth.signIn")}
-          </button>
-        )}
-      </div>
+      {props.accountOnly ? null : (
+        <div className="codex-auth-actions">
+          {status.connected || login?.status === "pending" ? (
+            <button
+              type="button"
+              className="settings-btn settings-btn-danger"
+              disabled={loading && !login}
+              onClick={() => void signOut()}
+            >
+              {t("openCodeAuth.signOut")}
+            </button>
+          ) : props.hideAction ? null : (
+            <button
+              type="button"
+              className="settings-btn settings-btn-primary"
+              data-testid="opencode-auth-sign-in"
+              disabled={!name || loading}
+              onClick={() => void signIn()}
+            >
+              {loading ? t("openCodeAuth.waiting") : t("openCodeAuth.signIn")}
+            </button>
+          )}
+        </div>
+      )}
       {!name ? (
         <p className="settings-field-desc">
           {t("openCodeAuth.enterProviderName")}

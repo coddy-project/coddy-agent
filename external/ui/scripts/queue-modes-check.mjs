@@ -393,6 +393,12 @@ async function openPage({ throughRelay, width = 1280, height = 820 }) {
     viewport: { width, height },
     deviceScaleFactor: 1,
     colorScheme: "dark",
+    // The SPA takes its language from navigator.language when no cookie says
+    // otherwise, and this script finds its controls by their English names,
+    // CODDY_SHOTS_DIR writing English screenshots from the same pages. Without
+    // this the run passes on an English machine and times out on any other,
+    // waiting for a composer whose accessible name the reader's locale changed.
+    locale: "en-US",
   });
   const origin = throughRelay ? RELAY : NODE;
   await context.addCookies([

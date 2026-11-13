@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/providerlogin"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -161,6 +162,15 @@ type App struct {
 	curShell      *shellBox
 	lastShell     *shellBox
 
+	// The follow-up prompt suggestion (prompt_suggestion.go): the suggestion
+	// on screen, its generation (a turn's late answer is dropped), and the
+	// cancel of a prediction still running. UI-goroutine state only.
+	suggestion       *activeSuggestion
+	suggestionGen    uint64
+	suggestionCancel context.CancelFunc
+	// A successful remote response may precede its server-idle notification.
+	suggestionWaiting bool
+
 	sessionID string
 	modeID    string
 	modelID   string
@@ -217,6 +227,10 @@ type App struct {
 	pasted    map[int]pastedImage
 	pastedSeq int
 
+	// setup is the walk through the provider picker that is waiting for a
+	// provider to list its models (onboarding.go): the one step of the setup
+	// with no modal on screen. nil when none is.
+	setup *providerSetupRun
 	// The sign-in /login runs (login.go): the one in progress, how the
 	// configuration it writes is installed (the manager's InstallConfig; nil
 	// over --remote), how its page is opened, and the ChatGPT issuer a test
@@ -226,6 +240,7 @@ type App struct {
 	openURL          func(string) error
 	browserAvailable func() bool
 	codexIssuer      string
+	loginRunner      func(context.Context, *config.Config, *config.ProviderConfig, providerlogin.Hooks) (providerlogin.Result, error)
 
 	quitErr error
 }
@@ -305,7 +320,7 @@ func (a *App) buildTree() {
 	a.plan = newPlanWidget(a.theme)
 	a.queue = newQueueWidget(a.theme)
 	a.queuePreference = session.QueueMode(a.config().Agent.QueueMode)
-	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
+	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted), PlaceholderColor: a.theme.FgFn(roleDim)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnAlternateSubmit = func(text string) bool {
 		if text == "" || (!a.turnActive && !a.remoteTurnActive) {
@@ -315,6 +330,7 @@ func (a *App) buildTree() {
 		return true
 	}
 	a.editor.OnChange = a.onEditorChange
+	a.editor.OnPlaceholderAccepted = func(string) { a.suggestionAccepted() }
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
@@ -452,6 +468,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
 		a.resetGoal()
+		a.clearSuggestion()
 	}
 	a.sessionID = id
 	if switched {
@@ -598,6 +615,10 @@ func (a *App) Run(ctx context.Context) error {
 		}()
 	}
 	render := a.newRenderScheduler()
+	// A console with no provider that can answer opens the picker before the
+	// first prompt, the way the web UI opens its own (onboarding.go). Escape
+	// puts it away and the header keeps pointing at /login.
+	a.maybeOpenProviderPicker()
 	render.now()
 	for {
 		select {
@@ -633,6 +654,7 @@ func (a *App) Run(ctx context.Context) error {
 			a.openQuestionModal(req)
 			render.now()
 		case <-a.resizeCh:
+			a.fitModal(a.modal)
 			render.now()
 		case <-a.screen.RenderSignal():
 			render.throttled()
@@ -879,7 +901,19 @@ func (a *App) appendStatus(role, msg string) {
 
 // --- modal management ---
 
+// fitModal gives a selector the terminal it has to fit into: its height, and
+// the footer drawn under it, which is the only thing between the modal and the
+// bottom of the screen. Called when a modal opens and on every resize.
+func (a *App) fitModal(c tui.Component) {
+	modal, ok := c.(*selectorModal)
+	if !ok {
+		return
+	}
+	modal.FitTerminal(a.term.Rows(), func(width int) int { return len(a.foot.Render(width)) })
+}
+
 func (a *App) openModal(c tui.Component) {
+	a.fitModal(c)
 	a.modal = c
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(c)
@@ -932,6 +966,9 @@ func (a *App) onSubmit(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	// The suggestion's life ends here: what was sent is compared with it and
+	// the outcome reported, whether it was taken, retyped, or ignored.
+	a.settleSuggestion(text)
 	// The address a Devin sign-in waits for is no prompt, nor history.
 	if a.feedLoginPaste(text) {
 		return
@@ -990,6 +1027,8 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 	a.turnSpeed = nil
 	a.startSpinner()
 	a.turnActive = true
+	// A turn running again retires the suggestion of the turn before it.
+	a.clearSuggestion()
 	// A running turn is when tasks appear: read them on the fast cadence.
 	a.armTasksPoll()
 	sessionID := params.SessionID
@@ -1520,6 +1559,7 @@ func (a *App) resetTranscript() {
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 	a.resetGoal()
+	a.clearSuggestion()
 }
 
 // newSession starts a fresh session (used by /new). Switches serialize: a
@@ -1585,7 +1625,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	items = append(items,
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
-		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Sign in to a model provider and add its models: NeuralDeep, or /login codex, devin, opencode"},
+		tui.AutocompleteItem{Value: "login", Label: "login", Description: "Pick a model provider and set it up; /login <name> goes straight to one"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
@@ -1632,19 +1672,20 @@ func (a *App) refreshServerCommands(cmds []acp.AvailableCommand) {
 	a.slashServer = items
 }
 
+// pasteTarget is a modal that takes a pasted body. Implementing it is how a
+// modal with a text field opts in: one that does not drops the paste, so a
+// paste never leaks into the editor hidden behind the modal.
+type pasteTarget interface{ InsertPaste(string) }
+
 // handlePaste routes bracketed-paste bodies: the editor when no modal is
-// open, the question modal's custom editor when it is typing, and dropped
-// otherwise (pastes must never leak into a hidden editor behind a modal).
+// open, the modal itself when it takes text, and nowhere otherwise.
 func (a *App) handlePaste(body []byte) {
 	if a.modal == nil {
 		a.editor.InsertPaste(string(body))
 		return
 	}
-	if qm, ok := a.modal.(*questionModal); ok {
-		qm.InsertPaste(string(body))
-	}
-	if dm, ok := a.modal.(*docsModal); ok {
-		dm.InsertPaste(string(body))
+	if target, ok := a.modal.(pasteTarget); ok {
+		target.InsertPaste(string(body))
 	}
 }
 

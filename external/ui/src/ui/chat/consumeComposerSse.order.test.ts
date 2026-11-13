@@ -47,7 +47,6 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryRunToItems: (prev) => prev,
   };
   const res = await consumeComposerSseReader(params);
   res.flushToolQueue();
@@ -73,7 +72,6 @@ test.each([
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
   };
   await consumeComposerSseReader(params);
   expect(updates).toEqual([expected]);
@@ -94,7 +92,6 @@ test("unknown usage remains unknown after a later known call", async () => {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
   });
   expect(updates).toEqual([null, null]);
 });
@@ -116,7 +113,6 @@ test("usage_update replaces the displayed current context after compaction", asy
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
   };
 
   await consumeComposerSseReader(params);
@@ -407,7 +403,6 @@ test("queued tool rows land even when no animation frame ever comes", async () =
       tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
       reasoningDurationMsByContentRef: { current: new Map() },
       newId: (p) => p,
-      applyMemoryRunToItems: (prev) => prev,
     };
     await consumeComposerSseReader(params);
     expect(items).toHaveLength(0);
@@ -494,7 +489,6 @@ async function driveWithPrompts(sse: string): Promise<string[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryRunToItems: (prev) => prev,
     // Mirrors App.tsx: both handlers apply their row straight away, outside the queue.
     onQuestion: (raw) =>
       applyStreamItems((prev) => [
@@ -597,7 +591,6 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
     onTurnProgress: (p) => seen.push(p),
   };
   try {
@@ -642,7 +635,6 @@ test("a completed generation caption follows the answer and is not duplicated by
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
   });
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({
@@ -848,7 +840,6 @@ test("a turn whose text and reasoning interleave records every segment of its an
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryRunToItems: (prev) => prev,
   });
   const answers = items.filter((it) => it.type === "assistant_message");
   expect(answers.map((a) => a.content)).toEqual([
@@ -896,7 +887,6 @@ test("unknown session usage stays hidden when the current call is known", async 
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryRunToItems: (prev) => prev,
   });
   expect(updates).toEqual([null]);
 });

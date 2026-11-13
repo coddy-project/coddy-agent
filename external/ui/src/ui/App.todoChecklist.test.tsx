@@ -179,8 +179,11 @@ test("opening a conversation shows its checklist under the newest message", asyn
     "In progress: Fix the parser",
     "Pending: Run the whole suite",
   ]);
-  // The newest message is right above it.
-  expect(list!.previousElementSibling).toHaveTextContent("Planned the work.");
+  // The invisible live-line slot preserves its room above the checklist.
+  const slot = list!.previousElementSibling;
+  expect(slot).toHaveAttribute("data-testid", "live-line-slot");
+  expect(slot).toHaveAttribute("aria-hidden", "true");
+  expect(slot!.previousElementSibling).toHaveTextContent("Planned the work.");
   // The item the agent is on is marked as in progress.
   expect(inProgress()).toEqual(["Fix the parser"]);
 });

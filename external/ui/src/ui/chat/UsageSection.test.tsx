@@ -213,3 +213,30 @@ test("the reader's language names the windows", () => {
     setLocale("en");
   }
 });
+
+test("Kimi subscription shows all four scoped windows without a wallet", () => {
+  const usage: ProviderUsage = {
+    provider: "work",
+    providerType: "kimi",
+    windows: [
+      { id: "5h", label: "5h", usedPercent: 25 },
+      { id: "7d", label: "7d", usedPercent: 50 },
+      { id: "month_total", label: "month total", usedPercent: 75 },
+      { id: "month_code", label: "month code", usedPercent: 100 },
+    ],
+  };
+  const { container } = render(
+    <UsageSection usage={usage} modelId="work/kimi" now={now} />,
+  );
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(
+    "Kimi · work",
+  );
+  for (const id of ["5h", "7d", "month_total", "month_code"]) {
+    expect(
+      container.querySelector(`[data-testid=context-usage-row-${id}]`),
+    ).not.toBeNull();
+  }
+  expect(
+    container.querySelector("[data-testid=context-usage-wallet]"),
+  ).toBeNull();
+});

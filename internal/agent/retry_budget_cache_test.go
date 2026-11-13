@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -75,8 +75,21 @@ func TestPromptCacheRetryBudgetKeepsThePrefix(t *testing.T) {
 				if len(messages) != initialCount+tc.added[i] {
 					t.Fatalf("request %d has %d history messages, want %d", i+1, len(messages), initialCount+tc.added[i])
 				}
+				// The comparison below strips the marks, so assert where they
+				// sit before dropping them: the system prompt and one message
+				// the next request will carry again, never the turn context
+				// (retryCacheRequest took it off the end of messages, so it is
+				// the body's message number len(messages)).
+				marks := cacheMarkPositions(t, raw)
+				turnContext := fmt.Sprintf("messages[%d]", len(messages))
+				if len(marks) != 2 || marks[0] != "system" {
+					t.Fatalf("request %d carries cache marks %v, want the system prompt and one turn", i+1, marks)
+				}
+				if marks[1] == turnContext {
+					t.Fatalf("request %d marks the turn context, which no later request repeats", i+1)
+				}
 				for j, before := range previous {
-					if !bytes.Equal(before, messages[j]) {
+					if withoutCacheMarks(t, before) != withoutCacheMarks(t, messages[j]) {
 						t.Fatalf("request %d rewrote cached history message %d:\nbefore: %s\nafter: %s", i+1, j, before, messages[j])
 					}
 				}

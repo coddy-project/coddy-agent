@@ -114,6 +114,25 @@ test("idle sheet keeps close and disabled compact controls visible", () => {
   expect(compact).toBeDisabled();
 });
 
+test("an active session with unknown context does not claim the window is empty", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      maxContextTokens={128000}
+      sessionId="sess_123"
+      breakdown={null}
+      compactAvailable
+    />,
+  );
+  expect(screen.getByTestId("context-breakdown-unavailable")).toHaveTextContent(
+    "Context usage unavailable · max 128k",
+  );
+  expect(screen.queryByTestId("context-breakdown-usage-row")).toBeNull();
+  expect(screen.queryByTestId("context-breakdown-bar")).toBeNull();
+  expect(screen.getByTestId("context-breakdown-compact")).toBeEnabled();
+});
+
 test("context popover uses modal head chrome, the percent and the tokens over the bar and compaction at its foot", () => {
   render(
     <ContextBreakdownPopover

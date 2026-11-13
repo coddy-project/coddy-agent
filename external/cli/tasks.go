@@ -57,7 +57,7 @@ type taskStopped struct {
 }
 
 // countRunningTasks is how many tasks run right now, as the status line counts them.
-// A system task - the memory run the runtime starts for every turn - is left out, like
+// A system task - the runtime's own children, such as the goal supervisor's - is left out, like
 // Pool.RunningCount leaves it out: it is not work the model or the operator started.
 func countRunningTasks(rows []bgtask.Snapshot) int {
 	running := 0
@@ -324,8 +324,8 @@ func taskTag(row bgtask.Snapshot) string {
 }
 
 // taskTitle is the work itself. The pool labels an agent run "agent <name>:
-// <description>" and a memory run "memory: <first line>"; the tag says the first half
-// already, so the title keeps the second. A run nobody described gets a plain name.
+// <description>"; the tag says the first half already, so the title keeps the
+// second. A run nobody described gets a plain name.
 func taskTitle(row bgtask.Snapshot) string {
 	label := strings.TrimSpace(row.Label)
 	// A preview server is its address: that is what the operator opens.

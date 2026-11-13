@@ -466,6 +466,7 @@ describe("NavRail on a phone: the More menu", () => {
       authRequired: true,
       authenticated: true,
       user: "demo",
+      secondFactor: "",
       telegramRefused: false,
       telegramProblem: "",
       loaded: true,

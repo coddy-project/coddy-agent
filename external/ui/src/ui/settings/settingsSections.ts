@@ -10,7 +10,8 @@ export type SectionKind =
   | "subagents"
   | "appearance"
   | "sessions"
-  | "status";
+  | "status"
+  | "authentication";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
 export const MCP_SECTION_ID = "mcp_servers";
@@ -36,6 +37,7 @@ export type SectionDescriptor = {
  * sections keep their server-provided title and description.
  */
 const SECTION_LABEL_KEYS = {
+  httpserver: "settings.section.httpserver.label",
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
   status: "settings.section.status.label",
@@ -69,6 +71,7 @@ const SECTION_LABEL_KEYS = {
  * switch re-renders the tiles.
  */
 const SECTION_DESC_KEYS = {
+  httpserver: "settings.section.httpserver.desc",
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
   status: "settings.section.status.desc",
@@ -227,6 +230,16 @@ export function deriveSettingsSections(
       };
       return;
     }
+    if (key === "httpserver") {
+      out.push({
+        id: key,
+        label: labelFor(key, sub),
+        description: descFor(key, sub),
+        kind: "authentication",
+        schemaKey: key,
+      });
+      return;
+    }
     if (key === "skills") {
       out.push({
         id: key,
@@ -304,6 +317,14 @@ export function deriveSettingsSections(
 export type DrawnText = { label?: string; desc?: string };
 
 export const SETTINGS_TEXTS = {
+  authAccount: {
+    label: "settings.auth.account",
+    desc: "settings.auth.environment",
+  },
+  authPassword: { desc: "settings.auth.passwordHint" },
+  authTtl: { desc: "settings.auth.ttlHint" },
+  authAuthenticator: { label: "settings.auth.authenticator" },
+  authBackupCodes: { label: "settings.auth.backupCodes" },
   proxyIgnoreSystem: {
     label: "settings.providerProxy.ignoreSystem",
     desc: "settings.providerProxy.ignoreSystemDesc",

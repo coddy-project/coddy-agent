@@ -1,0 +1,658 @@
+package session
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+)
+
+// Prompt suggestions: after a turn ends, a hidden side call forks that turn's
+// provider context to predict what the operator might type next. The main tools
+// are visible to the model but never executed, and nothing the side call says
+// reaches the transcript. The one-line answer is cleaned, validated, and handed
+// to the surface that asked (the console's empty editor, the web composer),
+// which shows it dim and lets Tab or Right take it into the input. This follows
+// Claude Code's prompt suggestions: predict, never propose; stay silent when
+// the next step is not obvious; back off when suggestions keep going unused.
+
+// promptSuggestionInstruction is appended to the fork as a user message, in
+// the shape Claude Code ships. It predicts the operator's next message instead
+// of advising them, and it refuses to guess at unsafe next steps at all.
+const promptSuggestionInstruction = `[SUGGESTION MODE: Suggest what the user might naturally type next.]
+
+FIRST: Look at the user's recent messages and original request.
+
+Your job is to predict what THEY would type - not what you think they should do.
+
+THE TEST: Would they think "I was just about to type that"?
+
+EXAMPLES:
+User asked "fix the bug and run tests", bug is fixed → "run the tests"
+After code written → "try it out"
+The assistant offers options → suggest the one the user would likely pick, based on conversation
+The assistant asks to continue → "yes" or "go ahead"
+Task complete, obvious follow-up → "commit this" or "push it"
+After error or misunderstanding → silence (let them assess/correct)
+
+Be specific: "run the tests" beats "continue".
+
+NEVER SUGGEST:
+- Evaluative ("looks good", "thanks")
+- Questions ("what about...?")
+- Assistant-voice ("Let me...", "I'll...", "Here's...")
+- New ideas they didn't ask about
+- Multiple sentences
+
+Stay silent if the next step isn't obvious from what the user said.
+
+Stay silent if a suggestion could be unsafe or inappropriate - including any sensitive topic (security incidents, credentials, harm, private data). Even when the user is doing legitimate security or cybersecurity work, do not predict potentially unsafe actions.
+
+Format: 2-12 words, match the user's style. Or nothing.
+
+Reply with ONLY the suggestion, no quotes or explanation.`
+
+// Back-off thresholds follow Claude Code 2.1.314. Output and cache bounds below
+// are Coddy's choices, not limits of the upstream generator.
+const (
+	// promptSuggestionBackOffAfter is the run of unused suggestions that puts
+	// the feature in its quiet mode.
+	promptSuggestionBackOffAfter = 20
+	// promptSuggestionEveryNthTurn is how rarely a suggestion is offered once
+	// the back-off engaged: every Nth turn that asks for one.
+	promptSuggestionEveryNthTurn = 10
+	// promptSuggestionGrace is how long a fresh install never backs off.
+	promptSuggestionGrace = 14 * 24 * time.Hour
+	// promptSuggestionMaxRunes and promptSuggestionMaxWords are the format the
+	// instruction asks for, enforced on whatever comes back.
+	promptSuggestionMaxRunes = 100
+	promptSuggestionMaxWords = 12
+	// The total output budget includes reasoning tokens on models such as
+	// beam-free. The validator bounds the visible suggestion separately;
+	// 64 tokens can be exhausted before the model produces any visible text.
+	promptSuggestionMaxTokens = 1024
+	// promptSuggestionCacheFor is how long one turn's answer stays reusable.
+	promptSuggestionCacheFor = 5 * time.Minute
+	// promptSuggestionColdTokens is how much a turn may have paid full price
+	// or a cache write for and still be worth a side call over the same
+	// context. Above it the suggestion would read the whole history again at
+	// the input price, which no two-to-twelve word prediction is worth. The
+	// bound and the reading of the turn's usage are Claude Code's (2.1.311:
+	// input_tokens + cache_creation_input_tokens + output_tokens against
+	// 10000, suppressed as cache_cold).
+	promptSuggestionColdTokens = 10000
+)
+
+// promptSuggestionCacheCold reports whether the turn that just ended was paid
+// for rather than read back from the provider's prompt cache.
+//
+// It reads the turn's own usage, so it applies only where a zero means "the
+// provider served nothing from its cache" rather than "the provider said
+// nothing about its cache". The Messages API always reports both cache
+// counters; most OpenAI-compatible servers report neither, and there a long
+// session would otherwise lose the feature over numbers nobody sent.
+func promptSuggestionCacheCold(providerType string, usage PromptSuggestionUsage) bool {
+	if providerType != "anthropic" || !usage.Known {
+		return false
+	}
+	return usage.uncachedTokens() > promptSuggestionColdTokens
+}
+
+// promptSuggestionReasons reports whether a turn's reasoning level asks the
+// model to think, which is what ties the request's thinking parameters - and
+// through them the provider's cached message blocks - to its output bound.
+func promptSuggestionReasons(effort string) bool {
+	effort = strings.TrimSpace(effort)
+	return effort != "" && effort != config.ReasoningOff
+}
+
+// errPromptSuggestionSuppressed is the answer "no suggestion for this turn":
+// gates said no, the model stayed silent, or the answer did not validate. It
+// is an outcome, not a failure - callers report nothing for it.
+var errPromptSuggestionSuppressed = errors.New("prompt suggestion suppressed")
+
+// IsPromptSuggestionSuppressed reports whether err says a turn simply has no
+// suggestion to show (as opposed to a call that failed).
+func IsPromptSuggestionSuppressed(err error) bool {
+	return errors.Is(err, errPromptSuggestionSuppressed)
+}
+
+var (
+	// Cleaner: the wrappers and lead-in labels models add despite the format
+	// the instruction spells out (Claude Code's W, minus the CJK label list).
+	// RE2 has no backreferences, so the wrapper's two tags are captured apart
+	// and compared in cleanPromptSuggestion.
+	promptSuggestionWrapperRe = regexp.MustCompile(`(?is)^<(suggestion|response|output|answer|result)>(.*)</(suggestion|response|output|answer|result)>$`)
+	// The separator after a lead-in label is a colon, ASCII or fullwidth.
+	promptSuggestionLabelRe = regexp.MustCompile(`(?i)^\s*(suggested\s+(response|reply|input|prompt)|suggestion|response|reply|answer|output|result)\s*[:：]\s*`)
+
+	// Refusal categories adapted from Claude Code; language handling differs.
+	promptSuggestionDoneRe       = regexp.MustCompile(`(?i)^\P{L}*(done|完了|完成了?|完了しました|완료됐습니다?)\P{L}*$`)
+	promptSuggestionMetaTextRe   = regexp.MustCompile(`(?i)(nothing found|^nothing to suggest|^no suggestion|silence is|stays? silent|staying silent)`)
+	promptSuggestionSilenceRe    = regexp.MustCompile(`(?i)^\W*silence\W*$`)
+	promptSuggestionWrappedRe    = regexp.MustCompile(`^(\(.*\)|\[.*\]|（.*）|［.*］|【.*】|〔.*〕)$`)
+	promptSuggestionErrorRe      = regexp.MustCompile(`(?i)^(api error:|prompt is too long|request timed out|invalid api key|image was too large)`)
+	promptSuggestionLabelLineRe  = regexp.MustCompile(`^\w+:\s`)
+	promptSuggestionSentencesRe  = regexp.MustCompile(`[.!?]\s+[A-Z]|[。！？]\s*\p{L}`)
+	promptSuggestionFormattingRe = regexp.MustCompile(`[\n*]`)
+	promptSuggestionEvaluativeRe = regexp.MustCompile(`(?i)\b(thanks|thank you|looks good|sounds good|that works|that worked|that's all|nice|great|perfect|makes sense|awesome|excellent)\b`)
+	promptSuggestionAgentVoiceRe = regexp.MustCompile(`(?i)^(let me|i'll|i've|i'm|i can|i would|i think|i notice|here's|here is|here are|that's|this is|this will|you can|you should|you could|sure,|of course|certainly)`)
+	promptSuggestionAllowOneWord = map[string]bool{
+		"yes": true, "yeah": true, "yep": true, "yea": true, "yup": true, "sure": true, "ok": true, "okay": true,
+		"push": true, "commit": true, "deploy": true, "stop": true, "continue": true, "check": true, "exit": true, "quit": true, "no": true,
+		"да": true, "ага": true, "угу": true, "ок": true, "окей": true, "нет": true,
+		"запушь": true, "коммит": true, "закоммить": true, "стоп": true, "продолжай": true, "продолжить": true, "проверь": true, "выйти": true,
+	}
+)
+
+// cleanPromptSuggestion strips the wrappers and lead-in labels a model may put
+// around the line, then trims.
+func cleanPromptSuggestion(text string) string {
+	s := strings.TrimSpace(text)
+	if m := promptSuggestionWrapperRe.FindStringSubmatch(s); m != nil && strings.EqualFold(m[1], m[3]) {
+		inner := m[2]
+		// A nested closing tag means the trim cut real content: keep the original.
+		if !strings.Contains(strings.ToLower(inner), "</"+strings.ToLower(m[1])+">") {
+			s = strings.TrimSpace(inner)
+		}
+	}
+	s = promptSuggestionLabelRe.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
+
+// ValidatePromptSuggestion returns the suggestion to show, or the refusal
+// category it failed. An empty category means the text passed.
+func ValidatePromptSuggestion(text string) (string, string) {
+	s := cleanPromptSuggestion(text)
+	if s == "" {
+		return "", "empty"
+	}
+	lower := strings.ToLower(s)
+	switch {
+	case promptSuggestionDoneRe.MatchString(s):
+		return "", "done"
+	case lower == "nothing found" || lower == "nothing found." || promptSuggestionMetaTextRe.MatchString(s) || promptSuggestionSilenceRe.MatchString(s):
+		return "", "meta_text"
+	case promptSuggestionWrappedRe.MatchString(s):
+		return "", "meta_wrapped"
+	case promptSuggestionErrorRe.MatchString(s):
+		return "", "error_message"
+	case promptSuggestionLabelLineRe.MatchString(s):
+		return "", "prefixed_label"
+	}
+	words := strings.Fields(s)
+	if strings.HasPrefix(s, "/") {
+		// A slash command needs no minimum.
+		if len(words) > promptSuggestionMaxWords {
+			return "", "too_many_words"
+		}
+	} else {
+		switch {
+		case len(words) > promptSuggestionMaxWords:
+			return "", "too_many_words"
+		case len(words) < 2 && !promptSuggestionAllowOneWord[lower]:
+			return "", "too_few_words"
+		}
+	}
+	if len([]rune(s)) >= promptSuggestionMaxRunes {
+		return "", "too_long"
+	}
+	switch {
+	case promptSuggestionSentencesRe.MatchString(s):
+		return "", "multiple_sentences"
+	case promptSuggestionFormattingRe.MatchString(s):
+		return "", "has_formatting"
+	case promptSuggestionEvaluativeRe.MatchString(s):
+		return "", "evaluative"
+	case promptSuggestionAgentVoiceRe.MatchString(s):
+		return "", "agent_voice"
+	}
+	return s, ""
+}
+
+// promptSuggestionState is the feature's own bookkeeping, one file under the
+// coddy home so every surface (console, web) shares it. It mirrors Claude
+// Code's promptSuggestionUnusedStreak: how many shown suggestions went unused
+// in a row, over how many turns, since when.
+type promptSuggestionState struct {
+	FirstStart   string `json:"first_start,omitempty"`
+	UnusedStreak int    `json:"unused_streak,omitempty"`
+	Turns        int    `json:"turns,omitempty"`
+}
+
+func (p promptSuggestionState) firstStart() time.Time {
+	if p.FirstStart == "" {
+		return time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339, p.FirstStart)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// backedOff reports whether the quiet mode is on: the streak reached the
+// threshold and the grace period of a fresh install is over.
+func (p promptSuggestionState) backedOff(now time.Time) bool {
+	if p.UnusedStreak < promptSuggestionBackOffAfter {
+		return false
+	}
+	start := p.firstStart()
+	return !start.IsZero() && now.Sub(start) >= promptSuggestionGrace
+}
+
+func promptSuggestionStatePath(home string) string {
+	return filepath.Join(home, "prompt-suggestions.json")
+}
+
+// promptSuggestionStore reads and writes the back-off file, best effort: a
+// missing or corrupt file reads as empty (first use starts the clock), and a
+// failed write keeps the in-memory value.
+type promptSuggestionStore struct {
+	mu   sync.Mutex
+	home string
+}
+
+func (s *promptSuggestionStore) load() promptSuggestionState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadLocked()
+}
+
+func (s *promptSuggestionStore) loadLocked() promptSuggestionState {
+	var st promptSuggestionState
+	if strings.TrimSpace(s.home) == "" {
+		return st
+	}
+	data, err := os.ReadFile(promptSuggestionStatePath(s.home))
+	if err == nil {
+		_ = json.Unmarshal(data, &st)
+	}
+	return st
+}
+
+func (s *promptSuggestionStore) saveLocked(st promptSuggestionState) {
+	if strings.TrimSpace(s.home) == "" {
+		return
+	}
+	path := promptSuggestionStatePath(s.home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	data, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".prompt-suggestions-*.tmp")
+	if err != nil {
+		return
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+	_ = os.Rename(tmpPath, path)
+}
+
+// update applies fn under the lock and persists the result; a state with no
+// first_start yet gains one.
+func (s *promptSuggestionStore) update(fn func(*promptSuggestionState)) promptSuggestionState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.loadLocked()
+	if st.FirstStart == "" {
+		st.FirstStart = time.Now().UTC().Format(time.RFC3339)
+	}
+	fn(&st)
+	s.saveLocked(st)
+	return st
+}
+
+// PromptSuggestionFork is what a completed turn leaves for its side call: the
+// request it sent, the input its provider was built from, and what the
+// provider reported that request cost.
+type PromptSuggestionFork struct {
+	Messages []llm.Message
+	Tools    []llm.ToolDefinition
+	Input    llm.ProviderInput
+	Usage    PromptSuggestionUsage
+}
+
+// PromptSuggestionUsage is the usage of the turn's last provider answer, which
+// says whether the side call over the same context would be served from the
+// provider's prompt cache or paid for in full.
+type PromptSuggestionUsage struct {
+	InputTokens       int
+	CachedInputTokens int
+	OutputTokens      int
+	// Known marks usage the provider actually reported; without it the gate
+	// that reads these numbers does not apply.
+	Known bool
+}
+
+// uncachedTokens is what the turn paid full price or a cache write for: the
+// whole prompt minus what came back from the cache, plus the answer.
+func (u PromptSuggestionUsage) uncachedTokens() int {
+	return max(u.InputTokens-u.CachedInputTokens, 0) + u.OutputTokens
+}
+
+type promptSuggestionFork struct {
+	fork PromptSuggestionFork
+	rev  uint64
+}
+
+// SetPromptSuggestionFork keeps the provider context of the completed turn for
+// its side call. The snapshot belongs to the live session and is never stored.
+func (s *State) SetPromptSuggestionFork(fork PromptSuggestionFork) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fork.Messages = append([]llm.Message(nil), fork.Messages...)
+	fork.Tools = append([]llm.ToolDefinition(nil), fork.Tools...)
+	s.promptSuggestionFork = &promptSuggestionFork{fork: fork, rev: s.msgRev}
+}
+
+// PromptSuggestionFork returns the completed turn's fork and the history
+// revision it belongs to.
+func (s *State) PromptSuggestionFork() (PromptSuggestionFork, uint64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	held := s.promptSuggestionFork
+	if held == nil {
+		return PromptSuggestionFork{}, 0, false
+	}
+	out := held.fork
+	out.Messages = append([]llm.Message(nil), out.Messages...)
+	out.Tools = append([]llm.ToolDefinition(nil), out.Tools...)
+	return out, held.rev, true
+}
+
+// promptSuggestionSide is one manager's in-flight and cached suggestions, one
+// entry per session: a second surface asking for the same turn's suggestion
+// reuses the answer, and a turn that starts while the call runs cancels it.
+type promptSuggestionSide struct {
+	mu      sync.Mutex
+	storeMu sync.Mutex
+	call    map[string]*promptSuggestionCall
+	cache   map[string]promptSuggestionCacheEntry
+}
+
+// promptSuggestionCall is one side call in flight; the pointer is its
+// identity.
+type promptSuggestionCall struct {
+	cancel  context.CancelFunc
+	done    chan struct{}
+	rev     uint64
+	waiters int
+	text    string
+	err     error
+}
+
+type promptSuggestionCacheEntry struct {
+	rev  uint64
+	at   time.Time
+	text string
+}
+
+func (s *promptSuggestionSide) cancelLocked(sessionID string) {
+	if s.call == nil {
+		return
+	}
+	if call, ok := s.call[sessionID]; ok {
+		if call.cancel != nil {
+			call.cancel()
+		}
+		delete(s.call, sessionID)
+	}
+}
+
+// CancelPromptSuggestion aborts a suggestion call still running for sessionID
+// (a new turn owns the session again).
+func (m *Manager) CancelPromptSuggestion(sessionID string) {
+	m.promptSuggestionSide.mu.Lock()
+	defer m.promptSuggestionSide.mu.Unlock()
+	m.promptSuggestionSide.cancelLocked(sessionID)
+	delete(m.promptSuggestionSide.cache, sessionID)
+}
+
+// resetPromptSuggestions retires work and cached answers on config reload.
+func (m *Manager) resetPromptSuggestions() {
+	side := &m.promptSuggestionSide
+	side.mu.Lock()
+	defer side.mu.Unlock()
+	for id := range side.call {
+		side.cancelLocked(id)
+	}
+	side.cache = nil
+}
+
+// GeneratePromptSuggestion predicts the operator's next message from the
+// completed turn's fork. It is the surface that asks (the console after its
+// turn ends, the web composer when its stream closes); the answer never enters
+// the transcript and no tool is executed.
+//
+// A suppressed turn (gates, silence, validation) answers
+// errPromptSuggestionSuppressed; callers show nothing for it and report
+// nothing. The history revision of the answer is cached briefly so the two
+// surfaces of one session do not pay the call twice.
+func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || m == nil {
+		return "", errPromptSuggestionSuppressed
+	}
+	cfg := m.activeCfg()
+	if cfg == nil || !cfg.Agent.EffectivePromptSuggestions() {
+		return "", errPromptSuggestionSuppressed
+	}
+	st := m.SessionByID(sessionID)
+	if st == nil {
+		return "", errPromptSuggestionSuppressed
+	}
+	// The turn that just ended must still be the last one: a session already
+	// running again has no use for a suggestion.
+	if m.SessionTurnActiveInProcess(sessionID) {
+		return "", errPromptSuggestionSuppressed
+	}
+	messages, rev := st.MessagesWithRev()
+	messages = MessagesForLLM(messages)
+	assistant := 0
+	for _, msg := range messages {
+		if msg.Role == llm.RoleAssistant && strings.TrimSpace(msg.Content) != "" && len(msg.ToolCalls) == 0 {
+			assistant++
+		}
+	}
+	if assistant == 0 {
+		// A single completed reply is enough context. Waiting for two
+		// assistant messages hides suggestions after the first ordinary turn.
+		return "", errPromptSuggestionSuppressed
+	}
+	fork, forkRev, ok := st.PromptSuggestionFork()
+	if !ok || forkRev != rev {
+		return "", errPromptSuggestionSuppressed
+	}
+
+	side := &m.promptSuggestionSide
+	side.mu.Lock()
+	// Recheck after taking the side-call lock: a new turn or config reload
+	// may have retired the snapshot while it was being read.
+	if m.activeCfg() != cfg || st.MessagesRev() != rev || m.SessionTurnActiveInProcess(sessionID) {
+		side.mu.Unlock()
+		return "", errPromptSuggestionSuppressed
+	}
+	if entry, ok := side.cache[sessionID]; ok && entry.rev == rev && time.Since(entry.at) < promptSuggestionCacheFor {
+		side.mu.Unlock()
+		if entry.text == "" {
+			return "", errPromptSuggestionSuppressed
+		}
+		return entry.text, nil
+	}
+	call := side.call[sessionID]
+	if call == nil || call.rev != rev {
+		side.cancelLocked(sessionID)
+		// Each surface may disconnect independently. Keep the shared request
+		// while someone waits, with a finite lifetime even for a bare caller.
+		callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+		call = &promptSuggestionCall{cancel: cancel, done: make(chan struct{}), rev: rev}
+		if side.call == nil {
+			side.call = map[string]*promptSuggestionCall{}
+		}
+		side.call[sessionID] = call
+		go m.completePromptSuggestion(callCtx, cfg, st, fork, call)
+	}
+	call.waiters++
+	side.mu.Unlock()
+	defer func() {
+		side.mu.Lock()
+		call.waiters--
+		if call.waiters == 0 && side.call[sessionID] == call {
+			side.cancelLocked(sessionID)
+		}
+		side.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-call.done:
+		return call.text, call.err
+	}
+}
+
+func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, fork PromptSuggestionFork, call *promptSuggestionCall) {
+	defer call.cancel()
+	text, err := m.runPromptSuggestion(ctx, cfg, st, fork)
+	side := &m.promptSuggestionSide
+	side.mu.Lock()
+	defer side.mu.Unlock()
+	id := st.GetID()
+	current := side.call[id] == call
+	if ctx.Err() != nil || !current || m.activeCfg() != cfg || st.MessagesRev() != call.rev || m.SessionTurnActiveInProcess(id) {
+		text, err = "", errPromptSuggestionSuppressed
+	} else if err == nil || IsPromptSuggestionSuppressed(err) {
+		if side.cache == nil {
+			side.cache = map[string]promptSuggestionCacheEntry{}
+		}
+		side.cache[id] = promptSuggestionCacheEntry{rev: call.rev, at: time.Now(), text: text}
+	}
+	if current {
+		delete(side.call, id)
+	}
+	call.text, call.err = text, err
+	close(call.done)
+}
+
+// runPromptSuggestion is the call itself: the back-off decision and one
+// completion over the main context fork, re-issuing the turn's own provider
+// input so the request differs from the turn's in nothing but its last
+// message.
+func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, fork PromptSuggestionFork) (string, error) {
+	in := fork.Input
+	if promptSuggestionCacheCold(in.Type, fork.Usage) {
+		// The turn itself was not served from the cache, so the side call over
+		// the same context would pay full price for the whole history. Claude
+		// Code suppresses the suggestion on the same reading of the turn's
+		// usage, at the same bound.
+		return "", errPromptSuggestionSuppressed
+	}
+	m.promptSuggestionSide.storeMu.Lock()
+	store := &promptSuggestionStore{home: cfg.Paths.Home}
+	state := store.load()
+	if state.backedOff(time.Now()) {
+		// Quiet mode: only every Nth turn that asks offers a suggestion.
+		state = store.update(func(s *promptSuggestionState) { s.Turns++ })
+		if state.Turns%promptSuggestionEveryNthTurn != 0 {
+			m.promptSuggestionSide.storeMu.Unlock()
+			return "", errPromptSuggestionSuppressed
+		}
+	}
+	m.promptSuggestionSide.storeMu.Unlock()
+
+	if strings.TrimSpace(in.Type) == "" {
+		// A fork from before this process knew the turn's provider input, or
+		// one a test built by hand: without it the side call cannot repeat the
+		// turn's request, and a hand-built one would miss the cache.
+		return "", errPromptSuggestionSuppressed
+	}
+	if in.Type == "acp" {
+		// A local ACP agent answers inside a session with its own tools; a
+		// prediction request would be taken for a task.
+		return "", errPromptSuggestionSuppressed
+	}
+	// The turn's input, with only what belongs to the turn taken out. Every
+	// field the provider's prompt cache keys on - the model, the tools, the
+	// reasoning level, the conversation id an opencode-style gateway routes
+	// by - stays as the turn sent it.
+	in.LimitLedger = nil
+	if !promptSuggestionReasons(in.ReasoningEffort) {
+		// Anthropic derives the extended-thinking budget from max_tokens, and
+		// a request whose thinking parameters differ from the turn's reads
+		// none of the message blocks the turn cached. Bound the answer only
+		// where the turn asked for no reasoning, so nothing moves; where it
+		// did, the cache the bound would cost is worth more than the ceiling,
+		// which the model's two-to-twelve words never reach anyway.
+		if in.MaxTokens <= 0 || in.MaxTokens > promptSuggestionMaxTokens {
+			in.MaxTokens = promptSuggestionMaxTokens
+		}
+	}
+	provider, err := llm.NewProvider(in)
+	if err != nil {
+		return "", err
+	}
+
+	// The instruction is request-only: marking it so keeps the provider's
+	// cache mark on the turn's last real message, which is the prefix the
+	// operator's next turn starts from, instead of writing a prefix ending in
+	// an instruction no later request repeats.
+	out := append(append([]llm.Message(nil), fork.Messages...), llm.Message{Role: llm.RoleUser, Content: promptSuggestionInstruction, Ephemeral: true})
+	response, err := provider.Complete(ctx, out, fork.Tools)
+	if err != nil {
+		return "", err
+	}
+	if response == nil {
+		return "", errPromptSuggestionSuppressed
+	}
+	suggestion, category := ValidatePromptSuggestion(response.Content)
+	if category != "" {
+		return "", errPromptSuggestionSuppressed
+	}
+	// The session turned again while the call ran: the answer is stale.
+	if m.SessionTurnActiveInProcess(st.GetID()) {
+		return "", errPromptSuggestionSuppressed
+	}
+	return suggestion, nil
+}
+
+// NotePromptSuggestionOutcome records what became of a shown suggestion:
+// accepted resets the back-off streak, ignored grows it. accepted is also
+// true when the operator typed exactly the suggested line themselves (the
+// surfaces compare; Claude Code counts that as accepted too).
+func (m *Manager) NotePromptSuggestionOutcome(sessionID string, accepted bool) {
+	if m == nil {
+		return
+	}
+	cfg := m.activeCfg()
+	if cfg == nil || !cfg.Agent.EffectivePromptSuggestions() || m.SessionByID(sessionID) == nil {
+		return
+	}
+	m.promptSuggestionSide.storeMu.Lock()
+	defer m.promptSuggestionSide.storeMu.Unlock()
+	store := &promptSuggestionStore{home: cfg.Paths.Home}
+	store.update(func(s *promptSuggestionState) {
+		if accepted {
+			s.UnusedStreak = 0
+		} else {
+			s.UnusedStreak++
+		}
+	})
+}

@@ -16,9 +16,10 @@ const DefaultContextWindowTokens = 128000
 // Model must be "provider_name/api_model_id" where provider_name matches providers[].name
 // and api_model_id is sent to the LLM API (may contain additional slashes).
 type ModelEntry struct {
-	Model       string  `yaml:"model"`
-	MaxTokens   int     `yaml:"max_tokens"`
-	Temperature float64 `yaml:"temperature"`
+	Model        string             `yaml:"model"`
+	KimiMetadata *KimiModelMetadata `yaml:"kimi_metadata,omitempty"`
+	MaxTokens    int                `yaml:"max_tokens"`
+	Temperature  float64            `yaml:"temperature"`
 	// MaxContextTokens is the model's context window in tokens: what the
 	// composer context ring, usage_update and the automatic compaction trigger
 	// measure against. 0 reads the window from the provider's model listing
@@ -54,6 +55,14 @@ type ModelEntry struct {
 	// schemas of the other forty. Empty offers every tool the mode
 	// would. See toolsets.go and internal/agent/toolsets.go.
 	Toolset string `yaml:"toolset,omitempty"`
+}
+
+// KimiModelMetadata binds the catalog protocol to the selected model and provider settings.
+type KimiModelMetadata struct {
+	Model    string `yaml:"model" json:"model"`
+	Protocol string `yaml:"protocol" json:"protocol"`
+	Mode     string `yaml:"mode" json:"mode"`
+	Region   string `yaml:"region" json:"region"`
 }
 
 // SplitModelRef parses model into provider name and API model id.

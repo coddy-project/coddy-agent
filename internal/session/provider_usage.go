@@ -73,7 +73,11 @@ type providerUsageEntry struct {
 	unauthorized bool
 	// unauthorizedAt is when the rejection was recorded (the command retry).
 	unauthorizedAt time.Time
-	backoffUntil   time.Time
+	// unsupported marks a row whose upstream answered that it has no
+	// limits endpoint at all (404/405): it is reported once and never
+	// probed again until the fingerprint moves or a refresh is forced.
+	unsupported  bool
+	backoffUntil time.Time
 	// inflight is closed when the running fetch ends; nil while idle.
 	inflight       chan struct{}
 	inflightCancel context.CancelFunc
@@ -194,17 +198,21 @@ func (m *Manager) notifyUsageObservers(sessionID string, u acp.ProviderUsageUpda
 // providerUsageSource says whether a provider type has a usage source.
 func providerUsageSource(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "neuraldeep", "codex", "devin":
+	case "neuraldeep", "codex", "devin", "kimi", "openai":
 		return true
 	default:
 		return false
 	}
 }
 
-// providerUsageEnabled says whether a row is read at all: its type has a
+// ProviderUsageEnabled says whether a row is read at all: its type has a
 // usage source and its panel is on (providers[].usage_limits_panel).
-func providerUsageEnabled(prov *config.ProviderConfig) bool {
-	return prov != nil && providerUsageSource(prov.Type) && prov.EffectiveUsageLimitsPanel()
+func ProviderUsageEnabled(prov *config.ProviderConfig) bool {
+	return prov != nil && providerUsageSource(prov.Type) && (!strings.EqualFold(strings.TrimSpace(prov.Type), "kimi") || strings.TrimSpace(prov.Mode) != "platform") && prov.EffectiveUsageLimitsPanel()
+}
+
+func usageAuthPath(cfg *config.Config, prov *config.ProviderConfig) string {
+	return config.ProviderConfigAuthPath(cfg.Paths.Home, *prov)
 }
 
 // ProviderUsage returns the account usage behind the named provider row. A
@@ -231,7 +239,11 @@ func (m *Manager) CachedProviderUsage() map[string]acp.ProviderUsageUpdate {
 	now := m.usageNow()
 	out := make(map[string]acp.ProviderUsageUpdate, len(m.usage.entries))
 	for name, e := range m.usage.entries {
-		if e.update == nil || cfg == nil || !providerUsageEnabled(cfg.FindProvider(name)) {
+		if e.update == nil || cfg == nil || !ProviderUsageEnabled(cfg.FindProvider(name)) {
+			continue
+		}
+		prov := cfg.FindProvider(name)
+		if strings.EqualFold(strings.TrimSpace(prov.Type), "kimi") && e.fingerprint != providerUsageFingerprint(*prov, usageAuthPath(cfg, prov), cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)) {
 			continue
 		}
 		out[name] = m.usageDeliverableLocked(e, now)
@@ -258,7 +270,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 	if prov == nil {
 		return nil, fmt.Errorf("unknown provider %q", providerName)
 	}
-	if !providerUsageEnabled(prov) {
+	if !ProviderUsageEnabled(prov) {
 		// No source, or the row's panel is switched off: the answer says
 		// which, and nothing is read either way.
 		return &acp.ProviderUsageUpdate{
@@ -269,7 +281,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 			Disabled:      providerUsageSource(prov.Type),
 		}, nil
 	}
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
@@ -289,6 +301,12 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		m.usage.mu.Unlock()
 		return &u, nil
 	case e.unauthorized && !refresh && !m.usageRejectionExpiredLocked(prov, e, now):
+		u := m.usageDeliverableLocked(e, now)
+		m.usage.mu.Unlock()
+		return &u, nil
+	case e.unsupported && !refresh:
+		// The upstream has no limits endpoint: it was asked once and the
+		// answer does not change by asking again.
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
@@ -427,10 +445,10 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	}
 	cfg := m.activeCfg()
 	prov := cfg.FindProvider(name)
-	if !providerUsageEnabled(prov) {
+	if !ProviderUsageEnabled(prov) {
 		return
 	}
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 	if e.fingerprint != fingerprint {
@@ -488,7 +506,7 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		mapped, err := m.fetchProviderUsage(ctx, provider, authPath, cliLogin)
+		mapped, boundFingerprint, err := m.fetchProviderUsageBound(ctx, provider, authPath, cliLogin)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -498,10 +516,32 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			close(done)
 			return
 		}
+		if strings.EqualFold(strings.TrimSpace(provider.Type), "kimi") {
+			cfg := m.activeCfg()
+			var current *config.ProviderConfig
+			if cfg != nil {
+				current = cfg.FindProvider(name)
+			}
+			want := boundFingerprint
+			if want == "" {
+				want = e.fingerprint
+			}
+			if errors.Is(err, errUsageSuperseded) || !ProviderUsageEnabled(current) || usageAuthPath(cfg, current) != authPath || providerUsageFingerprint(*current, authPath, cfg.ProviderMayUseCLILogin(current.Name, current.Type)) != want {
+				m.usageInvalidateLocked(e)
+				e.inflight, e.inflightCancel = nil, nil
+				m.usage.mu.Unlock()
+				close(done)
+				return
+			}
+			e.fingerprint = want
+		}
 		e.inflight, e.inflightCancel = nil, nil
 		if err == nil {
 			e.update, e.fetchedAt = &mapped, fetchedAt
 			e.unauthorized, e.backoffUntil = false, time.Time{}
+			// An upstream that answered it has no limits endpoint is asked
+			// no more; a row that gained one answers at the next probe.
+			e.unsupported = mapped.Unsupported
 		} else {
 			m.usageRecordFailureLocked(e, name, provider.Type, err, fetchedAt)
 		}
@@ -703,7 +743,7 @@ func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, bo
 		return nil, false
 	}
 	prov := cfg.FindProvider(entry.ProviderName())
-	if !providerUsageEnabled(prov) {
+	if !ProviderUsageEnabled(prov) {
 		return nil, false
 	}
 	return prov, true
@@ -721,7 +761,7 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		return
 	}
 	cfg := m.activeCfg()
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
@@ -733,6 +773,11 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	case e.unauthorized && !m.usageRejectionExpiredLocked(prov, e, now):
 		// A rejected key is sticky: the turn learns of it without another
 		// request, until a login, a config change or a manual refresh.
+		u := m.usageDeliverableLocked(e, now)
+		deliverNow = &u
+	case e.unsupported:
+		// The upstream has no limits endpoint: report it from the stored
+		// answer without asking again.
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	case e.inflight != nil:
@@ -776,7 +821,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		return
 	}
 	cfg := m.activeCfg()
-	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	authPath := usageAuthPath(cfg, prov)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
 	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
@@ -787,7 +832,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	switch {
 	case e.inflight != nil:
 		e.waiters = appendSession(e.waiters, sessionID)
-	case e.update != nil && (e.unauthorized || now.Sub(e.fetchedAt) < providerUsageTTL ||
+	case e.update != nil && (e.unauthorized || e.unsupported || now.Sub(e.fetchedAt) < providerUsageTTL ||
 		(!e.backoffUntil.IsZero() && now.Before(e.backoffUntil))):
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u

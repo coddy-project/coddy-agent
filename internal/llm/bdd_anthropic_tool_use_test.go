@@ -63,7 +63,7 @@ func (s *anthropicToolUseState) streamAnswer() error {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	p := newAnthropicProvider("test-model", "key", s.server.URL, nil, 0, 0, "")
+	p := newAnthropicProvider("test-model", "key", s.server.URL, nil, 0, 0, "", "")
 	seen, onChunk := collectToolCalls()
 	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, onChunk)
 	if err != nil {

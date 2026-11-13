@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -46,23 +47,64 @@ func runningQueueStand(t *testing.T, textOnly bool) *queueHTTPState {
 	return s
 }
 
-// A model that reads no images gets none, the rule POST /v1/responses applies
-// to an ordinary prompt: the text is queued without the image, and an image
-// alone leaves nothing to queue.
-func TestQueueHTTPDropsImagesForATextOnlyModel(t *testing.T) {
+// A follow-up for a model that reads no images is refused as a whole: silently
+// queueing only its text would make the model answer about a picture it never
+// saw.
+func TestQueueHTTPRefusesImagesForATextOnlyModel(t *testing.T) {
 	s := runningQueueStand(t, true)
 	status, out := postQueue(t, s, `{"text":"inspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
-	msg, _ := out["message"].(map[string]interface{})
-	if status != http.StatusCreated || msg["text"] != "inspect" || msg["imageParts"] != nil {
-		t.Fatalf("text with an image for a text-only model: %d %v", status, out)
+	errObj, _ := out["error"].(map[string]interface{})
+	if status != http.StatusBadRequest || errObj["code"] != "images_not_supported" {
+		t.Fatalf("text with an image for a text-only model: %d %v, want 400 images_not_supported", status, out)
 	}
 	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
-	if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 0 {
-		t.Fatalf("queued rows = %+v, %v; want the text without the image", rows, err)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("a refused follow-up was queued: %+v, %v", rows, err)
 	}
-	if status, out := postQueue(t, s, `{"text":"","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`); status != http.StatusBadRequest {
-		t.Fatalf("an image alone for a text-only model answered %d %v, want 400", status, out)
+	status, out = postQueue(t, s, `{"text":"","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+	errObj, _ = out["error"].(map[string]interface{})
+	if status != http.StatusBadRequest || errObj["code"] != "images_not_supported" {
+		t.Fatalf("an image alone for a text-only model: %d %v, want 400 images_not_supported", status, out)
 	}
+}
+
+func TestQueueHTTPChecksImagesAfterLeadingModelCommands(t *testing.T) {
+	t.Run("a switch to a multimodal model admits the image", func(t *testing.T) {
+		s := runningQueueStand(t, true)
+		cfg := s.srv.activeCfg()
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "openai/vision", Multimodal: true})
+		status, out := postQueue(t, s, `{"text":"/model openai/vision\ninspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+		if status != http.StatusCreated {
+			t.Fatalf("switch to vision with an image: %d %v, want 201", status, out)
+		}
+		st := s.srv.mgr.SessionByID(s.sessionID)
+		if got := effectiveYAMLModel(s.srv.activeCfg(), st); got != "openai/vision" {
+			t.Fatalf("effective model = %q, want openai/vision", got)
+		}
+		rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+		if err != nil || len(rows) != 1 || len(rows[0].ImageParts) != 1 || rows[0].ImageParts[0].Name != "pixel.png" {
+			t.Fatalf("the image was not queued after the model switch: %+v, %v", rows, err)
+		}
+	})
+
+	t.Run("a switch to a text model refuses without queueing", func(t *testing.T) {
+		s := runningQueueStand(t, false)
+		cfg := s.srv.activeCfg()
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "openai/text"})
+		status, out := postQueue(t, s, `{"text":"/model openai/text\ninspect","inline_files":[{"name":"pixel.png","data_url":"`+queueFeatureImage+`"}]}`)
+		errObj, _ := out["error"].(map[string]interface{})
+		if status != http.StatusBadRequest || errObj["code"] != "images_not_supported" {
+			t.Fatalf("switch to text with an image: %d %v, want 400 images_not_supported", status, out)
+		}
+		st := s.srv.mgr.SessionByID(s.sessionID)
+		if got := effectiveYAMLModel(s.srv.activeCfg(), st); got != "openai/text" {
+			t.Fatalf("effective model = %q, want openai/text", got)
+		}
+		rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("a refused follow-up was queued: %+v, %v", rows, err)
+		}
+	})
 }
 
 // Only an image carried in the request is taken: a URL the server or a browser
