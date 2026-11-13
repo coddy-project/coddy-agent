@@ -452,18 +452,19 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
-		LoadSkillBody:     a.loadSkillBody,
-		ConfigPath:        a.cfg.Paths.ConfigPath,
-		ConfigHome:        a.cfg.Paths.Home,
-		ConfigCWD:         a.cfg.Paths.CWD,
-		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
-		Background:        a.backgroundPool(sd),
-		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
-		WebSearch:         webSearchSettings(a.cfg),
-		PreviewServer:     previewServerSettings(a.cfg),
-		AttachImage:       a.attachToolImage,
-		ImageRefusal:      a.toolImageRefusal,
+		SSHConnectTimeout:  a.cfg.Tools.SSHConnectTimeout,
+		LoadSkillBody:      a.loadSkillBody,
+		ConfigPath:         a.cfg.Paths.ConfigPath,
+		ConfigHome:         a.cfg.Paths.Home,
+		ConfigCWD:          a.cfg.Paths.CWD,
+		OutputLineLimits:   a.cfg.Tools.OutputLimits.AsMap(),
+		Background:         a.backgroundPool(sd),
+		BackgroundEnabled:  a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:          webSearchSettings(a.cfg),
+		PreviewServer:      previewServerSettings(a.cfg),
+		CanvasProjectTrust: a.cfg.Tools.Canvas.ResolvedProjectTrust(),
+		AttachImage:        a.attachToolImage,
+		ImageRefusal:       a.toolImageRefusal,
 	}
 	httpRequestEnv(toolEnv, a.cfg)
 	a.wireWorkspaceTool(toolEnv)

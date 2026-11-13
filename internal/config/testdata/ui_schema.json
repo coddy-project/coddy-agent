@@ -1669,6 +1669,16 @@
               "description": "Offer the canvas_show and canvas_inspect tools and show the canvas (default true).",
               "title": "Enabled",
               "type": "boolean"
+            },
+            "project_trust": {
+              "description": "A .canvas file travels with the checkout, and its pages read every file under their root. \"ask\": run the pages Coddy put on a board and hold the rest until the person trusts the board. \"allow\": run every page. \"deny\": run only the pages Coddy put.",
+              "enum": [
+                "ask",
+                "allow",
+                "deny"
+              ],
+              "title": "Pages of a checkout's board",
+              "type": "string"
             }
           },
           "title": "Canvas",
@@ -1676,7 +1686,8 @@
           "x-coddy-property-order": [
             "enable",
             "allow_cdn",
-            "allowed_sources"
+            "allowed_sources",
+            "project_trust"
           ]
         },
         "command_allowlist": {
