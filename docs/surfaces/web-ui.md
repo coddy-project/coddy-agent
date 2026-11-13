@@ -160,7 +160,7 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 *A toolset: the allowlist of the tools a small local model needs, and a denylist applied after it.*
 
-- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`); for the others it would change nothing.
+- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`, `openai`); for the others it would change nothing.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
 - Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the four blocks of the logical-model form, its toolset and the Toolsets tab in English and in Russian, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
@@ -601,7 +601,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *A refresh that failed keeps the cached list under a warning*
 
-- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
+- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled. With the checkbox enabled, every turn carries **`metadata.worktree: true`**, which adds a turn-only system instruction to work in a dedicated worktree on a separate feature branch and not to create or switch branches in the main checkout. Without the checkbox that instruction is absent, so branch work in the main checkout remains allowed.
 - **History folder grouping** uses the main checkout path returned as `repoRoot` on each git session row. A conversation in `main` and conversations in its worktrees appear under one project heading, while each session keeps its own cwd. See [Git worktrees](../features/worktrees.md).
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
@@ -1720,7 +1720,7 @@ Automated checks:
 *The Devin usage section as a bottom sheet on a phone*
 
 - When the selected model's provider reports account usage (today
-  `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
+  `neuraldeep`, `codex`, `devin` and `openai`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
   limits under the context window: the provider and plan (with the row
   next to the brand, **`Codex · codex-work · Plus`**, unless the row is

@@ -154,7 +154,8 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](newCodexEventDecoder(raw), reqErr)
 	defer func() { _ = stream.Close() }()
 
-	return consumeResponsesStream(stream, onChunk, "codex", p.encodeReasoningItems)
+	response, streamErr := consumeResponsesStream(stream, onChunk, "codex", p.encodeReasoningItems)
+	return response, withToolSchemaRequest(streamErr, params, false)
 }
 
 // codexReasoningCarrier travels in Message.ReasoningSignature: the reasoning

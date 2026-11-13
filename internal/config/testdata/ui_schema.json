@@ -1316,7 +1316,7 @@
           },
           "usage_limits_panel": {
             "default": true,
-            "description": "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+            "description": "Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
             "title": "Usage limits panel",
             "type": "boolean"
           },

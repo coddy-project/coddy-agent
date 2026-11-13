@@ -31,7 +31,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 	schemas["OpenAIResponsesInputItem"] = union(userMessage, assistantMessage, functionCall, functionOutput, reasoning)
 	tool := obj(map[string]any{"type": enum("function"), "name": str(), "description": str(), "parameters": map[string]any{"type": "object", "additionalProperties": true}, "strict": map[string]any{"type": "boolean", "enum": []bool{false}, "description": "Only false is supported; true is rejected rather than ignored."}}, "type", "name")
 	schemas["OpenAIResponsesFunctionTool"] = tool
-	metadata := map[string]any{"type": "object", "additionalProperties": true, "description": "Caller metadata. metadata.model is reserved for profile requests and is rejected on direct models."}
+	metadata := map[string]any{"type": "object", "additionalProperties": true, "description": "Caller metadata. metadata.model is reserved for profile requests and is rejected on direct models. With surface webui, worktree true adds a turn-only instruction to work in a dedicated git worktree and keep branch changes out of the main checkout."}
 	directProperties := map[string]any{
 		"model":        map[string]any{"type": "string", "description": "A configured provider/model id from GET /v1/models; not agent, plan or ask.", "not": enum("agent", "plan", "ask")},
 		"input":        union(str(), array(ref("OpenAIResponsesInputItem"))),
@@ -85,6 +85,12 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 	post["description"] = "Configured direct models use the OpenAI Responses subset: string or typed item-array input, client function tools, caller-owned history, typed output and provider usage. They emit response.* SSE, cancel on disconnect and do not store response ids. The remaining session/profile behavior below applies to agent, plan and ask. " + post["description"].(string)
 	success := post["responses"].(map[string]interface{})["200"].(map[string]interface{})
 	success["description"] = "Direct models return OpenAIResponsesCreateResponse or named response.* events, ending in response.completed, response.incomplete or response.failed. Direct streams carry no chat.completion.chunk, Coddy events or [DONE]. Profiles retain the following Coddy protocol. " + success["description"].(string)
+	success["headers"] = map[string]any{
+		"X-Coddy-Ignored-Params": map[string]any{
+			"description": "Contains max_output_tokens when a codex backend accepted the field but cannot enforce its cap. Absent when the cap is enforced.",
+			"schema":      map[string]any{"type": "string", "example": "max_output_tokens"},
+		},
+	}
 	success["content"].(map[string]interface{})["text/event-stream"].(map[string]interface{})["schema"] = map[string]any{"type": "string", "description": "Direct models: named SSE events whose JSON data follows OpenAIResponsesStreamEvent, with monotonic sequence_number and stable item ids. Heartbeats are comments. Profiles agent/plan/ask: legacy chat chunks, Coddy named events and [DONE]."}
 	get := paths["/v1/responses/{id}"].(map[string]interface{})["get"].(map[string]interface{})
 	get["description"] = "Returns metadata for an active Coddy session id in this process. This is not stored OpenAI Responses retrieval; a resp_ id is not a session id and cannot be retrieved here."

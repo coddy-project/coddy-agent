@@ -60,7 +60,7 @@ func (p *kimiResponsesProvider) decode(s string) []json.RawMessage {
 	}
 	return c.Items
 }
-func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []ToolDefinition, stream bool) (*http.Response, error) {
+func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []ToolDefinition, stream bool, wire *map[string]any) (*http.Response, error) {
 	if p.transport == nil {
 		return nil, errors.New("kimi responses: missing transport")
 	}
@@ -87,7 +87,14 @@ func (p *kimiResponsesProvider) request(ctx context.Context, m []Message, t []To
 	if err != nil {
 		return nil, err
 	}
-	return p.transport.do(ctx, bytes.NewReader(b), false, "kimi responses")
+	if wire != nil {
+		*wire = body
+	}
+	resp, err := p.transport.do(ctx, bytes.NewReader(b), false, "kimi responses")
+	if err != nil {
+		return nil, withToolSchemaRequest(err, body, false)
+	}
+	return resp, nil
 }
 func kimiResponsesUsage(raw gjson.Result, r *Response) {
 	if raw.Get("input_tokens").Type != gjson.Number || raw.Get("output_tokens").Type != gjson.Number {
@@ -110,7 +117,7 @@ func kimiResponsesValidCall(tc ToolCall) bool {
 }
 
 func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []ToolDefinition) (*Response, error) {
-	resp, err := p.request(ctx, m, t, false)
+	resp, err := p.request(ctx, m, t, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -167,11 +174,13 @@ func (p *kimiResponsesProvider) Complete(ctx context.Context, m []Message, t []T
 	}
 	return r, nil
 }
-func (p *kimiResponsesProvider) Stream(ctx context.Context, m []Message, t []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	resp, err := p.request(ctx, m, t, true)
+func (p *kimiResponsesProvider) Stream(ctx context.Context, m []Message, t []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
+	var wire map[string]any
+	resp, err := p.request(ctx, m, t, true, &wire)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = withToolSchemaRequest(retErr, wire, false) }()
 	defer func() { _ = resp.Body.Close() }()
 	r := &Response{UsageIncomplete: true}
 	var reasoning []json.RawMessage

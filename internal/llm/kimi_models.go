@@ -93,6 +93,11 @@ type kimiModelsItem struct {
 	} `json:"think_efforts"`
 }
 
+type kimiModelsTransportError struct{ cause error }
+
+func (e *kimiModelsTransportError) Error() string { return "kimi models: request failed" }
+func (e *kimiModelsTransportError) Unwrap() error { return e.cause }
+
 func fetchKimiModels(ctx context.Context, mode, credential, endpoint string, client *http.Client) ([]KimiModel, error) {
 	if client == nil {
 		return nil, errors.New("kimi models: HTTP client is required")
@@ -119,7 +124,7 @@ func fetchKimiModels(ctx context.Context, mode, credential, endpoint string, cli
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("kimi models: request failed")
+		return nil, &kimiModelsTransportError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {

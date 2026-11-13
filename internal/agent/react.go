@@ -1531,7 +1531,13 @@ func (a *Agent) runReActLoop(
 			// keeps its partial answer like a user stop: the user already
 			// watched the text stream in, so it must survive in the
 			// transcript next to the honest error below.
-			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
+			if llm.IsToolSchemaLimit(streamErr) && response == nil {
+				// Some adapters report an in-band refusal with no response
+				// object after deltas. The buffers are the same output the
+				// caller already saw, so preserve them independently of the SDK.
+				response = &llm.Response{Content: answerBuf.String(), Reasoning: reasoningBuf.String()}
+			}
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr) || llm.IsToolSchemaLimit(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -1573,6 +1579,12 @@ func (a *Agent) runReActLoop(
 					}
 					a.refreshConversationContextUsage(true)
 				}
+			}
+			// A schema validation refusal cannot be repaired by replaying the
+			// same request or compacting the conversation. Any partial answer
+			// has been persisted above.
+			if llm.IsToolSchemaLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.toolSchemaLimitError(streamErr, toolDefs)
 			}
 			if errors.Is(streamErr, context.Canceled) {
 				// If output was already streamed, treat as a clean user-stop regardless.

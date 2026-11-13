@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +43,8 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string, c
 		}
 		sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%v\x00%+v\x00%t\x00%s\x00%v", provider.KimiIdentity, authPath, provider.Mode, provider.Region, provider.Proxy, state, err, cred, cliLogin, cliToken, cliErr)))
 		return fmt.Sprintf("%x", sum)
+	case "openai":
+		return llm.OpenAIUsageFingerprint(provider)
 	default:
 		// No usage source, no cache key: a caller that skipped the
 		// providerUsageSource gate must not get NeuralDeep's fingerprint
@@ -131,6 +135,43 @@ func (m *Manager) fetchProviderUsageBound(ctx context.Context, provider config.P
 			return acp.ProviderUsageUpdate{}, fingerprint, kimiUsageCredentialError(kind, err)
 		}
 		return mapKimiUsage(u, provider.Name, m.usageNow()), fingerprint, nil
+	case "openai":
+		payload, err := llm.OpenAIUsageForProvider(ctx, provider)
+		if err != nil {
+			var usageErr *llm.ProviderUsageError
+			if errors.As(err, &usageErr) && (usageErr.Status == http.StatusNotFound || usageErr.Status == http.StatusMethodNotAllowed) {
+				// The upstream has no limits endpoint: the row is marked
+				// unsupported and asked no more until it changes.
+				return acp.ProviderUsageUpdate{
+					SessionUpdate: acp.UpdateTypeProviderUsage,
+					Provider:      provider.Name,
+					ProviderType:  provider.Type,
+					Unsupported:   true,
+				}, "", nil
+			}
+			return acp.ProviderUsageUpdate{}, "", err
+		}
+		if len(payload.Coddy) > 0 {
+			// A Coddy upstream serves its whole usage update: the windows,
+			// the wallet and the account's own provider type survive
+			// untouched; the row the update belongs to is the local one.
+			var update acp.ProviderUsageUpdate
+			if err := json.Unmarshal(payload.Coddy, &update); err == nil && update.SessionUpdate == acp.UpdateTypeProviderUsage {
+				update.Provider = provider.Name
+				if update.ProviderType == "" {
+					update.ProviderType = provider.Type
+				}
+				// The upstream has already age-corrected the relative durations
+				// for its response. Rebase fetchedAt so the local delivery does
+				// not subtract the upstream snapshot's age a second time.
+				update.FetchedAt = m.usageNow().UTC().Format(time.RFC3339)
+				return update, "", nil
+			}
+		}
+		if payload.Neural != nil {
+			return mapNeuralDeepUsage(payload.Neural, provider.Name, m.usageNow()), "", nil
+		}
+		return acp.ProviderUsageUpdate{}, "", &llm.ProviderUsageError{Kind: llm.ProviderUsageInvalid, Detail: "the limits answer carries no usable usage"}
 	default:
 		return acp.ProviderUsageUpdate{}, "", fmt.Errorf("provider usage: unsupported source")
 	}
