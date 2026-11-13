@@ -95,7 +95,7 @@ function folderName(path: string): string {
 }
 
 /**
- * The Files panel: the session's workspace beside the live chat, opened
+ * The Files window: the session's workspace in a window over the chat, opened
  * the way the documentation is (the views menu of the chat header, a file path
  * in the conversation, Ctrl+Shift+F, the composer's Files chip, the address
  * `#/s/<id>/files?path=&line=`).
@@ -288,7 +288,7 @@ export function FilesView(props: {
     <div
       className={"files-dock-cluster" + (expandedWindow ? " is-expanded" : "")}
       data-testid="files-view"
-      role="complementary"
+      role="dialog"
       aria-label={t("files.title")}
     >
       <div className="files-header">

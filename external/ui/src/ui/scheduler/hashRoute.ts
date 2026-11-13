@@ -232,7 +232,8 @@ export function parseAppHash(): ParsedAppHash {
   if (sessFiles?.[1]) {
     const params = new URLSearchParams(search);
     const requestedLine = Number(params.get("line"));
-    // A workspace panel beside the chat, not a face of the tasks dock.
+    // A window over the chat, not a face of the dock: whatever the dock
+    // showed stays under it.
     return {
       branch: "session",
       sessionId: decodeURIComponent(sessFiles[1]),

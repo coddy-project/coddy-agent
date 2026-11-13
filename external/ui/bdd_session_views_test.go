@@ -11,7 +11,7 @@ import (
 // The views of a chat are rendered components and the shell's routing, so
 // each step runs the Vitest test that drives them: the header buttons, the
 // tasks dock without a tab strip, the edits window, the plate over the composer,
-// discarding from the edits, the Files panel beside the chat.
+// discarding from the edits, the Files window.
 func TestWebUISessionViewsFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
 		{`^a linked worktree's plate has no exit button and still opens the edits$`,
@@ -74,12 +74,24 @@ func TestWebUISessionViewsFeature(t *testing.T) {
 		{`^discarding everything asks first, and a refusal touches nothing$`,
 			"src/ui/changes/EditsView.test.tsx",
 			"discarding everything asks first, and a refusal touches nothing"},
-		{`^the files open beside the live chat, not in the tasks dock$`,
+		{`^the terminal opens in a window of its own and closes by its own control$`,
 			"src/ui/App.workspaceViews.test.tsx",
-			"the files open beside the live chat, not in the tasks dock, and Escape closes them"},
-		{`^the chat stays interactive until the files' own close button is used$`,
+			"the terminal opens in a window of its own and closes by its own control"},
+		{`^the terminal stays open while the files and the tasks come and go$`,
 			"src/ui/App.workspaceViews.test.tsx",
-			"the chat stays interactive beside files until their own close button is used"},
+			"the terminal stays open while the files and the tasks come and go"},
+		{`^on the stacked shell the terminal is the whole screen and cannot be dragged$`,
+			"src/ui/terminal/TerminalPanel.test.tsx",
+			"on the stacked shell the terminal is the whole screen and cannot be dragged"},
+		{`^on a desktop the window is placed, dragged by its head and remembered$`,
+			"src/ui/terminal/TerminalPanel.test.tsx",
+			"on a desktop the window is placed, dragged by its head and remembered"},
+		{`^a desktop window goes full screen and back, and is still full screen next time$`,
+			"src/ui/terminal/TerminalPanel.test.tsx",
+			"a desktop window goes full screen and back, and is still full screen next time"},
+		{`^the files open in a window over the chat, not in the dock$`,
+			"src/ui/App.workspaceViews.test.tsx",
+			"the files open in a window over the chat, not in the dock, and Escape closes it"},
 		{`^the window shows the workspace tree beside an empty preview$`,
 			"src/ui/files/FilesView.test.tsx",
 			"the files window shows the workspace tree beside an empty preview"},

@@ -3,7 +3,6 @@
 package httpserver
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,23 +12,35 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
-const terminalOutputLimit = 512 << 10
+const (
+	terminalOutputLimit = 512 << 10
+	// terminalIdleLimit stops a shell nobody has looked at since. The panel can
+	// be closed and reopened without losing the shell, so nothing else would
+	// ever end one: without this a long-lived server keeps a process per chat
+	// that was open once.
+	terminalIdleLimit = 30 * time.Minute
+)
 
 // terminalSession is a long-lived command interpreter for one chat. Pipes are
 // deliberate here: the browser supplies the prompt and renders plain output,
 // while the shell itself retains cd, exports, functions and other state across
-// commands without requiring a platform-specific PTY dependency.
+// commands without requiring a platform-specific PTY dependency. What it cannot
+// do is run a program that draws a screen (an editor, top): such a program sees
+// no terminal and the panel says so rather than pretending otherwise.
 type terminalSession struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
-	output  bytes.Buffer
+	shell   platform.Shell
+	output  strings.Builder
 	running bool
 	exitErr string
+	seen    time.Time
 }
 
 type terminalSnapshot struct {
@@ -51,14 +62,20 @@ func (s *Server) terminalCWD(w http.ResponseWriter, r *http.Request) (string, st
 
 func (s *Server) terminalFor(sid, cwd string) (*terminalSession, error) {
 	s.terminalMu.Lock()
-	defer s.terminalMu.Unlock()
+	idle := s.reapIdleTerminalsLocked(sid)
 	if term := s.terminals[sid]; term != nil {
+		term.touch()
+		s.terminalMu.Unlock()
+		stopTerminals(idle)
 		return term, nil
 	}
+	s.terminalMu.Unlock()
+	stopTerminals(idle)
+
 	shell := platform.CurrentShell()
 	// The host shell is what this endpoint is for: the request is authenticated
 	// and the session's workspace is the working directory.
-	cmd := exec.Command(shell.Path)
+	cmd := exec.Command(shell.Path, shell.InteractiveArgs()...)
 	platform.AdaptCommand(cmd)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1")
@@ -67,34 +84,25 @@ func (s *Server) terminalFor(sid, cwd string) (*terminalSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, err
-	}
-	term := &terminalSession{cmd: cmd, stdin: stdin, running: true}
+	term := &terminalSession{cmd: cmd, stdin: stdin, shell: shell, running: true, seen: time.Now()}
+	// The streams are writers rather than StdoutPipe readers on purpose: Wait
+	// closes a pipe the moment the process exits, so the last lines of a shell
+	// that ends - the error that ended it, most of all - raced the reader and
+	// were lost. A writer makes Wait wait for the copy instead. Each stream
+	// decodes on its own, so a sequence split between two reads of one stream
+	// is never joined to bytes of the other.
+	cmd.Stdout = &terminalWriter{term: term}
+	cmd.Stderr = &terminalWriter{term: term}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		return nil, err
 	}
-	// Bash does not record commands received from a pipe unless history is
-	// enabled explicitly. Turn it on before the first browser command so the
-	// ordinary `history` builtin behaves as it does in a terminal. The browser
-	// keeps its own chat-scoped Up/Down history for every shell kind as well.
-	if shell.Kind == platform.ShellBash {
-		if _, err := io.WriteString(stdin, "set -o history\n"); err != nil {
+	if prologue := shell.SessionPrologue(); prologue != "" {
+		if _, err := io.WriteString(stdin, prologue); err != nil {
 			_ = platform.TerminateProcessGroup(cmd, 500*time.Millisecond)
 			return nil, err
 		}
 	}
-	s.terminals[sid] = term
-	go term.copy(stdout)
-	go term.copy(stderr)
 	go func() {
 		err := cmd.Wait()
 		term.mu.Lock()
@@ -104,36 +112,111 @@ func (s *Server) terminalFor(sid, cwd string) (*terminalSession, error) {
 		}
 		term.mu.Unlock()
 	}()
+
+	s.terminalMu.Lock()
+	// Another request may have started a shell for this chat while this one was
+	// starting its own; the first one in the map is the chat's, and this one is
+	// stopped rather than left running with nobody holding it.
+	if live := s.terminals[sid]; live != nil {
+		s.terminalMu.Unlock()
+		term.stop()
+		live.touch()
+		return live, nil
+	}
+	s.terminals[sid] = term
+	s.terminalMu.Unlock()
 	return term, nil
 }
 
-func (t *terminalSession) copy(r io.Reader) {
-	buf := make([]byte, 16<<10)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			t.append(buf[:n])
+// reapIdleTerminalsLocked takes the shells nobody has read or written for
+// terminalIdleLimit out of the map and returns them to be stopped outside the
+// lock. The chat being asked for is never reaped: its request is the use.
+func (s *Server) reapIdleTerminalsLocked(keep string) []*terminalSession {
+	var idle []*terminalSession
+	cutoff := time.Now().Add(-terminalIdleLimit)
+	for id, term := range s.terminals {
+		if id == keep || term == nil || !term.idleSince(cutoff) {
+			continue
 		}
-		if err != nil {
-			return
-		}
+		delete(s.terminals, id)
+		idle = append(idle, term)
+	}
+	return idle
+}
+
+func stopTerminals(terms []*terminalSession) {
+	for _, term := range terms {
+		term.stop()
 	}
 }
 
-func (t *terminalSession) append(p []byte) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if len(p) >= terminalOutputLimit {
-		t.output.Reset()
-		_, _ = t.output.Write(p[len(p)-terminalOutputLimit:])
+// terminalWriter decodes one stream of the shell into the session's buffer.
+// It never reports an error: os/exec would stop copying, and a chat losing its
+// output is worse than a write that could not be stored.
+type terminalWriter struct {
+	term  *terminalSession
+	carry []byte
+}
+
+func (w *terminalWriter) Write(p []byte) (int, error) {
+	chunk := p
+	if len(w.carry) > 0 {
+		chunk = append(w.carry, p...)
+		w.carry = nil
+	}
+	head, carry := platform.SplitPartialRune(chunk)
+	if len(carry) > 0 {
+		w.carry = append([]byte(nil), carry...)
+	}
+	if len(head) > 0 {
+		w.term.append(platform.DecodeOutput(head))
+	}
+	return len(p), nil
+}
+
+// append adds decoded text to the retained tail of the output, dropping as much
+// from its front as the new text needs.
+func (t *terminalSession) append(s string) {
+	if s == "" {
 		return
 	}
-	if over := t.output.Len() + len(p) - terminalOutputLimit; over > 0 {
-		kept := append([]byte(nil), t.output.Bytes()[over:]...)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(s) >= terminalOutputLimit {
 		t.output.Reset()
-		_, _ = t.output.Write(kept)
+		t.output.WriteString(trimToRuneStart(s[len(s)-terminalOutputLimit:]))
+		return
 	}
-	_, _ = t.output.Write(p)
+	if over := t.output.Len() + len(s) - terminalOutputLimit; over > 0 {
+		kept := trimToRuneStart(t.output.String()[over:])
+		t.output.Reset()
+		t.output.WriteString(kept)
+	}
+	t.output.WriteString(s)
+}
+
+// trimToRuneStart drops the continuation bytes of a character the cut beheaded,
+// so the retained tail is still valid UTF-8 and the browser is not handed a
+// replacement character at the top of every screen.
+func trimToRuneStart(s string) string {
+	for i := 0; i < len(s) && i < 3; i++ {
+		if utf8.RuneStart(s[i]) {
+			return s[i:]
+		}
+	}
+	return s
+}
+
+func (t *terminalSession) touch() {
+	t.mu.Lock()
+	t.seen = time.Now()
+	t.mu.Unlock()
+}
+
+func (t *terminalSession) idleSince(cutoff time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.seen.Before(cutoff)
 }
 
 func (t *terminalSession) write(input string) error {
@@ -143,22 +226,33 @@ func (t *terminalSession) write(input string) error {
 		return errors.New("terminal is not running")
 	}
 	stdin := t.stdin
+	t.seen = time.Now()
+	// A command is one line: a newline inside it would run its tail as a second
+	// command the person never saw echoed.
 	input = strings.TrimRight(input, "\r\n")
-	if input == "" {
+	if input == "" || strings.ContainsAny(input, "\r\n") {
 		t.mu.Unlock()
-		return nil
+		if input == "" {
+			return nil
+		}
+		return errors.New("a command is one line")
 	}
 	t.mu.Unlock()
-	t.append([]byte("\n❯ " + input + "\n"))
+	t.append("\n❯ " + input + "\n")
+	// A shell reading a pipe takes "\n" on every platform, cmd.exe included.
 	_, err := io.WriteString(stdin, input+"\n")
 	return err
 }
 
-func (t *terminalSession) snapshot(shell string) terminalSnapshot {
+func (t *terminalSession) snapshot() terminalSnapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return terminalSnapshot{
-		Object: "coddy.terminal", Shell: shell, Output: t.output.String(),
+		Object: "coddy.terminal", Shell: t.shell.Path,
+		// Escape sequences carry no meaning in a <pre>, and a progress bar
+		// redrawn with carriage returns would arrive as dozens of near-identical
+		// lines. The stored bytes keep them; only what is read is cleaned.
+		Output:  platform.SanitizeOutput(t.output.String()),
 		Running: t.running, ExitErr: t.exitErr,
 	}
 }
@@ -188,7 +282,7 @@ func (s *Server) closeTerminals() {
 
 func (s *Server) writeTerminalSnapshot(w http.ResponseWriter, term *terminalSession) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(term.snapshot(platform.CurrentShell().Path))
+	_ = json.NewEncoder(w).Encode(term.snapshot())
 }
 
 func (s *Server) coddyTerminalGet(w http.ResponseWriter, r *http.Request) {

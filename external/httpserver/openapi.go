@@ -1642,13 +1642,13 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/terminal": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Start or snapshot the integrated terminal",
-					"description": "Starts one host shell in the session workspace when none exists and returns its bounded output, shell path and running state. The process retains cwd and environment between commands.",
+					"description": "Starts one host shell in the session workspace when none exists and returns its bounded output (the last 512 KiB, decoded from the host console code page and stripped of terminal control sequences), shell path and running state. The process retains cwd and environment between commands; a shell nobody has read or written for 30 minutes is stopped before the next one starts.",
 					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
 					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "500": errorResponseRef()},
 				},
 				"post": map[string]interface{}{
 					"summary":     "Write a command to the integrated terminal",
-					"description": "Writes **input** followed by a newline to the chat's persistent host shell and returns the immediate snapshot.",
+					"description": "Writes **input** followed by a newline to the chat's persistent host shell and returns the immediate snapshot. A command is one line: input holding a newline is refused with **409**, since the lines after the first would run unseen.",
 					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
 					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []interface{}{"input"}, "properties": map[string]interface{}{"input": map[string]interface{}{"type": "string"}}}}}},
 					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef()},

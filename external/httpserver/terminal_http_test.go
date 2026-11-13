@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -106,3 +108,97 @@ func postTerminalInput(t *testing.T, endpoint, input string) {
 		t.Fatalf("POST terminal status = %d", res.StatusCode)
 	}
 }
+
+// Escape sequences carry no meaning in the browser's <pre>, and a cut UTF-8
+// sequence must survive the read that split it: both are what a shell writing
+// colour and non-ASCII text produces on every platform.
+func TestTerminalOutputIsDecodedAndStripped(t *testing.T) {
+	term := &terminalSession{running: true, seen: time.Now()}
+	w := &terminalWriter{term: term}
+	text := []byte("\x1b[32mпривет\x1b[0m\r\nвторая строка\n")
+	for i := 0; i < len(text); i += 3 {
+		end := i + 3
+		if end > len(text) {
+			end = len(text)
+		}
+		if _, err := w.Write(text[i:end]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := term.snapshot().Output
+	if got != "привет\nвторая строка\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+// The retained tail is handed to a browser as JSON, so a cut that beheaded a
+// character must not leave its continuation bytes at the top of the screen.
+func TestTerminalOutputTailStaysValidUTF8(t *testing.T) {
+	term := &terminalSession{running: true, seen: time.Now()}
+	term.append(strings.Repeat("я", terminalOutputLimit))
+	term.append("tail")
+	out := term.snapshot().Output
+	if !utf8.ValidString(out) {
+		t.Fatalf("retained tail is not valid UTF-8: %q", out[:16])
+	}
+	if len(out) > terminalOutputLimit {
+		t.Fatalf("retained %d bytes, cap is %d", len(out), terminalOutputLimit)
+	}
+	if !strings.HasSuffix(out, "tail") {
+		t.Fatalf("the newest output was dropped: %q", out[len(out)-8:])
+	}
+}
+
+// A command is one line: a second line would run unseen behind the first.
+func TestTerminalRefusesACommandOfSeveralLines(t *testing.T) {
+	term := &terminalSession{running: true, stdin: nopWriteCloser{io.Discard}, seen: time.Now()}
+	if err := term.write("echo one\nrm -rf /"); err == nil {
+		t.Fatal("a two-line command was accepted")
+	}
+	if err := term.write("echo one\n"); err != nil {
+		t.Fatalf("a trailing newline was refused: %v", err)
+	}
+}
+
+// Nothing else ever ends a shell: the window may be closed and opened again
+// without losing it, so a chat left open months ago must not keep a process.
+func TestTerminalsIdleTooLongAreStoppedWhenTheNextOneStarts(t *testing.T) {
+	srv := &Server{terminals: map[string]*terminalSession{}}
+	idle := &terminalSession{seen: time.Now().Add(-terminalIdleLimit - time.Minute)}
+	fresh := &terminalSession{seen: time.Now()}
+	srv.terminals["old"] = idle
+	srv.terminals["new"] = fresh
+
+	srv.terminalMu.Lock()
+	reaped := srv.reapIdleTerminalsLocked("asking")
+	srv.terminalMu.Unlock()
+
+	if len(reaped) != 1 || reaped[0] != idle {
+		t.Fatalf("reaped %d terminals, want the idle one", len(reaped))
+	}
+	if _, still := srv.terminals["old"]; still {
+		t.Fatal("the idle terminal is still in the map")
+	}
+	if srv.terminals["new"] != fresh {
+		t.Fatal("a terminal in use was reaped")
+	}
+}
+
+// The chat being asked for is in use by that very request, however long its
+// window was closed.
+func TestTheTerminalBeingAskedForIsNeverReaped(t *testing.T) {
+	srv := &Server{terminals: map[string]*terminalSession{}}
+	srv.terminals["asking"] = &terminalSession{
+		seen: time.Now().Add(-terminalIdleLimit - time.Hour),
+	}
+	srv.terminalMu.Lock()
+	reaped := srv.reapIdleTerminalsLocked("asking")
+	srv.terminalMu.Unlock()
+	if len(reaped) != 0 || srv.terminals["asking"] == nil {
+		t.Fatal("the terminal of the request was reaped")
+	}
+}
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }

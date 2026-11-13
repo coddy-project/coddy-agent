@@ -1,6 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { workspaceScope } from "../chat/workspaceScope";
+import { composerAutoFocusAllowed } from "../chat/composerFocus";
+import {
+  serverSnapshotShellStack,
+  snapshotShellStack,
+  subscribeShellStack,
+} from "../shellBreakpoint";
+import {
+  clampTerminalFrame,
+  defaultTerminalFrame,
+  moveTerminalFrame,
+  readTerminalFrame,
+  readTerminalMaximized,
+  resizeTerminalFrame,
+  TERMINAL_EDGES,
+  writeTerminalFrame,
+  writeTerminalMaximized,
+  type TerminalEdge,
+  type TerminalFrame,
+} from "./terminalFrame";
 
 type TerminalSnapshot = {
   shell: string;
@@ -9,14 +35,8 @@ type TerminalSnapshot = {
   exit_error?: string;
 };
 
-const HEIGHT_KEY = "coddy.terminal.height";
 const HISTORY_KEY = "coddy.terminal.history.";
 const HISTORY_LIMIT = 100;
-
-function savedHeight(): number {
-  const n = Number(localStorage.getItem(HEIGHT_KEY));
-  return Number.isFinite(n) ? Math.min(560, Math.max(180, n)) : 280;
-}
 
 function historyKey(sessionId: string): string {
   return `${HISTORY_KEY}${sessionId}`;
@@ -43,14 +63,31 @@ function saveHistory(sessionId: string, history: string[]): void {
   }
 }
 
-/** A chat-scoped shell under the conversation. The server owns the process, so
- * closing and reopening the panel keeps its cwd, exports and output. */
+function viewport(): { vw: number; vh: number } {
+  if (typeof window === "undefined") return { vw: 1280, vh: 800 };
+  return { vw: window.innerWidth, vh: window.innerHeight };
+}
+
+/**
+ * A chat-scoped shell in a window of its own. The server owns the process, so
+ * closing and reopening the window keeps its cwd, exports and output.
+ *
+ * On a desktop it is a small window the person moves and resizes, and may send
+ * full screen; where it stands is kept for this browser. On the stacked shell
+ * it fills the screen, because a window to drag needs a pointer and a tablet
+ * or a phone has neither the room nor the precision for one.
+ */
 export function TerminalPanel(props: {
   sessionId: string;
   workspacePath: string;
   onClose: () => void;
 }) {
   const { t } = useT();
+  const stacked = useSyncExternalStore(
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
+  );
   const [snapshot, setSnapshot] = useState<TerminalSnapshot | null>(null);
   const [command, setCommand] = useState("");
   const [history, setHistory] = useState<string[]>(() =>
@@ -58,11 +95,22 @@ export function TerminalPanel(props: {
   );
   const [historyAt, setHistoryAt] = useState(0);
   const [error, setError] = useState("");
-  const [height, setHeight] = useState(savedHeight);
+  const [maximized, setMaximized] = useState(readTerminalMaximized);
+  const [frame, setFrame] = useState<TerminalFrame>(() => {
+    const { vw, vh } = viewport();
+    const saved = readTerminalFrame();
+    return saved
+      ? clampTerminalFrame(saved, vw, vh)
+      : defaultTerminalFrame(vw, vh);
+  });
   const outputRef = useRef<HTMLPreElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scope = workspaceScope(props.sessionId, props.workspacePath);
   const url = `/coddy/sessions/${encodeURIComponent(props.sessionId)}/terminal`;
+  // The window floats only where it can be dragged; full screen is one frame
+  // the stylesheet owns, so neither the stacked shell nor a maximized window
+  // is positioned from here.
+  const floating = !stacked && !maximized;
 
   const refresh = useCallback(async () => {
     const response = await fetch(url, { headers: scope.headers });
@@ -92,6 +140,21 @@ export function TerminalPanel(props: {
     const el = outputRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [snapshot?.output]);
+
+  useLayoutEffect(() => {
+    if (composerAutoFocusAllowed()) inputRef.current?.focus();
+  }, []);
+
+  // A window the viewport outgrew comes back inside it rather than off screen.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => {
+      const { vw, vh } = viewport();
+      setFrame((prev) => clampTerminalFrame(prev, vw, vh));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const send = async () => {
     const input = command.trimEnd();
@@ -129,41 +192,96 @@ export function TerminalPanel(props: {
     inputRef.current?.focus();
   };
 
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>) => {
+  const toggleMaximized = () => {
+    setMaximized((prev) => {
+      writeTerminalMaximized(!prev);
+      return !prev;
+    });
+  };
+
+  /** Follows the pointer until it is released, then keeps where it ended. */
+  const drag = (
+    event: React.PointerEvent,
+    step: (dx: number, dy: number, vw: number, vh: number) => TerminalFrame,
+  ) => {
+    // event.button is 0 for the primary button and absent where the
+    // browser has no PointerEvent at all; only a secondary one cancels.
+    if (!floating || event.button > 0) return;
     event.preventDefault();
+    const startX = event.clientX;
     const startY = event.clientY;
-    const startHeight = height;
-    const move = (e: PointerEvent) =>
-      setHeight(Math.min(560, Math.max(180, startHeight + startY - e.clientY)));
-    const up = (e: PointerEvent) => {
-      const next = Math.min(
-        560,
-        Math.max(180, startHeight + startY - e.clientY),
-      );
-      setHeight(next);
-      localStorage.setItem(HEIGHT_KEY, String(next));
+    let last = frame;
+    const move = (e: PointerEvent) => {
+      const { vw, vh } = viewport();
+      last = step(e.clientX - startX, e.clientY - startY, vw, vh);
+      setFrame(last);
+    };
+    const up = () => {
+      writeTerminalFrame(last);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  const beginMove = (event: React.PointerEvent<HTMLElement>) => {
+    // A press on one of the head's buttons is that button's, not the window's.
+    if ((event.target as HTMLElement).closest("button")) return;
+    const start = frame;
+    drag(event, (dx, dy, vw, vh) => moveTerminalFrame(start, dx, dy, vw, vh));
+  };
+
+  const beginResize = (edge: TerminalEdge) => (event: React.PointerEvent) => {
+    const start = frame;
+    drag(event, (dx, dy, vw, vh) =>
+      resizeTerminalFrame(start, edge, dx, dy, vw, vh),
+    );
   };
 
   return (
     <section
-      className="terminal-panel"
+      className={[
+        "terminal-panel",
+        stacked ? "terminal-panel--full" : "",
+        !stacked && maximized ? "terminal-panel--maximized" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-testid="terminal-panel"
+      role="dialog"
       aria-label={t("terminal.title")}
-      style={{ height }}
+      style={
+        floating
+          ? {
+              left: `${frame.x}px`,
+              top: `${frame.y}px`,
+              width: `${frame.w}px`,
+              height: `${frame.h}px`,
+            }
+          : undefined
+      }
     >
-      <div
-        className="terminal-resize"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label={t("terminal.resize")}
-        onPointerDown={beginResize}
-      />
-      <header className="terminal-head">
+      {floating
+        ? TERMINAL_EDGES.map((edge) => (
+            <div
+              key={edge}
+              className={`terminal-grip terminal-grip--${edge}`}
+              data-testid={`terminal-grip-${edge}`}
+              role="separator"
+              aria-label={t("terminal.resize")}
+              onPointerDown={beginResize(edge)}
+            />
+          ))
+        : null}
+      <header
+        className="terminal-head"
+        data-testid="terminal-head"
+        onPointerDown={floating ? beginMove : undefined}
+        onDoubleClick={stacked ? undefined : toggleMaximized}
+      >
         <div className="terminal-title-row">
           <span
             className="terminal-status"
@@ -178,13 +296,26 @@ export function TerminalPanel(props: {
           <button type="button" onClick={() => void restart()}>
             {t("terminal.restart")}
           </button>
+          {stacked ? null : (
+            <button
+              type="button"
+              className="terminal-icon-btn"
+              aria-label={
+                maximized ? t("terminal.restore") : t("terminal.maximize")
+              }
+              aria-pressed={maximized}
+              onClick={toggleMaximized}
+            >
+              {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+            </button>
+          )}
           <button
             type="button"
-            className="terminal-close"
+            className="terminal-icon-btn terminal-close"
             aria-label={t("terminal.close")}
             onClick={props.onClose}
           >
-            ×
+            <CloseIcon />
           </button>
         </div>
       </header>
@@ -207,7 +338,6 @@ export function TerminalPanel(props: {
         <span aria-hidden>❯</span>
         <input
           ref={inputRef}
-          autoFocus
           value={command}
           aria-label={t("terminal.command")}
           placeholder={t("terminal.placeholder")}
@@ -231,5 +361,43 @@ export function TerminalPanel(props: {
         />
       </form>
     </section>
+  );
+}
+
+const iconProps = {
+  className: "terminal-icon",
+  width: 14,
+  height: 14,
+  viewBox: "0 0 14 14",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.4,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
+};
+
+function MaximizeIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="2.2" y="2.2" width="9.6" height="9.6" rx="1.4" />
+    </svg>
+  );
+}
+
+function RestoreIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="2.2" y="4.6" width="7.2" height="7.2" rx="1.3" />
+      <path d="M4.8 4.6V3.5a1.3 1.3 0 0 1 1.3-1.3h4.4a1.3 1.3 0 0 1 1.3 1.3v4.4a1.3 1.3 0 0 1-1.3 1.3H9.4" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="m3.4 3.4 7.2 7.2M10.6 3.4l-7.2 7.2" />
+    </svg>
   );
 }

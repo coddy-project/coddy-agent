@@ -42,6 +42,47 @@ func (s Shell) Command(command string) (string, []string) {
 	}
 }
 
+// InteractiveArgs returns the arguments that start the shell as a session
+// reading commands from a pipe, rather than running one command and exiting.
+//
+// PowerShell prints a banner over the first command unless -NoLogo; the profile
+// is deliberately left in place, because this shell belongs to a person and its
+// prompt, aliases and functions are what they expect. cmd.exe echoes every line
+// it reads from a pipe, which would print each command twice next to the echo
+// the caller writes itself: /q turns that off and takes the prompt with it.
+func (s Shell) InteractiveArgs() []string {
+	switch s.Kind {
+	case ShellPwsh, ShellPowerShell:
+		return []string{"-NoLogo"}
+	case ShellCmd:
+		return []string{"/q"}
+	default:
+		return nil
+	}
+}
+
+// SessionPrologue returns what is written into a freshly started interactive
+// shell before the first command of a person, or an empty string when the shell
+// needs nothing.
+//
+// On Windows it settles the encoding, the way wrapPowerShellCommand does for a
+// one-shot command: without it a console program writes in the console output
+// code page (866 on a Russian install) and its text reaches the browser as
+// mojibake. Bash is asked for its history, which it keeps off for input that is
+// not a terminal, so the `history` builtin lists what was typed here.
+func (s Shell) SessionPrologue() string {
+	switch s.Kind {
+	case ShellPwsh, ShellPowerShell:
+		return powerShellPrologue
+	case ShellCmd:
+		return "chcp 65001 >nul 2>&1\r\n"
+	case ShellBash:
+		return "set -o history\n"
+	default:
+		return ""
+	}
+}
+
 // DetectShell selects the first available shell for goos.
 func DetectShell(goos string, lookup LookupFunc) Shell {
 	if lookup == nil {
