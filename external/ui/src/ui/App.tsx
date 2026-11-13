@@ -285,6 +285,7 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView, type CanvasFocus } from "./files/FilesView";
+import { TerminalPanel } from "./terminal/TerminalPanel";
 import type { CanvasPrompt } from "./canvas/CanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
@@ -1409,6 +1410,7 @@ export function App() {
   const [filesOpen, setFilesOpen] = useState(
     initialRoute.branch === "session" && initialRoute.filesOpen === true,
   );
+  const [terminalOpen, setTerminalOpen] = useState(false);
   // Bumps on every request to show a file, so the same path asked for again
   // (its tab closed meanwhile) opens again.
   const [fileOpenSeq, setFileOpenSeq] = useState(0);
@@ -8295,6 +8297,18 @@ export function App() {
           />
         ) : null}
 
+        {/* The terminal is a window of the chat's own, not a view of the dock:
+            it stands over whatever else is open and nothing closes it but its
+            own control. */}
+        {terminalOpen && sessionId.trim() ? (
+          <TerminalPanel
+            key={`terminal:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || chatWorkspace}
+            onClose={() => setTerminalOpen(false)}
+          />
+        ) : null}
+
         {/* After the dock, so on the stacked shell, where both are sheets over
             the chat, the window is the one on top. */}
         {changesViewerOpen && sessionId.trim() ? (
@@ -8370,6 +8384,8 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
+            onOpenTerminal={() => setTerminalOpen((open) => !open)}
+            terminalOpen={terminalOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

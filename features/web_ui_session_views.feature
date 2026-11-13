@@ -47,6 +47,13 @@ Feature: The views of a chat
     Then discarding a file asks first, then puts it back through the server
     And discarding everything asks first, and a refusal touches nothing
 
+  Scenario: The terminal opens in a window of its own
+    Then the terminal opens in a window of its own and closes by its own control
+    And the terminal stays open while the files and the tasks come and go
+    And on the stacked shell the terminal is the whole screen and cannot be dragged
+    And on a desktop the window is placed, dragged by its head and remembered
+    And a desktop window goes full screen and back, and is still full screen next time
+
   Scenario: The files open in a window over the chat
     Then the files open in a window over the chat, not in the dock
     And the window shows the workspace tree beside an empty preview

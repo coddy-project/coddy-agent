@@ -1639,6 +1639,27 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/terminal": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Start or snapshot the integrated terminal",
+					"description": "Starts one host shell in the session workspace when none exists and returns its bounded output (the last 512 KiB, decoded from the host console code page and stripped of terminal control sequences), shell path and running state. The process retains cwd and environment between commands; a shell nobody has read or written for 30 minutes is stopped by a sweep of the server. A read leaves a shell that has ended alone, so its last output and exit_error stay readable.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "500": errorResponseRef()},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Write a command to the integrated terminal",
+					"description": "Writes **input** followed by a newline to the chat's persistent host shell and returns the immediate snapshot. A command is one line: input holding a newline is refused with **409**, since the lines after the first would run unseen. A shell that has ended is replaced by a fresh one, so the endpoint never wedges; a failure to start one is a **500**.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []interface{}{"input"}, "properties": map[string]interface{}{"input": map[string]interface{}{"type": "string"}}}}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "500": errorResponseRef()},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Restart the integrated terminal",
+					"description": "Stops and forgets the chat's shell. The next GET or POST starts a clean shell in the session workspace.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Terminal stopped"}, "400": errorResponseRef(), "404": errorResponseRef()},
+				},
+			},
 			"/coddy/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
