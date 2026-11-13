@@ -127,12 +127,9 @@ func (s *Server) terminalFor(sid, cwd string, replace bool) (*terminalSession, e
 		_ = stdin.Close()
 		return nil, err
 	}
-	if prologue := shell.SessionPrologue(); prologue != "" {
-		if _, err := io.WriteString(stdin, prologue); err != nil {
-			_ = platform.TerminateProcessGroup(cmd, 500*time.Millisecond)
-			return nil, err
-		}
-	}
+	// Reaping starts the moment the process does: a prologue that cannot be
+	// written would otherwise return with nobody left to Wait for the child,
+	// which leaves it a zombie and its copy goroutines running.
 	go func() {
 		err := cmd.Wait()
 		// Wait returns once both copies have ended, so whatever each stream was
@@ -146,6 +143,12 @@ func (s *Server) terminalFor(sid, cwd string, replace bool) (*terminalSession, e
 		}
 		term.mu.Unlock()
 	}()
+	if prologue := shell.SessionPrologue(); prologue != "" {
+		if _, err := io.WriteString(stdin, prologue); err != nil {
+			term.stop()
+			return nil, err
+		}
+	}
 
 	s.terminalMu.Lock()
 	// Another request may have started a shell for this chat while this one was
