@@ -24,14 +24,14 @@ Feature: Operator hooks at the turn and session boundaries
     Given the operator's hooks.json has a FirstPrompt hook that adds the context "the working tree has unsaved buffers"
     And an agent session
     When the user sends the prompt "what is my working state"
-    Then the model's system prompt contains "the working tree has unsaved buffers"
+    Then the model's request contains "the working tree has unsaved buffers"
 
   Scenario: A FirstPrompt hook runs once per session
     Given the operator's hooks.json has a FirstPrompt hook that adds the context "captured at the first message"
     And an agent session
     When the user sends the prompt "first question"
     And the user sends the prompt "second question"
-    Then the model's system prompt does not contain "captured at the first message"
+    Then the model's request does not contain "captured at the first message"
 
   Scenario: A Stop hook sends the agent back to work once
     Given the operator's hooks.json has a Stop hook that blocks with the reason "run the tests first" unless the stop hook is already active

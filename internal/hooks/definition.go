@@ -21,9 +21,12 @@ const (
 	// becomes a message: the place to enrich the context with the working
 	// state (what is open in the editor, the state of the checkout) at the
 	// moment the first message goes out. Same contract as UserPromptSubmit.
-	EventFirstPrompt        = "FirstPrompt"
-	EventUserPromptSubmit   = "UserPromptSubmit"
-	EventPreToolUse         = "PreToolUse"
+	EventFirstPrompt      = "FirstPrompt"
+	EventUserPromptSubmit = "UserPromptSubmit"
+	EventPreToolUse       = "PreToolUse"
+	// EventToolExecute runs after PreToolUse and the permission gate. Its
+	// handler may execute the call externally and return its result.
+	EventToolExecute        = "ToolExecute"
 	EventPostToolUse        = "PostToolUse"
 	EventPostToolUseFailure = "PostToolUseFailure"
 	EventStop               = "Stop"
@@ -47,6 +50,7 @@ var Events = []string{
 	EventFirstPrompt,
 	EventUserPromptSubmit,
 	EventPreToolUse,
+	EventToolExecute,
 	EventPostToolUse,
 	EventPostToolUseFailure,
 	EventStop,
@@ -192,9 +196,15 @@ func Parse(data []byte) (*Definition, error) {
 				if warn != "" {
 					def.Warnings = append(def.Warnings, fmt.Sprintf("event %s group %d hook %d: %s", name, gi, hi, warn))
 				}
+				if name == EventToolExecute && h.Async {
+					def.Warnings = append(def.Warnings, fmt.Sprintf("event %s group %d hook %d: async is not supported and was skipped; an external executor must be synchronous", name, gi, hi))
+					continue
+				}
 				group.Handlers = append(group.Handlers, h)
 			}
-			def.Events[name] = append(def.Events[name], group)
+			if len(group.Handlers) > 0 {
+				def.Events[name] = append(def.Events[name], group)
+			}
 		}
 	}
 	return def, nil

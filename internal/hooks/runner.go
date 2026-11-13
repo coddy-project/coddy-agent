@@ -57,11 +57,10 @@ type Outcome struct {
 	// UpdatedInput is the rewritten tool input when a PreToolUse hook
 	// returned one; nil otherwise.
 	UpdatedInput map[string]interface{}
-	// Handled is set by a PreToolUse handler that performed the call itself -
-	// an external executor such as an editor's document model, a sandbox or a
-	// remote host - and answers for it. ToolResult / ToolError carry the tool
-	// result the model must see. The first handler to say handled answers for
-	// the call; a deny or block from any handler still wins over it.
+	// Handled is set by a ToolExecute handler after PreToolUse and the
+	// permission gate. The external executor answers for the call, skipping
+	// local dispatch. ToolResult / ToolError carry the result the model must
+	// see. Only the first handled answer is used; deny or block wins over it.
 	Handled    bool
 	ToolResult string
 	ToolError  string
@@ -166,9 +165,9 @@ func (r *Runner) approved(src *Source) bool {
 // matcher, everything else is a plain match on the subject.
 func subjectMatches(ev Event, matcher string) bool {
 	switch ev.Name {
-	case EventPreToolUse, EventPostToolUse, EventPostToolUseFailure:
+	case EventPreToolUse, EventToolExecute, EventPostToolUse, EventPostToolUseFailure:
 		return MatchTool(matcher, ev.Subject)
-	case EventUserPromptSubmit, EventStop:
+	case EventUserPromptSubmit, EventStop, EventFirstPrompt, EventTurnEnd:
 		return true
 	default:
 		return Match(matcher, ev.Subject)
@@ -218,6 +217,9 @@ func (r *Runner) Run(ctx context.Context, ev Event) Outcome {
 		out.Ran++
 		res := r.exec(ctx, ev.Name, b.handler, payload)
 		r.merge(&out, ev, b, res, fields)
+		if out.Handled || (ev.Name == EventToolExecute && (out.Stop || out.Blocked() || ctx.Err() != nil)) {
+			return out
+		}
 	}
 	return out
 }
@@ -470,7 +472,7 @@ func (r *Runner) merge(out *Outcome, ev Event, b bound, res execResult, fields m
 		return
 	}
 	switch ev.Name {
-	case EventSessionStart, EventUserPromptSubmit:
+	case EventSessionStart, EventUserPromptSubmit, EventFirstPrompt:
 		out.Context = append(out.Context, r.truncate(stdout))
 	default:
 		r.logger().Debug("hook printed plain text that this event ignores", "event", ev.Name, "source", label)
@@ -555,7 +557,7 @@ func (r *Runner) apply(out *Outcome, ev Event, label string, o hookOutput, field
 		fields["tool_input"] = sp.UpdatedInput
 		out.UpdatedInput = sp.UpdatedInput
 	}
-	if sp.Handled && ev.Name == EventPreToolUse && !out.Handled {
+	if sp.Handled && ev.Name == EventToolExecute && !out.Handled {
 		out.Handled = true
 		out.ToolResult = r.truncate(sp.ToolResult)
 		out.ToolError = r.truncate(sp.ToolError)

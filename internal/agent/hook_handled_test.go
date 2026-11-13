@@ -1,6 +1,6 @@
 package agent
 
-// Edge cases of the PreToolUse `handled` answer; the happy path lives in
+// Edge cases of the ToolExecute `handled` answer; the happy path lives in
 // features/hooks_tool_calls.feature. A handler that reports the call as failed
 // must answer for it like a failed local run: the error reaches the model as
 // the tool result, the tool itself never runs, and no permission prompt is
@@ -20,7 +20,7 @@ func TestHandledHookErrorFailsTheCallWithoutRunningIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.close()
-	if err := s.addHook(hooks.EventPreToolUse, "run_command", hooktest.Handler("handle-error", "conflict: buffer changed")); err != nil {
+	if err := s.addHook(hooks.EventToolExecute, "run_command", hooktest.Handler("handle-error", "conflict: buffer changed")); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.agentSession(); err != nil {

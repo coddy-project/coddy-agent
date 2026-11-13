@@ -146,12 +146,6 @@ type preToolUseOutcome struct {
 	allow   bool
 	ask     bool
 	context []string
-	// handled means a handler performed the call itself and answers for it:
-	// the permission gate and the local dispatch are skipped, and
-	// toolResult / toolError are the tool's result.
-	handled    bool
-	toolResult string
-	toolError  string
 }
 
 // runPreToolUseHooks fires PreToolUse for a call. A rewritten input is
@@ -180,11 +174,6 @@ func (a *Agent) runPreToolUseHooks(ctx context.Context, tc *llm.ToolCall, mode s
 		res.reason = out.Reason
 		return res, true
 	}
-	if out.Handled {
-		res.handled = true
-		res.toolResult = out.ToolResult
-		res.toolError = out.ToolError
-	}
 	switch out.Decision {
 	case hooks.DecisionAllow:
 		res.allow = true
@@ -192,6 +181,18 @@ func (a *Agent) runPreToolUseHooks(ctx context.Context, tc *llm.ToolCall, mode s
 		res.ask = true
 	}
 	return res, true
+}
+
+// runToolExecuteHooks lets one synchronous handler execute the call externally.
+// The agent invokes this event only after PreToolUse and the permission gate.
+func (a *Agent) runToolExecuteHooks(ctx context.Context, tc llm.ToolCall, mode string) (hooks.Outcome, bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventToolExecute) {
+		return hooks.Outcome{}, false
+	}
+	out := r.Run(ctx, hooks.ToolEvent(hooks.EventToolExecute, tc.Name, hooks.ToolInput(tc.InputJSON), tc.ID))
+	a.reportHookOutcome(hooks.EventToolExecute, out)
+	return out, true
 }
 
 // runPostToolUseHooks fires PostToolUse after a successful call or
@@ -285,8 +286,9 @@ const stopHookPrefix = session.StopHookPrefix
 
 // runUserPromptHooks fires FirstPrompt (once per session, for the first user
 // message) and UserPromptSubmit before the prompt becomes a message. A
-// rejected prompt is reported with its reason; context the hooks hand over is
-// kept for this turn's system prompt.
+// rejected prompt is reported with its reason. UserPromptSubmit context is
+// kept for this turn's system prompt; FirstPrompt context rides in the
+// turn-scoped block so the session's cached system prompt stays unchanged.
 func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (reason string, rejected bool) {
 	r := a.hooksFor(mode)
 	if r == nil {
@@ -309,7 +311,7 @@ func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (re
 		case fout.Blocked():
 			return reasonOr(fout.Reason, "rejected by a hook"), true
 		}
-		contexts = append(contexts, fout.Context...)
+		a.firstPromptContext = append(a.firstPromptContext, fout.Context...)
 	}
 	if r.HasHandlers(hooks.EventUserPromptSubmit) {
 		out := r.Run(ctx, hooks.PromptEvent(prompt))
@@ -479,17 +481,14 @@ func (a *Agent) runNotificationHooks(ctx context.Context, mode, kind string, tc 
 	a.reportHookOutcome(hooks.EventNotification, out)
 }
 
-// turnEndAssistantText is the final assistant message of the transcript - what
-// a TurnEnd notification quotes. (Not lastAssistantText: react_test.go keeps
-// its own helper of that name.)
-func turnEndAssistantText(st SessionState) string {
-	msgs := st.GetMessages()
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == llm.RoleAssistant && strings.TrimSpace(msgs[i].Content) != "" {
-			return msgs[i].Content
-		}
+// addAssistantMessage remembers the answer produced by this Run before
+// persisting it. TurnEnd uses that value instead of a transcript index, which
+// an in-turn compaction can invalidate.
+func (a *Agent) addAssistantMessage(msg llm.Message) {
+	if strings.TrimSpace(msg.Content) != "" {
+		a.turnEndAssistantText = msg.Content
 	}
-	return ""
+	a.state.AddMessage(msg)
 }
 
 // runQuestionHooks fires Question when the question tool is about to ask its

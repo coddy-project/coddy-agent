@@ -93,7 +93,7 @@ my-project/
    exit 0
    ```
 
-   Hooks run with your permissions, before any permission prompt, so a file that came with a clone is parsed and listed but runs nothing until it is approved ([Project files and trust](../features/hooks.md#project-files-and-trust)); the first turn that finds it records a notice in the session. Review the commands, then:
+   Policy hooks run with your permissions before any permission prompt, while an external `ToolExecute` handler runs after that gate. A file that came with a clone is parsed and listed but runs nothing until it is approved ([Project files and trust](../features/hooks.md#project-files-and-trust)); the first turn that finds it records a notice in the session. Review the commands, then:
 
    ```bash
    coddy hooks list

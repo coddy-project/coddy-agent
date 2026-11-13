@@ -103,6 +103,19 @@ func TestParseFlagsUnsupportedHandlersAndIgnoresOtherKeys(t *testing.T) {
 	}
 }
 
+func TestParseRejectsAsyncToolExecute(t *testing.T) {
+	def, err := hooks.Parse([]byte(`{"hooks":{"ToolExecute":[{"matcher":"run_command","hooks":[{"type":"command","command":"executor","async":true}]}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(def.Events[hooks.EventToolExecute]); got != 0 {
+		t.Fatalf("async ToolExecute must be rejected, got %d handler groups", got)
+	}
+	if len(def.Warnings) == 0 {
+		t.Fatal("rejecting an async executor must explain the configuration problem")
+	}
+}
+
 func TestParseRejectsMalformedFiles(t *testing.T) {
 	for _, data := range []string{`{not json`, `[]`, `{"hooks": []}`, `{"hooks": {"PreToolUse": {}}}`, `{"hooks": {"PreToolUse": [{"hooks": [{"type": "command"}]}]}}`} {
 		if _, err := hooks.Parse([]byte(data)); err == nil {
@@ -359,8 +372,8 @@ func TestRunnerMostRestrictiveDecisionWins(t *testing.T) {
 }
 
 func TestRunnerHandledAnswersForTheCall(t *testing.T) {
-	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("handle", "done in the sandbox"))))
-	out := r.Run(context.Background(), commandEvent("echo hi"))
+	r := newRunner(t, userSource(hooktest.Entry{Event: hooks.EventToolExecute, Matcher: "*", Handlers: []hooks.Handler{hooktest.Handler("handle", "done in the sandbox")}}))
+	out := r.Run(context.Background(), hooks.ToolEvent(hooks.EventToolExecute, "run_command", map[string]interface{}{"command": "echo hi"}, "call-1"))
 	if !out.Handled || out.ToolResult != "done in the sandbox" || out.ToolError != "" {
 		t.Fatalf("outcome = %+v", out)
 	}
@@ -370,39 +383,56 @@ func TestRunnerHandledAnswersForTheCall(t *testing.T) {
 }
 
 func TestRunnerHandledErrorCarriesTheFailure(t *testing.T) {
-	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("handle-error", "conflict: buffer changed"))))
-	out := r.Run(context.Background(), commandEvent("echo hi"))
+	r := newRunner(t, userSource(hooktest.Entry{Event: hooks.EventToolExecute, Matcher: "*", Handlers: []hooks.Handler{hooktest.Handler("handle-error", "conflict: buffer changed")}}))
+	out := r.Run(context.Background(), hooks.ToolEvent(hooks.EventToolExecute, "run_command", map[string]interface{}{"command": "echo hi"}, "call-1"))
 	if !out.Handled || out.ToolError != "conflict: buffer changed" {
 		t.Fatalf("outcome = %+v", out)
 	}
 }
 
 func TestRunnerFirstHandledAnswersForTheCall(t *testing.T) {
-	r := newRunner(t, userSource(preToolUse("*",
+	r := newRunner(t, userSource(hooktest.Entry{Event: hooks.EventToolExecute, Matcher: "*", Handlers: []hooks.Handler{
 		hooktest.Handler("handle", "first"),
 		hooktest.Handler("handle", "second"),
-	)))
-	out := r.Run(context.Background(), commandEvent("echo hi"))
-	if !out.Handled || out.ToolResult != "first" || out.Ran != 2 {
-		t.Fatalf("the first handled answer must win and later hooks still run, got %+v", out)
+	}}))
+	out := r.Run(context.Background(), hooks.ToolEvent(hooks.EventToolExecute, "run_command", map[string]interface{}{"command": "echo hi"}, "call-1"))
+	if !out.Handled || out.ToolResult != "first" || out.Ran != 1 {
+		t.Fatalf("the first handled answer must win and later executors must not run, got %+v", out)
 	}
 }
 
-func TestRunnerDenyStillWinsOverHandled(t *testing.T) {
-	r := newRunner(t, userSource(preToolUse("*",
+func TestRunnerToolExecuteStopsDispatchAfterRefusal(t *testing.T) {
+	for _, first := range []hooks.Handler{
 		hooktest.Handler("deny", "echo"),
+		hooktest.Handler("continue-false", "stop"),
+		func() hooks.Handler {
+			h := hooktest.Handler("fail", "3")
+			h.FailClosed = true
+			return h
+		}(),
+	} {
+		r := newRunner(t, userSource(hooktest.Entry{Event: hooks.EventToolExecute, Matcher: "*", Handlers: []hooks.Handler{
+			first,
+			hooktest.Handler("handle", "must-not-execute"),
+		}}))
+		out := r.Run(context.Background(), hooks.ToolEvent(hooks.EventToolExecute, "run_command", map[string]interface{}{"command": "echo hi"}, "call-1"))
+		if out.Ran != 1 || out.Handled {
+			t.Fatalf("a later executor ran after refusal: %+v", out)
+		}
+	}
+}
+
+func TestRunnerHandledIsIgnoredByPreToolUse(t *testing.T) {
+	r := newRunner(t, userSource(preToolUse("*",
 		hooktest.Handler("handle", "done elsewhere"),
 	)))
 	out := r.Run(context.Background(), commandEvent("echo hi"))
-	if !out.Blocked() || out.Decision != hooks.DecisionDeny {
-		t.Fatalf("deny must win over handled, got %+v", out)
-	}
-	if !out.Handled || out.ToolResult != "done elsewhere" {
-		t.Fatalf("the handled answer must still be recorded, got %+v", out)
+	if out.Handled || out.ToolResult != "" || out.Ran != 1 {
+		t.Fatalf("PreToolUse must decide permissions, not execute the call: %+v", out)
 	}
 }
 
-func TestRunnerHandledIsPreToolUseOnly(t *testing.T) {
+func TestRunnerHandledIsToolExecuteOnly(t *testing.T) {
 	r := newRunner(t, userSource(hooktest.Entry{
 		Event:    hooks.EventPostToolUse,
 		Matcher:  "*",
@@ -756,8 +786,17 @@ func TestTrustStoreSerialisesConcurrentProcesses(t *testing.T) {
 	}
 }
 
+func TestSubjectlessLifecycleEventsIgnoreMatchers(t *testing.T) {
+	for _, event := range []hooks.Event{hooks.FirstPromptEvent("prompt"), hooks.TurnEndEvent("end_turn", "done")} {
+		r := newRunner(t, userSource(hooktest.Entry{Event: event.Name, Matcher: "does-not-match", Handlers: []hooks.Handler{hooktest.Handler("context", "context")}}))
+		if out := r.Run(context.Background(), event); out.Ran != 1 {
+			t.Fatalf("%s with a non-default matcher ran %d handlers, want 1", event.Name, out.Ran)
+		}
+	}
+}
+
 func TestQuestionAndTurnEndEvents(t *testing.T) {
-	if !hooks.KnownEvent(hooks.EventQuestion) || !hooks.KnownEvent(hooks.EventTurnEnd) {
+	if !hooks.KnownEvent(hooks.EventQuestion) || !hooks.KnownEvent(hooks.EventTurnEnd) || !hooks.KnownEvent(hooks.EventToolExecute) {
 		t.Fatal("the new events must be listed as known")
 	}
 	q := hooks.QuestionEvent("call-1", map[string]interface{}{

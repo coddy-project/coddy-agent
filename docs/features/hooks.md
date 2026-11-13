@@ -2,7 +2,7 @@
 
 A hook is a command of your own that Coddy runs at a lifecycle point of a session: before a tool call, after it, and (see the event table) at the other points of a turn. The command reads one JSON document on stdin, does whatever it wants, and answers with an exit code and optional JSON on stdout. With that it can block a call, approve it past the permission prompt, rewrite its arguments, hand the model extra context, or just log what happened.
 
-Hooks run with your permissions, before any permission prompt, on every matching call. That is the point of the feature and the reason files that arrive with a checkout are held until you approve them (see [Project files and trust](#project-files-and-trust)). Review every hook you enable.
+Hooks run with your permissions on every matching call. Policy hooks run before any permission prompt; `ToolExecute` runs after that gate. That is the point of the feature and the reason files that arrive with a checkout are held until you approve them (see [Project files and trust](#project-files-and-trust)). Review every hook you enable.
 
 Definitions use the file shape of Claude Code, and the event names, payload fields and answer fields follow it too, so a hook written for Claude Code (or Codex, which uses the same shape) works in Coddy unchanged for the covered events. The design record with the comparison of six agents is `docs/plans/hooks.md`.
 
@@ -60,7 +60,7 @@ Handler fields:
 | `args` | Optional. When the key is present the command is spawned directly with these arguments and no shell (Claude Code's exec form). |
 | `commandWindows` | Optional replacement for `command` when Coddy runs on Windows (Codex's key; `command_windows` is accepted too). |
 | `timeout` | Seconds. Default `hooks.default_timeout_seconds` (60). A hook that overruns is terminated with its whole process group. |
-| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide (so `failClosed` on an async handler is dropped with a warning). At most 8 detached hooks run at once across the process; the rest wait for a slot. |
+| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide (so `failClosed` on an async handler is dropped with a warning). At most 8 detached hooks run at once across the process; the rest wait for a slot. `ToolExecute` handlers must be synchronous: an async executor is skipped with a configuration warning so it cannot race the local dispatch. |
 | `failClosed` | `true` turns a crash, a timeout, an interruption by the turn's cancellation, or invalid output into a block instead of a non-blocking error (`fail_closed` is accepted too). Use it for policy hooks. |
 
 `statusMessage`, `shell`, `once` and `additionalContextLimit` are accepted and ignored. Claude Code's `if` filter is ignored with a logged warning: the hook runs for every matching call, so a policy that relied on `if` must check the arguments itself.
@@ -80,9 +80,10 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 | Event | Fires | Matcher subject | Can block |
 |---|---|---|---|
 | `SessionStart` | `session/new` (`startup`), `session/load` or a reopen (`resume`), and a workspace switch — `POST /coddy/sessions/{id}/workspace`, folder pick, worktree jump or in-place branch checkout — (`workspace`), synchronously, before the session is returned | source | no; context only |
-| `FirstPrompt` | once per session, before the first user message becomes a message | none | yes: the prompt is rejected |
+| `FirstPrompt` | before the session's first accepted user message becomes a message; it fires again when the first attempt was rejected before persistence | none | yes: the prompt is rejected |
 | `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact`, `/plugin`, `/export` and `/worktree` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
 | `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, on the arguments the prompt showed (a deny still denies; a hook that changes those arguments again cancels the call, because the answer covered what the user saw). The arguments the prompt shows are persisted first, and a write that fails cancels the call instead of prompting; a resume whose persisted arguments are missing or unreadable fails and keeps the pending prompt for a retry, while a refusal needs nothing from the bundle | tool name | yes: deny, or force or skip the prompt |
+| `ToolExecute` | after every `PreToolUse` decision and the permission gate, instead of the local dispatch when a handler answers `handled`; only the first executor runs | tool name | yes: execute externally and return the result |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
 | `PostToolUseFailure` | after a tool returned an error (not after a permission denial or a hook denial) | tool name | no; context only |
 | `Stop` | when the ReAct loop is about to end the turn with `end_turn` (not on cancel, an error, or the turn cap) | none | yes: the agent is sent back to work |
@@ -91,7 +92,7 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 | `SubagentStart` | in the parent, when `spawn_agent` is about to start a child, after the definition and its trust were resolved | subagent name | yes: the spawn is refused |
 | `SubagentStop` | in the parent, when the child's turn ended, before its report reaches the parent | subagent name | no |
 | `Notification` | when a permission prompt is about to be sent to the client | notification type (`permission_prompt`) | no |
-| `Question` | when the question tool is about to ask its questions | `question` | no |
+| `Question` | when the local question tool is about to ask its questions; not emitted for a refused, stopped or externally handled call | `question` | no |
 | `TurnEnd` | when the turn finished and the agent waits for the user's next message | - | no |
 
 Every event also fires inside a child session for the child's own turn (tool calls, prompt, stop, compaction), with the `subagent` block in the payload naming the child; `SubagentStart` and `SubagentStop` fire in the parent's session.
@@ -164,11 +165,10 @@ JSON fields:
   "decision": "block",
   "reason": "why",
   "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
+    "hookEventName": "ToolExecute",
     "permissionDecision": "deny",
     "permissionDecisionReason": "why",
     "updatedInput": { "command": "echo replaced" },
-    "additionalContext": "a note the model reads next to the result",
     "handled": true,
     "toolResult": "the result of a call the handler performed itself",
     "toolError": "its failure text instead, when that call failed"
@@ -176,13 +176,13 @@ JSON fields:
 }
 ```
 
-- `continue: false` ends the turn after the current tool batch; `stopReason` is shown to the user. On `PreToolUse` the call is denied as well; on `UserPromptSubmit` the prompt is rejected; on `PreCompact` the compaction is vetoed; on `Stop` the turn simply ends.
+- `continue: false` ends the turn after the current tool batch; `stopReason` is shown to the user. On `FirstPrompt` it rejects the first prompt; on `ToolExecute` it stops the call and the turn. On `PreToolUse` the call is denied as well; on `UserPromptSubmit` the prompt is rejected; on `PreCompact` the compaction is vetoed; on `Stop` the turn simply ends.
 - `PreToolUse`: `permissionDecision` is `deny` (the call is not executed; the reason goes to the model as the tool result `blocked by hook: <reason>`), `allow` (the permission prompt is skipped) or `ask` (the prompt is forced, even in `bypass`, in a messenger bot and in a plan run, which would otherwise approve the call without asking; where nobody can answer, the call is refused). `updatedInput` replaces the whole argument object before the call runs; the tool call card shows the rewritten arguments. A top-level `decision: "block"` (or `"deny"`) with `reason` is the legacy spelling of deny.
-- `PreToolUse` `handled`: a handler that performs the call itself answers `"handled": true` with `toolResult` (the tool's result for the model) or `toolError` (its failure text when the call failed). The permission prompt and the local run are skipped - the call already happened - and `PostToolUse` runs as for a local call. This is how an external executor takes a call over: an editor applying `write`/`edit`/`apply_patch` through its document model, a sandbox, a remote host. `deny` and `block` from any handler win over `handled`, and where several handlers report it, the first answers for the call.
+- `ToolExecute` `handled`: after every `PreToolUse` handler and the permission gate, a synchronous handler performs the call itself and answers `"handled": true` with `toolResult` (the tool's result for the model) or `toolError` (its failure text when the call failed). The local dispatch is skipped and `PostToolUse` or `PostToolUseFailure` runs according to the outcome. This is how an external executor takes a call over: an editor applying `write`/`edit`/`apply_patch` through its document model, a sandbox, a remote host. Dispatch stops after the first `handled`, deny, block, stop or cancellation, so a later executor cannot perform the call after a refusal or more than once. Local dispatch runs only when the executor chain finished without any of those outcomes, including an ordinary fail-open hook error. `handled` has no effect on `PreToolUse`.
 - `PostToolUse`: `decision: "block"` with `reason` appends `Hook feedback: <reason>` to the tool result; the tool already ran, nothing is undone.
-- `additionalContext` is appended to the tool result as `Hook context: ...` on the three tool events.
+- `additionalContext` is appended to the tool result as `Hook context: ...` on `PreToolUse`, `PostToolUse` and `PostToolUseFailure`. It is ignored on `ToolExecute`, whose `toolResult` or `toolError` is the complete result.
 - `UserPromptSubmit`: `decision: "block"` with `reason` (or exit 2) rejects the prompt: it is not added to the transcript, the model is not called, and the turn ends with `prompt rejected by hook: <reason>`, which the SPA shows as an error row. `additionalContext` and plain stdout become the turn's part of the **hook context block** (below).
-- `FirstPrompt` is `UserPromptSubmit` for the first message of a session and nothing later - the same payload, the same rejection and context contract. It is the context-enrichment point: a hook that gathers the working state (what is open in the editor, the state of the checkout) once, at the moment the first message goes out, instead of paying that cost on every prompt. It does not re-fire for a resumed session, whose transcript already holds user messages.
+- `FirstPrompt` is `UserPromptSubmit` for the first accepted message of a session and nothing later - the same payload and rejection contract, with its context delivered in `turn_context` as described below. It is the context-enrichment point: a hook that gathers the working state (what is open in the editor, the state of the checkout) once, at the moment the first accepted message goes out, instead of paying that cost on every prompt. It does not re-fire for a resumed session whose transcript already holds user messages; it does fire again when the first candidate was rejected before persistence.
 - `Stop`: `decision: "block"` with `reason` (or exit 2) sends the agent back to work. The reason, plus any `additionalContext`, is submitted as the next user message, persisted with the prefix `[Stop hook] ` so the transcript explains the continuation, and the loop continues in the same turn; the hook sees `stop_hook_active: true` on the next stop. At most `hooks.stop_loop_limit` continuations per turn (5), then the turn ends; the ReAct turn cap still applies.
 - `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text, clearing it when no hook runs any more. A workspace switch re-runs the hooks of the new workspace with source `workspace` for the same reason — the stored context stops describing the folder the session left. `systemMessage` becomes a notice row.
 - `Stop`: a follow-up is submitted only while an iteration of the ReAct turn is left; on the last one the turn ends instead of leaving a dangling message.
@@ -190,9 +190,9 @@ JSON fields:
 - `SubagentStart`: `decision: "block"` with `reason` (or exit 2) refuses the spawn; the `spawn_agent` tool result reads `spawn of subagent "<name>" blocked by hook: <reason>` and no child session is created. `additionalContext` is prepended to the child's task prompt as `Hook context: ...`.
 - `SubagentStop`, `Notification`, `Question` and `TurnEnd` are observational: `systemMessage` and errors are reported, decisions are ignored. `Question` and `TurnEnd` are the notification sources - a hook that raises a desktop notification when the agent asks something or finishes its work should subscribe to those two and carry `"async": true` so it never delays the question or the turn.
 
-The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `FirstPrompt` and `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
+The **hook context block** is a `## Hook context` section. Session-level text from `SessionStart` and turn-level text from `UserPromptSubmit` are appended to the system prompt after the environment block (so a custom `prompts.dir` template carries them too). `FirstPrompt` text instead rides in the ephemeral `turn_context` block of every request in the first turn, after the stable history prefix. It enriches the first turn without changing the system prompt between turns, so it does not invalidate the provider's prompt cache. Turn-level text is not persisted; session-level text is.
 
-Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it. Stdout and stderr are captured up to 256 KiB each; a JSON answer that runs past that limit is reported as cut, not as invalid.
+Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one. Policy and audit hooks all run even after a deny, so an audit hook sees every call. `ToolExecute` is the exception: dispatch stops after the first `handled`, deny, block, stop or cancellation. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it. Stdout and stderr are captured up to 256 KiB each; a JSON answer that runs past that limit is reported as cut, not as invalid.
 
 ## Configuration
 
@@ -384,7 +384,7 @@ Shell-form commands go through the shell `run_command` detected (pwsh, PowerShel
 - The `if` filter is ignored.
 - Matching hooks run sequentially rather than in parallel, so `updatedInput` chains deterministically.
 - A `PreToolUse` `allow` skips Coddy's permission prompt; there are no deny rules it could be subordinate to.
-- `handled`, `toolResult` and `toolError` have no Claude Code counterpart: they let a `PreToolUse` handler execute the call externally and answer for it.
+- `ToolExecute`, `handled`, `toolResult` and `toolError` have no Claude Code counterpart: they let a handler execute the call externally after the permission gate and answer for it.
 - Project files are approved out of band by a digest-bound receipt, never by an in-chat prompt.
 
 ## Testing
