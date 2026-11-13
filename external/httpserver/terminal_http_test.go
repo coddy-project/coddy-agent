@@ -73,7 +73,7 @@ func TestTerminalKeepsShellStateForTheChat(t *testing.T) {
 		historyReady :=
 			platform.CurrentShell().Kind != platform.ShellBash ||
 				strings.Count(snap.Output, historyMarker) >= 2
-		if strings.Contains(snap.Output, sub) && historyReady {
+		if printedCWD(snap.Output, "sub") && historyReady {
 			if !snap.Running {
 				t.Fatalf("terminal exited early: %+v", snap)
 			}
@@ -94,6 +94,23 @@ func TestTerminalKeepsShellStateForTheChat(t *testing.T) {
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("DELETE terminal status = %d", res.StatusCode)
 	}
+}
+
+// printedCWD reports whether a line of the output is a path ending in leaf.
+//
+// The path itself is not compared: on Windows t.TempDir() hands back the 8.3
+// form (C:\Users\RUNNER~1\...) while the shell prints the long one
+// (C:\Users\runneradmin\...), and the two never match as text. A line that
+// ends in the folder just entered is proof enough that cd was kept, and the
+// echo of `cd "sub"` does not end that way.
+func printedCWD(output, leaf string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(strings.TrimSpace(line), "\\/")
+		if strings.HasSuffix(line, "\\"+leaf) || strings.HasSuffix(line, "/"+leaf) {
+			return true
+		}
+	}
+	return false
 }
 
 func postTerminalInput(t *testing.T, endpoint, input string) {

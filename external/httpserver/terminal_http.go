@@ -337,7 +337,11 @@ func (t *terminalSession) write(input string) error {
 	if _, err := io.WriteString(stdin, input+"\n"); err != nil {
 		return err
 	}
-	t.append("\n❯ " + input + "\n")
+	// A shell that prints its own prompt and the line it read needs no echo
+	// from here: two of them would show every command twice.
+	if !t.shell.EchoesInput() {
+		t.append("\n❯ " + input + "\n")
+	}
 	return nil
 }
 

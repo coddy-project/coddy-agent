@@ -10,12 +10,15 @@ func TestInteractiveShellArgumentsAndPrologue(t *testing.T) {
 		kind     ShellKind
 		args     []string
 		prologue string
+		echoes   bool
 	}{
-		{ShellBash, nil, "set -o history\n"},
-		{ShellSh, nil, ""},
-		{ShellPwsh, []string{"-NoLogo"}, powerShellPrologue},
-		{ShellPowerShell, []string{"-NoLogo"}, powerShellPrologue},
-		{ShellCmd, []string{"/q"}, "chcp 65001 >nul 2>&1\r\n"},
+		{ShellBash, nil, "set -o history\n", false},
+		{ShellSh, nil, "", false},
+		// PowerShell prints its own prompt and the line it read, even reading a
+		// pipe, so a caller that echoes too shows every command twice.
+		{ShellPwsh, []string{"-NoLogo"}, powerShellPrologue, true},
+		{ShellPowerShell, []string{"-NoLogo"}, powerShellPrologue, true},
+		{ShellCmd, []string{"/q"}, "chcp 65001 >nul 2>&1\r\n", false},
 	} {
 		shell := Shell{Kind: tc.kind, Path: string(tc.kind)}
 		args := shell.InteractiveArgs()
@@ -29,6 +32,9 @@ func TestInteractiveShellArgumentsAndPrologue(t *testing.T) {
 		}
 		if got := shell.SessionPrologue(); got != tc.prologue {
 			t.Fatalf("%s prologue = %q, want %q", tc.kind, got, tc.prologue)
+		}
+		if got := shell.EchoesInput(); got != tc.echoes {
+			t.Fatalf("%s EchoesInput = %v, want %v", tc.kind, got, tc.echoes)
 		}
 	}
 }

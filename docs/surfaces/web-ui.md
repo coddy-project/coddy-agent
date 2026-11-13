@@ -1435,7 +1435,8 @@ one.
 
 It works the same on Linux, macOS and Windows, where the shell is PowerShell or
 `cmd.exe` and its output is read in the console code page, so text that is not ASCII
-arrives as text rather than as mojibake. What it is **not** is a terminal device: a
+arrives as text rather than as mojibake. PowerShell prints its own prompt before each
+command it reads, so there the transcript is the shell's rather than Coddy's. What it is **not** is a terminal device: a
 program that draws a screen (an editor, `top`) has nothing to draw on, and what a
 command prints is shown as text with its colour codes stripped. The last 512 KiB of
 output is kept.

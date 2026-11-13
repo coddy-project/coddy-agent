@@ -61,6 +61,21 @@ func (s Shell) InteractiveArgs() []string {
 	}
 }
 
+// EchoesInput reports whether the shell prints a prompt and the command it
+// read back into its own output.
+//
+// PowerShell does, even reading a pipe, so a caller that writes an echo of its
+// own would show every command twice. cmd.exe does too, which is what /q turns
+// off; bash and sh reading a pipe print nothing of the kind.
+func (s Shell) EchoesInput() bool {
+	switch s.Kind {
+	case ShellPwsh, ShellPowerShell:
+		return true
+	default:
+		return false
+	}
+}
+
 // SessionPrologue returns what is written into a freshly started interactive
 // shell before the first command of a person, or an empty string when the shell
 // needs nothing.
