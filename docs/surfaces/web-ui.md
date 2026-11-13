@@ -1410,18 +1410,19 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **files**, its **background
-tasks** and its **edits**. Files and background tasks are a row of buttons at the top
-of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
-width, as a phone always showed them: Files is its icon alone, in a square the size of
-the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
+A chat has four views beside the conversation: its **files**, its **terminal**, its
+**background tasks** and its **edits**. Files, Terminal and Tasks are a row of buttons
+at the top of the chat, with Tasks at the right edge. They are icons at every
+width, as a phone always showed them: Files and Terminal are their icons alone, each in
+a square the size of the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
 the button widens and shows how many run out of how many there are next to the dot,
 which is lit while work is in flight. Every button has
 its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
-tasks that run. The background tasks open in the dock beside the chat, the files in a window
-over the chat. The edits have no button in the header: git's count on [the plate over
+tasks that run. The background tasks open in the dock beside the chat, the files in a
+window over the chat, and the terminal in a window of its own that stands over both.
+The edits have no button in the header: git's count on [the plate over
 the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
 Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
@@ -1434,6 +1435,42 @@ lowercase, and centred on the line the icon reads a pixel high.
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
+
+## Terminal window
+
+The **Terminal** icon in the chat header opens a shell in a window of its own, over
+the conversation. It is not a view of the dock: opening the files or the background
+tasks does not close it, Escape does not take it away, and nothing dims the chat
+behind it, so a command can be watched while the conversation goes on.
+
+On a desktop it is a **small window you move and resize**. Drag its head to move it,
+any of its eight edges and corners to resize it, and use **Maximize** in the head (or
+a double click on the head) to send it to the edges of the browser window and back.
+Where it stood and whether it was maximized are remembered in this browser, and a
+window remembered from a larger screen opens inside a smaller one instead of off it.
+On a tablet or a phone it is **the whole screen**: there is no room for a window to be
+dragged around, so the head carries no Maximize.
+
+The shell starts in that chat's workspace and belongs to the chat: closing the window
+and opening it again keeps `cd`, environment changes and the output already printed.
+Enter runs a command from the prompt, with no separate Run button; a command is one
+line. Up and Down walk the last 100 commands of this chat, kept in this browser across
+closing and reopening the window, and the shell's own history is on as well, so
+`history` lists what was typed here. **Restart** stops that shell and starts a clean
+one.
+
+It works the same on Linux, macOS and Windows, where the shell is PowerShell or
+`cmd.exe` and its output is read in the console code page, so text that is not ASCII
+arrives as text rather than as mojibake. PowerShell prints its own prompt before each
+command it reads, so there the transcript is the shell's rather than Coddy's. What it is **not** is a terminal device: a
+program that draws a screen (an editor, `top`) has nothing to draw on, and what a
+command prints is shown as text with its colour codes stripped. The last 512 KiB of
+output is kept.
+
+A shell that ends stays on screen with the reason it stopped, and the next command you
+run starts a fresh one. The server stops every shell when its HTTP surface shuts down,
+and a sweep of its own stops one that nobody has read or written for 30 minutes, so a
+chat whose terminal was opened once does not keep a process for the life of the server.
 
 ## Canvas
 
