@@ -108,9 +108,16 @@ func (t *Trust) runs(workspace, file string) func(page string) bool {
 // approval is checked against, so a dialog that showed one list never approves
 // another.
 func PagesDigest(pages []string) string {
-	list := uniqueSorted(pages)
-	sum := sha256.Sum256([]byte(strings.Join(list, "\n")))
-	return hex.EncodeToString(sum[:])
+	h := sha256.New()
+	for _, p := range uniqueSorted(pages) {
+		// Length-prefixed, not joined by a separator: a file name may hold a
+		// newline, and ["a\nb.html"] would otherwise digest the same as
+		// ["a", "b.html"] - a board rewritten between the dialog and the
+		// approval could keep the digest while changing the list.
+		// A hash writer never fails.
+		_, _ = fmt.Fprintf(h, "%d:%s", len(p), p)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Pages are the pages a board's frames show, each once, sorted.
@@ -234,7 +241,7 @@ type TrustStore struct {
 	path string
 }
 
-// trustStoreLocks holds one mutex per receipts file path for the process.
+// trustStoreLocks holds one lock per receipts file path for the process.
 var trustStoreLocks sync.Map
 
 // NewTrustStore returns the store backed by <home>/canvas-trust.json.
@@ -245,26 +252,32 @@ func NewTrustStore(home string) *TrustStore {
 // Path returns the receipts file path.
 func (s *TrustStore) Path() string { return s.path }
 
-func (s *TrustStore) lock() *sync.Mutex {
-	m, _ := trustStoreLocks.LoadOrStore(s.path, &sync.Mutex{})
-	return m.(*sync.Mutex)
+func (s *TrustStore) lock() *sync.RWMutex {
+	m, _ := trustStoreLocks.LoadOrStore(s.path, &sync.RWMutex{})
+	return m.(*sync.RWMutex)
 }
 
-func (s *TrustStore) read() trustFile {
-	file := trustFile{Version: trustFileVersion, Workspaces: map[string][]TrustRecord{}}
+// read loads the receipts. A missing file is not an error; a corrupt one is,
+// so a damaged store never silently reads as "nothing approved" and gets
+// written back over, as the MCP store refuses the same way.
+func (s *TrustStore) read() (trustFile, error) {
+	empty := trustFile{Version: trustFileVersion, Workspaces: map[string][]TrustRecord{}}
 	data, err := os.ReadFile(s.path)
 	if err != nil {
-		return file
+		if os.IsNotExist(err) {
+			return empty, nil
+		}
+		return trustFile{}, fmt.Errorf("canvas trust store: read %s: %w", s.path, err)
 	}
 	var parsed trustFile
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return file
+		return trustFile{}, fmt.Errorf("canvas trust store: %s is damaged: %w", s.path, err)
 	}
 	if parsed.Workspaces == nil {
 		parsed.Workspaces = map[string][]TrustRecord{}
 	}
 	parsed.Version = trustFileVersion
-	return parsed
+	return parsed, nil
 }
 
 func (s *TrustStore) write(file trustFile) error {
@@ -326,20 +339,34 @@ func (s *TrustStore) pages(workspace, file string) (shown, approved map[string]b
 	if key == "" || file == "" {
 		return shown, approved
 	}
-	// No lock: a write replaces the file with os.Rename, so a reader sees the
-	// whole of one version or the whole of the other, never a torn file - the
-	// same guarantee a reader in another process already relies on. Taking the
-	// store mutex here would serialise every file request of every frame of
-	// every session behind one read.
-	for _, rec := range s.read().Workspaces[key] {
+	checkout := mcp.CanonicalWorkspace(workspace)
+	// A read lock, so the file requests of a page's assets do not queue behind
+	// one another, while a write still never renames the file under a reader.
+	mu := s.lock()
+	mu.RLock()
+	defer mu.RUnlock()
+	tf, err := s.read()
+	if err != nil {
+		// A store that cannot be read approves nothing: every page waits.
+		return shown, approved
+	}
+	for _, rec := range tf.Workspaces[key] {
 		if rec.File != file {
+			continue
+		}
+		// Approved is the person's decision about the project, so a linked
+		// worktree runs what the main checkout let run. Shown is not a
+		// decision - it records that Coddy put a page on this checkout's
+		// board - and the board at that path in a sibling checkout is another
+		// branch's file, so it never leaves the checkout it was made in.
+		for _, p := range rec.Approved {
+			approved[p] = true
+		}
+		if mcp.ReceiptCheckout(rec.Checkout, key) != checkout {
 			continue
 		}
 		for _, p := range rec.Shown {
 			shown[p] = true
-		}
-		for _, p := range rec.Approved {
-			approved[p] = true
 		}
 	}
 	return shown, approved
@@ -348,8 +375,14 @@ func (s *TrustStore) pages(workspace, file string) (shown, approved map[string]b
 // Records returns the receipts recorded for a project, sorted by file.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
 	key := mcp.TrustWorkspace(workspace)
-	// A pure read, unlocked for the reason pages gives.
-	out := append([]TrustRecord(nil), s.read().Workspaces[key]...)
+	mu := s.lock()
+	mu.RLock()
+	tf, err := s.read()
+	mu.RUnlock()
+	if err != nil {
+		return nil
+	}
+	out := append([]TrustRecord(nil), tf.Workspaces[key]...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
 			return out[i].File < out[j].File
@@ -371,7 +404,10 @@ func (s *TrustStore) edit(workspace, file string, fn func(*TrustRecord)) error {
 		return err
 	}
 	defer release()
-	tf := s.read()
+	tf, err := s.read()
+	if err != nil {
+		return err
+	}
 	records := tf.Workspaces[key]
 	at := -1
 	for i, rec := range records {
@@ -446,7 +482,10 @@ func (s *TrustStore) Prune(workspace, file string, onBoard []string) error {
 		return err
 	}
 	defer release()
-	tf := s.read()
+	tf, err := s.read()
+	if err != nil {
+		return err
+	}
 	changed := false
 	for i, rec := range tf.Workspaces[key] {
 		if rec.File != file || mcp.ReceiptCheckout(rec.Checkout, key) != checkout {
@@ -484,7 +523,10 @@ func (s *TrustStore) Revoke(workspace, file string) (bool, error) {
 		return false, err
 	}
 	defer release()
-	tf := s.read()
+	tf, err := s.read()
+	if err != nil {
+		return false, err
+	}
 	records := tf.Workspaces[key]
 	kept := make([]TrustRecord, 0, len(records))
 	for _, rec := range records {

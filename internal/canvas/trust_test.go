@@ -372,3 +372,68 @@ func TestAnApprovedPageTakenOffTheBoardLeavesTheReceipt(t *testing.T) {
 		t.Fatalf("held %v, want the page the file brought back", got)
 	}
 }
+
+// A page Coddy put on a board runs in the checkout it was put in. The board
+// at that path in a linked worktree is another branch's file, so a show in
+// one checkout never releases a page on the other's board - which is what
+// deny, where a show is the only thing that runs a page, rests on.
+func TestAShownPageStaysInItsCheckout(t *testing.T) {
+	main, wt := gitwstest.ProjectWithWorktree(t)
+	trust := NewTrust(t.TempDir(), config.ProjectTrustDeny)
+	for _, ws := range []string{main, wt} {
+		for _, f := range []string{"site/index.html", "site/about.html"} {
+			p := filepath.Join(ws, filepath.FromSlash(f))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte("<!doctype html>"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	refMain := checkoutBoardIn(t, main, filepath.Join(t.TempDir(), "sess_main"), trust)
+	refWT := checkoutBoardIn(t, wt, filepath.Join(t.TempDir(), "sess_wt"), trust)
+	if _, err := Show(refMain, ShowRequest{Path: "site/index.html"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := held(t, refMain); strings.Join(got, ",") != "site/about.html" {
+		t.Fatalf("held %v in the checkout of the show, want the page it did not show", got)
+	}
+	if got := held(t, refWT); len(got) != 2 {
+		t.Fatalf("held %v in the worktree, want both pages of its own board", got)
+	}
+}
+
+// A receipts file that cannot be parsed is not "nothing approved": every page
+// waits, and the next approval refuses instead of writing over what is there,
+// as the MCP store refuses.
+func TestADamagedReceiptsFileIsNeverWrittenOver(t *testing.T) {
+	ref := checkoutBoard(t, config.ProjectTrustAsk)
+	trustAll(t, ref)
+	store := ref.Trust.Store
+	damaged := []byte("{\"version\":1,\"workspaces\":{")
+	if err := os.WriteFile(store.Path(), damaged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := held(t, ref); len(got) != 2 {
+		t.Fatalf("held %v over a damaged store, want every page to wait", got)
+	}
+	if err := store.Approve(ref.Workspace, ref.File, []string{"site/index.html"}); err == nil {
+		t.Fatal("Approve wrote over a damaged receipts file")
+	}
+	raw, err := os.ReadFile(store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != string(damaged) {
+		t.Fatalf("the damaged file was replaced: %s", raw)
+	}
+}
+
+// The digest names one list of pages and no other, a page path holding a
+// newline included.
+func TestPagesDigestTellsAPageWithANewlineFromTwoPages(t *testing.T) {
+	if PagesDigest([]string{"a\nb.html"}) == PagesDigest([]string{"a", "b.html"}) {
+		t.Fatal("a page holding a newline digests as two pages")
+	}
+}
