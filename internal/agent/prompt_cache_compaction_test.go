@@ -722,3 +722,34 @@ func TestPromptCacheEvictionWindowLeavesInBatches(t *testing.T) {
 		}
 	}
 }
+
+// A reasoning level the operator asked for is honoured by the chain's own
+// provider, not by the turn's, so a fold that has to run at one goes down the
+// flattened path. The level is also something a provider keys its cache on,
+// which is the other half of the same reason.
+func TestPromptCacheCompactionFallsBackWhenAReasoningLevelIsAskedFor(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	withLevels := func(ag *Agent) { ag.cfg.Models[0].ReasoningLevels = &levels }
+
+	st := seededCompactState(t, 4)
+	pcRecordTurnSend(st, "fake/model")
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	withLevels(ag)
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Reasoning: "high"}); err != nil {
+		t.Fatalf("the compaction failed: %v", err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("the summarizer was called %d times, want once", len(provider.requests))
+	}
+	if req := provider.requests[0]; len(req) != 2 || !strings.Contains(req[1].Content, "<transcript>") {
+		t.Fatalf("a compaction asked to reason sent the turn's own context: %d message(s)", len(req))
+	}
+
+	// The same session with no level asked for still reads the cache.
+	plain := pcCompactOnce(t, 4, true, withLevels)
+	if len(plain) != 1 || plain[0][0].Content != pcTurnSystem {
+		t.Fatalf("a compaction with no level asked for did not repeat the turn's request: %d message(s)", len(plain[0]))
+	}
+}

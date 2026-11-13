@@ -298,9 +298,17 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		Cut:              splitIdx - viewOffset,
 		Instructions:     instructions,
 		EarlierSummaries: len(blocks) > 0,
+		Reasoning:        reasoning,
 	})
 	steps := 1
 	if !cached {
+		// A cancelled call answers like any other that did not produce a
+		// summary, and the flattened fold would pay for the dedupe and one more
+		// provider call before it reported the same cancellation.
+		if err := ctx.Err(); err != nil {
+			row.failed(err)
+			return nil, err
+		}
 		summary, modelID, steps, err = a.foldFlattened(ctx, chain, visible[:len(blocks)], head, instructions, row.step)
 		if err != nil {
 			row.failed(err)
@@ -321,7 +329,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The chain grows by a row per compaction; one that outgrew its share of the
 	// window has its earliest rows retold as one. A merge that fails leaves the
 	// chain as it was and the compaction done.
-	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, row.step)
+	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, reasoning, row.step)
 	if mergeErr != nil {
 		a.log.Warn("compaction could not merge the earliest summaries; the chain stays as it is", "error", mergeErr)
 	}

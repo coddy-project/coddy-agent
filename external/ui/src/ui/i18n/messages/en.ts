@@ -937,7 +937,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Keep recent results",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "The fewest most recent read and grep results that stay intact as a working window (default 2 - enough to hold a read and a grep at once; 0 keeps none). They leave the window four at a time, so up to three more stay while the next batch fills.",
+    "The fewest most recent read and grep results that stay intact as a working window (default 2 - enough to hold a read and a grep at once; 0 keeps none). Above zero they leave the window four at a time, so up to three more stay while the next batch fills.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Min result bytes",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":

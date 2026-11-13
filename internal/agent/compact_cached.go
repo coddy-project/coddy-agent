@@ -95,6 +95,12 @@ type cachedFoldSpec struct {
 	// What it reads is a run of summaries and nothing else, and Instructions
 	// already says what to make of them.
 	Merge bool
+	// Reasoning is the level this compaction was asked to run at, empty for
+	// the model's own. A level the operator named is a level the summary has
+	// to be written at, and it is also something a provider keys its cache on,
+	// so one that differs from what the turn ran at sends the fold down the
+	// flattened path, where the chain builds a provider for it.
+	Reasoning string
 }
 
 // cachedCompactionInstruction is the summarization brief as a message that
@@ -231,6 +237,11 @@ func (a *Agent) cachedFold(ctx context.Context, chain []compactionCandidate, spe
 	if !held || send.Model == "" || send.Model != chain[0].modelID || send.System.Content == "" {
 		return "", "", false
 	}
+	// A reasoning level asked for by /compact, the tool or the HTTP route is
+	// honoured by the chain's own provider, not by the turn's.
+	if spec.Reasoning != "" && spec.Reasoning != send.Input.ReasoningEffort {
+		return "", "", false
+	}
 	req := a.cachedCompactionRequest(send, spec)
 	if req == nil {
 		return "", "", false
@@ -261,8 +272,8 @@ func (a *Agent) cachedFold(ctx context.Context, chain []compactionCandidate, spe
 	}
 	out := strings.TrimSpace(resp.Content)
 	if out == "" || len(resp.ToolCalls) > 0 {
-		a.log.Info("the summarizer answered the conversation with a tool call rather than a summary; folding the transcript instead",
-			"session", a.state.GetID(), "model", send.Model, "toolCalls", len(resp.ToolCalls))
+		a.log.Info("the summarizer answered the conversation with no summary; folding the transcript instead",
+			"session", a.state.GetID(), "model", send.Model, "toolCalls", len(resp.ToolCalls), "empty", out == "")
 		return "", "", false
 	}
 	return out, send.Model, true

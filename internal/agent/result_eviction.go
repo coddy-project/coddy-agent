@@ -606,6 +606,9 @@ func writeTargets(toolName, argsJSON, cwd string) []string {
 func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecent, batch int) map[int]struct{} {
 	window := make(map[int]struct{})
 	if keepRecent <= 0 {
+		// keep_recent: 0 keeps none, which is what the setting says and what an
+		// operator who set it asked for: there is no working window to let a
+		// batch leave from.
 		return window
 	}
 	idx := make([]int, 0, len(reads)+len(greps))
@@ -633,7 +636,8 @@ func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecen
 // stays whole.
 //
 // The window never holds fewer than keepRecent, and it holds more until a whole
-// batch is ready to leave. Collapsing the one candidate that falls out at every
+// batch is ready to leave. A keepRecent of zero has no window to batch from and
+// does not reach this (recentCandidateWindow). Collapsing the one candidate that falls out at every
 // step rewrites the replayed history at every step, and a provider caches a
 // request by its prefix, so each collapse costs the cached copy of everything
 // behind it - the whole working window the model is reasoning in, measured at

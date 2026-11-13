@@ -69,6 +69,9 @@ type pccState struct {
 	// foldsBefore is how many summarization calls had been made before the
 	// latest `/compact`, so a scenario can name the first and the second.
 	foldsBefore []int
+	// turnsBefore is how many requests the turns had streamed before each of
+	// those compactions: the last of them is the one the fold repeats.
+	turnsBefore []int
 }
 
 func (s *pccState) close() {
@@ -94,7 +97,7 @@ func (s *pccState) tempDir() (string, error) {
 func (s *pccState) build(summarizer string, tune func(*config.Config)) error {
 	s.close()
 	s.provider = &pccProvider{}
-	s.foldsBefore = nil
+	s.foldsBefore, s.turnsBefore = nil, nil
 	var err error
 	if s.cwd, err = s.tempDir(); err != nil {
 		return err
@@ -179,6 +182,7 @@ func (s *pccState) worksThroughAFewTurns() error {
 
 func (s *pccState) operatorCompacts() error {
 	s.foldsBefore = append(s.foldsBefore, len(s.provider.folds))
+	s.turnsBefore = append(s.turnsBefore, len(s.provider.turns))
 	if _, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}}); err != nil {
 		return err
 	}
@@ -223,15 +227,14 @@ func (s *pccState) fold(n int) ([]llm.Message, []llm.ToolDefinition, error) {
 // turnBefore is the last streamed request made before summarization request n,
 // without its turn context block: the bytes the provider cached last.
 func (s *pccState) turnBefore(n int) ([]llm.Message, error) {
-	if len(s.foldsBefore) < n {
-		return nil, fmt.Errorf("the run compacted %d time(s), wanted at least %d", len(s.foldsBefore), n)
+	if len(s.turnsBefore) < n {
+		return nil, fmt.Errorf("the run compacted %d time(s), wanted at least %d", len(s.turnsBefore), n)
 	}
-	if len(s.provider.turns) == 0 {
-		return nil, fmt.Errorf("the run streamed no request")
+	streamed := s.turnsBefore[n-1]
+	if streamed == 0 {
+		return nil, fmt.Errorf("compaction %d followed no streamed request", n)
 	}
-	// Every turn of these scenarios runs before its compaction, so the latest
-	// streamed request at the time of fold n is the last one of the run so far.
-	return withoutTurnContext(s.provider.turns[len(s.provider.turns)-1]), nil
+	return withoutTurnContext(s.provider.turns[streamed-1]), nil
 }
 
 // foldRepeatsTheTurn holds summarization request n to the bytes the provider
@@ -248,7 +251,11 @@ func (s *pccState) foldRepeatsTheTurn(n int) error {
 	if err != nil {
 		return err
 	}
-	shared := min(len(req)-1, len(prev))
+	if len(req)-1 > len(prev) {
+		return fmt.Errorf("summarization request %d carries %d message(s) in front of its instruction, more than the %d the turn's last request held: the extra ones were never sent",
+			n, len(req)-1, len(prev))
+	}
+	shared := len(req) - 1
 	if shared < 3 {
 		return fmt.Errorf("summarization request %d shares %d message(s) with the turn's last request: too few to have repeated anything", n, shared)
 	}
@@ -330,10 +337,10 @@ func (s *pccState) foldCarriesTheTurnsTools(n int) error {
 	if err != nil {
 		return err
 	}
-	if len(s.provider.turnTools) == 0 {
-		return fmt.Errorf("the run streamed no request")
+	if len(s.turnsBefore) < n || s.turnsBefore[n-1] == 0 {
+		return fmt.Errorf("compaction %d followed no streamed request", n)
 	}
-	want := s.provider.turnTools[len(s.provider.turnTools)-1]
+	want := s.provider.turnTools[s.turnsBefore[n-1]-1]
 	if len(want) == 0 {
 		return fmt.Errorf("the turn carried no tool definitions: nothing to compare")
 	}

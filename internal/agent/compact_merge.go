@@ -126,7 +126,7 @@ func withChainMergeInstructions(instructions string) string {
 // mergeChain merges the earliest rows of the chain when it has outgrown its
 // share of the session's window (chainMergeCount), and reports how many rows
 // the merge retold; 0 with a nil error when no merge was due.
-func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, instructions string, progress compactionProgress) (int, error) {
+func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, instructions, reasoning string, progress compactionProgress) (int, error) {
 	msgs := a.state.GetMessages()
 	window, _ := a.contextWindow()
 	k, ok := chainMergeCount(msgs, window)
@@ -163,15 +163,22 @@ func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, ins
 			Cut:          k,
 			Instructions: instructions,
 			Merge:        true,
+			Reasoning:    reasoning,
 		})
 	}
 	if !cached {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		var err error
 		summary, modelID, _, err = a.foldFlattened(ctx, chain, nil, rows, instructions, progress)
 		if err != nil {
 			return 0, err
 		}
 	}
+	// The merge makes a request of its own, and it is the expensive one: an
+	// operator reading the log sees which of the two it was.
+	a.compactionOutcomeLog(cached, modelID, 1)
 	row := session.NewCompactionSummaryMessage(summary, modelID)
 	if prompt != "" {
 		row = session.NewInTurnCompactionSummaryMessage(prompt, summary, modelID)

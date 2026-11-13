@@ -98,8 +98,8 @@
     <h1>How one compaction runs</h1>
     <p class="lead">
       Every trigger ends in <code>CompactSession</code>: it cuts at a boundary, lets hooks veto, asks the session's own
-      model to summarize the conversation it has just read - or, for any other summarizer, folds a flattened head
-      through a chain of models in passes - and inserts one summary row there.
+      model to summarize the conversation it has just read - or, when that request cannot be reused, folds a flattened
+      head through a chain of models in passes - and inserts one summary row there.
     </p>
 
     <div class="cols grid3">
@@ -234,7 +234,7 @@
             <small>moved-past pages, searches, listings as placeholders</small>
           </div>
           <div class="panel req" style="margin-top: 4px">
-            <div class="title" style="font-size: 14px">the session's own model: the turn's request, cut at the boundary</div>
+            <div class="title" style="font-size: 14px">the session's own model at the turn's reasoning level: the turn's request, cut at the boundary</div>
             <div class="box core">the turn's system message and tools</div>
             <div class="box blue">the chain's rows, where the model already reads them</div>
             <div class="box green">the head, as the turn sent it</div>
@@ -245,7 +245,7 @@
             </p>
           </div>
           <div class="box blue">
-            any other summarizer: repeated lines dropped
+            the fallback request: repeated lines dropped
             <small>a line of 32+ characters seen before; the first copy stays</small>
           </div>
           <div class="panel req" style="margin-top: 4px">

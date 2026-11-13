@@ -180,9 +180,6 @@ func elideToTokensMarked(s string, tokens int, marker string) string {
 	return out
 }
 
-// foldCompactionHead summarizes head into one summary, in as many passes as
-// the summarizer's window needs. It reports every pass through progress before
-// making the call, so a compaction that takes a while says what it is doing.
 // foldFlattened folds head as a transcript of its own: the repeated lines
 // dropped, the summary rows written before it rendered ahead of it, and the
 // whole thing sized against the summarizer's window. It is what a compaction
@@ -223,6 +220,9 @@ func (a *Agent) foldFlattened(
 	return a.foldCompactionHead(ctx, chain, earlier, head, instructions, budget, progress)
 }
 
+// foldCompactionHead summarizes head into one summary, in as many passes as
+// the summarizer's window needs. It reports every pass through progress before
+// making the call, so a compaction that takes a while says what it is doing.
 func (a *Agent) foldCompactionHead(
 	ctx context.Context,
 	chain []compactionCandidate,

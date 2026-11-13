@@ -604,8 +604,10 @@ func splitAgainstTheCache(reqs [][]llm.Message, folds int) cacheSplit {
 			}
 		}
 		// A request that changed a message the one before it carried, rather
-		// than only adding after it, threw that cached prefix away.
-		if i > 0 && shareWith(bodies[i], bodies[i-1]) < len(bodies[i-1]) {
+		// than only adding after it, threw that cached prefix away. A shorter
+		// request is not one of them: a fold is the turn's prefix cut at the
+		// boundary, and the turn after a compaction starts from the summary row.
+		if i > 0 && len(bodies[i]) >= len(bodies[i-1]) && shareWith(bodies[i], bodies[i-1]) < len(bodies[i-1]) {
 			out.rewrites++
 		}
 		for j, m := range req {
