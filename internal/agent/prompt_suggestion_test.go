@@ -31,7 +31,7 @@ func TestPromptCachePromptSuggestionForkMatchesMainRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	messages, tools, rev, ok := st.PromptSuggestionFork()
+	messages, tools, forkInput, rev, ok := st.PromptSuggestionFork()
 	if !ok {
 		t.Fatal("completed turn did not store its suggestion fork")
 	}
@@ -45,23 +45,36 @@ func TestPromptCachePromptSuggestionForkMatchesMainRequest(t *testing.T) {
 		t.Fatalf("fork tools differ from the main request")
 	}
 	mainRequest := provider.seen[0]
-	if len(messages) != len(mainRequest)+1 {
-		t.Fatalf("fork holds %d messages, want the main request plus its answer (%d)", len(messages), len(mainRequest)+1)
+	// The turn's request ends with the request-only turn-context block. The
+	// fork leaves it out - it sits past the provider's cache mark, so it would
+	// cost its tokens on every side call - and ends with the answer instead.
+	trailing := 0
+	for i := len(mainRequest) - 1; i >= 0 && mainRequest[i].Ephemeral; i-- {
+		trailing++
 	}
-	for i := range mainRequest {
-		if mainRequest[i].Ephemeral {
-			continue
-		}
+	if trailing == 0 {
+		t.Fatal("the main request carried no turn context, so this test proves nothing")
+	}
+	if len(messages) != len(mainRequest)-trailing+1 {
+		t.Fatalf("fork holds %d messages, want the main request without its %d trailing context messages plus the answer (%d)", len(messages), trailing, len(mainRequest)-trailing+1)
+	}
+	for i := range len(mainRequest) - trailing {
 		if !reflect.DeepEqual(messages[i], mainRequest[i]) {
 			t.Fatalf("fork message %d differs from the main request", i)
 		}
 	}
-	if got := messages[len(mainRequest)-1]; got.Role != llm.RoleAssistant || got.Content != bddModelToolsAnswer {
-		t.Fatalf("fork does not end its history with the main answer: %+v", got)
+	for i, msg := range messages {
+		if msg.Ephemeral {
+			t.Fatalf("fork message %d is request-only: the side call would pay for it and no cache would hold it", i)
+		}
 	}
-	last := messages[len(messages)-1]
-	if !last.Ephemeral || !reflect.DeepEqual(last, mainRequest[len(mainRequest)-1]) {
-		t.Fatalf("fork lost the main request's trailing context: %+v", last)
+	if got := messages[len(messages)-1]; got.Role != llm.RoleAssistant || got.Content != bddModelToolsAnswer {
+		t.Fatalf("fork does not end with the main answer: %+v", got)
+	}
+	// The side call re-issues this input, so the request it sends differs from
+	// the turn's in nothing the provider's prompt cache keys on.
+	if forkInput.Name != "fake" || forkInput.Type != "openai" || forkInput.Model != "model" {
+		t.Fatalf("fork input is not the turn's provider input: %+v", forkInput)
 	}
 }
 

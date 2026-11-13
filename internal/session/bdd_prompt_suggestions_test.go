@@ -43,7 +43,7 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 					{Role: llm.RoleAssistant, Content: "completed the last step"},
 				}
 				state.ReplaceMessagesWithoutPersist(mainContext[1:])
-				state.SetPromptSuggestionFork(mainContext, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
+				state.SetPromptSuggestionFork(mainContext, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, suggestionTestInput(t, mgr))
 				before, answers = state.GetMessages(), nil
 			})
 			sc.Step(`^the prediction request inherits the complete main context$`, func() error {
@@ -59,7 +59,7 @@ func TestPromptSuggestionsFeature(t *testing.T) {
 			sc.Step(`^a conversation with its first completed reply$`, func() error {
 				mgr, state, calls = newSuggestionTestManager(t, answerSuggestion)
 				state.ReplaceMessagesWithoutPersist(state.GetMessages()[:2])
-				setSuggestionTestFork(state)
+				setSuggestionTestFork(t, mgr, state)
 				before, answers = state.GetMessages(), nil
 				return nil
 			})

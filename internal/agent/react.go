@@ -845,13 +845,19 @@ func (a *Agent) runReActLoop(
 ) (string, error) {
 	defer func() {
 		st, ok := a.state.(interface {
-			SetPromptSuggestionFork([]llm.Message, []llm.ToolDefinition)
+			SetPromptSuggestionFork([]llm.Message, []llm.ToolDefinition, llm.ProviderInput)
 		})
 		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
 			return
 		}
-		fork := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), a.buildTurnContext(sys))
-		st.SetPromptSuggestionFork(fork, toolDefs)
+		// The turn's own messages, tools and provider input: the side call
+		// repeats this request with one message appended, so it reads the
+		// prompt cache the turn wrote instead of paying for the history
+		// again. The turn-context block is left out - it is request-only
+		// and sits past the cache mark, so it costs its tokens on every
+		// side call and tells a prediction nothing.
+		fork := withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage)
+		st.SetPromptSuggestionFork(fork, toolDefs, transport.in)
 	}()
 	var totalInputTokens, totalOutputTokens int
 	allUsageKnown := true
@@ -3152,6 +3158,11 @@ type llmTransport struct {
 	// first-token timer, whose budget the agent's start, handshake and the
 	// replay of a history into a new session would spend.
 	agent bool
+	// in is the input this transport's provider was built from, reasoning
+	// level included. A side call over the same context (the prompt
+	// suggestion) reuses it, so its request differs from the turn's in
+	// nothing the provider's prompt cache keys on.
+	in llm.ProviderInput
 }
 
 // getProvider creates the LLM provider for the given mode.
@@ -3186,6 +3197,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		key:       modelID + "|" + reasoning,
 		rev:       rev,
 		agent:     rm.ProviderType == "acp",
+		in:        in,
 	}, nil
 }
 

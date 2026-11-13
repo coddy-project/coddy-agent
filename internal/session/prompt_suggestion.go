@@ -83,6 +83,14 @@ const (
 	promptSuggestionCacheFor = 5 * time.Minute
 )
 
+// promptSuggestionReasons reports whether a turn's reasoning level asks the
+// model to think, which is what ties the request's thinking parameters - and
+// through them the provider's cached message blocks - to its output bound.
+func promptSuggestionReasons(effort string) bool {
+	effort = strings.TrimSpace(effort)
+	return effort != "" && effort != config.ReasoningOff
+}
+
 // errPromptSuggestionSuppressed is the answer "no suggestion for this turn":
 // gates said no, the model stayed silent, or the answer did not validate. It
 // is an outcome, not a failure - callers report nothing for it.
@@ -293,31 +301,34 @@ func (s *promptSuggestionStore) update(fn func(*promptSuggestionState)) promptSu
 type promptSuggestionFork struct {
 	messages []llm.Message
 	tools    []llm.ToolDefinition
+	input    llm.ProviderInput
 	rev      uint64
 }
 
 // SetPromptSuggestionFork keeps the provider context of the completed turn for
-// its side call. The snapshot belongs to the live session and is never stored.
-func (s *State) SetPromptSuggestionFork(messages []llm.Message, tools []llm.ToolDefinition) {
+// its side call: its messages, its tools and the input its provider was built
+// from. The snapshot belongs to the live session and is never stored.
+func (s *State) SetPromptSuggestionFork(messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.promptSuggestionFork = &promptSuggestionFork{
 		messages: append([]llm.Message(nil), messages...),
 		tools:    append([]llm.ToolDefinition(nil), tools...),
+		input:    in,
 		rev:      s.msgRev,
 	}
 }
 
-// PromptSuggestionFork returns the completed turn's provider context and the
-// history revision it belongs to.
-func (s *State) PromptSuggestionFork() ([]llm.Message, []llm.ToolDefinition, uint64, bool) {
+// PromptSuggestionFork returns the completed turn's provider context, the
+// input its provider was built from and the history revision it belongs to.
+func (s *State) PromptSuggestionFork() ([]llm.Message, []llm.ToolDefinition, llm.ProviderInput, uint64, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fork := s.promptSuggestionFork
 	if fork == nil {
-		return nil, nil, 0, false
+		return nil, nil, llm.ProviderInput{}, 0, false
 	}
-	return append([]llm.Message(nil), fork.messages...), append([]llm.ToolDefinition(nil), fork.tools...), fork.rev, true
+	return append([]llm.Message(nil), fork.messages...), append([]llm.ToolDefinition(nil), fork.tools...), fork.input, fork.rev, true
 }
 
 // promptSuggestionSide is one manager's in-flight and cached suggestions, one
@@ -419,7 +430,7 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 		// assistant messages hides suggestions after the first ordinary turn.
 		return "", errPromptSuggestionSuppressed
 	}
-	forkMessages, forkTools, forkRev, ok := st.PromptSuggestionFork()
+	forkMessages, forkTools, forkInput, forkRev, ok := st.PromptSuggestionFork()
 	if !ok || forkRev != rev {
 		return "", errPromptSuggestionSuppressed
 	}
@@ -450,7 +461,7 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 			side.call = map[string]*promptSuggestionCall{}
 		}
 		side.call[sessionID] = call
-		go m.completePromptSuggestion(callCtx, cfg, st, forkMessages, forkTools, call)
+		go m.completePromptSuggestion(callCtx, cfg, st, forkMessages, forkTools, forkInput, call)
 	}
 	call.waiters++
 	side.mu.Unlock()
@@ -470,9 +481,9 @@ func (m *Manager) GeneratePromptSuggestion(ctx context.Context, sessionID string
 	}
 }
 
-func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition, call *promptSuggestionCall) {
+func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput, call *promptSuggestionCall) {
 	defer call.cancel()
-	text, err := m.runPromptSuggestion(ctx, cfg, st, messages, tools)
+	text, err := m.runPromptSuggestion(ctx, cfg, st, messages, tools, in)
 	side := &m.promptSuggestionSide
 	side.mu.Lock()
 	defer side.mu.Unlock()
@@ -494,8 +505,10 @@ func (m *Manager) completePromptSuggestion(ctx context.Context, cfg *config.Conf
 }
 
 // runPromptSuggestion is the call itself: the back-off decision and one
-// completion over the main context fork, through the agent's own resilience.
-func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition) (string, error) {
+// completion over the main context fork, re-issuing the turn's own provider
+// input so the request differs from the turn's in nothing but its last
+// message.
+func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, st *State, messages []llm.Message, tools []llm.ToolDefinition, in llm.ProviderInput) (string, error) {
 	m.promptSuggestionSide.storeMu.Lock()
 	store := &promptSuggestionStore{home: cfg.Paths.Home}
 	state := store.load()
@@ -509,38 +522,43 @@ func (m *Manager) runPromptSuggestion(ctx context.Context, cfg *config.Config, s
 	}
 	m.promptSuggestionSide.storeMu.Unlock()
 
-	model := st.EffectiveModelID(cfg)
-	if cfg.ModelRunsACPAgent(model) {
+	if strings.TrimSpace(in.Type) == "" {
+		// A fork from before this process knew the turn's provider input, or
+		// one a test built by hand: without it the side call cannot repeat the
+		// turn's request, and a hand-built one would miss the cache.
+		return "", errPromptSuggestionSuppressed
+	}
+	if in.Type == "acp" {
 		// A local ACP agent answers inside a session with its own tools; a
 		// prediction request would be taken for a task.
 		return "", errPromptSuggestionSuppressed
 	}
-	rm, err := cfg.ResolveLLM(model)
-	if err != nil {
-		return "", err
+	// The turn's input, with only what belongs to the turn taken out. Every
+	// field the provider's prompt cache keys on - the model, the tools, the
+	// reasoning level, the conversation id an opencode-style gateway routes
+	// by - stays as the turn sent it.
+	in.LimitLedger = nil
+	if !promptSuggestionReasons(in.ReasoningEffort) {
+		// Anthropic derives the extended-thinking budget from max_tokens, and
+		// a request whose thinking parameters differ from the turn's reads
+		// none of the message blocks the turn cached. Bound the answer only
+		// where the turn asked for no reasoning, so nothing moves; where it
+		// did, the cache the bound would cost is worth more than the ceiling,
+		// which the model's two-to-twelve words never reach anyway.
+		if in.MaxTokens <= 0 || in.MaxTokens > promptSuggestionMaxTokens {
+			in.MaxTokens = promptSuggestionMaxTokens
+		}
 	}
-	maxTokens := promptSuggestionMaxTokens
-	if rm.MaxTokens > 0 && rm.MaxTokens < maxTokens {
-		maxTokens = rm.MaxTokens
-	}
-	base := llm.ProviderInput{
-		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
-		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
-		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
-		MaxTokens: maxTokens, Temperature: rm.Temperature,
-		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
-		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}
-	if rm.Stream {
-		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
-	}
-	in := llm.WithAgentResilience(base, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
 	provider, err := llm.NewProvider(in)
 	if err != nil {
 		return "", err
 	}
 
-	out := append(append([]llm.Message(nil), messages...), llm.Message{Role: llm.RoleUser, Content: promptSuggestionInstruction})
+	// The instruction is request-only: marking it so keeps the provider's
+	// cache mark on the turn's last real message, which is the prefix the
+	// operator's next turn starts from, instead of writing a prefix ending in
+	// an instruction no later request repeats.
+	out := append(append([]llm.Message(nil), messages...), llm.Message{Role: llm.RoleUser, Content: promptSuggestionInstruction, Ephemeral: true})
 	response, err := provider.Complete(ctx, out, tools)
 	if err != nil {
 		return "", err

@@ -400,12 +400,18 @@ throttle with immediate renders after keystrokes.
 Suggestions are available from the first completed reply. After a turn, the empty
 editor can show a dim suggestion for the next prompt, including a one-word reply
 in Russian such as "продолжай".
-The suggestion call reserves up to 1024 output tokens, including reasoning, so
-reasoning models such as OpenCode's `beam-free` can finish before producing the hint.
 **Tab** or **Right** copies it into the draft; typing hides it. The extra model
-call forks the turn's provider context, including its system prompt, complete
-history and tool definitions. The suggestion instruction is appended as a user
-message; tools are never executed and the transcript stays unchanged. Suggestions
+call repeats the finished turn's own request - the same model and reasoning level,
+its system prompt, complete history and tool definitions - with the suggestion
+instruction appended as a request-only user message, so a provider that caches
+prompts reads the turn's history back from its cache instead of paying for it
+again. The turn-context block (the time, the git state) is left out, tools are
+never executed and the transcript stays unchanged. Where the turn asked for no
+reasoning, the call reserves up to 1024 output tokens, including reasoning, so a
+model such as OpenCode's `beam-free` can finish before producing the hint; where
+it did ask for reasoning, the turn's own output bound stays, because Anthropic
+derives the thinking budget from `max_tokens` and a request whose thinking
+parameters differ from the turn's reads none of its cached history. Suggestions
 are enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
 disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
 With `--remote`, the console fetches the hint from the server and reports whether

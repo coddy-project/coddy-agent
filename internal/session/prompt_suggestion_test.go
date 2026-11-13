@@ -48,13 +48,30 @@ func newSuggestionTestManager(t *testing.T, respond func(http.ResponseWriter, *h
 	}
 	m := &Manager{sessions: map[string]*State{st.ID: st}}
 	m.cfgAt.Store(cfg)
-	setSuggestionTestFork(st)
+	setSuggestionTestFork(t, m, st)
 	return m, st, &calls
 }
 
-func setSuggestionTestFork(st *State) {
+func setSuggestionTestFork(t *testing.T, m *Manager, st *State) {
+	t.Helper()
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, MessagesForLLM(st.GetMessages())...)
-	st.SetPromptSuggestionFork(messages, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
+	st.SetPromptSuggestionFork(messages, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, suggestionTestInput(t, m))
+}
+
+// suggestionTestInput stands in for what a turn stores on the fork: the input
+// its provider was built from, which the side call re-issues.
+func suggestionTestInput(t *testing.T, m *Manager) llm.ProviderInput {
+	t.Helper()
+	cfg := m.activeCfg()
+	rm, err := cfg.ResolveLLM(cfg.Agent.Model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return llm.ProviderInput{
+		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
+		MaxTokens: rm.MaxTokens, DisableStream: !rm.Stream, RetryDisabled: true,
+	}
 }
 
 func answerSuggestion(w http.ResponseWriter, _ *http.Request) {
@@ -90,7 +107,7 @@ func TestPromptSuggestionCanceledCallDoesNotCacheNextRevision(t *testing.T) {
 	m.CancelPromptSuggestion(st.ID)
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check another file"})
 	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "checked it"})
-	setSuggestionTestFork(st)
+	setSuggestionTestFork(t, m, st)
 	select {
 	case <-finished:
 	case <-ctx.Done():
@@ -344,7 +361,7 @@ func TestPromptSuggestionUsesMainContextFork(t *testing.T) {
 	}
 	tools := []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}
 	st.ReplaceMessagesWithoutPersist(mainContext[1:])
-	st.SetPromptSuggestionFork(mainContext, tools)
+	st.SetPromptSuggestionFork(mainContext, tools, suggestionTestInput(t, m))
 
 	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
 	if err != nil || text != "run the tests" {

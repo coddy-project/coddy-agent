@@ -239,9 +239,11 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 ## Settings: boolean switch fields
 
 **ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
-It is enabled by default. After a turn, Coddy forks that turn's provider context:
-the main system prompt, the complete history with tool calls and results, and the
-tool definitions. The suggestion instruction is appended as a user message. Tools
+It is enabled by default. After a turn, Coddy repeats that turn's own request: the
+main system prompt, the complete history with tool calls and results, the tool
+definitions and the same model and reasoning level, with the suggestion instruction
+appended as a request-only user message. A provider that caches prompts therefore
+reads the history back from its cache instead of paying for it again. Tools
 are never executed and nothing enters the transcript. **Tab** or **Right** copies
 the suggestion into the draft. The suggestion stays as the placeholder while
 you edit. Clearing the draft shows the same suggestion again, including after accepting

@@ -76,7 +76,17 @@ func TestRemoteSuggestionsUseServerConfiguration(t *testing.T) {
 			}
 			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "The fix is ready."})
 			fork := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, session.MessagesForLLM(st.GetMessages())...)
-			st.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}})
+			rm, err := cfg.ResolveLLM(cfg.Agent.Model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// What a real turn leaves on the fork: the input its provider was built from.
+			input := llm.ProviderInput{
+				Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+				APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
+				DisableStream: !rm.Stream, RetryDisabled: true,
+			}
+			st.SetPromptSuggestionFork(fork, []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, input)
 			before := st.MessagesRev()
 			srv := New(cfg, mgr, log, home)
 			defer srv.Drain()
