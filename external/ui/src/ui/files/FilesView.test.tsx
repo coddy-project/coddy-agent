@@ -345,7 +345,7 @@ function view(over: Partial<React.ComponentProps<typeof FilesView>> = {}) {
 
 test("the files window shows the workspace tree beside an empty preview", async () => {
   render(view());
-  const win = screen.getByRole("dialog", { name: t("files.title") });
+  const win = screen.getByRole("complementary", { name: t("files.title") });
   expect(win).toBe(screen.getByTestId("files-view"));
   // Titled the way the documentation window is, with the workspace under it.
   expect(within(win).getByText(t("files.title"))).toBeTruthy();

@@ -14,14 +14,17 @@ import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 import { t } from "./i18n/i18n";
 import { resetSettingsConfigForTests } from "./settings/settingsConfigStore";
-import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
+import {
+  phoneMaxWidthMediaQuery,
+  shellStackMaxWidthMediaQuery,
+} from "./shellBreakpoint";
 import { forgetOpenFiles } from "./files/FilesView";
 
 /**
  * The views of a session are buttons of the chat header: its background tasks
  * open in the dock beside the chat, without a tab strip; its edits open in a
- * window of their own, and its files in a window over the chat, the way the
- * documentation does, each with an address of its own.
+ * window of their own, and its files in a workspace panel beside the chat,
+ * each with an address of its own.
  */
 
 vi.mock("./chat/ChatScreen", () => ({
@@ -29,6 +32,8 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenBackgroundTasks?: () => void;
     onOpenEdits?: () => void;
     onOpenFiles?: () => void;
+    onOpenTerminal?: () => void;
+    terminal?: React.ReactNode;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -52,6 +57,14 @@ vi.mock("./chat/ChatScreen", () => ({
       >
         Open files
       </button>
+      <button
+        type="button"
+        data-testid="open-terminal"
+        onClick={() => props.onOpenTerminal?.()}
+      >
+        Open terminal
+      </button>
+      {props.terminal}
     </div>
   ),
 }));
@@ -97,6 +110,14 @@ async function baseFetch(input: RequestInfo | URL, init?: RequestInit) {
         },
       ],
       totals: { files: 1, additions: 1, deletions: 0 },
+    });
+  }
+  if (path === `/coddy/sessions/${SID}/terminal`) {
+    return json({
+      object: "coddy.terminal",
+      shell: "/bin/bash",
+      output: "",
+      running: true,
     });
   }
   if (path.includes("/workspace/tree")) {
@@ -209,11 +230,26 @@ test("the background tasks open in the dock with no tab strip", async () => {
   expect(document.querySelector('[role="tablist"]')).toBeNull();
 });
 
-test("the files open in a window over the chat, not in the dock, and Escape closes it", async () => {
+test("the terminal opens under the chat and keeps the chat mounted", async () => {
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  const terminal = await screen.findByTestId("terminal-panel");
+  expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(terminal.closest('[data-testid="chat-screen-stub"]')).toBeTruthy();
+  expect(within(terminal).getByRole("textbox")).toBeTruthy();
+  fireEvent.click(within(terminal).getByLabelText(t("terminal.close")));
+  await waitFor(() =>
+    expect(screen.queryByTestId("terminal-panel")).toBeNull(),
+  );
+});
+
+test("the files open beside the live chat, not in the tasks dock, and Escape closes them", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-files"));
   const win = await screen.findByTestId("files-view");
-  expect(win.getAttribute("role")).toBe("dialog");
+  expect(win.getAttribute("role")).toBe("complementary");
+  expect(screen.getByTestId("chat-screen-stub")).toBeTruthy();
+  expect(document.querySelector(".backdrop.is-open")).toBeNull();
   expect(screen.queryByTestId("changes-panel")).toBeNull();
   expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/files`));
@@ -231,18 +267,29 @@ test("a files address opens the window on its file", async () => {
   );
 });
 
-test("over the background tasks the files window is the first thing Escape takes away", async () => {
+test("Files and Tasks replace one another while the terminal stays open", async () => {
   mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  await screen.findByTestId("terminal-panel");
   fireEvent.click(await screen.findByTestId("open-tasks"));
   await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  pressEscape();
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(document.querySelector(".shell-main")).toHaveClass("shell-files-open");
+  expect(document.querySelector(".shell-main")).not.toHaveClass(
+    "shell-tasks-open",
+  );
+
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(document.querySelector(".shell-main")).toHaveClass("shell-tasks-open");
+  expect(document.querySelector(".shell-main")).not.toHaveClass(
+    "shell-files-open",
+  );
 });
 
 test("Ctrl+Shift+F opens the files window, and closes it", async () => {
@@ -269,18 +316,18 @@ test("Ctrl+Shift+F opens the files window, and closes it", async () => {
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
 });
 
-test("a click beside the files window closes it and gives the address back to the chat", async () => {
+test("the chat stays interactive beside files until their own close button is used", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-files"));
   await screen.findByTestId("files-view");
-  fireEvent.click(document.querySelector(".backdrop.is-open")!);
+  fireEvent.click(screen.getByTestId("chat-screen-stub"));
+  expect(screen.getByTestId("files-view")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("files-close"));
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
-// The stacked shell shows the dock over the chat; the files window opens over
-// the dock and leaves it there.
-test("on the stacked shell the files window opens over the background tasks and leaves them open", async () => {
+test("on the stacked shell Files replaces background tasks", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === shellStackMaxWidthMediaQuery,
     media: query,
@@ -296,12 +343,36 @@ test("on the stacked shell the files window opens over the background tasks and 
   await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  await act(async () => new Promise((r) => setTimeout(r, 30)));
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(window.location.hash).toBe(`#/s/${SID}/files`);
   pressEscape();
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/tasks`));
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
+});
+
+test("on a phone Files replaces tasks and leaves the terminal mounted", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches:
+      query === shellStackMaxWidthMediaQuery ||
+      query === phoneMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-terminal"));
+  await screen.findByTestId("terminal-panel");
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  fireEvent.click(screen.getByTestId("open-files"));
+  await screen.findByTestId("files-view");
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(screen.getByTestId("terminal-panel")).toBeTruthy();
+  expect(window.location.hash).toBe(`#/s/${SID}/files`);
 });
 
 test("the files window opened over the edits window takes its place", async () => {

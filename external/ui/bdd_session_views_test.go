@@ -11,7 +11,7 @@ import (
 // The views of a chat are rendered components and the shell's routing, so
 // each step runs the Vitest test that drives them: the header buttons, the
 // tasks dock without a tab strip, the edits window, the plate over the composer,
-// discarding from the edits, the Files window.
+// discarding from the edits, the Files panel beside the chat.
 func TestWebUISessionViewsFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
 		{`^a linked worktree's plate has no exit button and still opens the edits$`,
@@ -74,9 +74,12 @@ func TestWebUISessionViewsFeature(t *testing.T) {
 		{`^discarding everything asks first, and a refusal touches nothing$`,
 			"src/ui/changes/EditsView.test.tsx",
 			"discarding everything asks first, and a refusal touches nothing"},
-		{`^the files open in a window over the chat, not in the dock$`,
+		{`^the files open beside the live chat, not in the tasks dock$`,
 			"src/ui/App.workspaceViews.test.tsx",
-			"the files open in a window over the chat, not in the dock, and Escape closes it"},
+			"the files open beside the live chat, not in the tasks dock, and Escape closes them"},
+		{`^the chat stays interactive until the files' own close button is used$`,
+			"src/ui/App.workspaceViews.test.tsx",
+			"the chat stays interactive beside files until their own close button is used"},
 		{`^the window shows the workspace tree beside an empty preview$`,
 			"src/ui/files/FilesView.test.tsx",
 			"the files window shows the workspace tree beside an empty preview"},

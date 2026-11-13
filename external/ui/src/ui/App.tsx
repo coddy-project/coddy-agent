@@ -285,6 +285,7 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView, type CanvasFocus } from "./files/FilesView";
+import { TerminalPanel } from "./terminal/TerminalPanel";
 import type { CanvasPrompt } from "./canvas/CanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
@@ -1404,11 +1405,12 @@ export function App() {
   const { open: tasksOpen, setOpen: setTasksOpen } = useRightDock(
     initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // The Files window over the chat: open, and on which file and line. It is not
-  // a face of the dock, whose tasks stay as they were under it.
+  // The Files panel beside the chat: open, and on which file and line. It is
+  // not a face of the tasks dock.
   const [filesOpen, setFilesOpen] = useState(
     initialRoute.branch === "session" && initialRoute.filesOpen === true,
   );
+  const [terminalOpen, setTerminalOpen] = useState(false);
   // Bumps on every request to show a file, so the same path asked for again
   // (its tab closed meanwhile) opens again.
   const [fileOpenSeq, setFileOpenSeq] = useState(0);
@@ -2707,15 +2709,13 @@ export function App() {
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      // The Files and the edits windows open over the dock and leave it as it
-      // was, on the stacked shell too, where any other chat address puts the
-      // dock away.
+      // Files and Tasks are alternative views: a Files address always puts
+      // Tasks away. Edits may still open over the dock as its own modal layer.
       setTasksOpen(
         (wasOpen) =>
           p.tasksOpen ||
-          ((p.filesOpen === true ||
-            p.editsOpen === true ||
-            !isStackedShell()) &&
+          (p.filesOpen !== true &&
+            (p.editsOpen === true || !isStackedShell()) &&
             wasOpen),
       );
       if (p.filesOpen) {
@@ -6940,9 +6940,20 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSettingsRoute(false);
+    // Files and Tasks are two right-hand views of one chat. Keeping both open
+    // spends both layout reserves and crushes the conversation between them.
+    setFilesOpen(false);
     setTasksOpen(true);
     if (isStackedShell()) {
       setSessionTasksHash(sid);
+    } else {
+      // A desktop Tasks panel is local state and normally leaves the current
+      // rail screen's address alone. Files is the exception: it has its own
+      // session address, which must leave with the Files view it names.
+      const at = parseAppHash();
+      if (at.branch === "session" && at.filesOpen) {
+        setSessionHashInLocation(sid);
+      }
     }
   }, [sessionId]);
 
@@ -7006,8 +7017,9 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
-  /** Opens the Files window over the chat. Without a path it opens on the
-   *  files it had open; with one, on that file and line. */
+  /** Opens the Files panel beside the chat and replaces Tasks at every
+   *  breakpoint. Without a path it opens on the files it had open; with one,
+   *  on that file and line. */
   const openFilesWindow = useCallback(
     (path?: string, line?: number) => {
       const sid = sessionId.trim();
@@ -7018,7 +7030,10 @@ export function App() {
       setSettingsRoute(false);
       setDocsRoute(null);
       setSwarmRoute(false);
-      // One window over the chat at a time: the files take the edits' place.
+      // Files, Tasks and edits are alternative workspace surfaces. Terminal is
+      // independent and may stay open under the live conversation.
+      setTasksOpen(false);
+      setTasksFocus(null);
       setChangesViewerOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
@@ -7029,15 +7044,13 @@ export function App() {
     [sessionId],
   );
 
-  /** Puts the Files window away. The address goes back to the chat, or to the
-   *  tasks when the dock under it shows them on the stacked shell. */
+  /** Puts the Files window away and returns its address to the chat. */
   const closeFilesWindow = useCallback(() => {
     setFilesOpen(false);
     const sid = sessionId.trim();
     if (!sid) return;
-    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
-    else setSessionHashInLocation(sid);
-  }, [sessionId, tasksOpen]);
+    setSessionHashInLocation(sid);
+  }, [sessionId]);
 
   /** Opens a .canvas file of the chat in the Files window, on a frame when
    *  one is named. */
@@ -7509,9 +7522,9 @@ export function App() {
     return byId;
   }, [canvasPrompts, transcriptItems]);
 
-  // A window over the chat - the files, the edits or the canvas - is one more
-  // layer the shell's backdrop covers the chat under.
-  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
+  // Files are a workspace panel beside the live chat, not a modal layer over
+  // it. Edits remain a window and therefore still own the shell backdrop.
+  const chatWindowOpen = changesViewerOpen && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
     sessionsOpen ||
@@ -7520,8 +7533,8 @@ export function App() {
     swarmRoute ||
     docsRoute !== null;
 
-  // A window over the dock (FilesView, EditsView) takes Escape itself, and the
-  // backdrop covers it, so the dock waits for the next one.
+  // Edits takes Escape before the tasks dock. Files is an alternative to the
+  // dock, so the two cannot be open together.
   useRightDockEscape(dockOpen && !shellBackdropOpen, closeTasksDrawer);
 
   const filteredSchedulerJobs = useMemo(() => {
@@ -8074,6 +8087,8 @@ export function App() {
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
+          filesOpen ? "shell-files-open" : "",
+          terminalOpen ? "shell-terminal-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -8295,8 +8310,8 @@ export function App() {
           />
         ) : null}
 
-        {/* After the dock, so on the stacked shell, where both are sheets over
-            the chat, the window is the one on top. */}
+        {/* Edits is modal and may stand over the dock. Files is an alternative
+            right-hand view and closes Tasks before it mounts. */}
         {changesViewerOpen && sessionId.trim() ? (
           <EditsView
             key={`edits:${sessionId}`}
@@ -8370,6 +8385,18 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
+            onOpenTerminal={() => setTerminalOpen((open) => !open)}
+            terminalOpen={terminalOpen}
+            terminal={
+              terminalOpen && sessionId.trim() ? (
+                <TerminalPanel
+                  key={`terminal:${sessionId}`}
+                  sessionId={sessionId}
+                  workspacePath={workspaceCtx?.path || chatWorkspace}
+                  onClose={() => setTerminalOpen(false)}
+                />
+              ) : null
+            }
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

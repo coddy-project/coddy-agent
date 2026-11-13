@@ -2,12 +2,22 @@
 
 @use "../abstracts" as *;
 
-/* ── Files window ─────────────────────────────────────────────────────────
-   The session's workspace in a window over the chat, framed the way the
-   documentation reader is (.docs-dock-cluster): the same glass sheet right of
-   the rail, no wider than the dock width, centred in what is left. Expanded,
-   it takes the whole window, the rail included. Inside: a header, then the
-   tree beside the open files. DESIGN.md, Workspace files window. */
+/* A workspace surface may live beside the conversation without replacing it. */
+@media (min-width: 800px) {
+  .shell-main.shell-files-open {
+    --coddy-files-panel-width: min(720px, 46vw);
+    --coddy-files-panel-band: calc(var(--coddy-files-panel-width) + 26px);
+  }
+
+  .shell-main.shell-files-open > .main {
+    margin-right: var(--coddy-files-panel-band);
+  }
+}
+
+/* ── Files workspace panel ────────────────────────────────────────────────
+   On desktop it gives the chat room and stays beside it, so opening a path
+   never takes the conversation away. On narrow layouts it remains a sheet
+   because two columns do not fit, but the chat stays mounted underneath. */
 .files-dock-cluster {
   position: fixed;
   top: 14px;
@@ -28,6 +38,14 @@
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   box-shadow: var(--coddy-glass-panel-shadow);
   color: var(--text);
+}
+
+@media (min-width: 800px) {
+  .files-dock-cluster {
+    left: auto;
+    width: var(--coddy-files-panel-width, min(720px, 46vw));
+    margin-inline: 0;
+  }
 }
 
 .files-dock-cluster.is-expanded {

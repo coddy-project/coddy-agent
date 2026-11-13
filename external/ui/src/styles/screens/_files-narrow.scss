@@ -2,7 +2,7 @@
 /* The stacked shell: below the top bar, above the shell's backdrop (which
    rises to 60 there), inset like the documentation sheet. The tree keeps its
    column while it fits beside the file. */
-@media (max-width: 1199px) {
+@media (max-width: 799px) {
   /* 72: over the dock (70), which the window leaves open under it. */
   .files-dock-cluster,
   .files-dock-cluster.is-expanded {
