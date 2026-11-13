@@ -183,6 +183,46 @@ func elideToTokensMarked(s string, tokens int, marker string) string {
 // foldCompactionHead summarizes head into one summary, in as many passes as
 // the summarizer's window needs. It reports every pass through progress before
 // making the call, so a compaction that takes a while says what it is doing.
+// foldFlattened folds head as a transcript of its own: the repeated lines
+// dropped, the summary rows written before it rendered ahead of it, and the
+// whole thing sized against the summarizer's window. It is what a compaction
+// does when the conversation cannot be repeated out of the provider's prompt
+// cache (compact_cached.go) - another summarizer, another model, a head that is
+// not the head of what the turn sends - and what every fold did before that
+// path existed.
+func (a *Agent) foldFlattened(
+	ctx context.Context,
+	chain []compactionCandidate,
+	blockRows []llm.Message,
+	head []llm.Message,
+	instructions string,
+	progress compactionProgress,
+) (summary, modelID string, steps int, err error) {
+	// Lines the history already carried go before anything is measured: a
+	// session fills its window by repeating itself, and the repeats are what
+	// push a fold past the summarizer's window.
+	if deduped, dropped := dedupeCompactionHead(head); dropped > 0 {
+		a.log.Info("compaction dropped repeated lines from the history it is folding",
+			"lines", dropped, "messages", len(head))
+		head = deduped
+	}
+	// The fold is sized against the summarizer's own window, not the session's:
+	// compaction.model may name a smaller or larger model than the turn runs on.
+	// The first of the chain sets the size; a fallback below it reads the same
+	// pass, which is why the share is a share rather than the whole window.
+	window, _ := a.contextWindowFor(chain[0].modelID)
+	// The summaries already written are what the new one continues: the
+	// summarizer reads them so it does not repeat them, and never retells them.
+	// They are reference only and take at most half of a pass: the chain is
+	// sized against the session's window, and a summarizer with a smaller one
+	// would otherwise get passes with no room for the transcript, or none that
+	// fit at all.
+	instructionTokens := session.EstimateContextTokens(instructions)
+	earlier := renderEarlierSummaries(blockRows, compactionInputBudget(window, instructionTokens)/compactionCarryShare)
+	budget := compactionInputBudget(window, instructionTokens+session.EstimateContextTokens(earlier))
+	return a.foldCompactionHead(ctx, chain, earlier, head, instructions, budget, progress)
+}
+
 func (a *Agent) foldCompactionHead(
 	ctx context.Context,
 	chain []compactionCandidate,

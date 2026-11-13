@@ -352,7 +352,7 @@ func (s *evFeatureState) transcriptHasBothGreps() error {
 
 // listingFolderNames are the folders a listing scenario can create, in the order
 // the model lists them.
-var listingFolderNames = []string{"alpha", "beta", "gamma", "delta"}
+var listingFolderNames = []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}
 
 // listingFileName is the name of the i-th file (1-based) of a folder: it carries
 // the folder, so a listing that leaked into the request says whose it was.
@@ -417,17 +417,22 @@ func (s *evFeatureState) modelListsEachFolder() error {
 	return s.run()
 }
 
-func (s *evFeatureState) requestEvictsFirstStepListings() error {
+// requestEvictsFirstStepListings checks the n oldest steps collapsed. Steps
+// leave the window a batch at a time (resultEvictionBatch), so n is the batch
+// the scenario drives past the window rather than one step.
+func (s *evFeatureState) requestEvictsFirstStepListings(n int) error {
 	req := s.lastRequest()
-	g, tr := listingIDs(0)
-	for _, id := range []string{g, tr} {
-		c := requestToolContent(req, id)
-		if !strings.HasPrefix(c, "[evicted:") {
-			return fmt.Errorf("listing %s of the first step not replaced by a placeholder: %q", id, truncateForError(c))
+	for step := 0; step < n; step++ {
+		g, tr := listingIDs(step)
+		for _, id := range []string{g, tr} {
+			c := requestToolContent(req, id)
+			if !strings.HasPrefix(c, "[evicted:") {
+				return fmt.Errorf("listing %s of step %d not replaced by a placeholder: %q", id, step, truncateForError(c))
+			}
 		}
-	}
-	if strings.Contains(joinMessages(req), s.folders[0]+"_file_") {
-		return fmt.Errorf("an evicted listing leaked into the request")
+		if strings.Contains(joinMessages(req), s.folders[step]+"_file_") {
+			return fmt.Errorf("an evicted listing leaked into the request")
+		}
 	}
 	return nil
 }
@@ -562,7 +567,7 @@ func initializeResultEvictionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a workspace with (\d+) folders of (\d+) files each$`, s.foldersWithFiles)
 	sc.Step(`^listing results are kept for the last (\d+) steps that hold one$`, s.listingStepsKept)
 	sc.Step(`^the model lists each folder in its own step, with a glob and a tree each, then answers$`, s.modelListsEachFolder)
-	sc.Step(`^the next LLM request replaces the listings of the first step with placeholders$`, s.requestEvictsFirstStepListings)
+	sc.Step(`^the next LLM request replaces the listings of the first (\d+) steps with placeholders$`, s.requestEvictsFirstStepListings)
 	sc.Step(`^the next LLM request keeps the listings of the last (\d+) steps verbatim$`, s.requestKeepsLastStepListings)
 	sc.Step(`^the persisted transcript still contains every listing in full$`, s.transcriptHasEveryListing)
 

@@ -13,9 +13,12 @@ counts the exact values the answer carries.
 The point is a comparison: run it once with a binary built from ``main`` and
 once with one built from the change under test, with the same ``RECALL_SEED``,
 and compare the counts by round. It also reports the summary rows the session
-ends with, and the input tokens of the turns after the first compaction (the
-quiz left out) with the part the provider served from its prompt cache, read
-off the ``llm call usage`` lines of the server's debug log.
+ends with, the input tokens of the turns after the first compaction (the quiz
+left out) with the part the provider served from its prompt cache, and the same
+split for every summarizer call, read off the ``llm call usage`` lines of the
+server's debug log. Each fold also reports the request it made: ``cached`` when
+it repeated what the turn had already sent, which the provider reads back from
+its prompt cache, and ``flattened`` when it sent a transcript of its own.
 
 It checks nothing but that the run completed; the numbers are the output, one
 JSON line on stdout. Without a key it prints SKIP and exits 0.
@@ -169,6 +172,25 @@ def usage_since(lines: list[str]) -> tuple[int, int, int]:
     return calls, prompt, cached
 
 
+# What a fold says about the request it made: the conversation the turn had
+# already sent, which the provider serves out of its prompt cache, or a
+# transcript flattened into a request of its own, which it reads in full.
+CACHED_FOLD = "compaction summarized the conversation the turn had sent"
+FLAT_FOLD = "compaction summarized a flattened transcript"
+
+
+def fold_usage(lines: list[str]) -> dict[str, Any]:
+    """What the summarizer calls between two marks cost, and how they were made."""
+    calls, prompt, cached = usage_since(lines)
+    path = "none"
+    for line in lines:
+        if CACHED_FOLD in line:
+            path = "cached"
+        elif FLAT_FOLD in line:
+            path = "flattened"
+    return {"calls": calls, "input_tokens": prompt, "cached_tokens": cached, "path": path}
+
+
 def main() -> int:
     binary = Path(os.environ.get("CODDY_BIN", str(repo_root() / "build" / "coddy")))
     model = os.environ.get("RECALL_MODEL", "openai/gpt-5.4-mini").strip()
@@ -252,17 +274,26 @@ logger:
         log_path = root / "coddy.log"
         after_first = 0
         summaries: list[int] = []
+        folds: list[dict[str, Any]] = []
         for r, row in enumerate(facts):
             lines = "\n".join(f"- {s}: {v}" for s, v in row)
             sid, _ = turn(base, sid,
                           "Note these facts about our project; we will need them later. "
                           f"Reply only with the word Noted.\n{lines}")
             sid, _ = turn(base, sid, FILLER[r % len(FILLER)] + " Do not use any tools.")
+            before_fold = len(log_lines(log_path))
             code, body = http_json("POST", f"{base}/coddy/sessions/{sid}/compact", {})
             if code != 200 or body.get("compacted") is not True:
                 fail(f"round {r + 1}: compact {code}: {body}")
             summaries.append(len(str(body.get("summary", ""))))
-            print(f"round {r + 1}: compacted, summary {summaries[-1]} chars", file=sys.stderr)
+            # What this fold itself asked the provider for. A fold that repeats
+            # the turn's own request is read back from the prompt cache, so its
+            # cached_tokens are most of its input_tokens; a flattened one shares
+            # no byte with the session and pays for the whole head.
+            folds.append(fold_usage(log_lines(log_path)[before_fold:]))
+            print(f"round {r + 1}: compacted, summary {summaries[-1]} chars, "
+                  f"fold {folds[-1]['path']}: {folds[-1]['cached_tokens']}/{folds[-1]['input_tokens']} cached",
+                  file=sys.stderr)
             if r == 0:
                 after_first = len(log_lines(log_path))
         turn_calls, prompt_after, cached_after = usage_since(log_lines(log_path)[after_first:])
@@ -297,6 +328,10 @@ logger:
             "turn_calls_after_first_compaction": turn_calls,
             "input_tokens_after_first_compaction": prompt_after,
             "cached_tokens_after_first_compaction": cached_after,
+            "fold_paths": [f["path"] for f in folds],
+            "fold_calls": sum(f["calls"] for f in folds),
+            "fold_input_tokens": sum(f["input_tokens"] for f in folds),
+            "fold_cached_tokens": sum(f["cached_tokens"] for f in folds),
         })
     finally:
         proc.terminate()

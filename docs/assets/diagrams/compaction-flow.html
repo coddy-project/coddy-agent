@@ -97,8 +97,9 @@
   <body style="--width: 1400px">
     <h1>How one compaction runs</h1>
     <p class="lead">
-      Every trigger ends in <code>CompactSession</code>: it cuts at a boundary, lets hooks veto, folds the head through a
-      chain of summarizers in passes and inserts one summary row there.
+      Every trigger ends in <code>CompactSession</code>: it cuts at a boundary, lets hooks veto, asks the session's own
+      model to summarize the conversation it has just read - or, for any other summarizer, folds a flattened head
+      through a chain of models in passes - and inserts one summary row there.
     </p>
 
     <div class="cols grid3">
@@ -167,7 +168,7 @@
           <div class="no">vetoed: <code>/compact</code> reports it, the threshold goes on, a recovery ends the turn</div>
           <div class="box blue"><span class="num">5</span>the head to fold (panel 4)</div>
           <div></div>
-          <div class="box core"><span class="num">6</span>summarizer chain, folding in passes (panel 5)</div>
+          <div class="box core"><span class="num">6</span>one request over the turn's own context, else the summarizer chain folding in passes (panels 4, 5)</div>
           <div class="no">every model failed: the same three outcomes as a veto</div>
           <div class="box blue b">
             <span class="num">7</span>one summary row at the boundary
@@ -232,8 +233,19 @@
             result eviction applied
             <small>moved-past pages, searches, listings as placeholders</small>
           </div>
+          <div class="panel req" style="margin-top: 4px">
+            <div class="title" style="font-size: 14px">the session's own model: the turn's request, cut at the boundary</div>
+            <div class="box core">the turn's system message and tools</div>
+            <div class="box blue">the chain's rows, where the model already reads them</div>
+            <div class="box green">the head, as the turn sent it</div>
+            <div class="box amber">Summarize the conversation above... (request-only)</div>
+            <p class="note" style="margin: 6px 0 0; font-size: 12.5px">
+              + the words after <code>/compact</code>, the session goal. One request: the provider reads the rest
+              back from the cache the turn wrote.
+            </p>
+          </div>
           <div class="box blue">
-            repeated lines dropped
+            any other summarizer: repeated lines dropped
             <small>a line of 32+ characters seen before; the first copy stays</small>
           </div>
           <div class="panel req" style="margin-top: 4px">
@@ -241,15 +253,12 @@
             <div class="box blue" style="margin-bottom: 6px">the chain's rows: read-only, half a pass at most</div>
             <div class="tag green">&lt;transcript&gt;</div>
             <div class="box green">the head, tool calls as labelled lines</div>
-            <p class="note" style="margin: 6px 0 0; font-size: 12.5px">
-              + the words after <code>/compact</code>, the session goal
-            </p>
           </div>
         </div>
       </div>
 
       <div>
-        <h2>5. Summarizer chain, then passes</h2>
+        <h2>5. Summarizer chain, then passes (the flattened head)</h2>
         <div class="chain">
           <div class="box core" id="c1"><code>--model</code><small>of this call</small></div>
           <div class="box core" id="c2"><code>compaction.model</code><small>else the session's model</small></div>

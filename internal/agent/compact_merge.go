@@ -112,7 +112,7 @@ func turnPromptRow(msgs []llm.Message, blocks []int) (at int, prompt, summary st
 // withChainMergeInstructions tells the summarizer the transcript it reads is a
 // run of summaries, and what the one it writes replaces.
 func withChainMergeInstructions(instructions string) string {
-	note := "The transcript is a run of consecutive summaries of one conversation, oldest first; there are no other messages in it. " +
+	note := "What you are summarizing is a run of consecutive summaries of one conversation, oldest first, and nothing else. " +
 		"Write one summary that replaces them all. Keep every detail of them that can still matter: the user's requirements, " +
 		"the decisions and the approaches rejected, exact paths, names, commands and values, and what is still open. " +
 		"Where a later summary corrects an earlier one, keep the later account. " +
@@ -151,11 +151,26 @@ func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, ins
 	if prompt != "" {
 		instructions = withInTurnSummaryInstructions(instructions)
 	}
-	sumWindow, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(sumWindow, session.EstimateContextTokens(instructions))
-	summary, modelID, _, err := a.foldCompactionHead(ctx, chain, "", rows, instructions, budget, progress)
-	if err != nil {
-		return 0, err
+	// The rows being merged are the first messages of the window, so the merge
+	// is the same cached prefix the fold is - and the most expensive call of a
+	// compaction, since the rows it retells are the longest ones in the window.
+	// A merge that rewrote a row first (the turn's prompt taken off it) is not:
+	// what it sends is no longer what the provider cached.
+	modelID, cached := "", false
+	if prompt == "" {
+		summary, modelID, cached = a.cachedFold(ctx, chain, cachedFoldSpec{
+			Window:       session.MessagesForLLM(msgs),
+			Cut:          k,
+			Instructions: instructions,
+			Merge:        true,
+		})
+	}
+	if !cached {
+		var err error
+		summary, modelID, _, err = a.foldFlattened(ctx, chain, nil, rows, instructions, progress)
+		if err != nil {
+			return 0, err
+		}
 	}
 	row := session.NewCompactionSummaryMessage(summary, modelID)
 	if prompt != "" {
