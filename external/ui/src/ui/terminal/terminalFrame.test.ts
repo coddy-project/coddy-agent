@@ -80,6 +80,41 @@ test("a resize dragged past the minimum stops rather than turning inside out", (
   expect(squashed.y + squashed.h).toBe(start.y + start.h);
 });
 
+// A clamp that found the window too wide for the screen used to move the edge
+// the drag was anchored to, which read as the window jumping sideways.
+test("a resize dragged off the screen stops at its edge and holds the anchor", () => {
+  const start = { x: 300, y: 200, w: 400, h: 300 };
+  const west = resizeTerminalFrame(start, "w", -1000, 0, 1280, 800);
+  expect(west.x).toBe(TERMINAL_INSET);
+  expect(west.x + west.w).toBe(start.x + start.w);
+
+  const north = resizeTerminalFrame(start, "n", 0, -1000, 1280, 800);
+  expect(north.y).toBe(TERMINAL_INSET);
+  expect(north.y + north.h).toBe(start.y + start.h);
+
+  const east = resizeTerminalFrame(
+    { x: 600, y: 200, w: 400, h: 300 },
+    "e",
+    400,
+    0,
+    1024,
+    800,
+  );
+  expect(east.x).toBe(600);
+  expect(east.x + east.w).toBe(1024 - TERMINAL_INSET);
+
+  const south = resizeTerminalFrame(
+    { x: 100, y: 400, w: 400, h: 300 },
+    "s",
+    0,
+    400,
+    1024,
+    800,
+  );
+  expect(south.y).toBe(400);
+  expect(south.y + south.h).toBe(800 - TERMINAL_INSET);
+});
+
 test("the frame and the maximized state survive a reload, and bad storage does not", () => {
   writeTerminalFrame({ x: 10, y: 20, w: 500, h: 400 });
   expect(readTerminalFrame()).toEqual({ x: 10, y: 20, w: 500, h: 400 });

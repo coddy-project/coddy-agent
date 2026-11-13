@@ -1,6 +1,7 @@
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -233,4 +234,145 @@ test("a desktop window goes full screen and back, and is still full screen next 
   expect(screen.getByTestId("terminal-panel").className).not.toContain(
     "terminal-panel--maximized",
   );
+});
+
+test("walking the history gives the draft back and never wipes it", async () => {
+  shell(false);
+  openTerminal();
+  const input = await screen.findByRole("textbox", {
+    name: "Terminal command",
+  });
+
+  // With nothing recorded the arrows belong to the field.
+  fireEvent.change(input, { target: { value: "kubectl get pods --watch" } });
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "ArrowUp" });
+  expect((input as HTMLInputElement).value).toBe("kubectl get pods --watch");
+
+  // One command recorded: Up recalls it, Down gives the draft back.
+  fireEvent.change(input, { target: { value: "pwd" } });
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
+  fireEvent.change(input, { target: { value: "half a command" } });
+  fireEvent.keyDown(input, { key: "ArrowUp" });
+  expect((input as HTMLInputElement).value).toBe("pwd");
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect((input as HTMLInputElement).value).toBe("half a command");
+});
+
+test("a command the server refused stays in the field and is not recorded", async () => {
+  shell(false);
+  fetcher.mockImplementation((_i: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      return new Response('{"error":{"message":"a command is one line"}}', {
+        status: 409,
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        object: "coddy.terminal",
+        shell: "/bin/bash",
+        output: "",
+        running: true,
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  });
+  openTerminal();
+  const input = await screen.findByRole("textbox", {
+    name: "Terminal command",
+  });
+
+  fireEvent.change(input, { target: { value: "rm -rf important" } });
+  fireEvent.submit(input.closest("form")!);
+
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  // The command is still where the person can look at it and try again, and a
+  // command that never ran is not in the history Up walks.
+  expect((input as HTMLInputElement).value).toBe("rm -rf important");
+  expect(
+    localStorage.getItem("coddy.terminal.history.sess_terminal"),
+  ).toBeNull();
+});
+
+test("an answer older than the one on screen is dropped", async () => {
+  shell(false);
+  let hold: ((value: Response) => void) | null = null;
+  fetcher.mockImplementation((_i: RequestInfo | URL, init?: RequestInit) => {
+    const body = (output: string) =>
+      new Response(
+        JSON.stringify({
+          object: "coddy.terminal",
+          shell: "/bin/bash",
+          output,
+          running: true,
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    if (init?.method === "POST") return body("the new shell\n");
+    // The first read is held until after the command has answered.
+    if (!hold) return new Promise<Response>((r) => (hold = r));
+    return body("stale\n");
+  });
+  openTerminal();
+  const input = await screen.findByRole("textbox", {
+    name: "Terminal command",
+  });
+  fireEvent.change(input, { target: { value: "pwd" } });
+  fireEvent.submit(input.closest("form")!);
+  expect(await screen.findByText(/the new shell/)).toBeTruthy();
+
+  await act(async () => {
+    hold?.(
+      new Response(
+        JSON.stringify({
+          object: "coddy.terminal",
+          shell: "/bin/bash",
+          output: "stale\n",
+          running: true,
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await Promise.resolve();
+  });
+  expect(screen.queryByText(/stale/)).toBeNull();
+  expect(screen.getByText(/the new shell/)).toBeTruthy();
+});
+
+test("a drag ignores a second pointer and ends when the window is taken away", async () => {
+  shell(false);
+  const view = openTerminal();
+  const panel = await screen.findByTestId("terminal-panel");
+  const left = parseInt(panel.style.left, 10);
+
+  const down = new MouseEvent("pointerdown", {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX: 500,
+    clientY: 400,
+  });
+  Object.defineProperty(down, "pointerId", { value: 1 });
+  fireEvent(screen.getByTestId("terminal-head"), down);
+
+  // Another pointer's move belongs to that pointer, not to this drag.
+  const other = new MouseEvent("pointermove", { clientX: 100, clientY: 100 });
+  Object.defineProperty(other, "pointerId", { value: 99 });
+  fireEvent(window, other);
+  expect(parseInt(panel.style.left, 10)).toBe(left);
+
+  const mine = new MouseEvent("pointermove", { clientX: 450, clientY: 400 });
+  Object.defineProperty(mine, "pointerId", { value: 1 });
+  fireEvent(window, mine);
+  expect(parseInt(panel.style.left, 10)).toBe(left - 50);
+
+  // Unmounting mid-drag leaves nothing listening on the document.
+  view.unmount();
+  expect(() =>
+    fireEvent(
+      window,
+      new MouseEvent("pointermove", { clientX: 10, clientY: 10 }),
+    ),
+  ).not.toThrow();
 });

@@ -1440,9 +1440,10 @@ program that draws a screen (an editor, `top`) has nothing to draw on, and what 
 command prints is shown as text with its colour codes stripped. The last 512 KiB of
 output is kept.
 
-The server stops every shell when its HTTP surface shuts down, and one that nobody has
-read or written for 30 minutes is stopped on its own, so a chat whose terminal was
-opened once does not keep a process for the life of the server.
+A shell that ends stays on screen with the reason it stopped, and the next command you
+run starts a fresh one. The server stops every shell when its HTTP surface shuts down,
+and a sweep of its own stops one that nobody has read or written for 30 minutes, so a
+chat whose terminal was opened once does not keep a process for the life of the server.
 
 ## Canvas
 

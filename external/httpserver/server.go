@@ -175,6 +175,11 @@ type Server struct {
 	// and are stopped when the surface drains.
 	terminalMu sync.Mutex
 	terminals  map[string]*terminalSession
+	// terminalSweep ends the goroutine that stops idle shells; terminalsClosed
+	// is the gate a drain shuts, so a shell a request is starting meanwhile is
+	// stopped by that request instead of outliving the server.
+	terminalSweep   chan struct{}
+	terminalsClosed bool
 	// bgWG counts background goroutines owned by this server (codex auth login
 	// waits, background task snapshots); Drain waits for them.
 	bgWG sync.WaitGroup

@@ -105,6 +105,17 @@ export function TerminalPanel(props: {
   });
   const outputRef = useRef<HTMLPreElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Reads of the shell are not serialised - a poll goes out every 450ms - so
+  // an answer is kept only while it is the newest one asked for. Without this
+  // a slow poll issued before a command or a restart lands after it and puts
+  // the old shell's output back on screen.
+  const askedRef = useRef(0);
+  const shownRef = useRef(0);
+  // The draft a person is typing, kept while the history is walked, so Down
+  // past the newest command gives it back instead of an empty line.
+  const draftRef = useRef("");
+  /** Ends the drag in flight, if there is one. */
+  const endDragRef = useRef<(() => void) | null>(null);
   const scope = workspaceScope(props.sessionId, props.workspacePath);
   const url = `/coddy/sessions/${encodeURIComponent(props.sessionId)}/terminal`;
   // The window floats only where it can be dragged; full screen is one frame
@@ -112,12 +123,20 @@ export function TerminalPanel(props: {
   // is positioned from here.
   const floating = !stacked && !maximized;
 
+  /** Keeps a snapshot only when nothing newer has been shown already. */
+  const show = useCallback((at: number, next: TerminalSnapshot) => {
+    if (at < shownRef.current) return;
+    shownRef.current = at;
+    setSnapshot(next);
+    setError("");
+  }, []);
+
   const refresh = useCallback(async () => {
+    const at = ++askedRef.current;
     const response = await fetch(url, { headers: scope.headers });
     if (!response.ok) throw new Error(await response.text());
-    setSnapshot((await response.json()) as TerminalSnapshot);
-    setError("");
-  }, [url, props.sessionId, props.workspacePath]);
+    show(at, (await response.json()) as TerminalSnapshot);
+  }, [url, props.sessionId, props.workspacePath, show]);
 
   useEffect(() => {
     let live = true;
@@ -145,6 +164,9 @@ export function TerminalPanel(props: {
     if (composerAutoFocusAllowed()) inputRef.current?.focus();
   }, []);
 
+  // A window taken away mid-drag leaves no listeners on the document behind.
+  useEffect(() => () => endDragRef.current?.(), []);
+
   // A window the viewport outgrew comes back inside it rather than off screen.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -159,15 +181,7 @@ export function TerminalPanel(props: {
   const send = async () => {
     const input = command.trimEnd();
     if (!input) return;
-    setCommand("");
-    setHistory((prev) => {
-      const next = [...prev.filter((x) => x !== input), input].slice(
-        -HISTORY_LIMIT,
-      );
-      saveHistory(props.sessionId, next);
-      return next;
-    });
-    setHistoryAt(0);
+    const at = ++askedRef.current;
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -175,8 +189,17 @@ export function TerminalPanel(props: {
         body: JSON.stringify({ input }),
       });
       if (!response.ok) throw new Error(await response.text());
-      setSnapshot((await response.json()) as TerminalSnapshot);
-      setError("");
+      // Only a command the shell took is cleared from the field and recorded,
+      // so a refusal leaves it where the person can run it again.
+      const next = [...history.filter((x) => x !== input), input].slice(
+        -HISTORY_LIMIT,
+      );
+      saveHistory(props.sessionId, next);
+      setHistory(next);
+      setHistoryAt(0);
+      draftRef.current = "";
+      setCommand("");
+      show(at, (await response.json()) as TerminalSnapshot);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -185,18 +208,31 @@ export function TerminalPanel(props: {
   };
 
   const restart = async () => {
-    await fetch(url, { method: "DELETE", headers: scope.headers });
-    setSnapshot(null);
-    setError("");
-    await refresh();
-    inputRef.current?.focus();
+    try {
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: scope.headers,
+      });
+      if (!response.ok) throw new Error(await response.text());
+      // Nothing of the old shell may come back: an answer asked for before the
+      // restart is older than this one.
+      shownRef.current = ++askedRef.current;
+      setSnapshot(null);
+      setError("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      inputRef.current?.focus();
+    }
   };
 
-  const toggleMaximized = () => {
-    setMaximized((prev) => {
-      writeTerminalMaximized(!prev);
-      return !prev;
-    });
+  const toggleMaximized = (event?: { target: EventTarget | null }) => {
+    // A double click on Restart or Close is that button's, not the window's.
+    if (event && (event.target as HTMLElement)?.closest?.("button")) return;
+    const next = !maximized;
+    writeTerminalMaximized(next);
+    setMaximized(next);
   };
 
   /** Follows the pointer until it is released, then keeps where it ended. */
@@ -208,23 +244,42 @@ export function TerminalPanel(props: {
     // browser has no PointerEvent at all; only a secondary one cancels.
     if (!floating || event.button > 0) return;
     event.preventDefault();
+    endDragRef.current?.();
     const startX = event.clientX;
     const startY = event.clientY;
+    // One drag belongs to one pointer: a second finger on a touchscreen must
+    // not move the window the first one is holding.
+    const pointer = event.pointerId;
+    const mine = (e: PointerEvent) =>
+      pointer === undefined ||
+      e.pointerId === undefined ||
+      e.pointerId === pointer;
     let last = frame;
     const move = (e: PointerEvent) => {
+      if (!mine(e)) return;
       const { vw, vh } = viewport();
       last = step(e.clientX - startX, e.clientY - startY, vw, vh);
       setFrame(last);
     };
-    const up = () => {
+    const up = (e?: PointerEvent) => {
+      if (e && !mine(e)) return;
+      endDragRef.current?.();
+    };
+    // blur covers a button released outside the browser, which delivers no
+    // pointerup at all and used to leave the window following the pointer.
+    const end = () => {
+      endDragRef.current = null;
       writeTerminalFrame(last);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", end);
     };
+    endDragRef.current = end;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+    window.addEventListener("blur", end);
   };
 
   const beginMove = (event: React.PointerEvent<HTMLElement>) => {
@@ -270,8 +325,8 @@ export function TerminalPanel(props: {
               key={edge}
               className={`terminal-grip terminal-grip--${edge}`}
               data-testid={`terminal-grip-${edge}`}
-              role="separator"
-              aria-label={t("terminal.resize")}
+              title={t("terminal.resize")}
+              aria-hidden
               onPointerDown={beginResize(edge)}
             />
           ))
@@ -280,7 +335,7 @@ export function TerminalPanel(props: {
         className="terminal-head"
         data-testid="terminal-head"
         onPointerDown={floating ? beginMove : undefined}
-        onDoubleClick={stacked ? undefined : toggleMaximized}
+        onDoubleClick={stacked ? undefined : (e) => toggleMaximized(e)}
       >
         <div className="terminal-title-row">
           <span
@@ -304,7 +359,7 @@ export function TerminalPanel(props: {
                 maximized ? t("terminal.restore") : t("terminal.maximize")
               }
               aria-pressed={maximized}
-              onClick={toggleMaximized}
+              onClick={() => toggleMaximized()}
             >
               {maximized ? <RestoreIcon /> : <MaximizeIcon />}
             </button>
@@ -345,18 +400,28 @@ export function TerminalPanel(props: {
           autoComplete="off"
           onChange={(e) => {
             setCommand(e.target.value);
+            if (historyAt === 0) draftRef.current = e.target.value;
             setHistoryAt(0);
           }}
           onKeyDown={(e) => {
             if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            // With nothing to recall the key belongs to the field, where it
+            // moves the caret; taking it would wipe what is being typed.
+            if (history.length === 0) return;
             e.preventDefault();
             const delta = e.key === "ArrowUp" ? 1 : -1;
             const next = Math.min(
               history.length,
               Math.max(0, historyAt + delta),
             );
+            if (next === historyAt) return;
+            if (historyAt === 0) draftRef.current = command;
             setHistoryAt(next);
-            setCommand(next === 0 ? "" : history[history.length - next] || "");
+            setCommand(
+              next === 0
+                ? draftRef.current
+                : history[history.length - next] || "",
+            );
           }}
         />
       </form>

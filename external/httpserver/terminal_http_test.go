@@ -160,6 +160,20 @@ func TestTerminalRefusesACommandOfSeveralLines(t *testing.T) {
 	}
 }
 
+// The sweeper reaps with no chat to spare, which is the case the request path
+// never reaches: one terminal opened once and closed sends nothing further.
+func TestTheSweeperReapsTheLastIdleShellToo(t *testing.T) {
+	srv := &Server{terminals: map[string]*terminalSession{}}
+	only := &terminalSession{seen: time.Now().Add(-terminalIdleLimit - time.Minute)}
+	srv.terminals["only"] = only
+	srv.terminalMu.Lock()
+	reaped := srv.reapIdleTerminalsLocked("")
+	srv.terminalMu.Unlock()
+	if len(reaped) != 1 || len(srv.terminals) != 0 {
+		t.Fatalf("the only idle shell survived: reaped %d, left %d", len(reaped), len(srv.terminals))
+	}
+}
+
 // Nothing else ever ends a shell: the window may be closed and opened again
 // without losing it, so a chat left open months ago must not keep a process.
 func TestTerminalsIdleTooLongAreStoppedWhenTheNextOneStarts(t *testing.T) {
@@ -198,6 +212,155 @@ func TestTheTerminalBeingAskedForIsNeverReaped(t *testing.T) {
 		t.Fatal("the terminal of the request was reaped")
 	}
 }
+
+// A shell that ended must not wedge the chat: the next command starts a fresh
+// one, while a read leaves the dead shell alone so its last words stay up.
+func TestACommandStartsAFreshShellWhenTheOldOneEnded(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, nil)
+	created, err := mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, mgr, slog.Default(), root)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Drain()
+	})
+	endpoint := ts.URL + "/coddy/sessions/" + created.SessionID + "/terminal"
+
+	first, err := srv.terminalFor(created.SessionID, root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.stop()
+	// A read keeps the shell that ended, so the person can still see why.
+	res, err := http.Get(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap terminalSnapshot
+	_ = json.NewDecoder(res.Body).Decode(&snap)
+	_ = res.Body.Close()
+	if snap.Running {
+		t.Fatal("a stopped shell is reported as running")
+	}
+	srv.terminalMu.Lock()
+	kept := srv.terminals[created.SessionID] == first
+	srv.terminalMu.Unlock()
+	if !kept {
+		t.Fatal("a read replaced the shell that ended")
+	}
+
+	postTerminalInput(t, endpoint, "echo fresh")
+	srv.terminalMu.Lock()
+	replaced := srv.terminals[created.SessionID]
+	srv.terminalMu.Unlock()
+	if replaced == first {
+		t.Fatal("a command was written to the shell that had ended")
+	}
+	if !replaced.alive() {
+		t.Fatal("the fresh shell is not running")
+	}
+}
+
+// Every other route of this server answers a bad body with the same envelope.
+func TestTerminalRefusesAMalformedBodyAsJSON(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, nil)
+	created, err := mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, mgr, slog.Default(), root)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Drain()
+	})
+	res, err := http.Post(
+		ts.URL+"/coddy/sessions/"+created.SessionID+"/terminal",
+		"application/json", strings.NewReader("{not json"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d", res.StatusCode)
+	}
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &envelope); err != nil {
+		t.Fatalf("body is not the error envelope: %s", body)
+	}
+	if envelope.Error.Message == "" {
+		t.Fatalf("the envelope carries no message: %s", body)
+	}
+}
+
+// A shell started while the surface drains belongs to nobody, so the request
+// that started it stops it instead of leaving it behind.
+func TestAShellStartedWhileDrainingIsNotLeftBehind(t *testing.T) {
+	srv := &Server{terminals: map[string]*terminalSession{}}
+	srv.closeTerminals()
+	if _, err := srv.terminalFor("sess", t.TempDir(), false); err == nil {
+		t.Fatal("a terminal was started after the drain")
+	}
+	srv.terminalMu.Lock()
+	left := len(srv.terminals)
+	srv.terminalMu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d terminal(s) were left in the map after the drain", left)
+	}
+}
+
+// The echo is the record of a command the shell received: a write that failed
+// must not leave one behind.
+func TestAFailedWriteLeavesNoEchoBehind(t *testing.T) {
+	term := &terminalSession{running: true, stdin: failingWriteCloser{}, seen: time.Now()}
+	if err := term.write("echo one"); err == nil {
+		t.Fatal("a failing write was reported as a success")
+	}
+	if out := term.snapshot().Output; strings.Contains(out, "echo one") {
+		t.Fatalf("the output holds a command the shell never got: %q", out)
+	}
+}
+
+// A sequence held back for bytes that never came is still the person's text.
+func TestTheHeldBackEndOfAStreamIsFlushed(t *testing.T) {
+	term := &terminalSession{running: true, seen: time.Now()}
+	w := &terminalWriter{term: term}
+	// "Done " then one byte that opens a UTF-8 sequence and is never completed.
+	if _, err := w.Write(append([]byte("Done "), 0xE0)); err != nil {
+		t.Fatal(err)
+	}
+	if out := term.snapshot().Output; out != "Done " {
+		t.Fatalf("the incomplete sequence was shown at once: %q", out)
+	}
+	w.flush()
+	if out := term.snapshot().Output; len([]rune(out)) < 6 {
+		t.Fatalf("the held back byte never reached the output: %q", out)
+	}
+}
+
+type failingWriteCloser struct{}
+
+func (failingWriteCloser) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func (failingWriteCloser) Close() error              { return nil }
 
 type nopWriteCloser struct{ io.Writer }
 

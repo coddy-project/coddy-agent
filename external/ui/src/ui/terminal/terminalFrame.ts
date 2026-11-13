@@ -109,17 +109,37 @@ export function resizeTerminalFrame(
   vw: number,
   vh: number,
 ): TerminalFrame {
+  // The dragged edge is held inside the viewport here rather than by the clamp
+  // below: a clamp that found the window too wide would move the edge the drag
+  // is anchored to, so a west grip pulled off the screen pushed the right edge
+  // across it.
   let { x, y, w, h } = start;
-  if (edge.includes("e")) w = start.w + dx;
-  if (edge.includes("s")) h = start.h + dy;
+  if (edge.includes("e")) {
+    w = Math.min(
+      start.w + dx,
+      Math.max(TERMINAL_MIN_WIDTH, vw - TERMINAL_INSET - start.x),
+    );
+  }
+  if (edge.includes("s")) {
+    h = Math.min(
+      start.h + dy,
+      Math.max(TERMINAL_MIN_HEIGHT, vh - TERMINAL_INSET - start.y),
+    );
+  }
   if (edge.includes("w")) {
     const right = start.x + start.w;
-    x = Math.min(start.x + dx, right - TERMINAL_MIN_WIDTH);
+    x = Math.min(
+      Math.max(start.x + dx, Math.min(TERMINAL_INSET, start.x)),
+      right - TERMINAL_MIN_WIDTH,
+    );
     w = right - x;
   }
   if (edge.includes("n")) {
     const bottom = start.y + start.h;
-    y = Math.min(start.y + dy, bottom - TERMINAL_MIN_HEIGHT);
+    y = Math.min(
+      Math.max(start.y + dy, Math.min(TERMINAL_INSET, start.y)),
+      bottom - TERMINAL_MIN_HEIGHT,
+    );
     h = bottom - y;
   }
   return clampTerminalFrame({ x, y, w, h }, vw, vh);
