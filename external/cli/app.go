@@ -1655,22 +1655,20 @@ func (a *App) refreshServerCommands(cmds []acp.AvailableCommand) {
 	a.slashServer = items
 }
 
+// pasteTarget is a modal that takes a pasted body. Implementing it is how a
+// modal with a text field opts in: one that does not drops the paste, so a
+// paste never leaks into the editor hidden behind the modal.
+type pasteTarget interface{ InsertPaste(string) }
+
 // handlePaste routes bracketed-paste bodies: the editor when no modal is
-// open, or the question, docs, or value-prompt modal. Other modals drop
-// pastes so they never leak into a hidden editor.
+// open, the modal itself when it takes text, and nowhere otherwise.
 func (a *App) handlePaste(body []byte) {
 	if a.modal == nil {
 		a.editor.InsertPaste(string(body))
 		return
 	}
-	if qm, ok := a.modal.(*questionModal); ok {
-		qm.InsertPaste(string(body))
-	}
-	if dm, ok := a.modal.(*docsModal); ok {
-		dm.InsertPaste(string(body))
-	}
-	if vm, ok := a.modal.(*valuePromptModal); ok {
-		vm.InsertPaste(string(body))
+	if target, ok := a.modal.(pasteTarget); ok {
+		target.InsertPaste(string(body))
 	}
 }
 
