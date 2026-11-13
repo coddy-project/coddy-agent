@@ -61,7 +61,7 @@ Feature: Each provider reaches its server the way its own proxy setting says
   Scenario Outline: Every request of an openai provider follows the provider's setting
     Given the environment names a proxy for every request
     And a "openai" provider "oai" <setting>
-    When "oai" is asked for a completion and its model list
+    When "oai" is asked for a completion, its model list and its account usage
     Then every answer comes back
     And the environment's proxy carried <through the environment> requests
     And the own proxy of "oai" carried <through its own proxy> requests
@@ -69,10 +69,10 @@ Feature: Each provider reaches its server the way its own proxy setting says
 
     Examples:
       | setting                 | through the environment | through its own proxy | directly |
-      | without a proxy setting | 2                       | 0                     | 0        |
-      | with proxy "inherit"    | 2                       | 0                     | 0        |
-      | with proxy "none"       | 0                       | 0                     | 2        |
-      | with a proxy of its own | 0                       | 2                     | 0        |
+      | without a proxy setting | 3                       | 0                     | 0        |
+      | with proxy "inherit"    | 3                       | 0                     | 0        |
+      | with proxy "none"       | 0                       | 0                     | 3        |
+      | with a proxy of its own | 0                       | 3                     | 0        |
 
   Scenario Outline: Every request of an anthropic provider follows the provider's setting
     Given the environment names a proxy for every request
@@ -137,3 +137,35 @@ Feature: Each provider reaches its server the way its own proxy setting says
     And the own proxy of "local" carried 0 requests
     And the environment's proxy carried 0 requests
     And the provider's servers were reached directly 1 time
+
+  Scenario Outline: Kimi subscription requests follow the provider proxy
+    Given the environment names a proxy for every request
+    And a "kimi" provider "kimi" <setting>
+    When "kimi" signs in, refreshes, lists subscription models, reads usage and chats with all three streams
+    Then every answer comes back
+    And the environment's proxy carried <environment> requests
+    And the own proxy of "kimi" carried <own> requests
+    And the provider's servers were reached directly <direct> times
+
+    Examples:
+      | setting                 | environment | own | direct |
+      | without a proxy setting | 9           | 0   | 0      |
+      | with proxy "inherit"    | 9           | 0   | 0      |
+      | with proxy "none"       | 0           | 0   | 9      |
+      | with a proxy of its own | 0           | 9   | 0      |
+
+  Scenario Outline: Kimi Platform discovery and inference follow the provider proxy
+    Given the environment names a proxy for every request
+    And a "kimi" provider "platform" <setting>
+    When "platform" lists Platform models and chats
+    Then every answer comes back
+    And the environment's proxy carried <environment> requests
+    And the own proxy of "platform" carried <own> requests
+    And the provider's servers were reached directly <direct> times
+
+    Examples:
+      | setting                 | environment | own | direct |
+      | without a proxy setting | 2           | 0   | 0      |
+      | with proxy "inherit"    | 2           | 0   | 0      |
+      | with proxy "none"       | 0           | 0   | 2      |
+      | with a proxy of its own | 0           | 2   | 0      |

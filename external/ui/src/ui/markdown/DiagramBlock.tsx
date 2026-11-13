@@ -13,6 +13,7 @@ import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { readAppliedUiTheme, subscribeAppliedUiTheme } from "../theme/uiTheme";
 import {
   cachedPicture,
+  mermaidMayFetch,
   renderPicture,
   svgDataUrl,
   type PictureKind,
@@ -35,6 +36,13 @@ const SERVER_SNAPSHOT = () => "dark" as const;
  * only then names a diagram that still does not parse.
  */
 export const MarkdownStreamingContext = createContext(false);
+
+/** Whether Markdown may fetch a picture or a video from another site as it
+ *  renders: "click" waits for the reader, "load" fetches at once. */
+export type RemoteMedia = "click" | "load";
+
+/** What the Markdown around a block does with what comes from other sites. */
+export const RemoteMediaContext = createContext<RemoteMedia>("click");
 
 type FigureError = { kind: "render" | "load"; message: string };
 
@@ -170,6 +178,15 @@ export function DiagramBlock(props: {
   const [zoomed, setZoomed] = useState(false);
   const drawnOnce = useRef(false);
   const streaming = useContext(MarkdownStreamingContext);
+  const remoteMedia = useContext(RemoteMediaContext);
+  // A click draws this text, not whatever it grows into.
+  const [drawnOnClick, setDrawnOnClick] = useState<string | null>(null);
+  const held =
+    kind === "mermaid" &&
+    remoteMedia === "click" &&
+    drawnOnClick !== source &&
+    mermaidMayFetch(source) &&
+    !cachedPicture(kind, source, theme);
 
   useEffect(() => {
     let live = true;
@@ -177,6 +194,11 @@ export function DiagramBlock(props: {
     if (hit) {
       drawnOnce.current = true;
       setPicture(hit);
+      setError(null);
+      return;
+    }
+    if (held) {
+      setPicture(null);
       setError(null);
       return;
     }
@@ -204,7 +226,7 @@ export function DiagramBlock(props: {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [kind, source, theme, streaming]);
+  }, [kind, source, theme, streaming, held]);
 
   const pictureUnavailable = error !== null;
   const showing = pictureUnavailable ? "code" : view;
@@ -222,7 +244,7 @@ export function DiagramBlock(props: {
     >
       <div className="md-figure-head">
         <span className="md-figure-label">{label}</span>
-        {!picture && !error ? (
+        {!picture && !error && !held ? (
           <span className="md-figure-status" data-testid="md-figure-pending">
             {t("markdown.figure.rendering")}
           </span>
@@ -265,6 +287,21 @@ export function DiagramBlock(props: {
             ? t("markdown.figure.loadError")
             : t("markdown.figure.error", { message: error.message })}
         </p>
+      ) : null}
+      {held ? (
+        <button
+          type="button"
+          className="md-remote-media"
+          data-testid="md-figure-draw"
+          onClick={() => setDrawnOnClick(source)}
+        >
+          <span className="md-remote-media-alt">
+            {t("markdown.figure.draw")}
+          </span>
+          <span className="md-remote-media-action">
+            {t("markdown.figure.drawHint")}
+          </span>
+        </button>
       ) : null}
       {showing === "picture" && picture ? (
         <button

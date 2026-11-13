@@ -92,10 +92,6 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 
 ## Current todo checklist
 - [ ] ...
-
-## Long-term memory
-Already on disk:
-- ...
 </turn_context>
 ```
 
@@ -106,12 +102,6 @@ Already on disk:
 - **чек-лист задач** (markdown из **`internal/tools/todo.FormatPlanMarkdown`** по
   **`session.Plan`**), если он есть у сессии, чтобы вызов **`coddy_todo_*`** в этом ходе
   отразился уже на следующем шаге;
-- **отчёт субагента памяти** за этот ход, если включена долговременная память
-  ([memory.md](../features/memory.md)). Найденное в памяти меняется от хода к ходу, поэтому, если
-  рендерить его в системное сообщение, **`messages[0]`** становился бы новым на каждом ходе, и каждый
-  раз пропадал бы закэшированный диалог. Отчёт попадает в блок на первом запросе, если запуск
-  завершился в пределах **`memory.wait_seconds`**, иначе на одном из следующих шагов, и остаётся до
-  конца хода; слот **`{{.Memory}}`** в шаблонах содержит только заметки сессии;
 - **фоновые задачи, которые ещё выполняются** в этой сессии, по строке на задачу в формулировке
   **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
   чтобы модель без лишнего вызова знала, что оставила работать. Завершённые и системные задачи в
@@ -140,8 +130,8 @@ Already on disk:
 
 **`UTCNow`** и **`TodoList`** остаются доступны шаблону из **`prompts.dir`**, и он по-прежнему может
 их рендерить ценой этого кэша на каждом запросе. Такой шаблон не получает часов и чек-листа после
-истории; его блок несёт два раздела, которые не печатает ни один шаблон, то есть отчёт памяти и
-выполняющиеся фоновые задачи, и не добавляется, если нет ни того, ни другого.
+истории; его блок несёт один раздел, который не печатает ни один шаблон, то есть выполняющиеся
+фоновые задачи, и не добавляется, если его нет.
 
 ### Вторая половина - вытеснение результатов
 
@@ -254,7 +244,7 @@ messages: [
      e. Append tool result to conversation history
 
 5. REFRESH_TURN_CONTEXT
-   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
    - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
    - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace, and a turn resumed after a permission prompt renders it again on entry; no other step of the turn does
    - Next loop iteration repeats from step 2
@@ -298,11 +288,12 @@ messages: [
      status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
-     failure after output was emitted stay final. A Codex `response.failed`
-     event is read as an untyped error: its `code` (`server_is_overloaded`
-     included) only joins the text of the message and is not classified, so
-     it is retried only when its message names a status that way
-     (`503 Service Unavailable`) and is final otherwise.
+     failure after output was emitted stay final. The Responses API's own
+     failure events, `response.failed` (its error object rides on the
+     response) and the flat `error` event (its `code` is a field of the
+     event), are read by the same fields, so an overload there counts as a
+     503 as well; any other failure they report is an untyped error, named by
+     its `code` in front of its message and read by that text as above.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -455,7 +446,13 @@ messages: [
    (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
    `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
    `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
-   `retries_remaining` (budget slots left after this call).
+   `retries_remaining` (budget slots left after this call). Записи о завершении и расходе токенов
+   также содержат `session` и возрастающий в пределах процесса `call_id`.
+   При включённом debug для компонента агента `request_latency.go` записывает
+   связанные тайминги локальной работы, HTTP и запуска инструмента без
+   содержимого запроса. Границы этапов и ограниченное синтетическое сравнение
+   описаны в разделе
+   [Длинная сессия начинает работать медленнее](../getting-started/troubleshooting.md#a-long-session-becomes-slower).
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
@@ -504,7 +501,7 @@ messages: [
 
 ### Режим "Чат"
 
-Встроенный **`ask.md`** описывает ассистента только для чтения, который отвечает по репозиторию и вебу и ничего не меняет. Разрешённый список реестра (**`internal/agent.ToolSetForMode("ask")`**) - это **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** и **`coddy_docs_read`**; в нём нет ни оболочки, ни инструментов плана, задач или конфигурации, ни **`spawn_agent`**, а инструменты **MCP** никогда не добавляются. Как и в режиме "План", разрешённый список проверяется и при выполнении, поэтому вызов, повторённый из истории, отклоняется с уведомлением о режиме только для чтения; режим "Чат" отклоняет там и имена инструментов MCP, а режим "План" передаёт их слою MCP. Упоминание плана или метаданные **`runPlanSlug`** в режиме "Чат" никогда не запускают выполнение плана, а субагент памяти только читает из памяти. Дочерний субагент никогда не работает в режиме "Чат", если только ход его родителя уже не шёл в этом режиме, а из него порождать субагентов нельзя.
+Встроенный **`ask.md`** описывает ассистента только для чтения, который отвечает по репозиторию и вебу и ничего не меняет. Разрешённый список реестра (**`internal/agent.ToolSetForMode("ask")`**) - это **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** и **`coddy_docs_read`**; в нём нет ни оболочки, ни инструментов плана, задач или конфигурации, ни **`spawn_agent`**, а инструменты **MCP** никогда не добавляются. Как и в режиме "План", разрешённый список проверяется и при выполнении, поэтому вызов, повторённый из истории, отклоняется с уведомлением о режиме только для чтения; режим "Чат" отклоняет там и имена инструментов MCP, а режим "План" передаёт их слою MCP. Упоминание плана или метаданные **`runPlanSlug`** в режиме "Чат" никогда не запускают выполнение плана. Дочерний субагент никогда не работает в режиме "Чат", если только ход его родителя уже не шёл в этом режиме, а из него порождать субагентов нельзя; субагент памяти, порождённый, пока сессия работает только на чтение, строится только на вспоминание, с тремя инструментами только для чтения из шести (**`memory.ToolNames(true)`**, [memory.md](../features/memory.md)).
 
 ## Спецификация встроенных инструментов
 
@@ -543,4 +540,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=219e6637b45aeca2 -->
+<!-- docsgen:source sha256=8addf0199dea7d5b -->

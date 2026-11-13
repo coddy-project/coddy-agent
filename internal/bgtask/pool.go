@@ -575,6 +575,11 @@ func (p *Pool) Get(sessionID, taskID string) (Snapshot, error) {
 // row gets a new AgentInfo rather than an edited one, so a snapshot already handed
 // out never changes under its reader. It reports whether the task was found.
 func (p *Pool) SetAgentUsage(sessionID, taskID string, inputTokens, outputTokens int) bool {
+	return p.SetAgentUsageStatus(sessionID, taskID, inputTokens, outputTokens, false)
+}
+
+// SetAgentUsageStatus keeps an incomplete usage marker once any call lacked counters.
+func (p *Pool) SetAgentUsageStatus(sessionID, taskID string, inputTokens, outputTokens int, incomplete bool) bool {
 	t, err := p.lookup(sessionID, taskID)
 	if err != nil {
 		return false
@@ -586,6 +591,7 @@ func (p *Pool) SetAgentUsage(sessionID, taskID string, inputTokens, outputTokens
 	}
 	next := *t.snap.Agent
 	next.InputTokens, next.OutputTokens = max(0, inputTokens), max(0, outputTokens)
+	next.UsageIncomplete = next.UsageIncomplete || incomplete
 	t.snap.Agent = &next
 	return true
 }

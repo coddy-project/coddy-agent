@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
@@ -46,18 +47,47 @@ type Source struct {
 	// path otherwise.
 	Display string
 	Scope   Scope
-	// Digest is sha256 over the file bytes; a receipt is bound to it.
+	// Digest is sha256 over the file bytes and, for a project file whose
+	// commands name files of the workspace, their content (script_digest.go); a
+	// receipt is bound to it.
 	Digest string
 	// Definition is the parsed content; nil when Err is set.
 	Definition *Definition
 	// Err is the parse or read error of an invalid file.
 	Err   error
 	Trust TrustState
+
+	// data and cwd are what the digest was made from, kept for a source that
+	// runs on a receipt: its scripts are read again before each run.
+	data []byte
+	cwd  string
+	// withdrawn is set once a script of an approved source changed: it stays
+	// off for the life of this load.
+	withdrawn atomic.Bool
 }
 
 // Runnable reports whether the source's hooks may run at all.
 func (s *Source) Runnable() bool {
-	return s != nil && s.Err == nil && s.Definition != nil && s.Trust == TrustTrusted
+	return s != nil && s.Err == nil && s.Definition != nil && s.Trust == TrustTrusted && !s.withdrawn.Load()
+}
+
+// stillApproved reports whether a source that runs on a receipt still is what
+// the receipt names. The definitions are read once per turn, and a model can
+// rewrite a script a hook runs during that turn; the new content must not run
+// under the old approval. A source trusted by policy, or by being the
+// operator's own, carries no data and is not bound.
+func (s *Source) stillApproved() bool {
+	if s.withdrawn.Load() {
+		return false
+	}
+	if s.data == nil {
+		return true
+	}
+	if digestWithScripts(s.data, s.Definition, s.cwd) == s.Digest {
+		return true
+	}
+	s.withdrawn.Store(true)
+	return false
 }
 
 // Loader resolves hooks.files for one session.
@@ -136,18 +166,22 @@ func (l *Loader) Load(cwd, home string) []*Source {
 			for _, w := range def.Warnings {
 				log.Warn("hooks file warning", "path", path, "warning", w)
 			}
+			if scope == ScopeProject {
+				src.Digest = digestWithScripts(data, def, cwd)
+			}
 		}
-		src.Trust = l.trustFor(src, workspace, policy)
+		src.Trust = l.trustFor(src, data, cwd, workspace, policy)
 		out = append(out, src)
 	}
 	return out
 }
 
-func (l *Loader) trustFor(src *Source, workspace, policy string) TrustState {
+func (l *Loader) trustFor(src *Source, data []byte, cwd, workspace, policy string) TrustState {
 	if src.Scope != ScopeProject || policy == config.ProjectTrustAllow {
 		return TrustTrusted
 	}
 	if l.Approved != nil && src.Err == nil && l.Approved(workspace, src.Display, src.Digest) {
+		src.data, src.cwd = data, cwd
 		return TrustTrusted
 	}
 	return TrustNeedsApproval

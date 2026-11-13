@@ -157,10 +157,14 @@ func Check(cli CLIPaths) (*CheckReport, error) {
 	data, err := os.ReadFile(paths.ConfigPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			fix := "create it (config.example.yaml in the repository documents every key), or name another file with --config PATH or another home with --home DIR"
+			if path := unreadWorkspaceConfig(paths); path != "" {
+				fix = "a config.yaml in the working directory is not read, since it may have come with a checkout: name it with --config " + path + " or move it to " + paths.ConfigPath
+			}
 			rep.Findings = append(rep.Findings, Finding{
 				Severity: SeverityError,
 				Message:  "config file not found",
-				Fix:      "create it (config.example.yaml in the repository documents every key), or name another file with --config PATH or another home with --home DIR",
+				Fix:      fix,
 			})
 			return rep, nil
 		}

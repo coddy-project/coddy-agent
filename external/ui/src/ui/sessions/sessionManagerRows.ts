@@ -9,7 +9,7 @@ export type SessionManagerRow = SessionRow & {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
-  };
+  } | null;
 };
 
 /** Adds or removes one id, leaving the original set untouched. */

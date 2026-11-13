@@ -19,10 +19,12 @@ import (
 // the SDK errors of the other providers: a 429 or a 5xx is retried, its
 // Retry-After is the pause, and UpstreamStatus names the status.
 type httpStatusError struct {
-	label  string
-	status int
-	header http.Header
-	body   string
+	label      string
+	status     int
+	header     http.Header
+	body       string
+	diagnostic string
+	retryAfter time.Duration
 }
 
 func (e *httpStatusError) Error() string {
@@ -107,7 +109,7 @@ func IsTransientProviderError(err error) bool {
 	}
 	// The same request asks the same thing again, whatever status carried the
 	// refusal.
-	if IsContextOverflow(err) {
+	if IsContextOverflow(err) || IsClientToolLimit(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	var reset *QuotaResetError

@@ -8,7 +8,7 @@ import (
 )
 
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
-// HTTPServer is omitted; listen bind is controlled via CLI, not this form.
+// The HTTP section exposes account settings, not listener or bearer controls.
 func UISchemaJSON() ([]byte, error) {
 	return UISchemaJSONHiding()
 }
@@ -280,10 +280,20 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "acp"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "opencode", "codex", "devin", "kimi", "acp"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
-		"api_key":  providerAPIKey,
+		"mode":          map[string]interface{}{"type": "string", "title": "Kimi mode", "description": "Kimi credential mode; empty selects subscription.", "enum": []string{"", "subscription", "platform"}},
+		"kimi_identity": strProp("Kimi identity", "Stable random identity of this Kimi provider row."),
+		"region":        map[string]interface{}{"type": "string", "title": "Kimi region", "description": "Kimi region; empty selects global.", "enum": []string{"", "global", "china"}},
+		"api_base":      strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); for opencode it picks the gateway (the Go subscription or pay-as-you-go Console); ignored by codex and devin, which use their official endpoints, and by acp, whose agent runs on this machine."),
+		"user_agent": map[string]interface{}{
+			"type":        "string",
+			"title":       "User-Agent",
+			"description": "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
+			"enum":        []string{"", "openai", "anthropic", "coddy"},
+			"default":     "",
+		},
+		"api_key": providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead."),
 		// The settings screen renders this field as the "Ignore system proxy"
@@ -296,12 +306,18 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+			"Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
 			true),
 		"acp": acpProviderSchema(),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
+		"kimi_metadata": objectSchema("Kimi catalog metadata", "Protocol and provider settings captured from the model catalog.", map[string]interface{}{
+			"model":    strProp("Model reference", "Full provider/model reference."),
+			"protocol": strProp("Protocol", "Protocol reported by the catalog."),
+			"mode":     strProp("Mode", "Provider mode used to list the model."),
+			"region":   strProp("Region", "Provider region used to list the model."),
+		}, []string{"model", "protocol", "mode", "region"}, nil),
 		"max_tokens": intProp("Max tokens",
 			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
@@ -472,7 +488,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "acp", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "mode", "region", "kimi_identity", "acp", "api_base", "user_agent", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -480,7 +496,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
+				[]string{"model", "kimi_metadata", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
 				[]string{"model"}),
 		},
 		"toolsets": map[string]interface{}{
@@ -529,6 +545,8 @@ func UISchemaMap() map[string]interface{} {
 					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
 				"loop_nudge_max": intProp("Loop nudge max",
 					"How many times one turn may be nudged back on track before the loop guard stops it."),
+				"prompt_suggestions": boolPropDefault("Prompt suggestions",
+					"Suggest the next prompt in the empty composer after a turn. Uses an extra model call; Tab or Right accepts the suggestion. Turn off to stop generating suggestions.", true),
 				"wait_for_limit_reset": boolProp("Wait for limit reset",
 					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
 				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
@@ -537,7 +555,7 @@ func UISchemaMap() map[string]interface{} {
 			[]string{
 				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
-				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+				"prompt_suggestions", "wait_for_limit_reset", "wait_for_limit_reset_max_ms",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
@@ -610,8 +628,14 @@ func UISchemaMap() map[string]interface{} {
 							"description": "Further hosts a frame may load from and connect to: https://host or https://*.host. A page on the canvas can send what it reads to any of them.",
 							"items":       map[string]interface{}{"type": "string"},
 						},
+						"project_trust": map[string]interface{}{
+							"type":        "string",
+							"title":       "Pages of a checkout's board",
+							"description": "A .canvas file travels with the checkout, and its pages read every file under their root. \"ask\": run the pages Coddy put on a board and hold the rest until the person trusts the board. \"allow\": run every page. \"deny\": run only the pages Coddy put.",
+							"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+						},
 					},
-					[]string{"enable", "allow_cdn", "allowed_sources"},
+					[]string{"enable", "allow_cdn", "allowed_sources", "project_trust"},
 					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
@@ -637,8 +661,13 @@ func UISchemaMap() map[string]interface{} {
 							"title":       "Brave Search API key",
 							"description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.coddy/.env.",
 						},
+						"deepseek_api_key": map[string]interface{}{
+							"type":        "string",
+							"title":       "DeepSeek Search API key",
+							"description": "The deepseek engine asks DeepSeek's Search API, which has no public page to scrape, so this key is required for the engine to work. Leave empty to read DEEPSEEK_API_KEY from the environment or ~/.coddy/.env.",
+						},
 					},
-					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key"},
+					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key", "deepseek_api_key"},
 					nil),
 				"http_request": objectSchema("HTTP requests",
 					"Policy of the http_request tool, the agent's curl: where it goes without asking and the headers every request sends. Under ask and accept_edits a request asks unless its destination is allowed here or was approved in the session; bypass never asks.",
@@ -742,7 +771,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"memory": objectSchema("Memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
+				"enable": boolProp("Enabled", "Expose the bundled memory subagent to the model through spawn_agent (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
 				"fallback_models": map[string]interface{}{
 					"type":        "array",
@@ -751,9 +780,6 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Models the memory subagent tries in order when the one before them fails before answering. The session's own model is the last resort whether or not it is listed.",
 				},
 				"dir":                         strProp("Memory root", "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory."),
-				"wait_seconds":                intProp("Wait for the report (seconds)", "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20)."),
-				"timeout_seconds":             intProp("Run timeout (seconds)", "Hard limit of one memory run, capped by tools.background.max_timeout_seconds (default 300)."),
-				"keep_runs":                   intProp("Runs kept per session", "Finished memory runs kept in the Tasks panel per session, task record and child transcript alike; 0 keeps all (default 20)."),
 				"recall_max_turns":            intProp("Recall max turns", "Bounds the memory subagent's rounds together with persist_max_turns; the cap is the larger of the two."),
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
@@ -762,7 +788,7 @@ func UISchemaMap() map[string]interface{} {
 				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
+			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
 		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in every mode, bypass included, and rejected where nobody can answer.",
 			map[string]interface{}{
@@ -873,7 +899,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"enable":       boolProp("Enabled", "Offer the browser tool to the chats, and accept the extension when a key is set."),
 				"token":        secretProp("Extension key", "At least 32 characters, entered in the extension. Write-only: leave empty to keep the current key.", "token_configured"),
-				"serve_remote": boolProp("Serve to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
+				"serve_remote": boolProp("Open these browsers to other Coddy processes", "Let a console or an editor on this machine and the nodes of the swarm drive the browsers connected here, through /coddy/browser/v1 with this server's API credential. The extension asks you before the first action of each such chat."),
 				"remotes": map[string]interface{}{
 					"type":        "array",
 					"title":       "Browsers of other servers",
@@ -945,12 +971,22 @@ func UISchemaMap() map[string]interface{} {
 	// process (the logger, the metrics exporter and the browser extension, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
+	password := strProp("Password", "Set a new sign-in password; leave empty to keep the existing password.")
+	password["writeOnly"] = true
+	props["httpserver"] = objectSchema("Account", "Web sign-in account", map[string]interface{}{
+		"login": objectSchema("Sign-in", "", map[string]interface{}{
+			"enable":            boolProp("Enable sign-in", "Require a web sign-in."),
+			"user":              strProp("User", "The account name."),
+			"password":          password,
+			"session_ttl_hours": intProp("Session duration", "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie."),
+		}, []string{"enable", "user", "password", "session_ttl_hours"}, nil),
+	}, []string{"login"}, nil)
 	rootOrder := []string{
 		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "httpserver", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{
@@ -979,8 +1015,6 @@ func toIfaceOrder(keys []string) []interface{} {
 // sections of its own. They still round-trip through GET/PUT /coddy/config,
 // so hiding one here never drops it from the saved document.
 //
-//	httpserver - the surface the UI itself is served from; editing it there
-//	             would let the page cut its own connection.
 //	mcp        - project_trust is edited in the MCP servers tab (POST
 //	             /coddy/mcp/project-trust), next to the servers the policy
 //	             governs; idle_timeout_seconds is set in the file and survives
@@ -995,12 +1029,11 @@ func toIfaceOrder(keys []string) []interface{} {
 //	revision   - not a setting: it names the configuration a GET document was
 //	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
-	"httpserver": {},
-	"mcp":        {},
-	"swarm":      {},
-	"rules":      {},
-	"ui":         {},
-	"revision":   {},
+	"mcp":      {},
+	"swarm":    {},
+	"rules":    {},
+	"ui":       {},
+	"revision": {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

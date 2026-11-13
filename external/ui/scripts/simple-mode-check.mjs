@@ -307,8 +307,12 @@ function auditPage() {
         ? "." + el.className.trim().split(/\s+/)[0]
         : ""
     }${pseudo || ""}`;
+  // The canvas is the fixed layer behind the page (styles/_base.scss,
+  // html::before), and the root's own colour is what stands under it.
   const root = getComputedStyle(document.documentElement);
-  if (root.backgroundImage !== "none") found.add("canvas: not one colour");
+  const canvas = getComputedStyle(document.documentElement, "::before");
+  if (root.backgroundImage !== "none" || canvas.backgroundImage !== "none")
+    found.add("canvas: not one colour");
   if (!opaque(root.backgroundColor)) found.add("canvas: not opaque");
   for (const el of document.querySelectorAll("*")) {
     for (const pseudo of [null, "::before", "::after"]) {
@@ -382,7 +386,8 @@ async function theSwitch() {
   await toggle.waitFor();
   const canvas = () =>
     page.evaluate(
-      () => getComputedStyle(document.documentElement).backgroundImage,
+      () =>
+        getComputedStyle(document.documentElement, "::before").backgroundImage,
     );
   check("the switch starts off", !(await simple()) && !(await cookie()));
   check("the canvas has its gradients", (await canvas()).includes("gradient("));
@@ -395,9 +400,13 @@ async function theSwitch() {
       .map((b) => b.getAttribute("data-testid") || "grid")
       .join(),
   );
+  // The sheet's blocks stand in one fixed order under the grid, with nothing
+  // inserted between them: the mode switch, then the wallpaper, then the language.
   check(
-    "the switch stands between the theme grid and the language",
-    order.startsWith("grid,appearance-simple,appearance-language-picker"),
+    "the theme grid, the mode switch, the wallpaper and the language stand in that order",
+    order.startsWith(
+      "grid,appearance-simple,appearance-wallpaper,appearance-language-picker",
+    ),
     order,
   );
 

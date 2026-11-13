@@ -93,9 +93,17 @@ func (a *Agent) endTurnProgress() {
 	average := p.speed.average()
 	tokens := p.settled
 	p.mu.Unlock()
-	if average != nil {
+	// The line a finished turn leaves behind is its clock and what it wrote;
+	// the speed joins it where the turn had a generation window to measure.
+	// An agent behind an acp row has none - it streams its answer around
+	// waits of its own - and used to leave no line at all.
+	if tokens > 0 || average != nil {
+		speed := 0.0
+		if average != nil {
+			speed = *average
+		}
 		if st := sessionStatePtr(a.state); st != nil {
-			st.AppendGenerationSummary(p.startedAt, session.CountUserTurns(st.GetMessages()), tokens, *average)
+			st.AppendGenerationSummary(p.startedAt, session.CountUserTurns(st.GetMessages()), tokens, speed)
 		}
 	}
 	p.publish(time.Now())

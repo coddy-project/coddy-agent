@@ -82,14 +82,34 @@ func (c *usageClock) advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-// bddTerminal is the in-memory terminal for the harness.
+// bddTerminal is the in-memory terminal for the harness. Its size is read by
+// the render goroutine and written by a step that resizes the window, so it is
+// guarded like the real terminal's.
 type bddTerminal struct {
+	mu         sync.Mutex
 	cols, rows int
 }
 
-func (f *bddTerminal) Write(string)                     {}
-func (f *bddTerminal) Columns() int                     { return f.cols }
-func (f *bddTerminal) Rows() int                        { return f.rows }
+// Resize is the step's side of SIGWINCH: the new size is in place before the
+// app is told about it, as ProcessTerminal does.
+func (f *bddTerminal) Resize(cols, rows int) {
+	f.mu.Lock()
+	f.cols, f.rows = cols, rows
+	f.mu.Unlock()
+}
+
+func (f *bddTerminal) Write(string) {}
+func (f *bddTerminal) Columns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cols
+}
+
+func (f *bddTerminal) Rows() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rows
+}
 func (f *bddTerminal) HideCursor()                      {}
 func (f *bddTerminal) ShowCursor()                      {}
 func (f *bddTerminal) Start(func([]byte), func()) error { return nil }
@@ -126,6 +146,8 @@ type cliTUIState struct {
 	cfg   *config.Config
 	store *session.FileStore
 	app   *App
+	// term is the app's terminal, kept so a step can resize the window.
+	term *bddTerminal
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -192,8 +214,14 @@ type cliTUIState struct {
 	skillSources []string
 	silentSource *silentListener
 	// loginStand is the stand-in hub of a /login scenario
-	// (features/cli_login.feature).
-	loginStand *loginStand
+	// (features/cli_login.feature); compatibleServer is the stand-in
+	// OpenAI-compatible endpoint the provider picker is pointed at.
+	loginStand       *loginStand
+	compatibleServer *httptest.Server
+	// acpCommand starts the scripted ACP agent of a picker scenario.
+	acpCommand string
+	// t is the scenario's own testing.TB, for helpers that need one.
+	t testing.TB
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -216,6 +244,7 @@ func (s *syncBuffer) String() string {
 
 func (s *cliTUIState) reset() {
 	s.home, s.cwd, s.homes = "", "", nil
+	s.acpCommand = ""
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
 	s.detachedAnswers = nil
@@ -286,6 +315,10 @@ func (s *cliTUIState) shutdown() {
 	if s.loginStand != nil {
 		s.loginStand.stop()
 		s.loginStand = nil
+	}
+	if s.compatibleServer != nil {
+		s.compatibleServer.Close()
+		s.compatibleServer = nil
 	}
 	if s.usageEnvSet {
 		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
@@ -538,6 +571,20 @@ func (s *cliTUIState) buildAppWithReasoning() error {
 	return s.buildAppWithModels(false, true, models, "stub/gpt-5.6-terra")
 }
 
+// buildAppWithManyModels configures the console with a model list longer than
+// any short terminal can draw, so a selector over it has to give rows up.
+func (s *cliTUIState) buildAppWithManyModels(n int) error {
+	models := make([]config.ModelEntry, n)
+	for i := range models {
+		models[i] = config.ModelEntry{
+			Model:            fmt.Sprintf("stub/model-%02d", i+1),
+			MaxTokens:        1000,
+			MaxContextTokens: 100000,
+		}
+	}
+	return s.buildAppWithModels(false, true, models, models[0].Model)
+}
+
 // buildAppWith assembles the console; with neuraldeep the default model
 // belongs to a neuraldeep provider whose stored hub login points at a
 // stand-in GET /limits, and the manager runs on the scenario's clock.
@@ -608,6 +655,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 
 	log := slog.New(slog.DiscardHandler)
 	term := &bddTerminal{cols: 100, rows: 35}
+	s.term = term
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
@@ -917,6 +965,60 @@ func (s *cliTUIState) screenText() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// visibleScreen is what the terminal can display: the bottom rows of the
+// frame, which is where MainScreen leaves the viewport. The screen text above
+// them is in the emulator's scrollback, not on the operator's screen.
+func (s *cliTUIState) visibleScreen() string {
+	lines := s.app.screen.Snapshot()
+	if rows := s.term.Rows(); len(lines) > rows {
+		lines = lines[len(lines)-rows:]
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(tui.StripTerminalSequences(l))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (s *cliTUIState) waitVisible(needle string, timeout time.Duration) error {
+	deadline := time.Now().Add(within(timeout))
+	for time.Now().Before(deadline) {
+		if strings.Contains(s.visibleScreen(), needle) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the %d rows the terminal shows never held %q; they are:\n%s",
+		s.term.Rows(), needle, s.visibleScreen())
+}
+
+// terminalIsRowsTall sets the window height before the app starts.
+func (s *cliTUIState) terminalIsRowsTall(rows int) error {
+	s.term.Resize(s.term.Columns(), rows)
+	return nil
+}
+
+// terminalShrinksTo resizes the running console, as SIGWINCH does.
+func (s *cliTUIState) terminalShrinksTo(rows int) error {
+	s.term.Resize(s.term.Columns(), rows)
+	s.app.OnTerminalResize()
+	return s.onLoop(2*time.Second, func() {})
+}
+
+// operatorOpensModelSelector presses ctrl+l and waits for the modal.
+func (s *cliTUIState) operatorOpensModelSelector() error {
+	s.press("\x0c")
+	deadline := time.Now().Add(within(3 * time.Second))
+	for time.Now().Before(deadline) {
+		if _, title, err := s.selectedLabel(); err == nil && title == "Select model" {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("the model selector never opened; last frame:\n%s", s.screenText())
 }
 
 func (s *cliTUIState) waitScreen(needle string, timeout time.Duration) error {
@@ -1452,6 +1554,7 @@ func (s *cliTUIState) previousSessionWith(prompt, reply string) error {
 	s.app = nil
 	log := slog.New(slog.DiscardHandler)
 	term := &bddTerminal{cols: 100, rows: 35}
+	s.term = term
 	late := &lateBoundSender{}
 	mgr := session.NewManager(s.cfg, late, s.stubRunner, log, s.cwd, s.store)
 	app := newApp(s.cfg, mgr, log, term, "dark", true)
@@ -1937,8 +2040,8 @@ func (s *cliTUIState) helpShowsPageAfter(page string) error {
 	return fmt.Errorf("no page titled %q, or it is the last", page)
 }
 
-func initializeCLITUIScenario(sc *godog.ScenarioContext) {
-	s := &cliTUIState{}
+func initializeCLITUIScenario(sc *godog.ScenarioContext, t testing.TB) {
+	s := &cliTUIState{t: t}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		s.reset()
 		return ctx, nil
@@ -1954,6 +2057,12 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryOn)
 	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.catalogHoldsNoNestedAgents)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
+	sc.Step(`^a coddy console app over a stub agent runner with (\d+) configured models$`, s.buildAppWithManyModels)
+	sc.Step(`^the terminal is (\d+) rows tall$`, s.terminalIsRowsTall)
+	sc.Step(`^the terminal shrinks to (\d+) rows$`, s.terminalShrinksTo)
+	sc.Step(`^the operator opens the model selector$`, s.operatorOpensModelSelector)
+	sc.Step(`^the terminal shows "([^"]*)"$`, func(needle string) error { return s.waitVisible(needle, 3*time.Second) })
+	sc.Step(`^the terminal shows the highlighted row of the selector$`, func() error { return s.waitVisible("→ ", 3*time.Second) })
 	sc.Step(`^the console config declares an MCP server "([^"]*)" that answers only when released$`, s.consoleDeclaresGatedMCP)
 	sc.Step(`^the MCP server "([^"]*)" is released$`, s.mcpServerReleased)
 	sc.Step(`^the console config declares an MCP server "([^"]*)" run as a binary$`, s.consoleDeclaresBinaryMCP)
@@ -2134,7 +2243,7 @@ func TestCLITUIFeature(t *testing.T) {
 	t.Setenv("LANG", "en_US.UTF-8")
 	suite := godog.TestSuite{
 		Name:                "cli-tui",
-		ScenarioInitializer: initializeCLITUIScenario,
+		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeCLITUIScenario(sc, t) },
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/cli_tui.feature", "../../features/cli_mcp.feature", "../../features/cli_login.feature"},

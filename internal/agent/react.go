@@ -55,9 +55,6 @@ type SessionState interface {
 	GetMCPToolFilter() func(server, tool string) bool
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
-	GetMemoryCopilotBlock() string
-	SetMemoryCopilotBlock(text string)
-	ClearMemoryCopilotBlock()
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
 	GetPersistedSessionDir() string
@@ -170,9 +167,6 @@ type Agent struct {
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
-	// memoryRun is the memory subagent this turn started, or nil
-	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
-	memoryRun *memoryTurnRun
 	// docKeys are the keys of the documents the system prompt this turn froze
 	// carries (documentKeys, rules_prompt.go).
 	docKeysMu sync.Mutex
@@ -275,7 +269,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 	a.turnHookContext = ""
 
 	// Build the user message from prompt content blocks.
-	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
 	if queued, batch := session.TakeQueuedPromptBatch(ctx, a.state.GetID()); batch {
@@ -387,10 +380,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 	// run below, the first model call - so a surface counts from the start.
 	a.beginTurnProgress()
 	defer a.endTurnProgress()
-	a.runMemoryBeforeTurn(ctx, userText, mode)
-	// A report that lands after this turn returned is history in the Tasks
-	// drawer, never the next turn's context.
-	defer a.finishMemoryTurn()
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -469,18 +458,19 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
-		LoadSkillBody:     a.loadSkillBody,
-		ConfigPath:        a.cfg.Paths.ConfigPath,
-		ConfigHome:        a.cfg.Paths.Home,
-		ConfigCWD:         a.cfg.Paths.CWD,
-		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
-		Background:        a.backgroundPool(sd),
-		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
-		WebSearch:         webSearchSettings(a.cfg),
-		PreviewServer:     previewServerSettings(a.cfg),
-		AttachImage:       a.attachToolImage,
-		ImageRefusal:      a.toolImageRefusal,
+		SSHConnectTimeout:  a.cfg.Tools.SSHConnectTimeout,
+		LoadSkillBody:      a.loadSkillBody,
+		ConfigPath:         a.cfg.Paths.ConfigPath,
+		ConfigHome:         a.cfg.Paths.Home,
+		ConfigCWD:          a.cfg.Paths.CWD,
+		OutputLineLimits:   a.cfg.Tools.OutputLimits.AsMap(),
+		Background:         a.backgroundPool(sd),
+		BackgroundEnabled:  a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:          webSearchSettings(a.cfg),
+		PreviewServer:      previewServerSettings(a.cfg),
+		CanvasProjectTrust: a.cfg.Tools.Canvas.ResolvedProjectTrust(),
+		AttachImage:        a.attachToolImage,
+		ImageRefusal:       a.toolImageRefusal,
 	}
 	httpRequestEnv(toolEnv, a.cfg)
 	a.wireWorkspaceTool(toolEnv)
@@ -611,8 +601,9 @@ const maxProviderRecoveries = 2
 const maxUnattendedProviderRecoveries = 5
 
 // providerRecoveryBudget is how many consecutive failed calls of its provider
-// this turn rides out. The memory child keeps the interactive budget: its
-// report only matters to the user turn that is waiting for it.
+// this turn rides out. A child the runtime shapes (Kind is set) keeps the
+// interactive budget: a memory run answers to the turn that delegated to it,
+// so it rides out the same two failures an interactive turn does.
 func (a *Agent) providerRecoveryBudget() int {
 	if a.subagent != nil && a.subagent.Kind == "" {
 		return maxUnattendedProviderRecoveries
@@ -859,7 +850,48 @@ func (a *Agent) runReActLoop(
 	activeSkills []*skills.Skill,
 	maxTurns int,
 ) (string, error) {
+	// What the last provider answer of this turn reported about its own cost,
+	// which is what says whether a side call over the same context would be
+	// read back from the provider's cache (session.PromptSuggestionUsage).
+	var lastUsage session.PromptSuggestionUsage
+	defer func() {
+		st, ok := a.state.(interface {
+			SetPromptSuggestionFork(session.PromptSuggestionFork)
+		})
+		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
+			return
+		}
+		// The turn's own messages, tools and provider input: the side call
+		// repeats this request with one message appended, so it reads the
+		// prompt cache the turn wrote instead of paying for the history
+		// again. The turn-context block is left out - it is request-only
+		// and sits past the cache mark, so it costs its tokens on every
+		// side call and tells a prediction nothing.
+		st.SetPromptSuggestionFork(session.PromptSuggestionFork{
+			Messages: withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage),
+			Tools:    toolDefs,
+			Input:    transport.in,
+			Usage:    lastUsage,
+		})
+	}()
 	var totalInputTokens, totalOutputTokens int
+	allUsageKnown := true
+	statsWritable := true
+	var previousInputTokens, previousOutputTokens int
+	if sd != "" {
+		stats, err := session.ReadSessionStats(sd)
+		if err == nil {
+			previousInputTokens = stats.TokenUsageTotal.InputTokens
+			previousOutputTokens = stats.TokenUsageTotal.OutputTokens
+			if stats.TokenUsageTotal.UsageKnown != nil {
+				allUsageKnown = *stats.TokenUsageTotal.UsageKnown
+			}
+		} else if !os.IsNotExist(err) {
+			allUsageKnown = false
+			statsWritable = false
+			a.log.WarnContext(ctx, "read session token usage", "error", err)
+		}
+	}
 	var turnIndex int
 	var lastStatsWrite time.Time
 	var emptyContinuations int
@@ -1041,7 +1073,10 @@ func (a *Agent) runReActLoop(
 		// may be smaller. A recovery may still be pending: the rebuild must
 		// preserve its local-only projection rather than resurrecting the
 		// empty assistant messages kept in the transcript.
+		latency := a.newRequestLatency(ctx)
+		contextStart := latency.clock()
 		a.refreshContextBreakdown(sys, turnCtx)
+		latency.addContext(contextStart)
 		if (turn > 0 || switched) && a.maybeAutoCompact(ctx) {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
@@ -1049,7 +1084,9 @@ func (a *Agent) runReActLoop(
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
 			// below sends it, so the accounting has to see it too.
+			contextStart = latency.clock()
 			a.refreshContextBreakdown(sys, turnCtx)
+			latency.addContext(contextStart)
 		}
 
 		// A switch that landed while this step waited for a window or
@@ -1169,7 +1206,10 @@ func (a *Agent) runReActLoop(
 		// later appends stay intact. The rules a tool call brought in are joined
 		// to its result only here, so an evicted result keeps them and every
 		// request replays them byte for byte.
+		projectionStart := latency.clock()
 		sendMessages := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), turnCtx)
+		latency.projected(projectionStart)
+		pairingStart := latency.clock()
 		// Repair only the outbound projection. The persisted transcript remains
 		// unchanged; malformed IDs and misplaced/duplicate results are refused.
 		prevLen := len(sendMessages)
@@ -1189,6 +1229,7 @@ func (a *Agent) runReActLoop(
 				"tool-call pairing is invalid for session %s (%s); use /compact or start a new session",
 				a.state.GetID(), formatToolPairingIssues(issues))
 		}
+		latency.paired(pairingStart)
 		// The estimate the provider's incoming input_tokens is anchored to is
 		// taken here, while the breakdown still describes the prompt about to
 		// be sent - anything persisted or refreshed during the call must not
@@ -1222,12 +1263,14 @@ func (a *Agent) runReActLoop(
 			callSessionDir = st.GetPersistedSessionDir()
 		}
 		callIDs := newToolCallIDs(messages, callSessionDir)
+		streamCtx = latency.begin(streamCtx, transport.agent)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			chunk = callIDs.chunk(chunk)
 			now := time.Now()
+			latency.chunk(chunk, now)
 			chunkCount++
 			if firstChunkAt.IsZero() {
 				firstChunkAt = now
@@ -1258,7 +1301,10 @@ func (a *Agent) runReActLoop(
 				// own, never a call of Coddy's.
 				streamedAny = true
 				maybeMarkReasonEnd(now)
-				agentTools.report(*tool)
+				// Where the answer stood when the call was announced, in
+				// characters: the transcript keeps it so a surface can draw
+				// the call between the lines the agent wrote around it.
+				agentTools.report(*tool, utf8.RuneCountInString(answerBuf.String()))
 			}
 			// A call the model has only named yet announces the same pending row:
 			// the arguments can take seconds to stream, and without the row the
@@ -1327,6 +1373,7 @@ func (a *Agent) runReActLoop(
 				})
 			}
 		})
+		latency.finish(ctx)
 		if response != nil {
 			response.ToolCalls = callIDs.calls(response.ToolCalls)
 		}
@@ -1364,7 +1411,7 @@ func (a *Agent) runReActLoop(
 		}
 		a.progress.finishCall(outputTokens)
 		attemptsAfter := retryAllowance.Snapshot()
-		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
+		a.logLLMCall(ctx, latency, callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
 			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
 			TransportRetries: attemptsAfter.TransportRetries - attemptsBefore.TransportRetries,
 			Remaining:        attemptsAfter.Remaining,
@@ -1515,7 +1562,13 @@ func (a *Agent) runReActLoop(
 			// keeps its partial answer like a user stop: the user already
 			// watched the text stream in, so it must survive in the
 			// transcript next to the honest error below.
-			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
+			if llm.IsToolSchemaLimit(streamErr) && response == nil {
+				// Some adapters report an in-band refusal with no response
+				// object after deltas. The buffers are the same output the
+				// caller already saw, so preserve them independently of the SDK.
+				response = &llm.Response{Content: answerBuf.String(), Reasoning: reasoningBuf.String()}
+			}
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr) || llm.IsToolSchemaLimit(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -1557,6 +1610,12 @@ func (a *Agent) runReActLoop(
 					}
 					a.refreshConversationContextUsage(true)
 				}
+			}
+			// A schema validation refusal cannot be repaired by replaying the
+			// same request or compacting the conversation. Any partial answer
+			// has been persisted above.
+			if llm.IsToolSchemaLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.toolSchemaLimitError(streamErr, toolDefs)
 			}
 			if errors.Is(streamErr, context.Canceled) {
 				// If output was already streamed, treat as a clean user-stop regardless.
@@ -1612,6 +1671,13 @@ func (a *Agent) runReActLoop(
 				}
 				return string(acp.StopReasonRefused), a.contextOverflowError(streamErr, estimateAtSend, overflowCompacted)
 			}
+			// The provider refused the tools the request offered. Nothing is
+			// sent again: which tools a model is offered is the operator's to
+			// decide, so the turn ends saying how many went out, how many the
+			// provider takes and the ways to send fewer (client_tool_limit.go).
+			if llm.IsClientToolLimit(streamErr) {
+				return string(acp.StopReasonRefused), a.clientToolLimitError(streamErr, len(toolDefs))
+			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
 				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
@@ -1626,11 +1692,19 @@ func (a *Agent) runReActLoop(
 		// only stays affordable while this is most of the input, which is what
 		// the frozen system prompt and the trailing turn context block are for
 		// (turn_context.go); a provider that reports nothing leaves it at zero.
-		a.log.Debug("llm call usage",
+		a.log.DebugContext(ctx, "llm call usage",
+			"session", sessionID, "call_id", latency.callID(),
 			"input_tokens", response.InputTokens,
 			"cached_input_tokens", response.CachedInputTokens,
 			"output_tokens", response.OutputTokens)
-		if !transport.agent {
+		usageKnown := response.UsageKnown || (!response.UsageIncomplete && (response.InputTokens > 0 || response.OutputTokens > 0))
+		lastUsage = session.PromptSuggestionUsage{
+			InputTokens:       response.InputTokens,
+			CachedInputTokens: response.CachedInputTokens,
+			OutputTokens:      response.OutputTokens,
+			Known:             usageKnown,
+		}
+		if !transport.agent && usageKnown {
 			// An agent's input count measures its own context (its system
 			// prompt, its tools, their results), not this transcript.
 			a.recordProviderInputTokens(response.InputTokens, estimateAtSend)
@@ -1639,8 +1713,12 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
+		allUsageKnown = allUsageKnown && usageKnown
+		sessionUsageKnown := allUsageKnown
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 			SessionUpdate:     acp.UpdateTypeTokenUsage,
+			UsageKnown:        &usageKnown,
+			SessionUsageKnown: &sessionUsageKnown,
 			InputTokens:       response.InputTokens,
 			OutputTokens:      response.OutputTokens,
 			TotalTokens:       totalInputTokens + totalOutputTokens,
@@ -1648,19 +1726,21 @@ func (a *Agent) runReActLoop(
 			ReasoningTokens:   response.ReasoningTokens,
 		})
 
-		if sd != "" {
+		if sd != "" && statsWritable {
 			now := time.Now().UTC()
-			if lastStatsWrite.IsZero() || now.Sub(lastStatsWrite) > 750*time.Millisecond {
+			if lastStatsWrite.IsZero() || !allUsageKnown || now.Sub(lastStatsWrite) > 750*time.Millisecond {
 				lastStatsWrite = now
 				stats := session.SessionStats{
 					Version:   1,
 					UpdatedAt: now.Format(time.RFC3339),
 					TokenUsageTotal: session.TokenUsageTotals{
-						InputTokens:  totalInputTokens,
-						OutputTokens: totalOutputTokens,
-						TotalTokens:  totalInputTokens + totalOutputTokens,
+						UsageKnown:   &allUsageKnown,
+						InputTokens:  previousInputTokens + totalInputTokens,
+						OutputTokens: previousOutputTokens + totalOutputTokens,
+						TotalTokens:  previousInputTokens + previousOutputTokens + totalInputTokens + totalOutputTokens,
 					},
 					TokenUsageByTurn: []session.TokenUsageTurn{{
+						UsageKnown:   &usageKnown,
 						TurnIndex:    turnIndex,
 						InputTokens:  response.InputTokens,
 						OutputTokens: response.OutputTokens,
@@ -1915,7 +1995,7 @@ func (a *Agent) runReActLoop(
 			// the paths the model aimed it at: the call may write the very
 			// AGENTS.md it would otherwise bring back.
 			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
-			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
+			result, execErr := a.executeToolCall(latency.dispatchContext(ctx), tc, toolEnv, mode, a.state.GetID(), false)
 			toolResultMsg := a.callResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
@@ -2020,11 +2100,12 @@ func (a *Agent) runReActLoop(
 // how long the first chunk took to arrive, how many chunks followed, and how
 // it ended. It is what -log-level debug shows for a call that hangs or is
 // cut, where the transcript alone shows nothing at all.
-func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error, reason string, attempts llm.RetrySnapshot) {
-	if a.log == nil || !a.log.Enabled(context.Background(), slog.LevelDebug) {
+func (a *Agent) logLLMCall(ctx context.Context, latency *requestLatency, callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error, reason string, attempts llm.RetrySnapshot) {
+	if a.log == nil || !a.log.Enabled(ctx, slog.LevelDebug) {
 		return
 	}
 	attrs := []any{
+		"session", a.state.GetID(), "call_id", latency.callID(),
 		"duration", humanDuration(time.Since(callStart)),
 		"chunks", chunks,
 		"call_reason", reason,
@@ -2044,7 +2125,7 @@ func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, respon
 	if err != nil {
 		attrs = append(attrs, "error", err.Error())
 	}
-	a.log.Debug("llm call finished", attrs...)
+	a.log.DebugContext(ctx, "llm call finished", attrs...)
 }
 
 // humanDuration rounds a duration for a message a person reads: whole
@@ -2202,6 +2283,7 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
+	noteRequestToolDispatch(ctx)
 	// The permission mode is read on every call, not once per turn: the
 	// operator may have switched the session to bypass from the previous
 	// call's dialog, and the rest of the batch runs under that.
@@ -2391,12 +2473,20 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = env.PermissionMode != config.PermModeBypass
 	} else if filesystemWriteTool(tc.Name) {
 		switch env.PermissionMode {
-		case config.PermModeBypass, config.PermModeAcceptEdits:
+		case config.PermModeBypass:
+			requiresPerm = false
+		case config.PermModeAcceptEdits:
+			// accept_edits approves the edits of the project. A write into
+			// the agent's home (hooks.json, mcp.json, config.yaml, the trust
+			// receipts) or anywhere outside the workspace reaches what
+			// config_commit asks about, and one into git's own directory
+			// (hooks, core.sshCommand) runs at the next git command, so they
+			// ask too.
 			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
 			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
 				requiresPerm = false
 			} else {
-				requiresPerm = false // auto-approve
+				requiresPerm = !a.writeStaysInWorkspace(tc, env.CWD)
 			}
 		default: // ask
 			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
@@ -3124,6 +3214,11 @@ type llmTransport struct {
 	// first-token timer, whose budget the agent's start, handshake and the
 	// replay of a history into a new session would spend.
 	agent bool
+	// in is the input this transport's provider was built from, reasoning
+	// level included. A side call over the same context (the prompt
+	// suggestion) reuses it, so its request differs from the turn's in
+	// nothing the provider's prompt cache keys on.
+	in llm.ProviderInput
 }
 
 // getProvider creates the LLM provider for the given mode.
@@ -3158,6 +3253,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		key:       modelID + "|" + reasoning,
 		rev:       rev,
 		agent:     rm.ProviderType == "acp",
+		in:        in,
 	}, nil
 }
 
@@ -3298,7 +3394,7 @@ func (a *Agent) withChildFallbacks(primary llm.Provider, modelID string, mk func
 // turnProviderInput is llmProviderInput plus the bounds of a user turn: the
 // first-token timer as the call's own budget, and with the wait on, the
 // wait's maximum as the turn's budget and the turn's ledger. Helpers
-// (compaction, the memory copilot) use llmProviderInput alone and never
+// (compaction, the memory subagent) use llmProviderInput alone and never
 // see the option.
 func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	in := a.llmProviderInput(rm)
@@ -3327,9 +3423,14 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
+		Mode:          rm.Mode,
+		Region:        rm.Region,
+		KimiIdentity:  rm.KimiIdentity,
 		Model:         rm.Model,
+		KimiMetadata:  rm.KimiMetadata,
 		APIKey:        rm.APIKey,
 		BaseURL:       rm.BaseURL,
+		UserAgent:     rm.UserAgent,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
 		NoCLILogin:    rm.NoCLILogin,
@@ -3431,6 +3532,36 @@ func filesystemWriteTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// writeStaysInWorkspace reports whether every path a filesystem write names
+// lies inside the session's workspace (its working directory and the
+// additionalDirectories it carries), outside the agent's home and outside git's
+// own directory, links resolved. A call whose paths cannot be read is not.
+func (a *Agent) writeStaysInWorkspace(tc llm.ToolCall, cwd string) bool {
+	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
+	if len(paths) == 0 {
+		return false
+	}
+	var additional []string
+	if st := sessionStatePtr(a.state); st != nil {
+		additional = st.GetAdditionalDirectories()
+	}
+	home := ""
+	if a.cfg != nil {
+		home = a.cfg.Paths.Home
+	}
+	for i, p := range paths {
+		if !session.PathInWorkspace(p, cwd, home, additional) || session.PathInGitDir(p) {
+			return false
+		}
+		// The source of a move and the target of a removal take their whole
+		// tree with them.
+		if (tc.Name == "rm" || (tc.Name == "mv" && i == 0)) && session.TreeHoldsGitDirOrHome(p, home) {
+			return false
+		}
+	}
+	return true
 }
 
 // configWriteTool names the tools that write the agent's own configuration.

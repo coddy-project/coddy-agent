@@ -127,13 +127,13 @@ func newTasksApp(t *testing.T, b *tasksBackend) *App {
 	return a
 }
 
-func TestRunningTasksAreCountedWithoutTheMemoryRun(t *testing.T) {
-	memory := taskRow("bg_3", bgtask.StatusRunning, time.Second)
-	memory.Kind, memory.Agent = bgtask.KindAgent, &bgtask.AgentInfo{Name: "memory", System: true}
+func TestRunningTasksAreCountedWithoutTheSystemTask(t *testing.T) {
+	sys := taskRow("bg_3", bgtask.StatusRunning, time.Second)
+	sys.Kind, sys.Agent = bgtask.KindAgent, &bgtask.AgentInfo{Name: "goal-verifier", System: true}
 	b := &tasksBackend{rows: []bgtask.Snapshot{
 		taskRow("bg_1", bgtask.StatusSucceeded, time.Hour),
 		taskRow("bg_2", bgtask.StatusRunning, time.Minute),
-		memory,
+		sys,
 	}}
 	a := newTasksApp(t, b)
 

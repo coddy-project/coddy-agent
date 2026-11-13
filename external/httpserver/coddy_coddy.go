@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -233,6 +234,9 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/terminal", s.coddyTerminalGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/terminal", s.coddyTerminalPost)
+	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/terminal", s.coddyTerminalDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}", s.coddySessionAssetGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}", s.coddySessionArtifactGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}/preview", s.coddySessionArtifactPreviewGet)
@@ -242,6 +246,8 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/prompt-suggestion", s.coddySessionPromptSuggestionGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/prompt-suggestion/outcome", s.coddySessionPromptSuggestionOutcomePost)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace", s.coddySessionWorkspacePost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
@@ -605,7 +611,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Text string `json:"text"`
+		Text  string `json:"text"`
+		Model string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -638,7 +645,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	commands := s.describeInvokedCommands(r, text)
 	words := describeFallbackWords(text, commands)
 
-	provider, err := s.providerFactory(s.activeCfg())
+	provider, err := s.describeProvider(r, body.Model, raw)
 	if err != nil {
 		s.log.Error("describe provider", "error", err)
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)
@@ -1156,23 +1163,16 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		// the activity of a session is known.
 		IncludeEmpty: true,
 	}
-	rows, err := fs.ListSnapshotsWith(listOpts)
+	// The rail badge is global to History, not to the page or any filter the
+	// reader currently has open. Active child sessions contribute even though
+	// History itself keeps their rows hidden. The plain History page is that
+	// scope without the child rows, so one scan serves both; a filtered page
+	// needs a scan of its own.
+	rows, historyRows, err := listSessionRows(fs.ListSnapshotsWith, listOpts)
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
-	}
-	// The rail badge is global to History, not to the page or any filter the
-	// reader currently has open. Active child sessions contribute even though
-	// History itself keeps their rows hidden.
-	historyRows := rows
-	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true, IncludeEmpty: true})
-		if err != nil {
-			s.log.Error("coddy sessions active count", "error", err)
-			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
-			return
-		}
 	}
 	turnActive := func(id string) bool {
 		return s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(fs.SessionPath(id))
@@ -1349,9 +1349,27 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// isNormalHistoryList reports whether opts are the unfiltered working History
-// scope used by active_count. Keeping it here makes the single-scan path
-// explicit without changing the badge semantics for filtered requests.
+func listSessionRows(scan func(session.ListOptions) ([]session.SessionListEntry, error), listOpts session.ListOptions) ([]session.SessionListEntry, []session.SessionListEntry, error) {
+	historyOpts := session.ListOptions{IncludeSubagents: true, IncludeEmpty: true, Archived: session.ArchiveExclude}
+	historyRows, err := scan(historyOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rows []session.SessionListEntry
+	switch {
+	case isNormalHistoryList(listOpts):
+		rows = session.WithoutSubagentRuns(historyRows)
+	case reflect.DeepEqual(listOpts, historyOpts):
+		rows = append([]session.SessionListEntry(nil), historyRows...)
+	default:
+		rows, err = scan(listOpts)
+	}
+	return rows, historyRows, err
+}
+
+// isNormalHistoryList reports whether opts are the unfiltered History page:
+// the active_count scope without its child rows, so the page is derived from
+// that one scan (session.WithoutSubagentRuns) instead of a second one.
 func isNormalHistoryList(opts session.ListOptions) bool {
 	return strings.TrimSpace(opts.CWD) == "" &&
 		!opts.IncludeSchedulerRuns &&
@@ -1365,12 +1383,23 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
 // A bundle with no stats.json yet (a chat that never completed a model call)
 // reports zeroes rather than nothing, so every row of the table has the same
-// shape and sorts numerically.
+// shape and sorts numerically. A stats.json that exists but cannot be read -
+// corrupt JSON, a directory under that name - reports null instead: the usage
+// is unknown, not zero.
 func coddySessionTokenUsage(fs *session.FileStore, id string) map[string]int {
 	usage := map[string]int{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
 	stats, err := session.ReadSessionStats(fs.SessionPath(id))
-	if err != nil || stats == nil {
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return usage
+		}
+		return nil
+	}
+	if stats == nil {
 		return usage
+	}
+	if stats.TokenUsageTotal.UsageKnown != nil && !*stats.TokenUsageTotal.UsageKnown {
+		return nil
 	}
 	usage["inputTokens"] = stats.TokenUsageTotal.InputTokens
 	usage["outputTokens"] = stats.TokenUsageTotal.OutputTokens

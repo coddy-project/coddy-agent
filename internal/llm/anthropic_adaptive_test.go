@@ -41,7 +41,7 @@ func TestAnthropicAdaptiveRequestJSON(t *testing.T) {
 		{name: "sonnet 4.5 default", model: "claude-sonnet-4-5", temperature: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newAnthropicProvider(tc.model, "", "", nil, 8192, 0.5, tc.effort)
+			p := newAnthropicProvider(tc.model, "", "", nil, 8192, 0.5, tc.effort, "")
 			raw, err := json.Marshal(p.buildParams("", nil, nil))
 			if err != nil {
 				t.Fatal(err)
@@ -78,7 +78,7 @@ func TestAnthropicAdaptiveRequestJSON(t *testing.T) {
 // asked for still travels to an adaptive model, for the backend to answer, as
 // it does next to extended thinking.
 func TestAnthropicAdaptiveCallerTemperature(t *testing.T) {
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0.2, "high")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0.2, "high", "")
 	p.tempSet = true
 	raw, err := json.Marshal(p.buildParams("", nil, nil))
 	if err != nil {
@@ -98,7 +98,7 @@ func TestAnthropicAdaptiveRejectsOffBeforeRequest(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer srv.Close()
-			p := newAnthropicProvider(model, "test", srv.URL, srv.Client(), 8192, 0, "off")
+			p := newAnthropicProvider(model, "test", srv.URL, srv.Client(), 8192, 0, "off", "")
 			messages := []Message{{Role: RoleUser, Content: "hi"}}
 			const want = "thinking cannot be turned off"
 			if _, err := p.Complete(context.Background(), messages, nil); err == nil || !strings.Contains(err.Error(), want) {
@@ -118,7 +118,7 @@ func TestAnthropicAdaptiveRejectsOffBeforeRequest(t *testing.T) {
 // that turn as the request JSON sends it.
 func replayedAssistant(t *testing.T, model, effort string, assistant Message) gjson.Result {
 	t.Helper()
-	p := newAnthropicProvider(model, "", "", nil, 8192, 0, effort)
+	p := newAnthropicProvider(model, "", "", nil, 8192, 0, effort, "")
 	var tool []Message
 	if len(assistant.ToolCalls) > 0 {
 		tool = []Message{{Role: RoleTool, ToolCallID: assistant.ToolCalls[0].ID, Content: "result"}}
@@ -294,7 +294,7 @@ func TestAnthropicParseResponseCarriesEveryThinkingBlock(t *testing.T) {
 		{"type":"tool_use","id":"call_1","name":"read","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}`), &msg); err != nil {
 		t.Fatal(err)
 	}
-	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "high")
+	p := newAnthropicProvider("claude-opus-5-5", "", "", nil, 8192, 0, "high", "")
 	resp, err := p.parseResponse(msg)
 	if err != nil {
 		t.Fatal(err)

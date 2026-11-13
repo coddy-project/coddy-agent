@@ -119,6 +119,10 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+	// promptSuggestionSide tracks the follow-up prompt suggestion calls in
+	// flight and their last answers (prompt_suggestion.go): one call per
+	// session at a time, one cached answer per conversation revision.
+	promptSuggestionSide promptSuggestionSide
 	// queueObservers fan every message queue change out to the surfaces that
 	// have clients of their own (manager_queue.go).
 	queueObserverMu  sync.Mutex
@@ -583,6 +587,7 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 	previousTrust, _ := m.mcpTrust.Swap(next.MCP.ResolvedProjectTrust()).(string)
 	m.skillsLoad = skills.NewLoader(next.Skills.SearchDirs())
 	m.cfgAt.Store(next)
+	m.resetPromptSuggestions()
 	// The global servers the pool keeps follow the configuration: a server
 	// added or switched on starts, one removed, switched off or redeclared
 	// is let go once no session holds it. A changed mcp.idle_timeout_seconds
@@ -1252,6 +1257,26 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 // session it creates comes from: origin is recorded only when the bundle is
 // created here, never on a session that is live or stored already.
 func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD, origin string) (*State, error) {
+	st, err := m.LoadHTTPSession(ctx, sessionID)
+	if err != nil || st != nil {
+		return st, err
+	}
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	if err != nil {
+		return nil, err
+	}
+	if res.SessionID != sessionID {
+		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
+	}
+	st = m.getSession(sessionID)
+	if st == nil {
+		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
+	}
+	return st, nil
+}
+
+// LoadHTTPSession returns a live or stored session without creating one.
+func (m *Manager) LoadHTTPSession(ctx context.Context, sessionID string) (*State, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("empty session id")
 	}
@@ -1284,18 +1309,53 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 		}
 		return st, nil
 	}
-	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	return nil, nil
+}
+
+// PreviewHTTPSession reads a stored session without registering it or running
+// its resume lifecycle. A live session is returned as it is.
+func (m *Manager) PreviewHTTPSession(sessionID string) (*State, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("empty session id")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	if existing := m.getSession(sessionID); existing != nil {
+		return existing, nil
+	}
+	if m.store == nil || !m.store.HasPersistedSnapshot(sessionID) {
+		return nil, nil
+	}
+	snap, err := m.store.ReadSnapshot(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if res.SessionID != sessionID {
-		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
+	st := &State{ID: sessionID, CWD: snap.Meta.CWD, SessionDir: snap.Dir, contextWindows: m}
+	mode := Mode(snap.Meta.Mode)
+	if !IsValidMode(string(mode)) {
+		mode = ModeAgent
 	}
-	st := m.getSession(sessionID)
-	if st == nil {
-		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
+	if snap.Meta.IsSubagentRun() {
+		st.SetSubagentMeta(SubagentMeta{
+			Name:            snap.Meta.SubagentName,
+			ParentSessionID: snap.Meta.ParentSessionID,
+			TaskID:          snap.Meta.SubagentTaskID,
+			Depth:           snap.Meta.SubagentDepth,
+			Scheduler:       schedulerRunMetaFromSnapshot(snap.Meta),
+		})
 	}
 	return st, nil
+}
+
+// NewEphemeralState is the conversation of one stateless model call (issue
+// #585): a state in memory that holds the messages of that call and reads the
+// provider listings of this manager. It has no bundle, no persistence hook and
+// no entry among the live sessions, so nothing outlives the caller's reference.
+func (m *Manager) NewEphemeralState() *State {
+	return &State{ID: NewSessionID(), contextWindows: m, ephemeral: true}
 }
 
 // ForgetLiveSession disconnects MCP clients for the id and removes it from the
@@ -1566,6 +1626,11 @@ func admissionFor(opts *PromptRunOpts) turnAdmission {
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
+	if st != nil && st.ephemeral {
+		// The lock is a file lock on a bundle; this state has none, and nothing
+		// else can reach it, so there is no turn to exclude.
+		return func() {}, nil
+	}
 	return m.acquireTurnLockWithReloadDrain(sessionID, st)
 }
 

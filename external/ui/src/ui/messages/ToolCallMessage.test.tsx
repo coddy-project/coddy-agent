@@ -1313,6 +1313,31 @@ test("a row with nothing to trail its label renders no empty group", () => {
   expect(container.querySelector(".thinking-trail")).toBeNull();
 });
 
+test.each([
+  ["coddy_todo_plan_archive", false, "completed"],
+  ["mcp__playwright__browser_run_code_unsafe", false, "failed"],
+  ["Read a long agent tool title", true, "completed"],
+] as const)("targetless %s uses inline flow", (title, agentTool, status) => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="targetless"
+      title={title}
+      agentTool={agentTool}
+      status={status}
+      argsText="{}"
+      resultText="ok"
+      durationMs={6000}
+    />,
+  );
+  const head = container.querySelector(".thinking-head--targetless");
+  expect(head?.querySelector(".thinking-label")).not.toBeNull();
+  expect(head?.querySelector(".thinking-dur")).toHaveTextContent("6s");
+  expect(head?.querySelector(".thinking-trail")).toBeNull();
+  expect(!!head?.querySelector(".tool-failed-marker")).toBe(
+    status === "failed",
+  );
+});
+
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
   render(
     <ToolCallMessage

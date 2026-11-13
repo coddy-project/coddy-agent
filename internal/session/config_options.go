@@ -131,7 +131,7 @@ func PermissionModeOption(current string) acp.ConfigOption {
 		CurrentValue: current,
 		Options: []acp.ConfigOptionValue{
 			{Value: config.PermModeAsk, Name: "Ask", Description: "Always ask before running commands or writing files"},
-			{Value: config.PermModeAcceptEdits, Name: "Accept edits", Description: "Auto-approve file writes; ask before running commands"},
+			{Value: config.PermModeAcceptEdits, Name: "Accept edits", Description: "Auto-approve file writes inside the workspace; ask before running commands"},
 			{Value: config.PermModeBypass, Name: "Bypass", Description: "Never ask for permission"},
 		},
 	}

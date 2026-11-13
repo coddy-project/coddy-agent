@@ -134,7 +134,10 @@ When adding or changing behavior (including words like feature, add, implement, 
       updated in the same commit. A config key also flows through step 7, a CLI flag through step 11.
     - **Web UI and console features** - the page shows the feature, not only describes it: a screenshot
       of the real surface (Playwright against **`coddy serve`**, or the Konsole stand for the TUI)
-      embedded next to the paragraph that explains it, Dark theme 1280 px wide as the default, named
+      embedded next to the paragraph that explains it. Console captures must show the actual `coddy`
+      process running in a real Konsole window on an isolated Xvfb display. Never substitute a mockup,
+      a generated image, a manually composed terminal, a pyte cell-grid rendering or an HTML recreation.
+      Use Dark theme 1280 px wide as the default, named
       `<feature>-<state>-<theme>-<width>.png`, under **`docs/assets/<page>/`** when the page needs
       several and at the top level of **`docs/assets/`** otherwise, with a one-line italic caption. A demo video goes to **`docs/assets/video/`** (H.264, 1280 px wide, no audio, under 4 MB)
       and is embedded on the page as a GitHub attachment URL on a line of its own (uploaded through a comment box
@@ -157,8 +160,7 @@ When adding or changing behavior (including words like feature, add, implement, 
       **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`**; commit the result.
       **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for documentation
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and
-      on an unused asset. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`**
-      from the GitHub Releases.
+      on an unused asset.
     - **Translation** - the documentation is also in Russian: **`docs/ru/<group>/<page>.md`** translates
       **`docs/<group>/<page>.md`** under the same path. A change to an English page carries the same change
       into its translation in the same pull request; new or rewritten Russian prose is read by reviewers who

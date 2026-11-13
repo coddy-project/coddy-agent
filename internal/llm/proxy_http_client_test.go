@@ -35,8 +35,12 @@ func TestHTTPClientForProviderProxy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("providerTransport: %v", err)
 			}
-			if c == nil || c.Transport != want {
-				t.Fatalf("client transport %v, want the shared transport %v", c, want)
+			if c == nil {
+				t.Fatal("nil client")
+			}
+			traced, ok := c.Transport.(*httpTraceTransport)
+			if !ok || traced.inner != want {
+				t.Fatalf("client transport %v, want tracing over the shared transport %v", c, want)
 			}
 		})
 	}

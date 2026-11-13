@@ -83,6 +83,18 @@ func TestProcessGroupAliveFailsClosedWithoutAStartTime(t *testing.T) {
 	}
 }
 
+// A plain liveness probe also accepts records that predate the exact Windows
+// identity, such as the local IPC endpoint and the dispatcher startup probe.
+// The current creation time still has to identify one live process; the strict
+// zero-time refusal belongs to ProcessGroupAlive, which authorizes taskkill.
+func TestProcessAliveWorksWithoutAStartTime(t *testing.T) {
+	_, pid, _ := startProbeHelper(t)
+
+	if !ProcessAlive(pid, time.Time{}) {
+		t.Fatalf("ProcessAlive(%d) = false for a live process without a recorded start time", pid)
+	}
+}
+
 // Proving the identity in one call and killing by number in the next would leave
 // a window for the pid to change hands in between, which is the same mistake in
 // a smaller form. The kill therefore re-checks the identity itself, under a

@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/tidwall/gjson"
 )
 
@@ -22,14 +24,18 @@ type openAIProvider struct {
 	temp      float64
 	// tempSet sends temp even at zero: the caller asked for that value.
 	tempSet         bool
+	topP            *float64
 	reasoningEffort string
 	// modelParams is what the provider's model listing says the model takes
 	// (ProviderInput.SupportedParameters); nil when nothing is known.
 	modelParams []string
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string, userAgent string) *openAIProvider {
 	opts := []option.RequestOption{option.WithMaxRetries(0)}
+	if userAgent == "coddy" {
+		opts = append(opts, option.WithHeader("User-Agent", "Coddy/"+version.Get()))
+	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -52,7 +58,7 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("openai complete: %w", err)
+		return nil, withToolSchemaRequest(fmt.Errorf("openai complete: %w", err), params, false)
 	}
 	return p.parseCompletion(resp)
 }
@@ -62,7 +68,13 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 // blocking request, so it is set for the streaming path only.
 func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
 	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
-	for _, m := range messages {
+	// at[i] is where messages[i] landed in oaiMessages, -1 for a message that
+	// sends nothing; the cache marks are placed by it. It is read after the
+	// loop rather than written before the switch, so a role that stops
+	// appending leaves -1 behind instead of pointing at its neighbour.
+	at := make([]int, len(messages))
+	for i, m := range messages {
+		before := len(oaiMessages)
 		switch m.Role {
 		case RoleSystem:
 			oaiMessages = append(oaiMessages, openai.SystemMessage(m.Content))
@@ -119,16 +131,30 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			} else {
-				oaiMessages = append(oaiMessages, openai.AssistantMessage(m.Content))
+				asst := openai.AssistantMessage(m.Content)
+				if m.Reasoning != "" {
+					asst.OfAssistant.SetExtraFields(map[string]any{"reasoning_content": m.Reasoning})
+				}
+				oaiMessages = append(oaiMessages, asst)
 			}
 		case RoleTool:
 			oaiMessages = append(oaiMessages, openai.ToolMessage(m.Content, m.ToolCallID))
 		}
+		at[i] = -1
+		if len(oaiMessages) > before {
+			at[i] = before
+		}
+	}
+	if p.marksPromptCache() {
+		markOpenAIPromptCache(oaiMessages, messages, at)
 	}
 
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(p.model),
 		Messages: oaiMessages,
+	}
+	if p.topP != nil {
+		params.TopP = openai.Float(*p.topP)
 	}
 
 	// An OpenRouter-style aggregator lists the unified reasoning object for a
@@ -241,6 +267,105 @@ func (p *openAIProvider) finishParams(params openai.ChatCompletionNewParams, too
 	return params
 }
 
+// marksPromptCache reports whether the request carries cache_control marks:
+// for a Claude model behind an aggregator (anthropic/claude-..., OpenRouter's
+// naming), where Anthropic caches only what a request marks. OpenAI, Gemini,
+// DeepSeek and local servers cache a repeated prefix on their own.
+func (p *openAIProvider) marksPromptCache() bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(p.model)), "anthropic/")
+}
+
+// markOpenAIPromptCache puts the two marks the Anthropic provider sends on an
+// OpenAI-shaped request: the end of the last system message, which also covers
+// the tool definitions before it, and the last message before the request-only
+// tail (Ephemeral) that can take one, so the next request reads everything up
+// to there back from the cache. An assistant message that only calls tools has
+// no text to mark, so the mark goes to the message before it.
+func markOpenAIPromptCache(out []openai.ChatCompletionMessageParamUnion, messages []Message, at []int) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		// An empty system message takes no mark, so keep walking back rather
+		// than leaving the request without the breakpoint that covers the
+		// tool definitions.
+		if messages[i].Role == RoleSystem && at[i] >= 0 && markOpenAIMessage(&out[at[i]]) {
+			break
+		}
+	}
+	for i := len(messages) - 1 - trailingEphemeral(messages); i >= 0; i-- {
+		if messages[i].Role == RoleSystem {
+			break
+		}
+		if at[i] >= 0 && markOpenAIMessage(&out[at[i]]) {
+			break
+		}
+	}
+}
+
+// markOpenAIMessage marks the last text of a message built by buildParams,
+// turning a plain string into one text part; false when it has no text. An
+// empty text is never marked: Anthropic refuses a cache mark on it.
+func markOpenAIMessage(m *openai.ChatCompletionMessageParamUnion) bool {
+	switch {
+	case m.OfSystem != nil:
+		return markTextParts(&m.OfSystem.Content.OfString, &m.OfSystem.Content.OfArrayOfContentParts)
+	case m.OfTool != nil:
+		return markTextParts(&m.OfTool.Content.OfString, &m.OfTool.Content.OfArrayOfContentParts)
+	case m.OfUser != nil:
+		c := &m.OfUser.Content
+		if c.OfString.Valid() {
+			if c.OfString.Value == "" {
+				return false
+			}
+			part := cacheMarkedText(c.OfString.Value)
+			c.OfString = param.Opt[string]{}
+			c.OfArrayOfContentParts = []openai.ChatCompletionContentPartUnionParam{{OfText: &part}}
+			return true
+		}
+		for j := len(c.OfArrayOfContentParts) - 1; j >= 0; j-- {
+			if t := c.OfArrayOfContentParts[j].OfText; t != nil && t.Text != "" {
+				part := cacheMarkedText(t.Text)
+				c.OfArrayOfContentParts[j].OfText = &part
+				return true
+			}
+		}
+	case m.OfAssistant != nil:
+		c := &m.OfAssistant.Content
+		if c.OfString.Valid() && c.OfString.Value != "" {
+			part := cacheMarkedText(c.OfString.Value)
+			c.OfString = param.Opt[string]{}
+			c.OfArrayOfContentParts = []openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{{OfText: &part}}
+			return true
+		}
+	}
+	return false
+}
+
+// markTextParts marks the last text of a system or tool message.
+func markTextParts(s *param.Opt[string], parts *[]openai.ChatCompletionContentPartTextParam) bool {
+	if s.Valid() {
+		if s.Value == "" {
+			return false
+		}
+		*parts = []openai.ChatCompletionContentPartTextParam{cacheMarkedText(s.Value)}
+		*s = param.Opt[string]{}
+		return true
+	}
+	for j := len(*parts) - 1; j >= 0; j-- {
+		if (*parts)[j].Text != "" {
+			(*parts)[j] = cacheMarkedText((*parts)[j].Text)
+			return true
+		}
+	}
+	return false
+}
+
+// cacheMarkedText is a text part with Anthropic's cache mark, which OpenRouter
+// passes through to the provider.
+func cacheMarkedText(text string) openai.ChatCompletionContentPartTextParam {
+	part := openai.ChatCompletionContentPartTextParam{Text: text}
+	part.SetExtraFields(map[string]any{"cache_control": map[string]any{"type": "ephemeral"}})
+	return part
+}
+
 // reasoningOff is config.ReasoningOff, the level that turns thinking off
 // (the llm package does not import config).
 const reasoningOff = "off"
@@ -294,6 +419,8 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	msg := choice.Message
 
 	r := &Response{
+		UsageKnown:        openAIUsageKnown(resp.RawJSON()),
+		UsageIncomplete:   !openAIUsageKnown(resp.RawJSON()),
 		Content:           msg.Content,
 		Reasoning:         openAIReasoningText(msg.RawJSON()),
 		StopReason:        mapOpenAIStopReason(string(choice.FinishReason)),
@@ -312,6 +439,11 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	}
 
 	return r, nil
+}
+
+func openAIUsageKnown(raw string) bool {
+	u := gjson.Get(raw, "usage")
+	return u.IsObject() && u.Get("prompt_tokens").Type == gjson.Number && u.Get("completion_tokens").Type == gjson.Number
 }
 
 // openAIReasoningText pulls the thinking text out of a non-streamed assistant

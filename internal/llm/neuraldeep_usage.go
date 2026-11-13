@@ -82,7 +82,9 @@ type NeuralDeepUsage struct {
 	// session and week windows do not apply to the key.
 	FairUse *bool                   `json:"fair_use"`
 	Options []NeuralDeepUsageOption `json:"options"`
-	Key     NeuralDeepUsageKey      `json:"key"`
+	// Key is omitted when it is all empty: an object of empty strings reads
+	// as "a key with no state" rather than as nothing to say.
+	Key NeuralDeepUsageKey `json:"key,omitzero"`
 	// Decision and Chat are required blocks of the schema: a payload without
 	// them is not a limits answer, whatever its schema number says.
 	Decision      *NeuralDeepUsageDecision `json:"decision"`
@@ -130,11 +132,12 @@ type NeuralDeepUsageDecision struct {
 }
 
 // NeuralDeepUsageChat holds the chat-class windows, the live minute and the
-// cooldown of the account.
+// cooldown of the account. A gate or the rpm object with nothing in it is
+// omitted rather than emitted as an object of nulls.
 type NeuralDeepUsageChat struct {
-	Session     NeuralDeepUsageGate `json:"session"`
-	Week        NeuralDeepUsageGate `json:"week"`
-	RPM         NeuralDeepUsageRPM  `json:"rpm"`
+	Session     NeuralDeepUsageGate `json:"session,omitzero"`
+	Week        NeuralDeepUsageGate `json:"week,omitzero"`
+	RPM         NeuralDeepUsageRPM  `json:"rpm,omitzero"`
 	CooldownSec *int                `json:"cooldown_sec"`
 }
 

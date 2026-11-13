@@ -206,28 +206,6 @@ describe("deriveLiveStatus", () => {
     expect(s.key).toBe("status.awaitingAnswer");
   });
 
-  it("reports memory work below tool and thinking", () => {
-    const memory: TranscriptItem = {
-      id: "m1",
-      type: "memory_run",
-      status: "started",
-      taskId: "bg_1",
-      startedAtMs: 42,
-    };
-    expect(deriveLiveStatus([user(), memory]).key).toBe("status.memory");
-    expect(deriveLiveStatus([user(), memory]).startedAtMs).toBe(42);
-    expect(
-      deriveLiveStatus([user(), { ...memory, status: "finished" }]).key,
-    ).not.toBe("status.memory");
-    expect(
-      deriveLiveStatus([
-        user(),
-        memory,
-        { id: "th", type: "thinking", status: "in_progress", content: "" },
-      ]).kind,
-    ).toBe("thinking");
-  });
-
   // The dots used to vanish as soon as the turn had written anything, and a turn
   // that writes its answer is still working: the line says so in general words.
   it("reports writing while the turn's last row is its answer text", () => {
@@ -427,9 +405,8 @@ describe("the turn's start, for a line that has not heard from the server yet", 
     ).toBeUndefined();
   });
 
-  test("only a tool call and the memory run keep a clock of their own", () => {
+  test("only a tool call keeps a clock of its own", () => {
     expect(stepShowsItsOwnClock("tool")).toBe(true);
-    expect(stepShowsItsOwnClock("memory")).toBe(true);
     for (const kind of [
       "waiting",
       "thinking",

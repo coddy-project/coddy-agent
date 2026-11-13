@@ -10,7 +10,7 @@ Feature: The todo checklist under the transcript in the web UI
   Scenario: Opening a conversation shows its checklist under the newest message
     Then a conversation whose checklist has work left shows the list under its newest message
     And the item in progress is marked as the current step with a still mark of its own
-    And the checklist adds 6px above the transcript gap and gives it back on exit
+    And the checklist stands on the transcript's own gap and gives it back on exit
 
   Scenario: A running turn moves the checklist as the agent works through it
     Then the plan frames of a running turn move the checklist and the item in progress with it
@@ -18,7 +18,7 @@ Feature: The todo checklist under the transcript in the web UI
 
   Scenario: A finished list leaves once the turn is over
     Then the checklist stays while the turn that finished it runs and leaves once the turn is over
-    And the checklist stands above the live line and only at the newest end of the transcript
+    And the live line stands above the checklist and only at the newest end of the transcript
 
   Scenario: The list folds down to the items in progress
     Then a click on the list's head folds it to the item in progress and the choice is remembered

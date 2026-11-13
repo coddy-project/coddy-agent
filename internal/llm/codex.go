@@ -150,11 +150,12 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	// The request is the one ResponseService.NewStreaming sends; only the
 	// frames are read by codexEventDecoder instead of the SDK decoder.
 	var raw *http.Response
-	reqErr := client.Post(ctx, "responses", params, &raw, option.WithJSONSet("stream", true))
+	reqErr := client.Post(withSDKPreparation(ctx), "responses", params, &raw, option.WithJSONSet("stream", true))
 	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](newCodexEventDecoder(raw), reqErr)
 	defer func() { _ = stream.Close() }()
 
-	return consumeResponsesStream(stream, onChunk, "codex", p.encodeReasoningItems)
+	response, streamErr := consumeResponsesStream(stream, onChunk, "codex", p.encodeReasoningItems)
+	return response, withToolSchemaRequest(streamErr, params, false)
 }
 
 // codexReasoningCarrier travels in Message.ReasoningSignature: the reasoning

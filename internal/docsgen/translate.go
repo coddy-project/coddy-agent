@@ -329,9 +329,6 @@ func CheckTranslation(root string, nav *Nav, lang string, read func(rel string) 
 			problems = append(problems, Problem{rel, "must start with an H1 title"})
 		}
 		problems = append(problems, checkHeadings(rel, source, text, en)...)
-		if source == ChangelogFile {
-			continue // generated from the English changelog, release notes as published
-		}
 		if stamp, ok := ReadStamp(text); !ok {
 			problems = append(problems, Problem{rel, "no stamp: translate " + source + ", then stamp the page with make docs-stamp"})
 		} else if digest := SourceDigest(en); stamp != digest {
@@ -612,29 +609,4 @@ func schemaDescriptions(schemaJSON []byte) (descriptionSet, error) {
 		}
 	}
 	return set, nil
-}
-
-// changelogHeaders are the title and introduction of a translated changelog;
-// the release notes under them are copied as published.
-var changelogHeaders = map[string]string{
-	docs.Russian: "# История изменений\n\nЗаметки к каждой опубликованной версии, собранные из [GitHub Releases](%s) репозитория командой `make docs-changelog`. `coddy update` печатает заметки версий, через которые перескакивает обновление, так что ответ на вопрос \"что изменилось\" после обновления виден и на экране. Тексты релизов приводятся так, как они опубликованы, на английском.\n",
-}
-
-var releasesURLRE = regexp.MustCompile(`https://github\.com/[^/\s)]+/[^/\s)]+/releases`)
-
-// RussianChangelog derives the Russian changelog from the English one: a
-// Russian title and introduction over the release notes as published.
-func RussianChangelog(en string) string { return translatedChangelog(docs.Russian, en) }
-
-func translatedChangelog(lang, en string) string {
-	en = strings.ReplaceAll(en, "\r\n", "\n")
-	url := "https://github.com/coddy-project/coddy-agent/releases"
-	if m := releasesURLRE.FindString(en); m != "" {
-		url = m
-	}
-	header := fmt.Sprintf(changelogHeaders[lang], url)
-	if i := strings.Index(en, "\n## "); i >= 0 {
-		return header + en[i:]
-	}
-	return header
 }

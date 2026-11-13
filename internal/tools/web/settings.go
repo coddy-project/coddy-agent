@@ -55,6 +55,10 @@ type Settings struct {
 	// BraveAPIKey routes the Brave backend to the official Search API instead
 	// of parsing the HTML page: a stable contract with no parser to break.
 	BraveAPIKey string
+	// DeepSeekAPIKey is the DeepSeek Search API key. Unlike Brave there is no
+	// HTML page to fall back on, so a missing key blocks the engine instead of
+	// degrading to a scraper.
+	DeepSeekAPIKey string
 }
 
 // ResolvedEngines returns the configured engine list, or the default set.

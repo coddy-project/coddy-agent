@@ -18,26 +18,47 @@ import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
+import { telegramLaunch } from "./ui/telegram/launch";
 import { registerServiceWorker } from "./ui/pwa/serviceWorker";
 import { followThemeColor } from "./ui/pwa/themeColor";
+import {
+  applyServerThemeDefaults,
+  loadUiDefaults,
+} from "./ui/theme/uiDefaults";
+import { followBackdrop } from "./ui/theme/backdropPrefs";
 import {
   startPanelNavigation,
   startPanelTheme,
 } from "./ui/browserPanel/bridge";
+import { installSessionScopeBridge } from "./ui/chat/sharedServerEvents";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
 installRemoteFetchShim();
+// The desktop shell reads no session state before the environment-aware fetch
+// and its live credential scope are both available on the iframe window.
+installSessionScopeBridge();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
 bootstrapUiSimpleFromCookie();
+// The deployment's defaults (CODDY_UI_THEME / CODDY_UI_WALLPAPER, read off
+// GET /coddy/info) apply while the browser has made no pick of its own.
+// Inside Telegram the theme follows Telegram's, so no server default is
+// applied there (initTelegramMiniApp runs synchronously below and the
+// resolved default would otherwise overwrite it).
+void loadUiDefaults().then((defaults) => {
+  if (!telegramLaunch()) applyServerThemeDefaults(defaults);
+});
 // After the theme: inside Telegram the theme follows Telegram's until the user
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
 // The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
 followThemeColor();
+// The browser-local wallpaper chosen in Settings → Appearance
+// (ui/theme/backdropPrefs.ts).
+followBackdrop();
 // In the side panel of Coddy for Browser the panel's strip takes the theme's
 // colours too (ui/browserPanel/bridge.ts), and the panel may open the chat that
 // holds the person's tab. Outside the panel this does nothing.

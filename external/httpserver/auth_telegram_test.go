@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -23,6 +25,8 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
 const tgSignInToken = "123456:mini-app-test"
@@ -180,6 +184,75 @@ func TestTelegramSignInEdges(t *testing.T) {
 		srv.Handler().ServeHTTP(httptest.NewRecorder(), r)
 		if reachesAPI(srv, c) != http.StatusUnauthorized {
 			t.Fatal("the Mini App session survived the sign-out")
+		}
+	})
+}
+
+// A sign-in needs a confirmed record of used launches. A storage failure
+// refuses sign-in, even when rename already committed the launch as used.
+func TestTelegramSignInReplayRecord(t *testing.T) {
+	now := time.Now()
+	t.Run("directory sync fails after commit", func(t *testing.T) {
+		srv := newTelegramServer(t, "login", 7)
+		data := signedLaunch(tgSignInToken, 7, now)
+		restore := platform.InjectDirSyncFault()
+		w := telegramSignIn(srv, data, nil)
+		restore()
+		if w.Code != http.StatusInternalServerError || tgCookieOf(w) != nil {
+			t.Fatalf("sync failure: %d, cookie %v", w.Code, tgCookieOf(w))
+		}
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusUnauthorized || tgCookieOf(w) != nil {
+			t.Fatalf("replay after sync failure: %d, cookie %v", w.Code, tgCookieOf(w))
+		}
+	})
+	t.Run("the record cannot be written", func(t *testing.T) {
+		srv := newTelegramServer(t, "login", 7)
+		missing := filepath.Join(srv.activeCfg().Paths.Home, "missing", "telegram-launches.json")
+		srv.tgReplay.SetFile(missing)
+		data := signedLaunch(tgSignInToken, 7, now)
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusInternalServerError || tgCookieOf(w) != nil {
+			t.Fatalf("unwritable record: %d, cookie %v", w.Code, tgCookieOf(w))
+		}
+		// The launch was not spent: once the record writes again the
+		// same launch signs in, and only then is it spent for good.
+		if err := os.Mkdir(filepath.Dir(missing), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusOK || tgCookieOf(w) == nil {
+			t.Fatalf("retry after recovery: %d %s", w.Code, w.Body)
+		}
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusUnauthorized {
+			t.Fatalf("replay: %d", w.Code)
+		}
+	})
+	t.Run("a damaged record", func(t *testing.T) {
+		srv := newTelegramServer(t, "login", 7)
+		path := filepath.Join(srv.activeCfg().Paths.Home, "telegram-launches.json")
+		if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if w := telegramSignIn(srv, signedLaunch(tgSignInToken, 7, now), nil); w.Code != http.StatusInternalServerError || tgCookieOf(w) != nil {
+			t.Fatalf("damaged record: %d, cookie %v", w.Code, tgCookieOf(w))
+		}
+		// Removing the damaged record lets sign-in work again.
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if w := telegramSignIn(srv, signedLaunch(tgSignInToken, 7, now), nil); w.Code != http.StatusOK {
+			t.Fatalf("after the record was removed: %d", w.Code)
+		}
+	})
+	t.Run("a restart keeps the launch spent", func(t *testing.T) {
+		srv := newTelegramServer(t, "login", 7)
+		data := signedLaunch(tgSignInToken, 7, now)
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusOK {
+			t.Fatalf("first use: %d %s", w.Code, w.Body)
+		}
+		// A restarted server reads the record its file kept.
+		srv.tgReplay = webauth.ReplayGuard{}
+		srv.tgReplay.SetFile(filepath.Join(srv.activeCfg().Paths.Home, "telegram-launches.json"))
+		if w := telegramSignIn(srv, data, nil); w.Code != http.StatusUnauthorized {
+			t.Fatalf("replay after restart: %d", w.Code)
 		}
 	})
 }

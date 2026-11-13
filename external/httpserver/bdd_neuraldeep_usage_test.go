@@ -174,7 +174,7 @@ func (s *neuralDeepUsageBDDState) buildServer(panel bool) error {
 		Paths: config.Paths{Home: s.home, CWD: s.home, ConfigPath: filepath.Join(s.home, "config.yaml")},
 		Providers: []config.ProviderConfig{
 			neuraldeep,
-			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
+			{Name: "stub", Type: "anthropic", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{
 			{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000},

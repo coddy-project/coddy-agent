@@ -36,6 +36,12 @@ function px(value: string | undefined): number {
 }
 
 describe("a tool row never widens the transcript", () => {
+  test("a targetless head lays its label and duration out as inline text", () => {
+    expect(decl(rule(".thinking-head--targetless"), "display")).toBe("block");
+    expect(
+      decl(rule(".thinking-head--targetless .thinking-label"), "display"),
+    ).toBe("inline");
+  });
   test("the label keeps its line while it fits, and wraps inside the row when it does not", () => {
     const label = rule(".thinking-head .thinking-label");
     // It never gives way to a sibling: a short label next to a long target
@@ -89,6 +95,20 @@ describe("a tool row never widens the transcript", () => {
 
   test("the duration never shrinks", () => {
     expect(decl(rule(".thinking-head .thinking-dur"), "flex")).toBe("0 0 auto");
+  });
+
+  // Regression: the row's head was inset 14px on the left, as an answer's
+  // prose is, and nothing on the right, so a label that wrapped ran to the
+  // very edge of the column while the answer beside it stopped 14px short.
+  // On a phone, where the column is the page, the transcript then read as
+  // wider on the right than on the left.
+  test("the head keeps the prose inset on both sides", () => {
+    const left = rule(".thinking-left");
+    const card = rule(".msg");
+    const prose = px((decl(card, "padding") ?? "").split(/\s+/)[1]);
+    expect(prose).toBeGreaterThan(0);
+    expect(px(decl(left, "padding-left"))).toBe(prose);
+    expect(px(decl(left, "padding-right"))).toBe(prose);
   });
 });
 

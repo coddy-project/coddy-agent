@@ -32,6 +32,8 @@ type agentToolRow struct {
 	call      llm.AgentToolCall
 	inputSent string
 	ended     bool
+	// textOffset is where in the answer the call was announced; see report.
+	textOffset int
 }
 
 func (a *Agent) newAgentToolRows(sessionID string) *agentToolRows {
@@ -42,15 +44,18 @@ func (a *Agent) newAgentToolRows(sessionID string) *agentToolRows {
 	return r
 }
 
-// report draws a call as the agent last reported it.
-func (r *agentToolRows) report(c llm.AgentToolCall) {
+// report draws a call as the agent last reported it. answered is how many
+// characters of the answer the agent had written when the call was announced;
+// it is kept on the row so a surface rebuilding the turn can put the call back
+// where it happened instead of ahead of the whole answer.
+func (r *agentToolRows) report(c llm.AgentToolCall, answered int) {
 	if strings.TrimSpace(c.ID) == "" {
 		return
 	}
 	c.ID = session.AgentToolID(c.ID)
 	row := r.rows[c.ID]
 	if row == nil {
-		row = &agentToolRow{}
+		row = &agentToolRow{textOffset: max(0, answered)}
 		r.rows[c.ID] = row
 		r.order = append(r.order, c.ID)
 		r.send(acp.ToolCallUpdate{
@@ -127,7 +132,10 @@ func (r *agentToolRows) stored() []llm.AgentToolCall {
 	}
 	out := make([]llm.AgentToolCall, 0, len(r.order))
 	for _, id := range r.order {
-		out = append(out, session.StoredAgentTool(r.rows[id].call))
+		row := r.rows[id]
+		call := session.StoredAgentTool(row.call)
+		call.TextOffset = row.textOffset
+		out = append(out, call)
 	}
 	return out
 }

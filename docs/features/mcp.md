@@ -118,10 +118,7 @@ stays in `config.yaml`, unused, until the file is repaired; a save from Settings
 as it is. The block ends where the parser puts the next key, so a comment at column 0 among
 the items, a list written without indentation or a flow list closed at column 0 goes whole. A
 key inside a flow mapping (`{mcp_servers: [...], ...}` on one line) is not a block of lines:
-its servers move, the key stays, and the log asks to delete it by hand. A `config.yaml` read
-from the workspace because the home has none is never rewritten and its servers never move:
-that file may have come with a checkout, and its servers would become yours in every
-workspace. `coddy -t` reports a leftover key as a warning saying where the servers go and
+its servers move, the key stays, and the log asks to delete it by hand. `coddy -t` reports a leftover key as a warning saying where the servers go and
 writes nothing. The **MCP servers** tab of the web
 settings keeps its address, `#/settings/mcp_servers`.
 
@@ -158,7 +155,10 @@ the operator approves that exact declaration for that workspace.
   and the variables its values read, never their values;
 - rewriting an approved entry changes the digest and withdraws the approval, so the next
   session asks again. Enable/disable and `disabledTools` do not: they are operational
-  switches, not a trust boundary;
+  switches, not a trust boundary. The digest covers the declaration, not the files it runs:
+  a server whose command is a script of the checkout (`./tools/mcp.sh`, `node server.js`)
+  keeps its approval when that script changes, so read such a script the way you read the
+  declaration (project hooks files bind their scripts, [Hooks](hooks.md#project-files-and-trust));
 - the gate is re-checked immediately before the process is spawned or the URL is contacted,
   on both the session path and the management probe, so listing servers never starts a
   command that has not been approved;
@@ -687,6 +687,24 @@ after the user agreed add the entry to `~/.coddy/mcp.json` with its file tools, 
 user the tools arrive with the next turn.
 
 ## Error Handling
+
+Tool parameter schemas accompany every request that offers tools, even a simple
+greeting, before any tool runs. If the provider rejects them as too large or too
+complex, Coddy explains the failure. Offer fewer tools by disabling unused MCP
+tools or servers, or ask the responsible server's maintainer to simplify its
+parameter schemas. Coddy names a tool or server only when the diagnostic and
+outgoing request establish its identity; otherwise it reports the culprit as
+unknown. Limits vary by provider. Coddy reports a recognized limit when available
+and leaves other limits unknown, without changing schemas or repeating the same
+rejected request. Compacting the conversation does not shrink tool schemas.
+
+![Console explanation of a tool schema rejection in the Dark theme](../assets/mcp/tool-schema-error-dark-1280.png)
+
+*Coddy explains why a greeting failed and suggests fewer tools or simpler parameter schemas.*
+
+![Console explanation of a tool schema rejection in the Light theme](../assets/mcp/tool-schema-error-light-1280.png)
+
+*The same tool schema rejection in the Light theme.*
 
 - If an MCP server fails to start, the session still proceeds with a warning,
   and the server is not dialed again at every turn: an edit of its declaration,

@@ -76,5 +76,5 @@ func WriteMarketplacesFile(path string, file MarketplacesFile) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(path, append(data, '\n'), 0o644)
+	return AtomicWriteFile(path, append(data, '\n'), 0o644)
 }

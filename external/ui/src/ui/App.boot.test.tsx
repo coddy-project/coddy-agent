@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { fakeChannels, fakeWorkers } from "./chat/sharedServerEvents.fakes";
@@ -15,14 +15,21 @@ const json = (body: unknown, status = 200) =>
 type ChatScreenProps = {
   sessionId: string | undefined;
   sessionLoading: boolean | undefined;
+  tokenUsage?: unknown;
 };
 const chatScreenRenders: ChatScreenProps[] = [];
+let statsUsage: Record<string, unknown> | undefined;
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: (props: { sessionId?: string; sessionLoading?: boolean }) => {
+  ChatScreen: (props: {
+    sessionId?: string;
+    sessionLoading?: boolean;
+    tokenUsage?: unknown;
+  }) => {
     chatScreenRenders.push({
       sessionId: props.sessionId,
       sessionLoading: props.sessionLoading,
+      tokenUsage: props.tokenUsage,
     });
     return <div data-testid="chat-screen-stub" />;
   },
@@ -42,16 +49,52 @@ const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
       title: "",
     });
   }
+  if (url.includes("/coddy/sessions/") && url.endsWith("/stats")) {
+    return json({ stats: { tokenUsageTotal: statsUsage } });
+  }
   return json({});
 });
 
 beforeEach(() => {
   initLocale("en");
+  vi.stubGlobal("matchMedia", () => ({
+    matches: false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+  fetchStub.mockClear();
   chatScreenRenders.length = 0;
+  statsUsage = undefined;
   fakeChannels();
   fakeWorkers(fetchStub);
   vi.stubGlobal("fetch", fetchStub);
   window.location.hash = "#/s/sess_x";
+});
+
+test.each([
+  [false, null],
+  [true, { inputTokens: 0, outputTokens: 0, totalTokens: 0 }],
+  [undefined, { inputTokens: 0, outputTokens: 0, totalTokens: 0 }],
+])("restores token usage presence %s", async (known, expected) => {
+  statsUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    usageKnown: known,
+  };
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchStub.mock.calls.some(([url]) => String(url).endsWith("/stats")),
+    ).toBe(true),
+  );
+  await waitFor(() =>
+    expect(chatScreenRenders.at(-1)?.tokenUsage).toEqual(expected),
+  );
 });
 
 afterEach(() => {

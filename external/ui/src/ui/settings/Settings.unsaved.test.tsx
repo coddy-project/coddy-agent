@@ -352,3 +352,121 @@ test("a copy landing during a save does not take a value put back meanwhile", as
   await waitFor(() => expect(status()).toBe("Unsaved changes"));
   expect(input.value).toBe("40");
 });
+
+test("Kimi login puts its generated identity in the saved provider row", async () => {
+  const identity = "0123456789abcdef0123456789abcdef";
+  const providerSchema = {
+    type: "object",
+    "x-coddy-property-order": ["providers"],
+    properties: {
+      providers: {
+        type: "array",
+        title: "LLM providers",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", title: "Provider name" },
+            type: { type: "string", title: "Provider type", enum: ["kimi"] },
+            mode: {
+              type: "string",
+              title: "Kimi mode",
+              enum: ["", "subscription", "platform"],
+            },
+            region: {
+              type: "string",
+              title: "Kimi region",
+              enum: ["", "global", "china"],
+            },
+            kimi_identity: { type: "string", title: "Kimi identity" },
+            proxy: { type: "string", title: "Proxy URL" },
+          },
+        },
+      },
+    },
+  };
+  config = {
+    revision: "rev-1",
+    providers: [
+      { name: "kimi", type: "kimi", mode: "subscription", region: "global" },
+    ],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init?: RequestInit) => {
+      const method = init?.method || "GET";
+      const reply = (body: unknown, status = 200) => ({
+        ok: status < 400,
+        status,
+        json: async () => structuredClone(body),
+      });
+      if (path === "/coddy/config/schema") return reply(providerSchema);
+      if (path === "/coddy/config" && method === "GET") return reply(config);
+      if (path === "/coddy/config/validate") return reply({ ok: true });
+      if (path === "/coddy/config" && method === "PUT") {
+        config = JSON.parse(String(init?.body));
+        puts.push(config);
+        return reply({ ok: true });
+      }
+      if (path === "/coddy/providers/models")
+        return reply({ ok: true, models: [] });
+      if (path.includes("/kimi-auth/device") && method === "POST")
+        return reply({
+          login_id: "attempt",
+          user_code: "1234",
+          verification_url: "https://www.kimi.ai/code/authorize_device",
+          status: "pending",
+          mode: "subscription",
+          region: "global",
+          kimi_identity: identity,
+        });
+      if (path.includes("/kimi-auth/device/") && method === "GET")
+        return reply({
+          status: "completed",
+          connected: false,
+          save_required: true,
+        });
+      if (path.includes("/kimi-auth")) {
+        const saved = puts.length > 0;
+        return reply({
+          connected: saved,
+          source: saved ? "managed" : "none",
+          cancelled: true,
+        });
+      }
+      return reply({}, 404);
+    }),
+  );
+  render(<Settings onClose={() => {}} initialSection="providers" />);
+  fireEvent.click(await screen.findByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByText("Sign in with Kimi"));
+  await screen.findByText("1234");
+  expect(
+    await screen.findByText(
+      "Sign-in confirmed. Save the provider settings to use it.",
+      {},
+      { timeout: 4000 },
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText("Signed in with Coddy")).toBeNull();
+  expect(status()).toBe("Unsaved changes");
+  fireEvent.click(saveButton());
+  await waitFor(() => expect(puts).toHaveLength(1));
+  expect((puts[0]!.providers as Doc[])[0]!.kimi_identity).toBe(identity);
+  expect(await screen.findByText("Signed in with Coddy")).toBeTruthy();
+  cleanup();
+  resetSettingsConfigForTests();
+  render(<Settings onClose={() => {}} initialSection="providers" />);
+  fireEvent.click(await screen.findByTestId("settings-master-item-0"));
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/kimi-auth?") &&
+            String(url).includes(`kimi_identity=${identity}`) &&
+            !init?.method,
+        ),
+    ).toBe(true),
+  );
+});

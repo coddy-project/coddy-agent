@@ -14,6 +14,7 @@ import (
 	"time"
 
 	board "github.com/EvilFreelancer/coddy-agent/internal/canvas"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -177,8 +178,27 @@ func writeFrames(b *strings.Builder, bd board.Board) {
 		if fr.Title != "" {
 			fmt.Fprintf(b, "  %q", fr.Title)
 		}
+		if fr.Held {
+			b.WriteString("  (waits for the person)")
+		}
 		b.WriteString("\n")
 	}
+	if bd.Held() {
+		b.WriteString(heldNote(bd))
+	}
+}
+
+// heldNote says why some pages of a board do not run: the board came with the
+// workspace, and only the person can let them run. Under deny it names no way
+// around the policy: the operator set it, and a note that told the model how
+// to release a page anyway would be the instruction an injected page needs.
+func heldNote(bd board.Board) string {
+	if bd.Policy() == config.ProjectTrustDeny {
+		return "The pages marked as waiting came with the workspace's board and do not run: tools.canvas.project_trust is deny. " +
+			"Only the operator can change that, in the configuration. Do not try to run these pages another way.\n"
+	}
+	return "The pages marked as waiting came with the workspace's board: they run once the person trusts the board's pages from a " +
+		"waiting frame in the web UI. Showing a page with " + ToolShow + " runs that page alone.\n"
 }
 
 // describeOpened is the result of opening a .canvas file as the chat's
@@ -285,11 +305,17 @@ func executeInspect(ctx context.Context, argsJSON string, env *tooling.Env) (str
 	}
 	sessionID := board.SessionIDOfBundle(ref.Bundle)
 	reports := board.DefaultReports()
+	waiting := false
 	deadline := time.Now().Add(time.Duration(args.WaitSeconds) * time.Second)
 	var out strings.Builder
 	for i, f := range frames {
 		if i > 0 {
 			out.WriteString("\n")
+		}
+		if f.Held {
+			fmt.Fprintf(&out, "Frame %s: %s (%s)\nThe page does not run: it waits for the person, so no browser reports on it.\n", f.ID, f.Path, sizeName(f))
+			waiting = true
+			continue
 		}
 		stamp := board.Stamp(f.Workspace, f.Root)
 		key := board.NodeKey(b.File, f.ID)
@@ -304,6 +330,9 @@ func executeInspect(ctx context.Context, argsJSON string, env *tooling.Env) (str
 		}
 		_, had := reports.Get(sessionID, key)
 		describeReport(&out, f, rep, had, fresh, time.Now())
+	}
+	if waiting {
+		out.WriteString(heldNote(b))
 	}
 	return strings.TrimRight(out.String(), "\n"), nil
 }
@@ -380,5 +409,8 @@ func refOf(env *tooling.Env, file string) (board.Ref, error) {
 			return board.Ref{}, fmt.Errorf("the canvas of this chat shows files of %s, and this subagent works in %s: leave the page to the chat to show", chat, env.CWD)
 		}
 	}
-	return board.Ref{Bundle: bundle, Workspace: env.CWD, File: strings.TrimSpace(file)}, nil
+	return board.Ref{
+		Bundle: bundle, Workspace: env.CWD, File: strings.TrimSpace(file),
+		Trust: board.NewTrust(env.ConfigHome, env.CanvasProjectTrust),
+	}, nil
 }

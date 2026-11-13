@@ -116,7 +116,7 @@ func configWith(models map[string][]string) *config.Config {
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: name, Type: "openai"})
+		cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: name, Type: "openai", UsageLimitsPanel: new(bool)})
 		for _, m := range models[name] {
 			cfg.Models = append(cfg.Models, config.ModelEntry{Model: name + "/" + m})
 		}

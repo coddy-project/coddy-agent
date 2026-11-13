@@ -4,6 +4,13 @@
 
 * {
   box-sizing: border-box;
+  /* The width of the app's scrollbars, set here and not on the root because
+     `scrollbar-width` does not inherit (`scrollbar-color`, below, does): a
+     scroller deeper in the page keeps the platform's wide bar otherwise, which
+     is what the transcript did while only the root asked for a thin one. A
+     surface that hides or restyles its own bar names it in its own rule and
+     wins on specificity. */
+  scrollbar-width: thin;
 }
 
 html,
@@ -13,12 +20,48 @@ body,
   min-height: 100%;
 }
 
-/* The grain masks the rings the browser's ordered dither draws in the glows
-   on a high-contrast screen (issue #622). A phone's browser keeps the sizes the
-   stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for a
-   wide block, such as the rows of a diff. */
+/* The root keeps the theme's colour and nothing else to paint; what the page
+   stands on is the canvas layer below. A phone's browser keeps the sizes the
+   stylesheet sets: iOS Safari otherwise enlarges the text of what it takes for
+   a wide block, such as the rows of a diff. */
 html {
   color-scheme: dark;
+  background-color: var(--coddy-canvas-gradient-bottom);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* One scrollbar for the whole app, in the theme's own ink: the bar the
+     platform paints is wide and light-grey, and on a dark canvas it reads as a
+     strip of another program. The ink inherits, so the root reaches every
+     scroller the page opens - a code block, a picker, a window - and a surface
+     that wants its own (the settings drawer, a diff) keeps overriding it. With
+     the width above, these two are the whole of the styling: Chromium ignores
+     every ::-webkit-scrollbar rule for an element once either one is set. */
+  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
+}
+
+/* The canvas: one fixed layer behind the whole page, carrying the theme's two
+   glows over its top-to-bottom gradient, and the grain over both - the grain
+   masks the rings the browser's ordered dither draws in the glows on a
+   high-contrast screen (issue #622).
+
+   A layer and not the root's own background, because background-attachment:
+   fixed is the one thing that cannot be relied on here: mobile WebKit ignores
+   it, and on the stacked shell the root's box is the whole document
+   (html { height: auto } below, so the document scrolls under the sticky
+   chrome). Painted on the root, the canvas was therefore sized to the whole
+   conversation on a phone: the glows, which are placed at a per cent of their
+   box, left the screen entirely and the gradient stretched over the page, so
+   the canvas read as one flat colour and a chosen wallpaper showed one
+   magnified fragment of itself, stretching further as the conversation grew.
+   A fixed box is the viewport on every engine, which is what both are meant
+   to fill. The layer is behind everything the page draws (z-index: -1 in the
+   root stacking context, over the root's own colour) and takes no pointer. */
+html::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     var(--coddy-grain),
     radial-gradient(
@@ -36,10 +79,6 @@ html {
       var(--coddy-canvas-gradient-top),
       var(--coddy-canvas-gradient-bottom)
     );
-  background-color: var(--coddy-canvas-gradient-bottom);
-  background-attachment: fixed;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
 }
 
 html[data-theme="light"] {
@@ -49,6 +88,28 @@ html[data-theme="light"] {
 /* The glass panels blur the grain away and leave one-level steps. */
 html :is(.chat-header, .rail-pill, .composer-card) {
   background-image: var(--coddy-grain);
+}
+
+/* A wallpaper the person chose (Settings → Appearance) takes the canvas layer
+   over, dimmed toward the theme's canvas colour so text on the glass stays
+   readable. Both selectors, so the layer keeps its specificity over the flat
+   canvas the simplified mode paints in its place. */
+html[data-wallpaper="true"]::before,
+html[data-wallpaper="true"][data-simple="on"]::before {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%),
+        transparent
+      )
+    ),
+    var(--coddy-wallpaper) center / cover no-repeat;
 }
 
 body {

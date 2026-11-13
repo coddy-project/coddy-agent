@@ -77,6 +77,8 @@ const rootSchema: JsonSchema = {
               "neuraldeep",
               "opencode",
               "codex",
+              "devin",
+              "kimi",
               "acp",
             ],
           },
@@ -99,7 +101,23 @@ const rootSchema: JsonSchema = {
               },
             },
           },
+          mode: {
+            type: "string",
+            title: "Kimi mode",
+            enum: ["", "subscription", "platform"],
+          },
+          region: {
+            type: "string",
+            title: "Kimi region",
+            enum: ["", "global", "china"],
+          },
           api_base: { type: "string", title: "API base URL" },
+          user_agent: {
+            type: "string",
+            title: "User-Agent",
+            enum: ["", "openai", "anthropic", "coddy"],
+            default: "",
+          },
           api_key: { type: "string", title: "API key" },
           api_key_command: { type: "string", title: "API key command" },
           proxy: { type: "string", title: "Proxy URL" },
@@ -108,7 +126,10 @@ const rootSchema: JsonSchema = {
           "name",
           "type",
           "acp",
+          "mode",
+          "region",
           "api_base",
+          "user_agent",
           "api_key",
           "api_key_command",
           "proxy",
@@ -157,6 +178,35 @@ function firstProxy(doc: Record<string, unknown>): unknown {
   const rows = doc.providers as Record<string, unknown>[] | undefined;
   return rows?.[0]?.proxy;
 }
+
+test("Kimi subscription exposes account sign-in in Settings and hides it in platform mode", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ connected: false, source: "none" }), {
+          status: 200,
+        }),
+    ),
+  );
+  render(
+    <Harness
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "china",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(await screen.findByTestId("kimi-auth-field")).toBeTruthy();
+  expect(screen.getByText("Sign in with Kimi")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Kimi mode"), {
+    target: { value: "platform" },
+  });
+  expect(screen.queryByTestId("kimi-auth-field")).toBeNull();
+});
 
 test("OpenCode keeps its gateway picker and indexes its displayed description", async () => {
   const provider = {
@@ -307,6 +357,86 @@ test("OpenCode account sign-in uses the unsaved proxy", async () => {
   expect(
     await screen.findByTestId("opencode-auth-sign-in"),
   ).toBeInTheDocument();
+});
+
+test("Devin account sign-in uses the unsaved proxy and callback paste", async () => {
+  let approved = false;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/devin-auth/device") && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "devin-login",
+            verification_url: "https://devin.example/login",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/devin-login/paste")) {
+        return { ok: true, json: async () => ({ status: "pending" }) };
+      }
+      if (url.endsWith("/device/devin-login")) {
+        approved = true;
+        return {
+          ok: true,
+          json: async () => ({ status: "completed", connected: true }),
+        };
+      }
+      if (init?.method === "DELETE") {
+        approved = false;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          connected: approved,
+          source: approved ? "coddy" : "none",
+          email: approved ? "dev@example.com" : undefined,
+        }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  render(
+    <Harness
+      provider={{
+        name: "devin",
+        type: "devin",
+        proxy: "http://proxy.example:8080",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("devin-auth-sign-in"));
+  expect(await screen.findByTestId("devin-callback-paste")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/devin/devin-auth/device",
+    expect.objectContaining({
+      body: JSON.stringify({ proxy: "http://proxy.example:8080" }),
+    }),
+  );
+  expect(open).toHaveBeenCalledWith(
+    "https://devin.example/login",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  fireEvent.change(screen.getByTestId("devin-callback-paste"), {
+    target: {
+      value: "http://127.0.0.1:1234/callback?code=abc&state=xyz",
+    },
+  });
+  fireEvent.click(screen.getByTestId("devin-paste-submit"));
+  expect(
+    await screen.findByText(
+      "Signed in to Devin (dev@example.com).",
+      {},
+      { timeout: 3000 },
+    ),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
+  expect(await screen.findByTestId("devin-auth-sign-in")).toBeInTheDocument();
 });
 
 // A failed attempt keeps the code beside its reason: the operator compares it
@@ -1727,7 +1857,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
             type: {
               type: "string",
               title: "Provider type",
-              enum: ["openai", "codex"],
+              enum: ["anthropic", "codex"],
             },
             usage_limits_panel: {
               type: "boolean",
@@ -1754,7 +1884,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
     );
   }
 
-  const { unmount } = render(<TypedHarness type="openai" />);
+  const { unmount } = render(<TypedHarness type="anthropic" />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   expect(
     screen.queryByRole("switch", { name: "Usage limits panel" }),
@@ -2504,6 +2634,31 @@ describe("settings search index matches the drawing", () => {
     return pages;
   }
 
+  test("authentication fields are searchable by their displayed names in both languages", async () => {
+    for (const [sc, names] of [
+      [AGENT_EN, ["Enabled", "Login", "Password", "Session duration (hours)"]],
+      [AGENT_RU, ["Включено", "Логин", "Пароль", "Длительность сеанса (часы)"]],
+    ] as const) {
+      const index = indexFor(sc);
+      const page = await readPage(sc, index, "httpserver", null);
+      for (const name of names) {
+        const hit = searchSettings(index, name, index.length).hits.find(
+          ({ entry }) =>
+            entry.section === "httpserver" &&
+            entry.kind === "field" &&
+            entry.names.includes(name),
+        );
+        expect(hit, `${sc.name}: ${name}`).toBeDefined();
+        expect(
+          page.drawn.some(
+            (box) =>
+              box.anchor === hit!.entry.anchor && box.names.includes(name),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
   test("every drawn anchor is indexed and every indexed anchor is drawn, once or once per entry its list draws, tab by tab and row by row", async () => {
     for (const sc of SCENARIOS) {
       const pages = await pagesOf(sc);
@@ -2687,7 +2842,7 @@ describe("settings search index matches the drawing", () => {
     expect(labels).toContain(
       `${messagesEn["appearance.themeLabel"]} | ${landmarkAnchor("appearance", "theme")}`,
     );
-    expect(labels).toHaveLength(3);
+    expect(labels).toHaveLength(4);
   }, 240_000);
 
   test("the legend check fails a heading whose box lost its anchor and a box whose entry is gone", async () => {
@@ -2817,10 +2972,11 @@ describe("settings search index matches the drawing", () => {
     const inside = await appearance(AGENT_TELEGRAM);
     expect(inside.drawn.map((d) => d.anchor)).not.toContain(anchor);
     expect(inside.expected.map((e) => e.anchor)).not.toContain(anchor);
-    // Theme, the simplified mode and language are still there.
+    // Theme, simplified mode, wallpaper and language remain in drawing order.
     expect(inside.drawn.map((d) => d.anchor)).toEqual([
       landmarkAnchor("appearance", "theme"),
       landmarkAnchor("appearance", "simple"),
+      landmarkAnchor("appearance", "wallpaper"),
       landmarkAnchor("appearance", "language"),
     ]);
     expect(drawingDifferences(inside.expected, inside.drawn)).toEqual({
@@ -2951,4 +3107,451 @@ test("the Metrics tab names its fields and their hints in Russian", () => {
   for (const hint of hints) {
     expect(hint).toMatch(/[а-яё]/i);
   }
+});
+
+test.each([
+  ["openai", "OpenAI/Go", ""],
+  ["anthropic", "Anthropic/Go", ""],
+  ["anthropic", "Anthropic/Go", "openai"],
+  ["openai", "OpenAI/Go", "anthropic"],
+])(
+  "%s provider defaults to its SDK and saves Coddy",
+  (type, label, userAgent) => {
+    let doc: Record<string, unknown> = {};
+    render(
+      <Harness
+        provider={{ name: "test", type, user_agent: userAgent }}
+        onDoc={(next) => {
+          doc = next;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("settings-master-item-0"));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+    const field = screen.getByLabelText("User-Agent");
+    expect(field).toHaveValue("");
+    expect(
+      within(field).getByRole("option", { name: `${label} (default)` }),
+    ).toBeTruthy();
+    fireEvent.change(field, { target: { value: "coddy" } });
+    expect((doc.providers as Record<string, unknown>[])[0]?.user_agent).toBe(
+      "coddy",
+    );
+  },
+);
+
+test("managed providers hide the compatible identity selector", () => {
+  render(<Harness provider={{ name: "test", type: "neuraldeep" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+  expect(screen.queryByLabelText("User-Agent")).toBeNull();
+});
+
+test("a Kimi catalog selection stores its metadata in the settings document", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [{ id: "m1", kimi_protocol: "kimi" }],
+      }),
+    })),
+  );
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string" },
+            kimi_metadata: {
+              type: "object",
+              properties: {
+                model: { type: "string" },
+                protocol: { type: "string" },
+                mode: { type: "string" },
+                region: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function SeededKimi() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [
+        { name: "kimi", type: "kimi", mode: "platform", region: "china" },
+      ],
+      models: [],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+  render(<SeededKimi />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+  expect(latest.models).toEqual([
+    {
+      model: "kimi/m1",
+      kimi_metadata: {
+        model: "kimi/m1",
+        protocol: "kimi",
+        mode: "platform",
+        region: "china",
+      },
+    },
+  ]);
+});
+
+test("Kimi drops a start response after the draft region changes", async () => {
+  let finish!: (value: Response) => void;
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) =>
+    init?.method === "POST"
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : new Response(
+          JSON.stringify({ connected: false, source: "none", cancelled: true }),
+          { status: 200 },
+        ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onDoc = vi.fn();
+  render(
+    <Harness
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "global",
+      }}
+      onDoc={onDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByText("Sign in with Kimi"));
+  fireEvent.change(screen.getByLabelText("Kimi region"), {
+    target: { value: "china" },
+  });
+  await act(async () =>
+    finish(
+      new Response(
+        JSON.stringify({
+          login_id: "old",
+          user_code: "1234",
+          verification_url: "https://www.kimi.ai/code/authorize_device",
+          status: "pending",
+          mode: "subscription",
+          region: "global",
+          kimi_identity: "0123456789abcdef0123456789abcdef",
+        }),
+        { status: 200 },
+      ),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/device/old") && init?.method === "DELETE",
+      ),
+    ).toBe(true),
+  );
+  expect(screen.queryByText("1234")).toBeNull();
+  expect(onDoc.mock.calls.at(-1)?.[0].providers[0]).not.toHaveProperty(
+    "kimi_identity",
+  );
+});
+
+test("Kimi keeps accepted identity and sibling metadata across a row rename", async () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async (url: string, init?: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            init?.method === "POST" && String(url).includes("/kimi-auth/device")
+              ? {
+                  login_id: "one",
+                  user_code: "1234",
+                  verification_url: "https://www.kimi.ai/code/authorize_device",
+                  status: "pending",
+                  mode: "subscription",
+                  region: "global",
+                  kimi_identity: id,
+                }
+              : { connected: false, source: "none", cancelled: true },
+          ),
+          { status: 200 },
+        ),
+    ),
+  );
+  const onDoc = vi.fn();
+  render(
+    <Harness
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "global",
+        other_metadata: "keep",
+      }}
+      onDoc={onDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByText("Sign in with Kimi"));
+  await screen.findByText("1234");
+  fireEvent.change(screen.getByLabelText("Provider id"), {
+    target: { value: "renamed" },
+  });
+  expect(onDoc.mock.calls.at(-1)?.[0].providers[0]).toMatchObject({
+    name: "renamed",
+    kimi_identity: id,
+    other_metadata: "keep",
+  });
+});
+
+test("a deleted and recreated Kimi row never receives the old login identity", async () => {
+  let finish!: (value: Response) => void;
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) =>
+    init?.method === "POST" && String(url).includes("/kimi-auth/device")
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : new Response(
+          JSON.stringify({
+            connected: false,
+            source: "none",
+            cancelled: true,
+            ok: true,
+            models: [],
+          }),
+          { status: 200 },
+        ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onDoc = vi.fn();
+  render(
+    <Harness
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "subscription",
+        region: "global",
+      }}
+      onDoc={onDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByText("Sign in with Kimi"));
+  fireEvent.click(screen.getByTestId("settings-detail-back"));
+  fireEvent.click(screen.getByRole("button", { name: /remove kimi/i }));
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  fireEvent.change(screen.getByLabelText("Provider id"), {
+    target: { value: "kimi" },
+  });
+  fireEvent.change(screen.getByLabelText("Provider type"), {
+    target: { value: "kimi" },
+  });
+  await act(async () =>
+    finish(
+      new Response(
+        JSON.stringify({
+          login_id: "old",
+          user_code: "1234",
+          verification_url: "https://www.kimi.ai/code/authorize_device",
+          status: "pending",
+          mode: "subscription",
+          region: "global",
+          kimi_identity: "0123456789abcdef0123456789abcdef",
+        }),
+        { status: 200 },
+      ),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/device/old") && init?.method === "DELETE",
+      ),
+    ).toBe(true),
+  );
+  expect(onDoc.mock.calls.at(-1)?.[0].providers[0]).not.toHaveProperty(
+    "kimi_identity",
+  );
+  expect(screen.queryByText("1234")).toBeNull();
+});
+
+test("Kimi subscription retains visible credential fields until explicitly cleared", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ connected: false }), { status: 200 }),
+    ),
+  );
+  const onDoc = vi.fn();
+  render(
+    <Harness
+      provider={{
+        name: "kimi",
+        type: "kimi",
+        mode: "platform",
+        region: "global",
+        api_key: "secret",
+        api_key_command: "get-key",
+      }}
+      onDoc={onDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByLabelText("Kimi mode"), {
+    target: { value: "subscription" },
+  });
+  expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe(
+    "secret",
+  );
+  openAdvanced();
+  expect(
+    (screen.getByLabelText("API key command") as HTMLInputElement).value,
+  ).toBe("get-key");
+  const row = onDoc.mock.lastCall?.[0].providers[0];
+  expect(
+    buildSettingsSearchIndex({
+      sections: [providersSection],
+      schema: rootSchema,
+      doc: { providers: [row] },
+    }).some((e) => e.keyPath === "providers[].api_key"),
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText("API key"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("API key command"), {
+    target: { value: "" },
+  });
+  expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
+  expect(
+    (screen.getByLabelText("API key command") as HTMLInputElement).value,
+  ).toBe("");
+  expect(
+    screen.queryByText(
+      "Clear the existing API key and key command before saving Kimi Code. They are not removed automatically.",
+    ),
+  ).toBeNull();
+});
+
+test("Kimi credential search targets stay stable when switching mode and clearing secrets", () => {
+  const fields = (provider: Record<string, unknown>) =>
+    buildSettingsSearchIndex({
+      sections: [providersSection],
+      schema: rootSchema,
+      doc: { providers: [provider] },
+    })
+      .filter(
+        (e) =>
+          e.keyPath === "providers[].api_key" ||
+          e.keyPath === "providers[].api_key_command",
+      )
+      .map((e) => e.keyPath)
+      .sort();
+  const platform = {
+    name: "kimi",
+    type: "kimi",
+    mode: "platform",
+    api_key: "secret",
+    api_key_command: "helper",
+  };
+  expect(
+    fields({
+      ...platform,
+      mode: "subscription",
+      api_key: "",
+      api_key_command: "",
+    }),
+  ).toEqual(fields(platform));
+});
+
+test("Kimi provider list seeds image and reasoning capabilities into new logical models", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [
+          {
+            id: "vision",
+            kimi_protocol: "kimi",
+            kimi_image_input: true,
+            context_window: 100000,
+            kimi_reasoning_levels: ["low", "high"],
+            kimi_default_reasoning: "high",
+          },
+          { id: "text", kimi_protocol: "kimi", kimi_image_input: false },
+        ],
+      }),
+    })),
+  );
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [
+        { name: "kimi", type: "kimi", mode: "subscription", region: "global" },
+      ],
+      models: [{ model: "other/existing", multimodal: true }],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={AGENT_SCHEMA as JsonSchema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-vision"));
+  expect(latest.models).toContainEqual(
+    expect.objectContaining({
+      model: "kimi/vision",
+      multimodal: true,
+      max_context_tokens: 100000,
+      reasoning_levels: ["low", "high"],
+      reasoning_default: "high",
+      kimi_metadata: {
+        model: "kimi/vision",
+        protocol: "kimi",
+        mode: "subscription",
+        region: "global",
+      },
+    }),
+  );
+  fireEvent.click(screen.getByTestId("provider-model-toggle-text"));
+  expect(latest.models).toContainEqual(
+    expect.objectContaining({ model: "kimi/text", multimodal: false }),
+  );
+  expect(latest.models).toContainEqual({
+    model: "other/existing",
+    multimodal: true,
+  });
 });

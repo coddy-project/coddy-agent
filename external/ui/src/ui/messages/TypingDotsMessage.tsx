@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   formatElapsedSeconds,
@@ -10,6 +10,11 @@ import { CoddyWorkIndicator } from "./CoddyWorkIndicator";
 import { formatTurnTokens } from "../chat/turnProgress";
 import { formatGenerationSpeed } from "../chat/generationSpeed";
 import { useT } from "../i18n/I18nProvider";
+import {
+  subscribePhone,
+  snapshotPhone,
+  serverSnapshotPhone,
+} from "../shellBreakpoint";
 
 /** States that are blocked on the user, where a climbing step counter would be a lie. */
 function isBlockedOnUser(kind: LiveStatusKind | undefined): boolean {
@@ -157,7 +162,6 @@ function TypingDotsMessageImpl(props: {
     if (runningTasks === 0) {
       return null;
     }
-    const tasksLabel = tp("tasks.running", runningTasks);
     return (
       <div className="msg-assistant-stack" data-testid="typing-dots">
         {/* This line is the only thing on screen saying the work goes on after the
@@ -171,13 +175,8 @@ function TypingDotsMessageImpl(props: {
           >
             <span className="typing-dots-turn">
               <TurnTasksSegment
-                label={tasksLabel}
-                {...(props.onOpenTasks
-                  ? {
-                      onOpen: props.onOpenTasks,
-                      aria: t("tasks.openAria", { label: tasksLabel }),
-                    }
-                  : {})}
+                count={runningTasks}
+                {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
               />
             </span>
           </span>
@@ -264,15 +263,8 @@ function TypingDotsMessageImpl(props: {
               ) : null}
               {runningTasks > 0 ? (
                 <TurnTasksSegment
-                  label={tp("tasks.running", runningTasks)}
-                  {...(props.onOpenTasks
-                    ? {
-                        onOpen: props.onOpenTasks,
-                        aria: t("tasks.openAria", {
-                          label: tp("tasks.running", runningTasks),
-                        }),
-                      }
-                    : {})}
+                  count={runningTasks}
+                  {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
                 />
               ) : null}
             </span>
@@ -304,17 +296,24 @@ function TypingDotsMessageImpl(props: {
 
 /** The running-tasks segment: a button when the panel can be opened from here. */
 export function TurnTasksSegment(props: {
-  label: string;
+  count: number;
   onOpen?: () => void;
-  aria?: string;
 }) {
+  const { t, tp } = useT();
+  const phone = useSyncExternalStore(
+    subscribePhone,
+    snapshotPhone,
+    serverSnapshotPhone,
+  );
+  const fullLabel = tp("tasks.running", props.count);
+  const label = phone ? tp("tasks.runningCompact", props.count) : fullLabel;
   if (!props.onOpen) {
     return (
       <span
         className="typing-dots-turn-item"
         data-testid="typing-dots-turn-tasks"
       >
-        {props.label}
+        {label}
       </span>
     );
   }
@@ -326,10 +325,10 @@ export function TurnTasksSegment(props: {
         type="button"
         className="typing-dots-turn-tasks"
         data-testid="typing-dots-turn-tasks"
-        {...(props.aria ? { "aria-label": props.aria } : {})}
+        aria-label={t("tasks.openAria", { label: fullLabel })}
         onClick={props.onOpen}
       >
-        {props.label}
+        {label}
       </button>
     </span>
   );

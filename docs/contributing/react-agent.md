@@ -92,10 +92,6 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 
 ## Current todo checklist
 - [ ] ...
-
-## Long-term memory
-Already on disk:
-- ...
 </turn_context>
 ```
 
@@ -106,12 +102,6 @@ Already on disk:
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
   reflected on the very next step;
-- the **memory subagent's report** for this turn, when long-term memory is on
-  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
-  the system message would make **`messages[0]`** a new one on every turn and cost the cached
-  conversation each time. It joins the block on the first request when the run settled inside
-  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
-  **`{{.Memory}}`** slot of the templates holds the session notes alone;
 - the **background tasks still running** in this session, one line each in the wording of
   **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
   so the model knows what it left running without a call. Finished and system tasks are left out,
@@ -139,8 +129,8 @@ See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
-checklist after the history; its block carries the two sections no template prints, the memory
-report and the running background tasks, and is left out when there is neither.
+checklist after the history; its block carries the one section no template prints, the running
+background tasks, and is left out when there is none.
 
 ### The other half: result eviction
 
@@ -254,7 +244,7 @@ messages: [
      e. Append tool result to conversation history
 
 5. REFRESH_TURN_CONTEXT
-   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
    - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
    - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace, and a turn resumed after a permission prompt renders it again on entry; no other step of the turn does
    - Next loop iteration repeats from step 2
@@ -298,11 +288,12 @@ messages: [
      status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
-     failure after output was emitted stay final. A Codex `response.failed`
-     event is read as an untyped error: its `code` (`server_is_overloaded`
-     included) only joins the text of the message and is not classified, so
-     it is retried only when its message names a status that way
-     (`503 Service Unavailable`) and is final otherwise.
+     failure after output was emitted stay final. The Responses API's own
+     failure events, `response.failed` (its error object rides on the
+     response) and the flat `error` event (its `code` is a field of the
+     event), are read by the same fields, so an overload there counts as a
+     503 as well; any other failure they report is an untyped error, named by
+     its `code` in front of its message and read by that text as above.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -455,7 +446,12 @@ messages: [
    (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
    `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
    `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
-   `retries_remaining` (budget slots left after this call).
+   `retries_remaining` (budget slots left after this call). Completion and usage
+   records also carry `session` and a process-monotonic `call_id`. With the agent
+   debug component enabled, `request_latency.go` emits correlated local, HTTP
+   and dispatch timings without request content. See
+   [A long session becomes slower](../getting-started/troubleshooting.md#a-long-session-becomes-slower)
+   for the stage boundaries and the bounded synthetic comparison.
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
@@ -504,7 +500,7 @@ Plus MCP tools (**`serverName__toolName`**). The allowlist is also enforced at e
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. As in plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice; ask refuses MCP tool names there, while plan lets them through to the MCP layer. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. As in plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice; ask refuses MCP tool names there, while plan lets them through to the MCP layer. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn; a memory child spawned while the session is read-only is built recall-only, with the three read-only tools of its six (**`memory.ToolNames(true)`**, [memory.md](../features/memory.md)).
 
 ## Built-in Tools Specification
 

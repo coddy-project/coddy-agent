@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Local wallpapers - server files and browser selection</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .flow { grid-template-columns: 1fr 1fr 1fr; gap: 44px; }
+      .panel { display: grid; grid-template-rows: 24px repeat(4, 134px); gap: 12px; }
+      .panel .title { margin-bottom: 0; }
+      .box { display: flex; flex-direction: column; justify-content: center; }
+    </style>
+  </head>
+  <body style="--width: 1200px">
+    <h1>Local wallpapers - server files and browser selection</h1>
+    <p class="lead">Upload adds or reuses a server file. Each browser chooses its own background. All operations use the selected environment.</p>
+    <div class="cols flow">
+      <section>
+        <h2>1. Selected server</h2>
+        <div class="panel">
+          <div class="title"><code>${CODDY_HOME}/wallpapers</code></div>
+          <div class="box amber" id="folder">Local gallery<span class="sub">First HTTP startup claims a marker before copying four embedded pictures into a missing gallery. Existing galleries stay untouched; deletions are not restored. GET never creates the folder.</span></div>
+          <div class="box green" id="original">Confined originals<span class="sub">Regular files only, no links or traversal. Recognize image headers, stream without pixel decoding or whole-file buffering. No image-size caps.</span></div>
+          <div class="box purple" id="dedup">SHA-256 while writing<span class="sub">Reuse identical bytes under any name. Otherwise add a file, suffixing name collisions without overwrites. Clean temporary files on failure.</span></div>
+          <div class="box blue" id="remove">Delete the named file<span class="sub">Remove the server file only on DELETE. Clearing a browser background leaves this gallery unchanged.</span></div>
+        </div>
+      </section>
+      <section>
+        <h2>2. Authenticated API</h2>
+        <div class="panel">
+          <div class="title">Bearer header or browser cookie</div>
+          <div class="box core" id="listing"><code>GET /coddy/wallpapers</code><span class="sub">Names only. Normal authentication on local, remote and relay-mounted requests; no credentials in image URLs.</span></div>
+          <div class="box core" id="image"><code>GET /coddy/wallpapers/{name}</code><span class="sub">Stream the opened original. HEAD returns headers without the image body. The browser determines renderability.</span></div>
+          <div class="box core" id="upload"><code>POST /coddy/wallpapers/{name}</code><span class="sub">Raw binary body. Return the actual name in {wallpaper:{name},created}. 201 for new bytes; 200 for a duplicate.</span></div>
+          <div class="box core" id="delete"><code>DELETE /coddy/wallpapers/{name}</code><span class="sub">204 on deletion. No request until the person confirms the thumbnail's delete dialog.</span></div>
+        </div>
+      </section>
+      <section>
+        <h2>3. This browser</h2>
+        <div class="panel">
+          <div class="title">Settings → Appearance → Wallpaper</div>
+          <div class="box amber" id="gallery">Compact gallery stays visible<span class="sub">Two columns with filenames. Thumbnails load near the viewport. The active border marks selection. IndexedDB commits before applying; failed writes keep the previous background.</span></div>
+          <div class="box green" id="background">Fixed, centred, cover<span class="sub">Preserve aspect ratio, fill the viewport and crop at the centre. Dimming and the picture stay in simplified mode. No IndexedDB means page-memory selection only.</span></div>
+          <div class="box amber" id="picker">Explicit upload control<span class="sub">File picker uploads only on this action, never on page load. Keep an existing background; select the uploaded picture when none is selected.</span></div>
+          <div class="box amber" id="confirm">Delete "filename"? Yes / No<span class="sub">Yes has initial focus. Delete the selected file and clear this background; delete another file and keep it. The separate clear icon never deletes files.</span></div>
+        </div>
+      </section>
+    </div>
+    <p class="footer">The server owns the gallery files. The browser owns its background selection. Upload and confirmed delete change server files; Clear changes only this browser.</p>
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#folder", to: "#listing", color: "blue" },
+        { from: "#original", to: "#image", color: "green" },
+        { from: "#dedup", to: "#upload", color: "purple", both: true },
+        { from: "#delete", to: "#remove", fromSide: "left", toSide: "right", color: "blue" },
+        { from: "#listing", to: "#gallery", color: "blue" },
+        { from: "#image", to: "#background", color: "green" },
+        { from: "#picker", to: "#upload", fromSide: "left", toSide: "right", color: "amber", both: true },
+        { from: "#confirm", to: "#delete", fromSide: "left", toSide: "right", color: "amber" }
+      ]);
+    </script>
+  </body>
+</html>

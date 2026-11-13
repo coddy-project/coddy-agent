@@ -172,7 +172,7 @@ func (s *streamToggleE2EState) startServer() error {
 	streaming := false
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
-		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "local/qwen3-1.7b", Stream: &streaming}},
 		Agent:     config.Agent{Model: "local/qwen3-1.7b"},
 	}

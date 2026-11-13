@@ -178,6 +178,46 @@ and
 typically in
 .IR ~/.coddy/.env .
 .TP
+.B desktop
+Open Coddy as a window on this machine: the web interface in a Chromium\-family
+browser in application mode, in a profile of its own, over an HTTP surface
+started on a loopback port
+.I ~/.coddy/desktop/port
+remembers, so the window keeps its tabs from launch to launch. The process
+also runs every surface the configuration enables - the public HTTP surface,
+the gateways, the relay, the scheduler - the way
+.B serve
+does, so the same site the window drives is reachable from other machines. The page is a
+tab strip with one chat per tab; a second launch while a window is open hands
+that window its tabs instead of serving twice, and closing the window ends the
+run. On an X11 session the window carries no system frame: the strip is its
+title bar and holds the window's own buttons, a menu of the desktop's switches
+(open at login, the tray icon, start minimised, the system frame) and the
+chords
+.BR Ctrl+T ", " Ctrl+W ", " Ctrl+R " and " Ctrl+Tab ,
+taken from the browser at the X server. Elsewhere the window keeps the frame
+its desktop gives it.
+.BI \-\-window " auto|browser|native"
+picks the backend,
+.BI \-\-browser " NAME|PATH"
+the browser (else
+.IR CODDY_DESKTOP_BROWSER ),
+.B \-\-frame
+keeps the system title bar, and
+.B \-\-auth
+asks for the credential the configuration carries, which a window on loopback
+does not by default, and
+.B \-\-new\-chat
+opens a chat in
+.BI \-\-cwd ,
+asking a desktop already running rather than starting a second one \(em which
+is what a row of the application menu naming a recent workspace does. That
+menu is the entry this command writes for the current user on every launch,
+.IR ~/.local/share/applications/coddy\-desktop.desktop ,
+with the folders of this home's recent chats as its actions. Built with the
+.BR http ", " ui " and " desktop
+tags.
+.TP
 .BI "sessions list"
 List stored sessions, the runs of one\-shot mode included:
 .BI \-\-cwd " DIR" ,
@@ -254,7 +294,8 @@ the address it ended on into the terminal. With
 .B \-\-devin\-cli
 it uses the login
 .B devin auth login
-already holds and opens no browser. An OpenCode login prints a device code
+already holds and opens no browser. A Kimi login uses a device code for a
+subscription account. An OpenCode login prints a device code
 and opens the Console account page. Select the organization there; access
 and refresh tokens are stored locally and refreshed through the provider proxy.
 The login belongs to the account and serves the Go and the Console gateway
@@ -273,7 +314,7 @@ to the configuration unless
 is given.
 .B \-\-type
 names the type
-.RB ( neuraldeep ", " opencode ", " codex " or " devin )
+.RB ( neuraldeep ", " opencode ", " codex ", " devin ", " kimi )
 of a provider the configuration does not list yet, so another profile of a type
 is created by signing it in, as in
 .BR "coddy providers login codex\-work \-\-type codex" .
@@ -452,7 +493,7 @@ server instead of a local agent.
 downloads the release assets published on GitHub, verifies them against the
 release
 .I SHA256SUMS
-list, and replaces the executable it is running. The man page and the shell
+list and its signature, and replaces the executable it is running. The man page and the shell
 completions the installer put beside it, under the
 .I share
 directory of the same prefix, are refreshed with it, so Tab completion never

@@ -53,6 +53,9 @@ type FileStore struct {
 	msgCacheMu sync.Mutex
 	msgCache   map[string]*persistedMessages
 
+	listMetaMu    sync.Mutex
+	listMetaCache map[string]cachedListMeta
+
 	// childMu guards the index of nested bundles: the id of every session
 	// found inside another one, mapped to the directory it lives in.
 	// childScanned is when the sessions root was last walked to fill it, and
@@ -62,6 +65,18 @@ type FileStore struct {
 	childScanned time.Time
 	childScanMu  sync.Mutex
 }
+
+// cachedListMeta is the last valid session.json decoded for one bundle. Both
+// size and modification time must still match before it can answer a listing.
+type cachedListMeta struct {
+	size    int64
+	modTime time.Time
+	meta    SessionMeta
+}
+
+// A full cache is cleared rather than growing without bound or adding an LRU
+// bookkeeping pass to every request. The usual history is far below this cap.
+const maxCachedListMetaEntries = 1024
 
 // persistedMessages remembers what was last written to one messages.json. A
 // save compares the state's message revisions against it to tell "nothing
@@ -864,7 +879,7 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		}
 		dir := filepath.Join(f.Root, ent.Name())
 		var descend bool
-		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts, false)
 		if opts.IncludeSubagents && descend {
 			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
@@ -892,10 +907,16 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 // damaged transcript can affect the scan. descend is false for a print run or
 // a scheduler job session the options leave out, whose children stay out with
 // it.
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) (_ []SessionListEntry, descend bool) {
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions, child bool) (_ []SessionListEntry, descend bool) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
 		return out, true
+	}
+	if child {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = filepath.Base(filepath.Dir(filepath.Dir(dir)))
+		}
 	}
 	if IsPrintOrigin(meta.Origin) && !opts.admitsPrintRuns() {
 		return out, false
@@ -964,12 +985,28 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 // matching ReadSnapshot's protection for a child whose first save was
 // interrupted.
 func (f *FileStore) readListMetaAt(dir, sessionID string) (SessionMeta, error) {
-	b, err := readFileWithRetry(filepath.Join(dir, sessionMetaFile))
+	path := filepath.Join(dir, sessionMetaFile)
+	info, err := os.Stat(path)
 	if err != nil {
+		f.forgetListMeta(path)
+		return SessionMeta{}, err
+	}
+	f.listMetaMu.Lock()
+	cached, ok := f.listMetaCache[path]
+	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
+		f.listMetaMu.Unlock()
+		return cached.meta, nil
+	}
+	f.listMetaMu.Unlock()
+
+	b, err := readFileWithRetry(path)
+	if err != nil {
+		f.forgetListMeta(path)
 		return SessionMeta{}, err
 	}
 	var meta SessionMeta
 	if err := json.Unmarshal(b, &meta); err != nil {
+		f.forgetListMeta(path)
 		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
 	}
 	if parent, ok := f.childBundleParent(dir); ok {
@@ -978,7 +1015,21 @@ func (f *FileStore) readListMetaAt(dir, sessionID string) (SessionMeta, error) {
 			meta.ParentSessionID = parent
 		}
 	}
+	f.listMetaMu.Lock()
+	if len(f.listMetaCache) >= maxCachedListMetaEntries {
+		f.listMetaCache = make(map[string]cachedListMeta)
+	} else if f.listMetaCache == nil {
+		f.listMetaCache = make(map[string]cachedListMeta)
+	}
+	f.listMetaCache[path] = cachedListMeta{size: info.Size(), modTime: info.ModTime(), meta: meta}
+	f.listMetaMu.Unlock()
 	return meta, nil
+}
+
+func (f *FileStore) forgetListMeta(path string) {
+	f.listMetaMu.Lock()
+	delete(f.listMetaCache, path)
+	f.listMetaMu.Unlock()
 }
 
 // EnrichMessageCounts decodes transcripts only for rows whose persisted count
@@ -1048,7 +1099,7 @@ func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter strin
 		return out
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts, true)
 		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
 	}
 	return out
@@ -1711,4 +1762,20 @@ func ArchiveActiveTodo(sessionDir string) error {
 		return err
 	}
 	return os.Remove(ap)
+}
+
+// WithoutSubagentRuns keeps the rows of a listing made with IncludeSubagents
+// that the same options without it would have listed, in the same order. A
+// child bundle always reads as a subagent run (readListMetaAt marks it), and a
+// top-level bundle marked as one is left out by appendBundleRow, so dropping
+// the subagent rows is that listing exactly. It lets one scan serve both the
+// History page and the badge that counts active child sessions too.
+func WithoutSubagentRuns(rows []SessionListEntry) []SessionListEntry {
+	out := make([]SessionListEntry, 0, len(rows))
+	for _, row := range rows {
+		if !row.SubagentRun {
+			out = append(out, row)
+		}
+	}
+	return out
 }

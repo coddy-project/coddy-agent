@@ -46,6 +46,17 @@ Feature: The web UI on a phone
     Then a tool row named after an MCP tool wraps its label inside the row and moves its target and duration under it together
     And a long link or identifier in an answer breaks instead of widening the page
 
+  Scenario: A tool without a separate target keeps its duration beside its full name
+    Then a targetless tool row lays its label and duration out as inline text
+    And the targetless MCP row keeps its full name, failure marker and duration
+
+  Scenario: Zoom controls remain compact on a phone
+    Then the shared image, canvas and swarm zoom controls stay compact at every viewport
+    And the swarm layout buttons keep the zoom button height at every viewport
+
+  Scenario: The running task count fits the phone's live line
+    Then on a phone the live line shows a short plural task count and still opens the Tasks panel
+
   Scenario: The on-screen keyboard opens when the reader asks for it
     Then on a touch-only device opening the start screen or a chat leaves the composer unfocused
     And a narrow desktop window still focuses the composer

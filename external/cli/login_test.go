@@ -121,7 +121,7 @@ func TestHeaderShowsTheLoginHintOnlyWhenAsked(t *testing.T) {
 	}
 	h.SetLoginHint(true)
 	text = strings.Join(keysOf(renderedRows(h, 200)), "\n")
-	if !strings.Contains(text, "Type /login to sign in to NeuralDeep") {
+	if !strings.Contains(text, "Type /login to pick one") {
 		t.Fatalf("a fresh install points at /login:\n%s", text)
 	}
 	h.SetLoginHint(false)
@@ -357,6 +357,77 @@ func TestAFailedSignInSaysWhy(t *testing.T) {
 	}
 }
 
+func TestKimiLoginRunnerInstallsConfig(t *testing.T) {
+	a := newManagedTestApp(t)
+	a.browserAvailable = func() bool { return false }
+	installed := make(chan *config.Config, 1)
+	a.installConfig = func(c *config.Config) error { installed <- c; return nil }
+	a.loginRunner = func(_ context.Context, cfg *config.Config, p *config.ProviderConfig, _ providerlogin.Hooks) (providerlogin.Result, error) {
+		if p.Name != "kimi" || p.Type != "kimi" {
+			t.Errorf("wrong row: %+v", p)
+		}
+		_, err := config.CommitUCICommands(cfg.Paths, []config.UCICommand{
+			{Op: config.UCIOpSet, Path: "providers[name=kimi]", Value: `{"name":"kimi","type":"kimi"}`},
+			{Op: config.UCIOpSet, Path: "models[model=kimi/k2]", Value: `{"model":"kimi/k2"}`},
+		})
+		return providerlogin.Result{Provider: "kimi", Type: "kimi", Added: []string{"provider kimi", "model kimi/k2"}}, err
+	}
+	a.dispatchLogin([]string{"kimi"})
+	deadline := time.After(10 * time.Second)
+	for a.login != nil {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		case <-deadline:
+			t.Fatal("login did not finish")
+		}
+	}
+	select {
+	case cfg := <-installed:
+		if cfg.FindModelEntry("kimi/k2") == nil {
+			t.Fatal("model not installed")
+		}
+	default:
+		t.Fatal("updated config was not installed")
+	}
+	if !strings.Contains(transcriptText(a), "Signed in to Kimi Code") {
+		t.Fatal("missing success message")
+	}
+}
+
+func TestKimiOnboardingChinaRunsAndInstalls(t *testing.T) {
+	a := newManagedTestApp(t)
+	a.browserAvailable = func() bool { return false }
+	installed := make(chan *config.Config, 1)
+	a.installConfig = func(c *config.Config) error { installed <- c; return nil }
+	a.loginRunner = func(_ context.Context, cfg *config.Config, p *config.ProviderConfig, _ providerlogin.Hooks) (providerlogin.Result, error) {
+		if p.Type != "kimi" || p.Mode != "subscription" || p.Region != "china" {
+			t.Errorf("wrong selected Kimi service: %+v", p)
+		}
+		_, err := config.CommitUCICommands(cfg.Paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "providers[name=kimi]", Value: `{"name":"kimi","type":"kimi","mode":"subscription","region":"china"}`}, {Op: config.UCIOpSet, Path: "models[model=kimi/k2]", Value: `{"model":"kimi/k2","kimi_metadata":{"model":"kimi/k2","protocol":"kimi","mode":"subscription","region":"china"}}`}, {Op: config.UCIOpSet, Path: "agent.model", Value: "kimi/k2"}})
+		return providerlogin.Result{Provider: "kimi", Type: "kimi", Added: []string{"provider kimi", "model kimi/k2"}}, err
+	}
+	a.startPresetLogin(&providerSetupRun{preset: preset(t, "kimi"), kimiMode: "subscription", kimiRegion: "china"})
+	deadline := time.After(10 * time.Second)
+	for a.login != nil {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		case <-deadline:
+			t.Fatal("onboarding did not finish")
+		}
+	}
+	select {
+	case cfg := <-installed:
+		p := cfg.FindProvider("kimi")
+		if p == nil || p.Region != "china" || cfg.FindModelEntry("kimi/k2") == nil {
+			t.Fatal("onboarding config not installed")
+		}
+	default:
+		t.Fatal("onboarding did not install config")
+	}
+}
+
 // After a failed turn the console names the setup problem behind it: no
 // provider at all, or the session's model on a provider with no key or
 // sign-in; a turn that failed on a working provider gets no such line.
@@ -395,5 +466,47 @@ func TestTurnFailureHint(t *testing.T) {
 	a.modelID = "openai/gpt-5.6-terra"
 	if got := a.turnFailureHint(); got != "" {
 		t.Fatalf("over --remote the server's configuration decides: %q", got)
+	}
+}
+
+func TestKimiLoginReloadsIdentityAfterCatalogFailure(t *testing.T) {
+	a := newManagedTestApp(t)
+	installed := make(chan *config.Config, 1)
+	a.installConfig = func(c *config.Config) error { installed <- c; return nil }
+	a.loginRunner = func(_ context.Context, cfg *config.Config, _ *config.ProviderConfig, _ providerlogin.Hooks) (providerlogin.Result, error) {
+		_, err := config.CommitUCICommands(cfg.Paths, []config.UCICommand{
+			{Op: config.UCIOpSet, Path: "providers[name=kimi]", Value: `{"name":"kimi","type":"kimi","kimi_identity":"12345678123442348234123456789abc"}`},
+			{Op: config.UCIOpSet, Path: "agent.max_turns", Value: "42"},
+		})
+		return providerlogin.Result{Provider: "kimi", Type: "kimi", ConfigErr: errors.New("catalog unavailable")}, err
+	}
+	a.dispatchLogin([]string{"kimi"})
+	deadline := time.After(10 * time.Second)
+	for a.login != nil {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		case <-deadline:
+			t.Fatal("login did not finish")
+		}
+	}
+	select {
+	case cfg := <-installed:
+		p := cfg.FindProvider("kimi")
+		if p == nil || p.KimiIdentity != "12345678123442348234123456789abc" || cfg.Agent.MaxTurns != 42 {
+			t.Fatalf("saved identity or concurrent config edit not installed: %+v", p)
+		}
+	default:
+		t.Fatalf("saved identity was not installed after catalog failure: %s", transcriptText(a))
+	}
+	text := transcriptText(a)
+	if !strings.Contains(text, "catalog unavailable") || strings.Contains(text, "Added to config.yaml:") {
+		t.Fatalf("incorrect catalog status: %q", text)
+	}
+}
+
+func TestLoginUsageNamesKimi(t *testing.T) {
+	if !strings.Contains(loginUsage, "kimi") {
+		t.Fatal("login usage omits kimi")
 	}
 }

@@ -39,7 +39,6 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
     const { elapsedMs, outputTokens, tokensPerSecond } = props.generation;
     const at = props.createdAtUtc;
     const runningTasks = props.runningTasks ?? 0;
-    const tasksLabel = tp("tasks.running", runningTasks);
     return (
       <div
         className="msg-assistant-stack"
@@ -48,7 +47,8 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
       >
         <div
           className={
-            "typing-dots" + (runningTasks > 0 ? "" : " typing-dots--finished")
+            "typing-dots typing-dots--summary" +
+            (runningTasks > 0 ? "" : " typing-dots--finished")
           }
           {...(at ? { title: formatUtcToLocalFullDetail(at) } : {})}
         >
@@ -64,20 +64,18 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
                 {tp("status.turnTokens", outputTokens, {
                   shown: formatTurnTokens(outputTokens),
                 })}
-                {" · "}
-                {t("status.generationSpeed", {
-                  speed: formatGenerationSpeed(tokensPerSecond),
-                })}
+                {/* A turn nobody could measure the generation of keeps the
+                    clock and the count and says no speed. */}
+                {tokensPerSecond !== undefined
+                  ? ` · ${t("status.generationSpeed", {
+                      speed: formatGenerationSpeed(tokensPerSecond),
+                    })}`
+                  : ""}
               </span>
               {runningTasks > 0 ? (
                 <TurnTasksSegment
-                  label={tasksLabel}
-                  {...(props.onOpenTasks
-                    ? {
-                        onOpen: props.onOpenTasks,
-                        aria: t("tasks.openAria", { label: tasksLabel }),
-                      }
-                    : {})}
+                  count={runningTasks}
+                  {...(props.onOpenTasks ? { onOpen: props.onOpenTasks } : {})}
                 />
               ) : null}
             </span>

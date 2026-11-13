@@ -45,7 +45,8 @@ func DevinAuthPath(home, providerName string) string {
 }
 
 // ProviderAuthPath resolves the managed credential path for a provider by its
-// type. Providers that authenticate with a plain api_key have no managed
+// type. For Kimi it is a directory containing region-specific credentials.
+// Providers that authenticate with a plain api_key have no managed
 // credential and get "". Every ProviderInput construction site must use this
 // helper so all surfaces agree on where a login is stored.
 func ProviderAuthPath(home, providerName, providerType string) string {
@@ -58,6 +59,8 @@ func ProviderAuthPath(home, providerName, providerType string) string {
 		return OpenCodeAuthPath(home, providerName)
 	case "devin":
 		return DevinAuthPath(home, providerName)
+	case "kimi":
+		return ""
 	default:
 		return ""
 	}
@@ -80,10 +83,6 @@ type Paths struct {
 	CWD string
 	// ConfigPath is the YAML file to load (default: <Home>/config.yaml).
 	ConfigPath string
-	// ConfigFromWorkspace says ConfigPath is the workspace's config.yaml, read
-	// because the home has none and no file was named: a file that may have
-	// come with a checkout, which the loader reads but never rewrites.
-	ConfigFromWorkspace bool
 }
 
 // CLIPaths captures CLI flag overrides. Empty fields fall back to env then built-in defaults.
@@ -199,4 +198,12 @@ func absoluteIfPossible(path string) (string, error) {
 		return filepath.Clean(path), nil
 	}
 	return filepath.Abs(path)
+}
+
+// ProviderConfigAuthPath selects a managed credential without relying on a Kimi row name.
+func ProviderConfigAuthPath(home string, p ProviderConfig) string {
+	if p.Type == "kimi" {
+		return KimiIdentityDir(home, p.KimiIdentity)
+	}
+	return ProviderAuthPath(home, p.Name, p.Type)
 }

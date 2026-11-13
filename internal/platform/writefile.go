@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 )
@@ -24,6 +25,25 @@ type WriteReport struct {
 	// DirSyncErr is set when the rename succeeded but flushing the folder did
 	// not, so the new content is in place but not yet known to be on disk.
 	DirSyncErr error
+}
+
+// SyncDir flushes the directory dir so a rename or removal it just received
+// is known durable where the OS provides the primitive. On platforms without
+// one (Windows, where no folder handle can be fsynced, and the stub set) it
+// does nothing; DirSyncDurable says which it is.
+func SyncDir(dir string) error { return syncDir(dir) }
+
+// ErrWriteNotDurable means rename committed but directory sync failed; the
+// caller must retain the committed state.
+var ErrWriteNotDurable = errors.New("write committed but directory sync failed")
+
+var dirSyncFault atomic.Bool
+
+// InjectDirSyncFault makes directory sync report a failure until restored.
+// Tests using it must not run in parallel with writers.
+func InjectDirSyncFault() func() {
+	previous := dirSyncFault.Swap(true)
+	return func() { dirSyncFault.Store(previous) }
 }
 
 // Note is a short sentence for the result line a model reads, "" when the write
@@ -45,6 +65,86 @@ func WriteFileReplacing(path string, data []byte, perm fs.FileMode) (WriteReport
 	return ReplaceFileFrom(path, bytes.NewReader(data), perm)
 }
 
+// WritePrivateFileReplacing atomically replaces a regular file with a new
+// owner-only file. It refuses symlinks and special files and requires the
+// parent directory to exist. Windows uses the directory's inherited DACL.
+func WritePrivateFileReplacing(path string, data []byte) (WriteReport, error) {
+	return replaceFileFrom(path, bytes.NewReader(data), 0o600, false)
+}
+
+// WritePrivateFileInRoot replaces a file relative to an already verified
+// private directory. Its caller must ensure untrusted users cannot modify it.
+func WritePrivateFileInRoot(root *os.Root, name string, data []byte) (WriteReport, error) {
+	var report WriteReport
+	if info, err := root.Lstat(name); err == nil {
+		if !info.Mode().IsRegular() {
+			return report, fmt.Errorf("refusing non-regular private file %s", name)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return report, err
+	}
+	var tmp *os.File
+	var temp string
+	for i := 0; i < 16; i++ {
+		var suffix [12]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return report, err
+		}
+		temp = ".kimi-" + hex.EncodeToString(suffix[:])
+		var err error
+		tmp, err = root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return report, err
+		}
+		break
+	}
+	if tmp == nil {
+		return report, errors.New("cannot create private temporary file")
+	}
+	committed := false
+	defer func() {
+		_ = tmp.Close()
+		if !committed {
+			_ = root.Remove(temp)
+		}
+	}()
+	if _, err := faultableWriter(tmp).Write(data); err != nil {
+		return report, err
+	}
+	if err := tmp.Sync(); err != nil {
+		return report, err
+	}
+	if err := tmp.Close(); err != nil {
+		return report, err
+	}
+	if err := root.Rename(temp, name); err != nil {
+		return report, err
+	}
+	committed = true
+	report.DirSyncErr = SyncRoot(root)
+	return report, nil
+}
+
+// SyncRoot flushes the already opened directory where supported, preserving
+// fault injection. On Windows it is a no-op, as is SyncDir.
+func SyncRoot(root *os.Root) error {
+	if dirSyncFault.Load() {
+		return ErrInjectedWriteFault
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	f, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Sync()
+}
+
 // ReplaceFileFrom copies src to path so that a failure leaves the old content in
 // place. It writes a temporary file named "<name>.<random>~" beside the
 // target, flushes it, and renames it over the target; the rename is
@@ -62,12 +162,27 @@ func WriteFileReplacing(path string, data []byte, perm fs.FileMode) (WriteReport
 // place, as os.WriteFile does: there is no old content to keep, and replacing a
 // pipe or a device would destroy it. The parent folder must exist.
 func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport, error) {
+	return replaceFileFrom(path, src, perm, true)
+}
+
+func replaceFileFrom(path string, src io.Reader, perm fs.FileMode, preserveAccess bool) (WriteReport, error) {
 	var report WriteReport
 	leftAsItWas := func(err error) (WriteReport, error) {
 		return report, fmt.Errorf("%w (the file was left as it was)", err)
 	}
 
-	target, dangling, err := resolveWriteTarget(path)
+	target := path
+	var dangling bool
+	var err error
+	if preserveAccess {
+		target, dangling, err = resolveWriteTarget(path)
+	} else if info, statErr := os.Lstat(path); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return leftAsItWas(fmt.Errorf("refusing non-regular private file %s", path))
+		}
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		err = statErr
+	}
 	if err != nil {
 		return leftAsItWas(err)
 	}
@@ -85,8 +200,11 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	case statErr == nil:
 		// A pipe or a device is written as it is: opening it just to probe would
 		// hand a reader an end of file, and replacing it would destroy it.
-		if !info.Mode().IsRegular() && !info.IsDir() {
+		if preserveAccess && !info.Mode().IsRegular() && !info.IsDir() {
 			return report, writeInPlace(target, src, perm)
+		}
+		if !preserveAccess {
+			break
 		}
 		// Open without truncating: the same refusal os.WriteFile would give for
 		// a directory, a read-only file or a file another handle denies.
@@ -146,7 +264,11 @@ func ReplaceFileFrom(path string, src io.Reader, perm fs.FileMode) (WriteReport,
 	if dir == "" {
 		dir = "."
 	}
-	report.DirSyncErr = syncDir(dir)
+	if dirSyncFault.Load() {
+		report.DirSyncErr = ErrInjectedWriteFault
+	} else {
+		report.DirSyncErr = syncDir(dir)
+	}
 	return report, nil
 }
 

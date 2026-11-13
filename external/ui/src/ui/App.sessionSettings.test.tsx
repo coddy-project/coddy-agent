@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { writeWorktreePref } from "./chat/workspaceCookies";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
@@ -52,8 +53,12 @@ let sessions: Record<string, StoredSession>;
 let version: number;
 let posted: Array<{ metadata?: Record<string, string> }>;
 let newChatModelOffersOff: boolean;
+let workspaceIsGitRepo: boolean;
+let workspaceIsWorktree: boolean;
 
 function resetSessions() {
+  workspaceIsGitRepo = false;
+  workspaceIsWorktree = false;
   sessions = {
     [S_HIGH_BYPASS]: {
       model: ALPHA,
@@ -209,7 +214,11 @@ const fetchMock = vi.fn(
     if (path === "/coddy/config") return json({});
     if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
     if (path === "/coddy/workspace/context")
-      return json({ cwd: "/workspace", is_git_repo: false });
+      return json({
+        cwd: "/workspace",
+        is_git_repo: workspaceIsGitRepo,
+        is_worktree: workspaceIsWorktree,
+      });
     return json({}, 404);
   },
 );
@@ -312,6 +321,32 @@ test("a model picked on the start page does not replace an existing session's", 
   // the interface's language, which the documentation answers in.
   expect(meta.surface).toBe("webui");
   expect(meta.lang).toBe("en");
+  expect(meta).not.toHaveProperty("worktree");
+});
+
+test("the enabled worktree preference is sent with the turn", async () => {
+  writeWorktreePref(true);
+  workspaceIsGitRepo = true;
+  await mountSession(S_NO_LEVEL);
+
+  const meta = await send("next");
+  expect(meta.worktree).toBe(true);
+});
+
+test("a stored worktree preference stays out of a folder without git", async () => {
+  writeWorktreePref(true);
+  await mountSession(S_NO_LEVEL);
+
+  const meta = await send("next");
+  expect(meta).not.toHaveProperty("worktree");
+});
+
+test("an existing worktree sends the checked state even without the preference", async () => {
+  writeWorktreePref(false);
+  workspaceIsGitRepo = true;
+  workspaceIsWorktree = true;
+  await mountSession(S_NO_LEVEL);
+  expect((await send("next")).worktree).toBe(true);
 });
 
 test("a level picked on the start page stays out of a session with no level of its own", async () => {

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
 // ModelEntry is one model advertised by a provider's model-listing endpoint.
@@ -29,7 +31,12 @@ type ModelEntry struct {
 	// them. nil when the listing says nothing (or says it in another shape), an
 	// empty slice when it lists none. Kept for the requests of a session, never
 	// served on the provider models route.
-	SupportedParameters []string `json:"-"`
+	SupportedParameters  []string `json:"-"`
+	KimiProtocol         string   `json:"kimi_protocol,omitempty"`
+	KimiImageInput       *bool    `json:"kimi_image_input,omitempty"`
+	KimiThinkingType     string   `json:"kimi_thinking_type,omitempty"`
+	KimiReasoningLevels  []string `json:"kimi_reasoning_levels,omitempty"`
+	KimiDefaultReasoning string   `json:"kimi_default_reasoning,omitempty"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -77,6 +84,9 @@ func defaultModelListBaseURL(providerType string) string {
 // an error so callers can surface auth or connectivity failures (and fall back to
 // manual entry).
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
+	if in.Type == "kimi" {
+		return listKimiProviderModels(ctx, in)
+	}
 	if in.Type == "devin" {
 		ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
 		defer cancel()
@@ -128,6 +138,15 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if in.Type == "openai" || in.Type == "anthropic" {
+		req.Header.Set("User-Agent", "OpenAI/Go")
+		if in.Type == "anthropic" {
+			req.Header.Set("User-Agent", "Anthropic/Go")
+		}
+		if in.UserAgent == "coddy" {
+			req.Header.Set("User-Agent", "Coddy/"+version.Get())
+		}
+	}
 	if in.Type == "anthropic" {
 		if in.APIKey != "" {
 			req.Header.Set("x-api-key", in.APIKey)
@@ -202,6 +221,42 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			ContextWindow:       reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow, m.MaxInputTokens, m.MaxContextTokens),
 			SupportedParameters: listedParameters(m.SupportedParameters),
 		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func listKimiProviderModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
+	if _, err := kimiModelsEndpoint(in.Mode, in.Region); err != nil {
+		return nil, err
+	}
+	var models []KimiModel
+	var err error
+	if in.Mode == "" || in.Mode == "subscription" {
+		if strings.TrimSpace(in.APIKey) != "" {
+			return nil, fmt.Errorf("kimi: subscription does not accept an API key")
+		}
+		source, err := kimiInputSource(in)
+		if err != nil {
+			return nil, err
+		}
+		_, _, err = source.WithCredential(ctx, func(token string) error {
+			var e error
+			models, e = ListKimiModels(ctx, in.Mode, in.Region, token, in.ProxyURL)
+			return e
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		models, err = ListKimiModels(ctx, in.Mode, in.Region, in.APIKey, in.ProxyURL)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ModelEntry, 0, len(models))
+	for _, m := range models {
+		out = append(out, ModelEntry{ID: m.ID, Name: m.DisplayName, ContextWindow: m.ContextWindow, KimiProtocol: m.Protocol, KimiImageInput: m.ImageInput, KimiThinkingType: m.ThinkingType, KimiReasoningLevels: m.ReasoningLevels, KimiDefaultReasoning: m.DefaultReasoning})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil

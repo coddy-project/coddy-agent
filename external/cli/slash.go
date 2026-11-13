@@ -241,7 +241,7 @@ func (a *App) openPermissionSelector() {
 	}
 	items := []tui.SelectItem{
 		{Value: "ask", Label: "ask", Description: "Ask before commands and file writes"},
-		{Value: "accept_edits", Label: "accept_edits", Description: "File writes pass; commands still ask"},
+		{Value: "accept_edits", Label: "accept_edits", Description: "Writes in the workspace pass; the rest still asks"},
 		{Value: "bypass", Label: "bypass", Description: "Nothing asks for approval"},
 	}
 	sel := newSelectorModal(a.theme, "Permission mode", items, 4, a.screen.RequestRender)
@@ -363,7 +363,7 @@ func (a *App) showHotkeys() {
 		"up/down prompt history · / commands · @ file mention",
 		"ctrl+v or alt+v paste a picture: with a display it opens for markup first, Done attaches it",
 		"!!<command> run it here, hidden from the agent",
-		"/login [provider] sign in to NeuralDeep, or codex, devin, opencode, and add its models",
+		"/login pick a model provider and set it up · /login neuraldeep|codex|devin|opencode|<name> goes straight to one",
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
 		"/mcp MCP servers: enter details · toggle server or tool · approve project trust",

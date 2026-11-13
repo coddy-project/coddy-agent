@@ -296,7 +296,7 @@ func TestVerifyAssetChecksum_rejectsAMismatch(t *testing.T) {
 	defer srv.Close()
 
 	rel := &ghRelease{TagName: "1.0.0", Assets: []releaseAsset{{Name: checksumAssetName, BrowserDownloadURL: srv.URL}}}
-	err := verifyAssetChecksum(context.Background(), srv.Client(), rel, "coddy_1.0.0_linux_amd64.tar.gz", []byte("tampered"), io.Discard)
+	err := verifyAssetChecksum(context.Background(), srv.Client(), DefaultRepo, rel, "coddy_1.0.0_linux_amd64.tar.gz", []byte("tampered"), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("error = %v, want a checksum mismatch", err)
 	}
@@ -306,7 +306,7 @@ func TestVerifyAssetChecksum_skipsAReleaseWithoutAList(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	rel := &ghRelease{TagName: "1.0.0"}
-	if err := verifyAssetChecksum(context.Background(), nil, rel, "coddy_1.0.0_linux_amd64.tar.gz", []byte("anything"), &out); err != nil {
+	if err := verifyAssetChecksum(context.Background(), nil, DefaultRepo, rel, "coddy_1.0.0_linux_amd64.tar.gz", []byte("anything"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "skipping checksum verification") {

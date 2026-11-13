@@ -87,16 +87,32 @@ test("every gradient of the stylesheet is cleared by the mode or draws a mark", 
     ".todo-checklist .todo-tool-preview-mark--in_progress",
     // The checkerboard that shows a picture's transparency.
     ".files-image",
+    // A chosen wallpaper and its flat dimming tint remain in simplified mode.
+    // The picture is a fixed layer of its own, so the dimming is a gradient of
+    // that layer (styles/_base.scss) rather than of the root.
+    'html[data-wallpaper="true"]::before, html[data-wallpaper="true"][data-simple="on"]::before',
   ]);
   // Fades along the edge of a strip of tabs: the mask rule of the blanket.
   const masks = new Set([
+    // The edge of the provider picker's scrolling catalog, so the row below
+    // reads as carrying on rather than being cut.
+    ".provider-picker-grid",
     ".composer-tabs",
     ".files-tabs.has-more-left",
     ".files-tabs.has-more-right",
     ".files-tabs.has-more-left.has-more-right",
   ]);
+  // The default canvas loses its glows; an explicitly chosen wallpaper stays.
+  // It is a fixed layer of its own (styles/_base.scss), so the mode clears the
+  // layer and the root's own colour is then the whole canvas.
+  const canvases = new Set(["html::before"]);
   const cleared = [...selectors].filter(
-    (s) => !marks.has(s) && !masks.has(s) && s !== "html",
+    (s) => !marks.has(s) && !masks.has(s) && !canvases.has(s),
+  );
+  for (const canvas of canvases) expect(selectors.has(canvas)).toBe(true);
+  expect(flat).toContain("background: var(--coddy-simple-canvas)");
+  expect(flat).toMatch(
+    /html\[data-simple="on"\]::before \{ background: none; \}/,
   );
   expect(cleared.length).toBeGreaterThan(5);
   for (const selector of cleared) {
