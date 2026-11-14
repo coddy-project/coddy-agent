@@ -56,8 +56,9 @@ The cask is written for Homebrew 7: the completions go through **`bash_completio
 **`postflight`** block, and the **`url`** carries no **`verified:`**. That step removes
 **`com.apple.quarantine`**, which Homebrew sets on every cask download: the binary is ad-hoc signed
 and not notarised, and with the attribute in place Gatekeeper stops its first run. Notarisation needs
-an Apple Developer ID, which the project does not have. The cask asks for macOS 12 or later, because
-binaries built by Go 1.25 and later do not run on older releases.
+an Apple Developer ID, which the project does not have. The cask asks for macOS 13 or later, because
+from Go 1.27 a darwin binary records macOS 13 as its minimum and the loader refuses it on anything
+older.
 
 The zsh completion lands in **`$(brew --prefix)/share/zsh/site-functions/_coddy`**. **`brew shellenv`**,
 which the Homebrew installer adds to **`~/.zprofile`**, puts that folder on zsh's **`fpath`**, but zsh

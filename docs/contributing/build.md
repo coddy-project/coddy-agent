@@ -137,7 +137,10 @@ developer command run without it switches the mode on for good.
 
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
 **`darwin`** and **`linux`** archives carry those files beside the binary. It declares
-**`depends_on macos: :monterey`**: Go 1.25 and later build binaries that need macOS 12. A
+**`depends_on macos: :ventura`**: from Go 1.27 a darwin binary records macOS 13 as its minimum,
+cgo or not, and the loader refuses it on anything older.
+The scenario in [`features/homebrew_tap.feature`](../../features/homebrew_tap.feature) holds the
+cask to that number, so the next toolchain bump fails a test rather than the page going stale. A
 **`postflight_steps`** step removes the quarantine attribute Homebrew sets on the download from the
 binary, which is ad-hoc signed and not notarised, so Gatekeeper does not stop its first run. It
 recommends **`tmux`** in its **`caveats`** rather than declaring it: a cask's **`depends_on`** has no
@@ -254,8 +257,33 @@ The command itself needs `http` and `ui` beside `desktop` - it opens on the SPA 
 missing any of the three answers `coddy desktop` with the line that names the tags. What it is and
 how it behaves: [Desktop window](../surfaces/desktop.md).
 
+The native macOS window needs no compiler and no Xcode command-line tools. It sends messages to
+the system Cocoa and WebKit frameworks through the Objective-C runtime, which
+[`purego`](https://github.com/ebitengine/purego) reaches without cgo, so it is ordinary Go code and
+any host builds it. At run time the window needs macOS 14 or later for its isolated persistent
+WebKit store, and a GUI session.
+
+```bash
+make build TAGS="http ui desktop"
+./build/coddy desktop --window native
+```
+
+The window carries no build tag of its own: `desktop` on macOS is what compiles it, so every macOS
+build has it and the shipped `FULL_TAGS` set is the same on every platform. Every other platform
+compiles the stub instead. A `GOOS=darwin` build from another host gets the window too, which is
+how the release publishes both darwin archives from the Linux runner. `auto` prefers the window
+where it is compiled in and falls back to a browser when the macOS version or GUI session is
+unavailable. The macOS test job opens and drives a real WKWebView window, because cross-compiling
+is not proof that one opens.
+
 The browser checks of the shell (`npm run check:desktop` in `external/ui`) drive the real binary:
-tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart.
+tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart. A link out
+goes to a stub of this machine's opener, one per name the launcher can call (`xdg-open`, `open`),
+so nothing opens on the operator's desktop and the check reads what the opener was given. CI runs
+it last in the `http,scheduler,ui,memory,cli,swarm` row of the test matrix, after `check:transcript`
+and `check:files`; the step builds its own binary with `http ui swarm scheduler desktop`, because
+the check walks the rail and the lean binary of the checks before it carries neither the scheduler
+nor the window.
 
 The desktop application is a Linux package of its own, and it carries no binary: the menu entry and
 the icon that put Coddy in the application launcher, depending on `coddy` for the program.
@@ -409,6 +437,12 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`coddy.rb`** | Homebrew cask for the macOS archives of this tag; the same file is committed to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) |
 | **`SHA256SUMS`** | Checksums for every archive and package above |
 | **`SHA256SUMS.minisig`** | The signature of that list ([Signing releases](#signing-releases)) |
+
+One job on the Ubuntu runner builds every archive, the two Darwin ones included: the desktop
+window reaches Cocoa and WebKit through the Objective-C runtime, so `CGO_ENABLED=0 GOOS=darwin`
+cross-compiles it like any other target, and the release needs no macOS runner and no Xcode
+Command Line Tools. The native window still needs macOS 14 at run time; `auto` uses a browser on
+older macOS versions.
 
 The **`.tar.gz`** archives carry the man page and the shell completions beside the binary; the
 packages wrap the Linux binaries the same job just built rather than compiling their own, so the

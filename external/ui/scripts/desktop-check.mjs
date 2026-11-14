@@ -80,18 +80,23 @@ fs.writeFileSync(path.join(workspace, "README.md"), "# demo\n");
 const fakeWindow = path.join(root, "window.sh");
 fs.writeFileSync(fakeWindow, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
 
-// A link out of Coddy is handed to this machine's own opener. The stand puts
-// its own `xdg-open` first on PATH, both so that nothing opens on the
-// operator's desktop and so that the check can read what the opener was
-// given.
+// A link out of Coddy is handed to this machine's own opener, and which
+// program that is depends on the platform: `xdg-open` on Linux, `open` on
+// macOS (internal/platform/browser.go). The stand puts a stub of every one of
+// them first on PATH, both so that nothing opens on the operator's desktop and
+// so that the check can read what the opener was given. Windows calls
+// `rundll32` and is not part of this check.
+const OPENERS = ["xdg-open", "open"];
 const binDir = path.join(root, "bin");
 const openedLog = path.join(root, "opened.txt");
 fs.mkdirSync(binDir, { recursive: true });
-fs.writeFileSync(
-  path.join(binDir, "xdg-open"),
-  `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(openedLog)}\n`,
-  { mode: 0o755 },
-);
+for (const opener of OPENERS) {
+  fs.writeFileSync(
+    path.join(binDir, opener),
+    `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(openedLog)}\n`,
+    { mode: 0o755 },
+  );
+}
 
 const MODEL_PORT = Number(process.env.CODDY_PORT_BASE || 19910);
 fs.writeFileSync(
@@ -260,7 +265,20 @@ logger:
 function startDesktop() {
   const proc = spawn(
     BIN,
-    ["desktop", "--home", home, "--cwd", workspace, "--log-level", "warn"],
+    // --window browser: the stand drives the tab shell through the fake
+    // window above, and a binary built with the native macOS backend would
+    // otherwise open a real window in place of the sleeping script.
+    [
+      "desktop",
+      "--window",
+      "browser",
+      "--home",
+      home,
+      "--cwd",
+      workspace,
+      "--log-level",
+      "warn",
+    ],
     {
       env: {
         PATH: `${binDir}:${process.env.PATH}`,

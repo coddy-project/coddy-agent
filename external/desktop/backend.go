@@ -17,8 +17,8 @@ const (
 	// WindowBrowser is a Chromium-family browser started with --app, in a
 	// profile of its own so that it is a process this run can wait on.
 	WindowBrowser = "browser"
-	// WindowNative is a window around the system WebView (build tag
-	// desktop.native, cgo).
+	// WindowNative is a window around the system WebView, which a macOS build
+	// with cgo carries and nothing else does.
 	WindowNative = "native"
 )
 
@@ -26,6 +26,10 @@ const (
 // backend. It is not a failure of the run: the caller prints the address and
 // serves until a signal, the way `coddy serve` does.
 var ErrNoWaitableWindow = errors.New("desktop: no window this run can wait on")
+
+// errNativeUnavailable is only a pre-window GUI/platform availability failure.
+// Storage, thread and creation errors must remain failures of the native run.
+var errNativeUnavailable = errors.New("desktop: the native window is unavailable")
 
 // openWindow opens url and returns once that window has closed.
 //
@@ -38,17 +42,27 @@ var ErrNoWaitableWindow = errors.New("desktop: no window this run can wait on")
 // because it answers true on Android whenever termux-open-url is on PATH and
 // true unconditionally on Windows and macOS.
 func openWindow(ctx context.Context, opts Options, url string) error {
+	openNative := opts.nativeOpen
+	if openNative == nil && nativeAvailable {
+		openNative = openNativeWindow
+	}
 	switch opts.Window {
 	case WindowNative:
-		if !nativeAvailable {
+		if openNative == nil {
 			return errors.New(nativeUnavailableHint)
 		}
-		return openNativeWindow(ctx, url, opts.Log)
+		return openNative(ctx, opts, url)
 	case WindowBrowser:
 		return openBrowserWindow(ctx, opts, url)
 	case "", WindowAuto:
-		if nativeAvailable {
-			return openNativeWindow(ctx, url, opts.Log)
+		if openNative != nil {
+			if err := openNative(ctx, opts, url); err == nil {
+				return nil
+			} else if errors.Is(err, errNativeUnavailable) {
+				logger(opts.Log).Warn("the native window is unavailable; trying the browser", "error", err)
+			} else {
+				return err
+			}
 		}
 		err := openBrowserWindow(ctx, opts, url)
 		if errors.Is(err, errNoBrowser) {

@@ -144,6 +144,16 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: make build TAGS="http ui swarm"
 
+      # check:desktop walks the rail and drives the `coddy desktop` verb, which
+      # the lean binary above carries neither of, so it gets one of its own
+      # under build/desktop. It is built here rather than beside its own step
+      # because `make build` with `ui` runs `npm install`, which puts the
+      # playwright of package-lock.json back over the one the next step
+      # installs with --no-save and leaves its browser undownloaded.
+      - name: Build the desktop binary for its browser check
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: make build BUILD_DIR=build/desktop TAGS="http ui swarm scheduler desktop"
+
       - name: Drive a long transcript in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: |
@@ -190,6 +200,15 @@ jobs:
       - name: Drive the Settings search in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:settings-search
+
+      # The desktop tab shell against the real binary: tabs, the chords, links
+      # out of Coddy through a stub of this machine's opener, the menu, and the
+      # tab list surviving a restart. It names its binary CODDY_DESKTOP_BIN,
+      # not CODDY_BIN, and takes the one built for it above, so the lean binary
+      # the checks before it drive is left alone.
+      - name: Drive the desktop tab shell in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_DESKTOP_BIN="$PWD/build/desktop/coddy" npm --prefix external/ui run check:desktop
 
   # The integration layer against tgfake (github.com/EvilFreelancer/tgfake),
   # the fake Telegram Bot API and scripted model this repository tests its
@@ -476,6 +495,44 @@ jobs:
       - name: Feed one-shot prompts from files and stdin
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
+      # The shipped binary embeds the SPA, so this job builds it the way
+      # every other job here does: the same action, the same Node and the same
+      # npm cache.
+      - name: Set up Node for the desktop window
+        uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      # The shape a release has: the shipped tag set and no cgo, which is what
+      # the Linux runner cross-compiles for macOS.
+      - name: Build the binary a Mac is shipped
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          make build TAGS="$(make -s print-full-tags | tr ',' ' ')"
+
+      # The console a Mac actually gets is that binary, not the pure-Go
+      # `make build TAGS=cli` driven above: the shipped one carries the native
+      # window, whose runtime.LockOSThread in init runs for every command and
+      # not only for `coddy desktop`.
+      - name: Drive the shipped console through a real pty
+        run: |
+          set -euo pipefail
+          ./build/coddy -v
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+      # A real Cocoa loop and WKWebView, rather than only a cross-build: the
+      # window is reached through the Objective-C runtime, and nothing but a
+      # Mac can say that the messages it sends are the ones AppKit answers.
+      # The whole package runs, not only the native tests: no other job runs a
+      # `desktop` tag on a Mac, so the BDD suite had never met darwin's own
+      # autostart path or its missing application entry (issue 748).
+      - name: Open and drive a real WKWebView window
+        run: env -u USER go test -tags desktop ./external/desktop -count=1
 
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
