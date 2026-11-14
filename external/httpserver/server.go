@@ -170,6 +170,16 @@ type Server struct {
 	devinAuthLogins      map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
+	// terminals are the interactive shells opened under chats in the web UI.
+	// They belong to this HTTP server (not to the model's background task pool)
+	// and are stopped when the surface drains.
+	terminalMu sync.Mutex
+	terminals  map[string]*terminalSession
+	// terminalSweep ends the goroutine that stops idle shells; terminalsClosed
+	// is the gate a drain shuts, so a shell a request is starting meanwhile is
+	// stopped by that request instead of outliving the server.
+	terminalSweep   chan struct{}
+	terminalsClosed bool
 	// bgWG counts background goroutines owned by this server (codex auth login
 	// waits, background task snapshots); Drain waits for them.
 	bgWG sync.WaitGroup
@@ -178,6 +188,7 @@ type Server struct {
 // Drain waits for all background goroutines to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.closeTerminals()
 	if s.removeUsageObserver != nil {
 		s.removeUsageObserver()
 	}
@@ -246,6 +257,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		tgSessions:           webauth.NewSessionStore(),
 		browserSessions:      webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
+		terminals:            make(map[string]*terminalSession),
 	}
 	s.cfgAt.Store(cfg)
 	// A Mini App launch signs one browser in once, across restarts too.
@@ -311,6 +323,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	s.registerAuthRoutes()
 	s.registerCoddyRoutes()
+	s.registerStatisticsRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.registerOnboardingRoutes()
@@ -1054,7 +1067,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sessionID, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(req.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -1151,7 +1164,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools, genOpts)
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, statisticsSourceFromHTTP(req.Metadata), bridge, clientTools, genOpts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
@@ -1748,7 +1761,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sid, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(body.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		// A turn from the side panel of Coddy for Browser names the tab it
 		// is written from: the chat's browser tool acts there by default,
 		// for this turn alone.

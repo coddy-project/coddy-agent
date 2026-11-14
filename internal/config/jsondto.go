@@ -172,6 +172,7 @@ type AgentJSON struct {
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
 	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	PromptSuggestions      *bool  `json:"prompt_suggestions,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -266,6 +267,7 @@ type ToolCanvasJSON struct {
 	Enabled        *bool    `json:"enable,omitempty"`
 	AllowCDN       *bool    `json:"allow_cdn,omitempty"`
 	AllowedSources []string `json:"allowed_sources,omitempty"`
+	ProjectTrust   string   `json:"project_trust,omitempty"`
 }
 
 // ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
@@ -594,6 +596,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(c.Agent.PromptSuggestions),
 	}
 	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
@@ -641,6 +644,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
 			AllowedSources: append([]string(nil), c.Tools.Canvas.AllowedSources...),
+			ProjectTrust:   c.Tools.Canvas.ProjectTrust,
 		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
@@ -856,6 +860,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		PromptSuggestions:      cloneBoolPtr(j.Agent.PromptSuggestions),
 	}
 	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
@@ -907,6 +912,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(j.Tools.Canvas.AllowCDN),
 			AllowedSources: append([]string(nil), j.Tools.Canvas.AllowedSources...),
+			ProjectTrust:   j.Tools.Canvas.ProjectTrust,
 		},
 		HTTPRequest: ToolHTTPRequest{
 			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),

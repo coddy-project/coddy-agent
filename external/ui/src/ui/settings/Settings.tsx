@@ -60,6 +60,12 @@ import { useRailCloseGuard, useRailEscapeStep } from "../nav/railEscape";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaneHidden } from "../components/PanePortal";
 import { environmentKey, getEnv } from "../env/remoteEnv";
+import {
+  flushStatisticsSettings,
+  serverStatisticsSettingsDirty,
+  statisticsSettingsDirty,
+  subscribeStatisticsSettings,
+} from "../statistics/statisticsSettingsStore";
 import { settingsFormDirty } from "./settingsDirty";
 
 type ValidateResponse = { ok: boolean; error?: string };
@@ -279,7 +285,13 @@ export function Settings(props: {
   const [error, setError] = useState<string | null>(null);
   // Whether the form holds edits that are not saved: Save stands out while it
   // does, and closing over them asks first (issue #485).
-  const dirty = settingsFormDirty(draft.base, draft.doc, schema);
+  const statisticsDirty = useSyncExternalStore(
+    subscribeStatisticsSettings,
+    statisticsSettingsDirty,
+    serverStatisticsSettingsDirty,
+  );
+  const dirty =
+    settingsFormDirty(draft.base, draft.doc, schema) || statisticsDirty;
   const [askClose, setAskClose] = useState(false);
   // The server this form was read from. A switch to or from Local stores the
   // new server and then reloads the page; a page kept by a stopped reload
@@ -676,6 +688,19 @@ export function Settings(props: {
     }
     setBusy(true);
     setError(null);
+    // The statistics tab writes its own route, not the configuration
+    // document; this Save is the one the person presses for either.
+    try {
+      await flushStatisticsSettings();
+    } catch (e) {
+      setBusy(false);
+      setError(
+        e instanceof Error
+          ? e.message
+          : translate("settings.error.requestFailed"),
+      );
+      return false;
+    }
     // The green of an earlier save says nothing about this one.
     clearSaved();
     const sent = doc;
@@ -855,6 +880,7 @@ export function Settings(props: {
     // schema loads, and they render in the normal scroll flow like any other tab.
     if (
       section.kind === "appearance" ||
+      section.kind === "statistics" ||
       section.kind === "sessions" ||
       section.kind === "status"
     ) {

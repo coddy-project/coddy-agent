@@ -1095,22 +1095,28 @@ async function scenarioViews() {
     fs.existsSync(path.join(workspace, "notes/release.md")),
   );
 
-  // The header shows the views as buttons in a row: files, tasks.
+  // The header shows the views as buttons in a row: files, terminal, tasks.
   const buttons = await viewButtons(a.page);
   check(
-    "the header shows files and background tasks as buttons, in that order, and no Edits button",
+    "the header shows files, the terminal and background tasks as buttons, in that order, and no Edits button",
     JSON.stringify(buttons.map((b) => b.id)) ===
-      JSON.stringify(["chat-views-files", "chat-views-tasks"]),
+      JSON.stringify([
+        "chat-views-files",
+        "chat-views-terminal",
+        "chat-views-tasks",
+      ]),
     JSON.stringify(buttons.map((b) => b.id)),
   );
   check(
-    "on a desktop Files is an 18px icon and Tasks the dot, each alone and centred in a 36px square",
+    "on a desktop Files and Terminal are 18px icons and Tasks the dot, each alone and centred in a 36px square",
     buttons.every(
       (b) => b.text === "" && b.centred && Math.round(b.box.width) === 36,
     ) &&
       buttons[0].icon === 18 &&
       !buttons[0].dot &&
-      buttons[1].dot,
+      buttons[1].icon === 18 &&
+      !buttons[1].dot &&
+      buttons[2].dot,
     JSON.stringify(
       buttons.map((b) => [b.text, b.centred, b.icon, b.dot, b.box.width]),
     ),
@@ -1840,9 +1846,13 @@ async function scenarioNoEdits() {
   await c.page.waitForTimeout(800);
   const row = await viewButtons(c.page);
   check(
-    "a chat without edits shows Files and Tasks in the header",
+    "a chat without edits shows Files, Terminal and Tasks in the header",
     JSON.stringify(row.map((b) => b.id)) ===
-      JSON.stringify(["chat-views-files", "chat-views-tasks"]),
+      JSON.stringify([
+        "chat-views-files",
+        "chat-views-terminal",
+        "chat-views-tasks",
+      ]),
     JSON.stringify(row.map((b) => b.id)),
   );
   await c.page.getByTestId("workspace-bar").waitFor();
@@ -1992,16 +2002,16 @@ async function scenarioPhone(sid) {
       .isVisible()
       .catch(() => false)),
   );
-  // On a phone Files is the icon alone, in the 40px square of the top bar, and
-  // Background tasks the dot with its word, both beside the title, which keeps
-  // its room.
+  // On a phone Files and Terminal are their icons alone, in the 40px square of
+  // the top bar, and Background tasks the dot, all beside the title, which
+  // keeps its room.
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
   const phoneButtons = await viewButtons(p.page);
-  const [pf, pt] = phoneButtons;
+  const [pf, pterm, pt] = phoneButtons;
   check(
-    "on a phone Files is a 40px icon and Tasks the dot, beside the title, inside the header",
-    phoneButtons.length === 2 &&
+    "on a phone Files and Terminal are 40px icons and Tasks the dot, beside the title, inside the header",
+    phoneButtons.length === 3 &&
       phoneButtons.every(
         (b) =>
           b.inHeader &&
@@ -2012,6 +2022,9 @@ async function scenarioPhone(sid) {
       pf.text === "" &&
       pf.icon === 18 &&
       Math.round(pf.box.width) === 40 &&
+      pterm.text === "" &&
+      pterm.icon === 18 &&
+      Math.round(pterm.box.width) === 40 &&
       pt.dot &&
       pt.text === "" &&
       Math.round(pt.box.width) === 40 &&
@@ -2305,8 +2318,8 @@ async function scenarioWidths(sid) {
       const row = await viewButtons(w.page);
       const height = width < 1200 ? 42 : 36;
       check(
-        `${lang} ${width}px: the view buttons sit beside the title in one row, two squares`,
-        row.length === 2 &&
+        `${lang} ${width}px: the view buttons sit beside the title in one row, three squares`,
+        row.length === 3 &&
           row.every(
             (b) =>
               b.inHeader &&
@@ -2317,7 +2330,8 @@ async function scenarioWidths(sid) {
               Math.round(b.box.height) === height,
           ) &&
           row[0].icon === 18 &&
-          row[1].dot &&
+          row[1].icon === 18 &&
+          row[2].dot &&
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
         JSON.stringify(
           row.map((b) => [

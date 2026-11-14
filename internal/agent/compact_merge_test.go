@@ -385,7 +385,7 @@ func TestAMergeOfTheTurnsRowsCountsItsPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	k, err := ag.mergeChain(context.Background(), chain, "", nil)
+	k, err := ag.mergeChain(context.Background(), chain, "", "", nil)
 	if err != nil || k == 0 {
 		t.Fatalf("merge = %d, %v; want a merge", k, err)
 	}

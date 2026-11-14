@@ -238,6 +238,32 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 ## Settings: boolean switch fields
 
+**ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
+It is enabled by default. After a turn, Coddy repeats that turn's own request: the
+main system prompt, the complete history with tool calls and results, the tool
+definitions and the same model and reasoning level, with the suggestion instruction
+appended as a request-only user message. A provider that caches prompts therefore
+reads the history back from its cache instead of paying for it again. Tools
+are never executed and nothing enters the transcript. Two turns get no suggestion
+at all: one that ended while this tab was hidden, since its composer shows the
+hint to nobody, and one the provider did not serve from its cache, since the side
+call would then read the whole history at the input price. **Tab** or **Right** copies
+the suggestion into the draft. The suggestion stays as the placeholder while
+you edit. Clearing the draft shows the same suggestion again, including after accepting
+and editing it. Sending a message, starting another turn or switching context retires it.
+Set `agent.prompt_suggestions: false`
+in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
+the web UI and consoles connected to this server, including `--remote` clients.
+The change applies without restarting Coddy.
+
+![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
+
+*The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*
+
+![Prompt suggestions enabled in ReAct loop settings](../assets/web-ui/prompt-suggestions-on-dark-1280.png)
+
+*Prompt suggestions enabled by default in ReAct loop settings, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestions-on-dark-390.png).*
+
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control and a label cell on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, the **Gateways → Telegram** flags) and the **Skills → Skill auto-discovery** row.
 - The label sits level with the switch (vertical centres match within 1px, 8px gap), and the field's description is the (i) right after the label, as on every other field.
 - The label is a real **`<label for>`**: clicking the text toggles the switch; clicking the (i) only opens the description. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
@@ -393,7 +419,7 @@ Desktop layout
 
 - **Brand** is **typography only** (**Coddy** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
-- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**), and so does **New Chat** (**`data-testid="nav-new-chat"`**): a plus under the brand in the narrow rail, a plus after it in the top bar and a labelled row above **History** in the wide rail.
+- Left rail opens **chat history** from **History** under the brand. The **Coddy** menu opens [Statistics](../features/statistics.md); **New Chat** (**`data-testid="nav-new-chat"`**) starts a chat: a plus under the brand in the narrow rail, after it in the top bar and a labelled row above **History** in the wide rail.
 - **Brand**, **History**, **Scheduler** (when linked), **Settings**, and each row in the **History** list use real fragment **`href`** values (**`#/`**, **`#/history`**, **`#/scheduler`**, **`#/scheduler/new`** (new job editor), **`#/settings`**, **`#/s/<sessionId>`**) so **middle-click** or **Ctrl/Cmd-click** opens a **new browser tab** on the same origin while another tab can keep streaming.
 - Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**. On the stacked shell the panel keeps the same band as the Scheduler's and Settings' drawers: 10 px from the sides, under the top strip, and 14 px from the foot or the screen's own bottom inset where there is one. The close control in its head and Escape are the ways back to the conversation.
 - Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
@@ -1384,18 +1410,19 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **files**, its **background
-tasks** and its **edits**. Files and background tasks are a row of buttons at the top
-of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
-width, as a phone always showed them: Files is its icon alone, in a square the size of
-the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
+A chat has four views beside the conversation: its **files**, its **terminal**, its
+**background tasks** and its **edits**. Files, Terminal and Tasks are a row of buttons
+at the top of the chat, with Tasks at the right edge. They are icons at every
+width, as a phone always showed them: Files and Terminal are their icons alone, each in
+a square the size of the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
 the button widens and shows how many run out of how many there are next to the dot,
 which is lit while work is in flight. Every button has
 its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
-tasks that run. The background tasks open in the dock beside the chat, the files in a window
-over the chat. The edits have no button in the header: git's count on [the plate over
+tasks that run. The background tasks open in the dock beside the chat, the files in a
+window over the chat, and the terminal in a window of its own that stands over both.
+The edits have no button in the header: git's count on [the plate over
 the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
 Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
@@ -1408,6 +1435,42 @@ lowercase, and centred on the line the icon reads a pixel high.
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
+
+## Terminal window
+
+The **Terminal** icon in the chat header opens a shell in a window of its own, over
+the conversation. It is not a view of the dock: opening the files or the background
+tasks does not close it, Escape does not take it away, and nothing dims the chat
+behind it, so a command can be watched while the conversation goes on.
+
+On a desktop it is a **small window you move and resize**. Drag its head to move it,
+any of its eight edges and corners to resize it, and use **Maximize** in the head (or
+a double click on the head) to send it to the edges of the browser window and back.
+Where it stood and whether it was maximized are remembered in this browser, and a
+window remembered from a larger screen opens inside a smaller one instead of off it.
+On a tablet or a phone it is **the whole screen**: there is no room for a window to be
+dragged around, so the head carries no Maximize.
+
+The shell starts in that chat's workspace and belongs to the chat: closing the window
+and opening it again keeps `cd`, environment changes and the output already printed.
+Enter runs a command from the prompt, with no separate Run button; a command is one
+line. Up and Down walk the last 100 commands of this chat, kept in this browser across
+closing and reopening the window, and the shell's own history is on as well, so
+`history` lists what was typed here. **Restart** stops that shell and starts a clean
+one.
+
+It works the same on Linux, macOS and Windows, where the shell is PowerShell or
+`cmd.exe` and its output is read in the console code page, so text that is not ASCII
+arrives as text rather than as mojibake. PowerShell prints its own prompt before each
+command it reads, so there the transcript is the shell's rather than Coddy's. What it is **not** is a terminal device: a
+program that draws a screen (an editor, `top`) has nothing to draw on, and what a
+command prints is shown as text with its colour codes stripped. The last 512 KiB of
+output is kept.
+
+A shell that ends stays on screen with the reason it stopped, and the next command you
+run starts a fresh one. The server stops every shell when its HTTP surface shuts down,
+and a sweep of its own stops one that nobody has read or written for 30 minutes, so a
+chat whose terminal was opened once does not keep a process for the life of the server.
 
 ## Canvas
 

@@ -1394,6 +1394,71 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/prompt-suggestion": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Predicted next prompt for a session",
+					"description": "After a turn ends, predicts what the operator might type next over the session's recorded conversation: one hidden side call to the session's model with no tools, nothing written to the transcript (the same call the console makes for its dim composer hint). The answer is cleaned and validated - 2-12 words, one line, never the assistant's own voice - and empty when the turn has nothing to offer (too little conversation, the model stayed silent, the back-off of ignored suggestions). Enabled by **`agent.prompt_suggestions`** (default on).",
+					"operationId": "coddySessionPromptSuggestion",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Suggestion payload (empty text when there is none)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.prompt_suggestion"},
+											"sessionId": map[string]string{"type": "string"},
+											"text":      map[string]string{"type": "string"},
+										},
+										"required": []string{"object", "sessionId", "text"},
+									},
+								},
+							},
+						},
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/prompt-suggestion/outcome": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report what became of a shown suggestion",
+					"description": "Feeds the suggestion back-off: **accepted** (taken into the composer, or retyped by hand) resets the unused streak, ignored grows it; past 20 unused in a row only every 10th turn offers one.",
+					"operationId": "coddySessionPromptSuggestionOutcome",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"accepted": map[string]string{"type": "boolean"},
+									},
+									"required": []string{"accepted"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Outcome recorded"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",
@@ -1637,6 +1702,27 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
+				},
+			},
+			"/coddy/sessions/{id}/terminal": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Start or snapshot the integrated terminal",
+					"description": "Starts one host shell in the session workspace when none exists and returns its bounded output (the last 512 KiB, decoded from the host console code page and stripped of terminal control sequences), shell path and running state. The process retains cwd and environment between commands; a shell nobody has read or written for 30 minutes is stopped by a sweep of the server. A read leaves a shell that has ended alone, so its last output and exit_error stay readable.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "500": errorResponseRef()},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Write a command to the integrated terminal",
+					"description": "Writes **input** followed by a newline to the chat's persistent host shell and returns the immediate snapshot. A command is one line: input holding a newline is refused with **409**, since the lines after the first would run unseen. A shell that has ended is replaced by a fresh one, so the endpoint never wedges; a failure to start one is a **500**.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "required": []interface{}{"input"}, "properties": map[string]interface{}{"input": map[string]interface{}{"type": "string"}}}}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Terminal snapshot"}, "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "500": errorResponseRef()},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Restart the integrated terminal",
+					"description": "Stops and forgets the chat's shell. The next GET or POST starts a clean shell in the session workspace.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."}},
+					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Terminal stopped"}, "400": errorResponseRef(), "404": errorResponseRef()},
 				},
 			},
 			"/coddy/subagents": map[string]interface{}{
@@ -3304,6 +3390,18 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/providers/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List all provider account limits",
+					"description": "Returns every configured provider in configuration order, including unused, unsupported and disabled rows. Uses the manager's shared cache, credentials, proxy and refresh pacing. Reads at most four accounts concurrently under a 15-second request budget; a failed row carries error=unavailable. Does not sum limits across accounts. refresh=1 requests fresh reads subject to the pacing floor.",
+					"operationId": "listProviderUsage",
+					"parameters":  []interface{}{map[string]interface{}{"name": "refresh", "in": "query", "schema": map[string]string{"type": "string"}}},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("All configured provider limits.", "#/components/schemas/ProviderUsageList"),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/providers/{name}/usage": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get provider account usage",
@@ -4481,6 +4579,13 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
 				},
+				"ProviderUsageList": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"providers"},
+					"properties": map[string]interface{}{
+						"providers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}},
+					},
+				},
 				"ProviderUsageAnswer": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -5299,6 +5404,7 @@ func openAPISpec() map[string]interface{} {
 	mergeWorkspaceViewerOpenAPI(doc)
 	mergeCanvasOpenAPI(doc)
 	mergeStatusOpenAPI(doc)
+	mergeStatisticsOpenAPI(doc)
 	mergeOpenCodeAuthOpenAPI(doc)
 	mergeWallpaperOpenAPI(doc)
 	mergeResponsesOpenAPI(doc)

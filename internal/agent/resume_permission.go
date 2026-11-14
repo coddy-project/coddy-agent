@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
@@ -45,6 +46,9 @@ func (e *answeredToolCallError) Error() string {
 // ResumeAfterPermission executes a tool call that was approved via POST /permission after the HTTP
 // stream ended or the server restarted, then continues the ReAct loop from persisted messages.
 func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, perm *acp.PermissionResult) (string, error) {
+	ctx, finishStatistics := a.beginStatistics(ctx)
+	defer finishStatistics()
+	statistics.Background(ctx)
 	toolCallID = strings.TrimSpace(toolCallID)
 	if toolCallID == "" {
 		return "", fmt.Errorf("toolCallId is required")
@@ -375,17 +379,18 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody:     a.loadSkillBody,
-		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
-		ConfigPath:        a.cfg.Paths.ConfigPath,
-		ConfigHome:        a.cfg.Paths.Home,
-		ConfigCWD:         a.cfg.Paths.CWD,
-		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
-		Background:        a.backgroundPool(sessionDir),
-		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
-		WebSearch:         webSearchSettings(a.cfg),
-		AttachImage:       a.attachToolImage,
-		ImageRefusal:      a.toolImageRefusal,
+		LoadSkillBody:      a.loadSkillBody,
+		SSHConnectTimeout:  a.cfg.Tools.SSHConnectTimeout,
+		ConfigPath:         a.cfg.Paths.ConfigPath,
+		ConfigHome:         a.cfg.Paths.Home,
+		ConfigCWD:          a.cfg.Paths.CWD,
+		OutputLineLimits:   a.cfg.Tools.OutputLimits.AsMap(),
+		Background:         a.backgroundPool(sessionDir),
+		BackgroundEnabled:  a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:          webSearchSettings(a.cfg),
+		CanvasProjectTrust: a.cfg.Tools.Canvas.ResolvedProjectTrust(),
+		AttachImage:        a.attachToolImage,
+		ImageRefusal:       a.toolImageRefusal,
 	}
 	httpRequestEnv(env, a.cfg)
 	a.wireWorkspaceTool(env)

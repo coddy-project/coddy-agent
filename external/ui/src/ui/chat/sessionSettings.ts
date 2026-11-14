@@ -104,6 +104,19 @@ export function toolsetsOfInfo(raw: unknown): string[] {
 }
 
 /**
+ * statisticsOfInfo reads whether the server records usage at all off an answer
+ * of `GET /coddy/info` (`statistics`). An older server says nothing, and the
+ * screen is offered as it always was.
+ */
+export function statisticsOfInfo(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") {
+    return true;
+  }
+  const value = (raw as Record<string, unknown>).statistics;
+  return typeof value === "boolean" ? value : true;
+}
+
+/**
  * permissionModeOfInfo reads the permission mode a new session starts under
  * off an answer of `GET /coddy/info` (`permissionMode`: the mode chosen last
  * on any surface, the same value a snapshot names as

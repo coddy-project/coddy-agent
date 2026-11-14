@@ -95,11 +95,37 @@ Obsidian makes edits of its own as it draws a canvas: a picture node takes the p
 
 `canvas_show` writes the file without a permission prompt: the node of the frame it shows and nothing else, or a new file with that one node under `canvas/`.
 
-A frame's settings that JSON Canvas has no field for - a device its size does not say, a title - go under a `coddy` key of its node, which Obsidian keeps. A node Coddy did not move keeps its own numbers, even one smaller than a frame may be. A root wider than the page's folder, the generation behind a frame's address and which file is the chat's canvas stay with the session and never reach the file, so a `.canvas` file that arrives with a checkout cannot widen what its pages may read: a page reads its own folder unless `canvas_show` widened it in this chat. Two chats with the same file open take turns writing it, and each writes only what it changed.
+A frame's settings that JSON Canvas has no field for - a device its size does not say, a title - go under a `coddy` key of its node, which Obsidian keeps. A node Coddy did not move keeps its own numbers, even one smaller than a frame may be. A root wider than the page's folder, the generation behind a frame's address and which file is the chat's canvas stay with the session and never reach the file, so a `.canvas` file that arrives with a checkout cannot widen what its pages may read: a page reads its own folder unless `canvas_show` widened it in this chat. Its pages do not run until you let them, see [Pages that came with the checkout](#pages-that-came-with-the-checkout). Two chats with the same file open take turns writing it, and each writes only what it changed.
 
 The board reads the file again whenever it is read, so an edit in Obsidian, or one the agent makes with the file tools, shows on the open board within seconds. Text cards, edges and new links are edited that way, in the file: the canvas moves nodes, it does not write text.
 
 Paths in a node are relative to the workspace, so the workspace is the Obsidian vault, or the file names its pages from the vault's root. The file must be a regular file of the workspace outside dot-named folders, at most 8 MB; one that does not parse says so on the board and is never written. A node whose id is not letters, digits, `-` and `_` (at most 64) is drawn as a card and does not run.
+
+## Pages that came with the checkout
+
+A `.canvas` file is a file of the repository, and so are the pages it names: a board that came with a clone or a pull would otherwise run a page that reads the workspace and sends it out. A page Coddy put on a board runs: one the agent showed with `canvas_show`, or one you put there with **Open on canvas**. Every other page of a board waits for you. Its frame stands empty, names the page and the folder it would read, and loads nothing.
+
+![A board that came with the workspace: its page waits in an empty frame with the button that runs the board's pages](../assets/canvas/canvas-held-dark-1280.png)
+
+*A page that came with the checkout loads nothing until you let it run.*
+
+**Run the pages of this board** on a waiting frame opens a dialog that lists every waiting page with the folder it reads. **Run pages** lets exactly those pages run. If the board's pages changed while the dialog was open, nothing runs and the dialog shows the new list. **Hold pages** at the board's bottom left takes the decision back: every page of the board waits again, the ones Coddy put there included, and the addresses handed out before stop working.
+
+![The dialog before the pages of a board run: the page and the folder it reads](../assets/canvas/canvas-trust-dark-1280.png)
+
+*The dialog names each page and the folder it may read and send out.*
+
+The decision is about which pages run, not about what they hold or what else the board draws. Moving a card, adding a note or editing a page keeps it. A page the file names later, one that a branch or a pull added, waits on its own while the others run. A page Coddy puts on a waiting board runs, and the board's other pages keep waiting. `canvas_show` and `canvas_inspect` tell the agent which pages wait.
+
+Decisions are kept in `${CODDY_HOME}/canvas-trust.json`, per project: a linked git worktree shares what its main checkout decided, and each checkout keeps a record of its own. A board made before this version has no record, so its pages wait once.
+
+`tools.canvas.project_trust` sets the policy.
+
+| Value | Pages that run |
+|---|---|
+| `ask` (default) | the pages Coddy put on the board and the pages you let run |
+| `allow` | every page of every board |
+| `deny` | only the pages Coddy put on the board; a waiting page offers no button |
 
 ## What a page can do
 
@@ -109,7 +135,7 @@ A frame runs under a sandbox that grants it no origin of its own:
 - the server answers it with `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals` and the iframe has the same sandbox, so the page runs scripts in an opaque origin: no cookies, no storage of the web UI, no access to its API; `localStorage` and `sessionStorage` work in memory for the life of the frame, and forms post nowhere;
 - every API route refuses a request whose `Origin` is `null` with 403, whatever credential it carries, so a page cannot drive the server even where the server has no token; the frame's own file route is the one exception;
 - a page loads from its own address, from `data:` and `blob:` addresses, from the common CDNs while `tools.canvas.allow_cdn` is on and from the hosts of `tools.canvas.allowed_sources`; `fetch` and WebSocket reach its own address and the same hosts;
-- the page can read every file under its root and send it to any of those sources: what it may read is what you put under its root;
+- the page can read every file under its root and send it to any of those sources, or anywhere by navigating its own frame with what it read in the address: what it may read is what you put under its root;
 - a page that navigates away from the canvas says so on its frame, and the frame's old address stops working; **Back to the page** loads it again under a new one;
 - the frames serve no symbolic links and no dot-named path, and a folder answers its `index.html`, never a listing.
 
@@ -123,6 +149,7 @@ tools:
     enable: true          # false hides the tools and the canvas
     allow_cdn: true       # cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, Google Fonts
     allowed_sources: []   # more hosts a frame may load from and connect to, as https://host or https://*.host
+    project_trust: ask    # pages of a board that came with the checkout: ask, allow or deny
 ```
 
 A CDN and a host in `allowed_sources` are places a page can send what it reads. The fields are listed in the [configuration reference](../reference/config.md). The routes of the canvas and of the frames are in the [HTTP API reference](../reference/http-api.md#canvas).

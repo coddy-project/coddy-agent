@@ -18,6 +18,11 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import {
+  fetchPromptSuggestion,
+  promptSuggestionsWatched,
+  reportPromptSuggestionOutcome,
+} from "./chat/promptSuggestion";
 import { useStableHandler } from "./components/useStableHandler";
 import type { QueuedMessage, QueueMode } from "./chat/Composer";
 import { normalizeClipboardImageFile } from "./chat/clipboardImageFile";
@@ -64,6 +69,7 @@ import {
   isNewerSettings,
   parseSessionSettings,
   permissionModeOfInfo,
+  statisticsOfInfo,
   toolsetsOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
@@ -142,6 +148,7 @@ import type {
 } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
+const StatisticsView = lazy(() => import("./statistics/StatisticsView"));
 import {
   phoneMaxWidthMediaQuery,
   shellStackMaxWidthMediaQuery,
@@ -285,6 +292,7 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView, type CanvasFocus } from "./files/FilesView";
+import { TerminalPanel } from "./terminal/TerminalPanel";
 import type { CanvasPrompt } from "./canvas/CanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
@@ -575,6 +583,31 @@ export function App() {
     const row = readClientDraftSessions().find((r) => r.localId === id);
     return row?.draftText || "";
   });
+  // The follow-up prompt suggestion of the finished turn of the viewed
+  // session (chat/promptSuggestion.ts): shown dim in the empty composer,
+  // taken with Tab, and settled - taken, retyped, or ignored - when the
+  // operator sends. acceptedRef holds that Tab already took it, so a send
+  // that edits it afterwards still counts as accepted.
+  const [promptSuggestion, setPromptSuggestion] = useState<{
+    sid: string;
+    text: string;
+  } | null>(null);
+  const promptSuggestionAcceptedRef = useRef(false);
+  const promptSuggestionRequestRef = useRef<AbortController | null>(null);
+  const retirePromptSuggestion = useCallback(() => {
+    promptSuggestionRequestRef.current?.abort();
+    promptSuggestionRequestRef.current = null;
+    promptSuggestionAcceptedRef.current = false;
+    setPromptSuggestion(null);
+  }, []);
+  useEffect(() => {
+    retirePromptSuggestion();
+    return retirePromptSuggestion;
+  }, [sessionId, retirePromptSuggestion]);
+  useEffect(
+    () => subscribeEnv(retirePromptSuggestion),
+    [retirePromptSuggestion],
+  );
   // The files attached in the composer. Held here, not in the composer, so a
   // send the server never took can put them back next to the text.
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
@@ -1120,8 +1153,11 @@ export function App() {
       };
     },
     onReconcile: (sid, active, wasActive) => {
-      if (active) void attachViewedComposer(sid);
-      else if (wasActive) reconcileEndedTurn(sid);
+      if (active) {
+        void attachViewedComposer(sid);
+        // A turn running again retires the suggestion of the turn before it.
+        if (sid === viewedSessionIdRef.current.trim()) retirePromptSuggestion();
+      } else if (wasActive) reconcileEndedTurn(sid);
     },
   });
   const generating =
@@ -1162,6 +1198,34 @@ export function App() {
     // worktree_exit, /worktree). Read here, where the end of a turn is known
     // whether or not the events stream told this tab about it.
     if (viewing) void refreshWorkspaceContext(sid);
+    // The turn ended: ask once what the operator might type next and offer
+    // it dim in the empty composer of the session this tab still views. A
+    // turn with nothing to suggest clears what an older turn left.
+    if (!viewing) return;
+    retirePromptSuggestion();
+    // Nobody is looking: a hidden tab shows its composer to no one, so the
+    // side call would be paid for and never read. The next turn asks again.
+    if (!promptSuggestionsWatched()) return;
+    const request = new AbortController();
+    promptSuggestionRequestRef.current = request;
+    const generation = turnActivity.generation(sid);
+    const environment = environmentKey(snapshotEnv());
+    void (async () => {
+      const text = await fetchPromptSuggestion(sid, fetch, request.signal);
+      if (
+        request.signal.aborted ||
+        promptSuggestionRequestRef.current !== request ||
+        viewedSessionIdRef.current.trim() !== sid ||
+        turnActivity.generation(sid) !== generation ||
+        turnActivity.get(sid) === true ||
+        pendingPostBySidRef.current.has(sid) ||
+        environmentKey(snapshotEnv()) !== environment
+      )
+        return;
+      promptSuggestionRequestRef.current = null;
+      promptSuggestionAcceptedRef.current = false;
+      setPromptSuggestion(text ? { sid, text } : null);
+    })();
   }
 
   async function attachViewedComposer(sid: string) {
@@ -1321,6 +1385,10 @@ export function App() {
   const [settingsRoute, setSettingsRoute] = useState(
     () => initialRoute.branch === "settings",
   );
+  const [statisticsRoute, setStatisticsRoute] = useState(
+    initialRoute.branch === "statistics",
+  );
+  const statisticsReturnHashRef = useRef("");
   const [swarmRoute, setSwarmRoute] = useState(
     () => initialRoute.branch === "swarm",
   );
@@ -1409,6 +1477,7 @@ export function App() {
   const [filesOpen, setFilesOpen] = useState(
     initialRoute.branch === "session" && initialRoute.filesOpen === true,
   );
+  const [terminalOpen, setTerminalOpen] = useState(false);
   // Bumps on every request to show a file, so the same path asked for again
   // (its tab closed meanwhile) opens again.
   const [fileOpenSeq, setFileOpenSeq] = useState(0);
@@ -1693,6 +1762,7 @@ export function App() {
       .then((info: unknown) => {
         if (read === serverPermissionReadRef.current && isAppEnvironment()) {
           setServerToolsets(toolsetsOfInfo(info));
+          setServerCollectsStatistics(statisticsOfInfo(info));
         }
         return permissionModeOfInfo(info);
       })
@@ -1724,6 +1794,10 @@ export function App() {
   // mode picked there, else the configured one.
   const startPermissionMode =
     pendingPermissionMode || shownConfiguredPermissionMode;
+  // Whether this server records usage: with the collection off there is no
+  // page to offer, so the rail does not hold it (GET /coddy/info).
+  const [serverCollectsStatistics, setServerCollectsStatistics] =
+    useState(true);
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler(
@@ -2678,10 +2752,21 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    setStatisticsRoute(p.branch === "statistics");
     // The Files and the edits windows have addresses of their own; any other
     // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
     if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
+    if (p.branch === "statistics") {
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionsOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
+      return;
+    }
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -3604,6 +3689,7 @@ export function App() {
       noteSchedulerTurn();
       const key = sid.trim();
       attention.turnStarted(key);
+      if (key === viewedSessionIdRef.current.trim()) retirePromptSuggestion();
       if (
         key !== viewedSessionIdRef.current.trim() &&
         turnActivity.get(key) === undefined
@@ -3644,6 +3730,7 @@ export function App() {
     // The configuration swapped: every config-derived list reads again, and
     // so does the copy of the config the Settings drawer keeps.
     configReloaded: () => {
+      retirePromptSuggestion();
       setConfigEpoch((e) => e + 1);
       noteSettingsConfigReloaded();
       void refreshConfiguredRemotes();
@@ -7517,6 +7604,7 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
+    statisticsRoute ||
     swarmRoute ||
     docsRoute !== null;
 
@@ -7676,7 +7764,20 @@ export function App() {
 
   // Every screen of the rail, whether it is on screen and what Escape does to
   // it: the step its close control takes (nav/railEscape.ts).
+  const openStatistics = () => {
+    if (parseAppHash().branch !== "statistics")
+      statisticsReturnHashRef.current = window.location.hash;
+    window.location.hash = "#/statistics";
+  };
+  const closeStatistics = () => {
+    setStatisticsRoute(false);
+    window.location.hash =
+      statisticsReturnHashRef.current ||
+      (sessionId.trim() ? `#/s/${encodeURIComponent(sessionId.trim())}` : "#/");
+    statisticsReturnHashRef.current = "";
+  };
   useRailScreenEscape({
+    statistics: { open: statisticsRoute, close: closeStatistics },
     history: { open: sessionsOpen, close: sessionPanelShared.onClose },
     scheduler: {
       open: schedulerOpen && schedulerHttpLinked === true,
@@ -8044,6 +8145,10 @@ export function App() {
       <EnvHealthBanner />
       <NavRail
         localHost={localHost}
+        {...(serverCollectsStatistics
+          ? { onOpenStatistics: openStatistics }
+          : {})}
+        statisticsOpen={statisticsRoute}
         // A relay has no chat to start: its home is the map, and the brand
         // leads there as it leads an agent's page to a new chat.
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
@@ -8059,7 +8164,10 @@ export function App() {
         onOpenSwarm={openSwarmFromNav}
         // On a relay the map is the home screen, so its entry stays lit while
         // the map is what is on screen, whichever address shows it.
-        swarmOpen={swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute)}
+        swarmOpen={
+          swarmRoute ||
+          (atSwarmRoot && !settingsRoute && !docsRoute && !statisticsRoute)
+        }
         {...(localDocs ? { onOpenDocs: openDocsFromNav } : {})}
         docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
@@ -8102,6 +8210,9 @@ export function App() {
               // button does.
               const guard = settingsRoute ? railCloseGuard("settings") : null;
               if (guard) guard();
+              // Statistics goes back where it was opened from, as its own
+              // close control and Escape do.
+              else if (statisticsRoute) closeStatistics();
               else closeAllShellDrawers();
             }
           }}
@@ -8208,7 +8319,8 @@ export function App() {
           </div>
         ) : null}
 
-        {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
+        {swarmRoute ||
+        (atSwarmRoot && !settingsRoute && !docsRoute && !statisticsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
               onOpenNode={(nodePath: string[]) =>
@@ -8229,6 +8341,19 @@ export function App() {
               {...(atSwarmRoot ? {} : { onClose: onCloseSwarm })}
             />
           </div>
+        ) : null}
+        {statisticsRoute ? (
+          <Suspense fallback={null}>
+            <StatisticsView
+              onClose={closeStatistics}
+              onSettings={() => {
+                window.location.hash = "#/settings/statistics";
+              }}
+              swarm={isSwarmEnv}
+              relayHome={atSwarmRoot}
+              cwd={chatWorkspace}
+            />
+          </Suspense>
         ) : null}
         {docsRoute ? (
           <div className="docs-dock-cluster">
@@ -8292,6 +8417,18 @@ export function App() {
               void clearFinishedTasks();
             }}
             onOpenSession={openSessionInPlace}
+          />
+        ) : null}
+
+        {/* The terminal is a window of the chat's own, not a view of the dock:
+            it stands over whatever else is open and nothing closes it but its
+            own control. */}
+        {terminalOpen && sessionId.trim() ? (
+          <TerminalPanel
+            key={`terminal:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || chatWorkspace}
+            onClose={() => setTerminalOpen(false)}
           />
         ) : null}
 
@@ -8370,6 +8507,8 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
+            onOpenTerminal={() => setTerminalOpen((open) => !open)}
+            terminalOpen={terminalOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {
@@ -8480,6 +8619,14 @@ export function App() {
               )
             }
             generating={generating}
+            promptSuggestion={
+              promptSuggestion && promptSuggestion.sid === sessionId.trim()
+                ? promptSuggestion.text
+                : null
+            }
+            onPromptSuggestionAccepted={() => {
+              promptSuggestionAcceptedRef.current = true;
+            }}
             {...(!generating && lastUserText.trim() && !subagentTranscript
               ? { onRetryLast: handleRetryLast }
               : {})}
@@ -8599,6 +8746,19 @@ export function App() {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {
                 return;
+              }
+              // What became of the offered suggestion: taken with Tab,
+              // retyped by hand, or ignored - reported to the back-off.
+              {
+                const sid = sessionId.trim();
+                if (promptSuggestion && promptSuggestion.sid === sid) {
+                  const accepted =
+                    promptSuggestionAcceptedRef.current ||
+                    text.trim().toLowerCase() ===
+                      promptSuggestion.text.trim().toLowerCase();
+                  void reportPromptSuggestionOutcome(sid, accepted);
+                }
+                retirePromptSuggestion();
               }
               if (
                 sessionId.trim() &&

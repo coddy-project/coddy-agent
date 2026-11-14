@@ -46,6 +46,11 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 				sections = append(sections, section)
 			}
 		}
+		if len(a.firstPromptContext) > 0 {
+			if section := hookContextText(a.firstPromptContext); section != "" {
+				sections = append(sections, section)
+			}
+		}
 		if len(sections) == 0 {
 			return ""
 		}
@@ -72,6 +77,12 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 
 	if section := a.surfaceTurnContextSection(); section != "" {
 		parts = append(parts, section)
+	}
+
+	if len(a.firstPromptContext) > 0 {
+		if section := hookContextText(a.firstPromptContext); section != "" {
+			parts = append(parts, section)
+		}
 	}
 
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +

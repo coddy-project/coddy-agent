@@ -38,12 +38,15 @@ func newChangesEnv(t *testing.T) *changesEnv {
 // to run when a prompt is posted.
 func newChangesEnvWithRunner(t *testing.T, runner func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error)) *changesEnv {
 	t.Helper()
+	root := t.TempDir()
 	cfg := &config.Config{
+		// A home of its own: the receipts that let a page on the canvas run
+		// live there.
+		Paths:     config.Paths{Home: filepath.Join(root, "home")},
 		Providers: []config.ProviderConfig{{Name: "p1", Type: "openai", APIKey: "k"}},
 		Models:    []config.ModelEntry{{Model: "p1/gpt-4o"}},
 		Agent:     config.Agent{Model: "p1/gpt-4o"},
 	}
-	root := t.TempDir()
 	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
 	srv := New(cfg, mgr, slog.Default(), t.TempDir())

@@ -33,7 +33,10 @@ import (
 // the only bytes that move are listing results turned into placeholders.
 
 const (
-	pcEvictFolders = 7  // fan-out steps of the turn, one folder each
+	// pcEvictFolders is how many fan-out steps the turn makes, one folder each:
+	// the step window plus a whole batch, so the batch falls due inside the run,
+	// and two more so requests follow the collapse.
+	pcEvictFolders = pcEvictKeep + resultEvictionBatch + 3
 	pcEvictFiles   = 30 // files per folder, so a listing is a few KB
 	// pcEvictKeep is the step window of the listings, fixed in the agent.
 	pcEvictKeep = listingKeepRecentSteps
@@ -170,9 +173,18 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 	}
 	// The first request that finds the gate open: the one after the first that
 	// carries a step outside the window, so a gate that opened early shows up.
-	const crossAt = pcEvictKeep + 2
-	below := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[crossAt-1]))
-	above := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[crossAt]))
+	const gateAt = pcEvictKeep + 2
+	// Steps leave the window a batch at a time, so the first request that
+	// collapses one is the first past the gate whose candidates fill a batch.
+	collapseAt := gateAt
+	for evictionWindowStart(collapseAt, pcEvictKeep, resultEvictionBatch) == 0 {
+		collapseAt++
+	}
+	if collapseAt >= pcEvictFolders {
+		t.Fatalf("the run of %d steps never fills a batch past the gate at %d", pcEvictFolders, gateAt)
+	}
+	below := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[gateAt-1]))
+	above := largestWindowForGate(plain.ag, withoutTurnContext(plain.reqs[gateAt]))
 	if above-below < 1000 {
 		t.Fatalf("one step moves the gate by only %d tokens of window; the run cannot place it reliably", above-below)
 	}
@@ -205,12 +217,13 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 	if gate < 0 {
 		t.Fatal("no request carried a placeholder: the gate never opened, nothing was tested")
 	}
-	// The window was sized so that request crossAt is the first to find the gate
-	// open. Request crossAt-1 already carries a step outside the window of
-	// pcEvictKeep steps, so a gate that opened a request early would show up as a
-	// collapse there.
-	if gate != crossAt {
-		t.Fatalf("the gate opened at request %d, the window was sized to open it at request %d", gate, crossAt)
+	// The window was sized so that request gateAt is the first to find the gate
+	// open, and the batch decides which request past it actually collapses
+	// anything. A gate that opened early, or a batch that let a step go on its
+	// own, both show up here.
+	if gate != collapseAt {
+		t.Fatalf("the first collapse is at request %d; the gate was sized for request %d and the batch of %d makes it %d",
+			gate, gateAt, resultEvictionBatch, collapseAt)
 	}
 	t.Logf("window of %d tokens: the gate opens at request %d of %d", window, gate, len(hist))
 
@@ -303,11 +316,17 @@ func TestPromptCacheInTurnEvictionKeepsThePrefixBelowTheGate(t *testing.T) {
 		}
 		n++
 	}
+	// What is still whole at the end is everything from the batch boundary on:
+	// the window of pcEvictKeep steps and whatever has not yet filled a batch.
+	collapsed := evictionWindowStart(pcEvictFolders, pcEvictKeep, resultEvictionBatch)
+	if collapsed == 0 || pcEvictFolders-collapsed < pcEvictKeep {
+		t.Fatalf("the run collapsed %d of %d steps: the fixture tests neither the window nor the batch", collapsed, pcEvictFolders)
+	}
 	for _, m := range final {
 		if m.Role != llm.RoleTool {
 			continue
 		}
-		kept := stepOfCall[m.ToolCallID] >= pcEvictFolders-pcEvictKeep
+		kept := stepOfCall[m.ToolCallID] >= collapsed
 		if kept == isPlaceholder(m) {
 			t.Fatalf("result %s of step %d: collapsed=%v, want %v", m.ToolCallID, stepOfCall[m.ToolCallID], isPlaceholder(m), !kept)
 		}
@@ -474,5 +493,263 @@ func TestPromptCacheInTurnFoldRewritesTheHistoryOnlyAtTheFold(t *testing.T) {
 	}
 	if rows != folds {
 		t.Fatalf("the transcript holds %d summary rows for %d folds", rows, folds)
+	}
+}
+
+// --- the summarizer's own request ------------------------------------------
+
+// A compaction asks the summarizer with the conversation as the turn sent it,
+// so the provider reads the head back from the prompt cache it just wrote
+// (compact_cached.go). Everything here is what makes that request, and what
+// sends the fold back to the flattened transcript instead.
+
+const pcTurnSystem = "SYSTEM MESSAGE OF THE TURN"
+
+// pcRecordTurnSend seeds the record a request leaves behind, which is what a
+// compaction repeats. A real turn writes it at the send boundary (react.go).
+func pcRecordTurnSend(st *session.State, model string) {
+	st.SetTurnSend(session.TurnSend{
+		Model:  model,
+		System: llm.Message{Role: llm.RoleSystem, Content: pcTurnSystem},
+		Tools:  []llm.ToolDefinition{{Name: "read", Description: "read a file"}},
+		Input:  llm.ProviderInput{Name: "fake", Type: "openai", Model: model},
+	})
+}
+
+// pcCompactOnce folds a seeded session of exchanges turns, keeping one, and
+// returns the requests the summarizer was sent.
+func pcCompactOnce(t *testing.T, exchanges int, record bool, tune func(*Agent)) [][]llm.Message {
+	t.Helper()
+	st := seededCompactState(t, exchanges)
+	if record {
+		pcRecordTurnSend(st, "fake/model")
+	}
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	if tune != nil {
+		tune(ag)
+	}
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err != nil {
+		t.Fatalf("the compaction failed: %v", err)
+	}
+	return provider.requests
+}
+
+func TestPromptCacheCompactionRepeatsTheRecordedRequest(t *testing.T) {
+	reqs := pcCompactOnce(t, 4, true, nil)
+	if len(reqs) != 1 {
+		t.Fatalf("the summarizer was called %d times, want once", len(reqs))
+	}
+	req := reqs[0]
+	if req[0].Role != llm.RoleSystem || req[0].Content != pcTurnSystem {
+		t.Fatalf("the request does not open with the turn's system message: %+v", req[0])
+	}
+	last := req[len(req)-1]
+	if !strings.Contains(last.Content, cachedCompactionMarker) || !last.Ephemeral {
+		t.Fatalf("the request does not end with the request-only instruction: %+v", last)
+	}
+	// Between them, the folded conversation as the transcript holds it.
+	body := req[1 : len(req)-1]
+	if len(body) != 6 {
+		t.Fatalf("the request carries %d message(s) of conversation, want the three folded exchanges", len(body))
+	}
+	for i, m := range body {
+		want := "question"
+		if i%2 == 1 {
+			want = "answer"
+		}
+		if !strings.HasPrefix(m.Content, want) {
+			t.Fatalf("message %d of the conversation is %q, want one beginning %q", i, m.Content, want)
+		}
+	}
+	// The kept turn is not in it: the summary replaces what came before it.
+	if strings.Contains(transcriptText(body), "question 4") {
+		t.Fatalf("the request carries the turn the compaction keeps verbatim")
+	}
+}
+
+func TestPromptCacheCompactionWithoutARecordedRequestFlattensTheTranscript(t *testing.T) {
+	reqs := pcCompactOnce(t, 4, false, nil)
+	if len(reqs) != 1 {
+		t.Fatalf("the summarizer was called %d times, want once", len(reqs))
+	}
+	req := reqs[0]
+	if len(req) != 2 {
+		t.Fatalf("the request holds %d message(s), want the summarizer prompt and the transcript", len(req))
+	}
+	if !strings.Contains(req[0].Content, "compacting the conversation history") {
+		t.Fatalf("the request does not open with the summarizer's own prompt: %q", firstChars(req[0].Content, 80))
+	}
+	if !strings.Contains(req[1].Content, "<transcript>") {
+		t.Fatalf("the request carries no flattened transcript: %q", firstChars(req[1].Content, 80))
+	}
+}
+
+// A summarizer that answers the conversation with a tool call wrote no summary:
+// the fold falls back to the flattened transcript, which asks a model that is
+// given no tools at all, and the compaction finishes.
+func TestPromptCacheCompactionFallsBackWhenTheSummarizerCallsATool(t *testing.T) {
+	st := seededCompactState(t, 4)
+	pcRecordTurnSend(st, "fake/model")
+	keep := 1
+	provider := &pcToolCallThenSummary{summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{})
+	if err != nil {
+		t.Fatalf("the compaction failed: %v", err)
+	}
+	if res.Summary != "SUMMARY" {
+		t.Fatalf("the compaction kept %q as the summary", res.Summary)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("the summarizer was called %d times, want the cached request and the flattened one", len(provider.requests))
+	}
+	if len(provider.requests[1]) != 2 || !strings.Contains(provider.requests[1][1].Content, "<transcript>") {
+		t.Fatalf("the second request is not the flattened transcript: %d message(s)", len(provider.requests[1]))
+	}
+}
+
+// pcToolCallThenSummary answers the first request with a tool call and every
+// one after it with a summary.
+type pcToolCallThenSummary struct {
+	summary  string
+	requests [][]llm.Message
+}
+
+func (p *pcToolCallThenSummary) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
+	if len(p.requests) == 1 {
+		return &llm.Response{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "read", InputJSON: `{"path":"main.go"}`}}, StopReason: "tool_use"}, nil
+	}
+	return &llm.Response{Content: p.summary, StopReason: "end_turn"}, nil
+}
+
+func (p *pcToolCallThenSummary) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	return nil, fmt.Errorf("a compaction never streams")
+}
+
+// A window that no longer holds the conversation sends the fold to the passes
+// of compact_fold.go, which is the one thing that can still shrink it.
+func TestPromptCacheCompactionFallsBackWhenTheRequestNoLongerFits(t *testing.T) {
+	reqs := pcCompactOnce(t, 4, true, func(ag *Agent) {
+		ag.cfg.Models[0].MaxContextTokens = 200
+	})
+	if len(reqs) == 0 {
+		t.Fatal("the summarizer was not called")
+	}
+	if got := reqs[0]; len(got) != 2 || !strings.Contains(got[1].Content, "<transcript>") {
+		t.Fatalf("the fold did not flatten the transcript: %d message(s)", len(got))
+	}
+}
+
+// The merge of the chain is the same cached prefix: the rows it retells are the
+// first messages of the window, where the model already read them.
+func TestPromptCacheMergeRepeatsTheCachedPrefix(t *testing.T) {
+	var parts [][]llm.Message
+	for i := 1; i <= 5; i++ {
+		parts = append(parts,
+			[]llm.Message{userText(fmt.Sprintf("question %d", i)), {Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)}},
+			[]llm.Message{chainBlock(fmt.Sprintf("B%d", i), 2000)})
+	}
+	parts = append(parts,
+		[]llm.Message{userText("question 6"), {Role: llm.RoleAssistant, Content: "answer 6"}},
+		[]llm.Message{userText("question 7"), {Role: llm.RoleAssistant, Content: "answer 7"}})
+	st := stateOf(t, parts...)
+	pcRecordTurnSend(st, "fake/model")
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	ag.cfg.Models[0].MaxContextTokens = 30000
+
+	res, err := ag.CompactSession(context.Background(), CompactOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.MergedSummaries != 4 {
+		t.Fatalf("merged %d rows, want 4", res.MergedSummaries)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("the summarizer was called %d times, want the fold and the merge", len(provider.requests))
+	}
+	merge := provider.requests[1]
+	if merge[0].Content != pcTurnSystem {
+		t.Fatalf("the merge does not open with the turn's system message: %q", firstChars(merge[0].Content, 80))
+	}
+	if !strings.Contains(merge[len(merge)-1].Content, cachedCompactionMarker) {
+		t.Fatalf("the merge does not end with the summarization instruction")
+	}
+	rows := merge[1 : len(merge)-1]
+	if len(rows) != 4 {
+		t.Fatalf("the merge carries %d message(s) between them, want the four rows it retells", len(rows))
+	}
+	for i, m := range rows {
+		if !m.CompactionSummary {
+			t.Fatalf("message %d of the merge is no summary row: %+v", i, m)
+		}
+		if !strings.Contains(m.Content, fmt.Sprintf("B%d ", i+1)) {
+			t.Fatalf("message %d of the merge is not B%d: %q", i, i+1, firstChars(m.Content, 60))
+		}
+	}
+}
+
+// The working window holds at least keep_recent candidates and lets them go a
+// whole batch at a time, so the set of collapsed results moves once every
+// resultEvictionBatch rather than at every step.
+func TestPromptCacheEvictionWindowLeavesInBatches(t *testing.T) {
+	const keep = 2
+	starts := make([]int, 0, 16)
+	for n := 0; n <= 14; n++ {
+		starts = append(starts, evictionWindowStart(n, keep, resultEvictionBatch))
+	}
+	want := []int{0, 0, 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12}
+	if !reflect.DeepEqual(starts, want) {
+		t.Fatalf("the window started at %v, want %v", starts, want)
+	}
+	for n := 0; n <= 14; n++ {
+		if kept := n - starts[n]; kept < keep && n >= keep {
+			t.Fatalf("%d candidates leave %d in the window, fewer than keep_recent %d", n, kept, keep)
+		}
+		if n >= keep && n-starts[n] > keep+resultEvictionBatch-1 {
+			t.Fatalf("%d candidates leave %d in the window, more than a batch over keep_recent %d", n, n-starts[n], keep)
+		}
+	}
+	// A batch below two is the window taken literally, which is what a test of
+	// the window alone asks for.
+	for n := 0; n <= 6; n++ {
+		if got, want := evictionWindowStart(n, keep, 1), max(n-keep, 0); got != want {
+			t.Fatalf("with no batch, %d candidates start the window at %d, want %d", n, got, want)
+		}
+	}
+}
+
+// A reasoning level the operator asked for is honoured by the chain's own
+// provider, not by the turn's, so a fold that has to run at one goes down the
+// flattened path. The level is also something a provider keys its cache on,
+// which is the other half of the same reason.
+func TestPromptCacheCompactionFallsBackWhenAReasoningLevelIsAskedFor(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	withLevels := func(ag *Agent) { ag.cfg.Models[0].ReasoningLevels = &levels }
+
+	st := seededCompactState(t, 4)
+	pcRecordTurnSend(st, "fake/model")
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	withLevels(ag)
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Reasoning: "high"}); err != nil {
+		t.Fatalf("the compaction failed: %v", err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("the summarizer was called %d times, want once", len(provider.requests))
+	}
+	if req := provider.requests[0]; len(req) != 2 || !strings.Contains(req[1].Content, "<transcript>") {
+		t.Fatalf("a compaction asked to reason sent the turn's own context: %d message(s)", len(req))
+	}
+
+	// The same session with no level asked for still reads the cache.
+	plain := pcCompactOnce(t, 4, true, withLevels)
+	if len(plain) != 1 || plain[0][0].Content != pcTurnSystem {
+		t.Fatalf("a compaction with no level asked for did not repeat the turn's request: %d message(s)", len(plain[0]))
 	}
 }

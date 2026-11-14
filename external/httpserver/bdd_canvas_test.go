@@ -434,6 +434,59 @@ func (s *canvasFeature) fileHoldsTheMovedNote(rel string) error {
 	return nil
 }
 
+// personTrustsTheBoard is the person answering the dialog of a held board:
+// the digest of the pages it named goes back with the approval.
+func (s *canvasFeature) personTrustsTheBoard() error {
+	b, err := s.readBoard()
+	if err != nil {
+		return err
+	}
+	if b.Trust == nil || b.Trust.Digest == "" {
+		return fmt.Errorf("the board offers no trust decision: %+v", b.Trust)
+	}
+	body, _ := json.Marshal(map[string]string{"digest": b.Trust.Digest})
+	res, err := http.Post(s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/trust?file="+b.File, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("trust the board: %s %s", res.Status, raw)
+	}
+	return nil
+}
+
+func (s *canvasFeature) canvasListsShopPageHeld() error {
+	b, err := s.readBoard()
+	if err != nil {
+		return err
+	}
+	if len(b.Frames) != 1 || b.Frames[0].Path != "site/index.html" {
+		return fmt.Errorf("frames %+v", b.Frames)
+	}
+	f := b.Frames[0]
+	if !f.Held || f.URL != "" {
+		return fmt.Errorf("the page of a board that came with the checkout runs: %+v", f)
+	}
+	if b.Trust == nil || b.Trust.Policy != config.ProjectTrustAsk || b.Trust.Trusted {
+		return fmt.Errorf("trust %+v", b.Trust)
+	}
+	return nil
+}
+
+func (s *canvasFeature) canvasListsShopPageLive() error {
+	b, err := s.readBoard()
+	if err != nil {
+		return err
+	}
+	if len(b.Frames) != 1 || b.Frames[0].Held || b.Frames[0].URL == "" {
+		return fmt.Errorf("frames %+v", b.Frames)
+	}
+	s.frame, s.file = b.Frames[0], b.File
+	return nil
+}
+
 func initializeCanvasScenario(sc *godog.ScenarioContext) {
 	s := &canvasFeature{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, s.reset() })
@@ -457,6 +510,9 @@ func initializeCanvasScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the workspace has an Obsidian canvas "([^"]*)" with a note linked to the shop page$`, s.obsidianCanvas)
 	sc.Step(`^the canvas of the chat is "([^"]*)" with the shop page as a live frame, the note and the edge$`, s.canvasIsTheFile)
 	sc.Step(`^the person moves the note on the canvas$`, s.personMovesTheNote)
+	sc.Step(`^the person trusts the pages of the board$`, s.personTrustsTheBoard)
+	sc.Step(`^the canvas lists the shop page as held, with no address$`, s.canvasListsShopPageHeld)
+	sc.Step(`^the canvas lists the shop page as a live frame$`, s.canvasListsShopPageLive)
 	sc.Step(`^"([^"]*)" holds the note at its new place and every key Coddy does not know$`, s.fileHoldsTheMovedNote)
 }
 

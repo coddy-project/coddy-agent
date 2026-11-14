@@ -242,6 +242,12 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
+  # Follow-up prompt suggestions: after a turn ends, a hidden side call forks
+  # the turn's provider context to predict what you might type next and shows it
+  # dim in the empty composer; Tab or Right takes it into the input. Tools are
+  # never executed and nothing enters the transcript. Ignored suggestions back
+  # off: after 20 unused in a row only every 10th turn offers one.
+  # prompt_suggestions: true
 
 # Session goal and supervisor: /goal <objective> starts work on a goal, and a
 # second model checks every turn against it, continues unfinished work and
@@ -463,6 +469,8 @@ tools:
   #   enable: true
   #   allow_cdn: true        # jsDelivr, unpkg, cdnjs, the Tailwind CDN, Google Fonts
   #   allowed_sources: []    # further hosts, e.g. https://cdn.example.com
+  #   project_trust: ask     # pages of a board that came with the checkout wait for you:
+  #                          # ask (default), allow (run every page), deny (only pages Coddy put)
 
   # Web search: which engines the websearch tool asks, in what order their results merge,
   # and what it may spend asking them. Every engine reports its own outcome next to the

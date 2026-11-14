@@ -190,6 +190,11 @@ type Env struct {
 	// to make the file smaller. Nil means no refusal beyond AttachImage's own.
 	ImageRefusal func() error
 
+	// CanvasProjectTrust is tools.canvas.project_trust: which pages of a board
+	// the canvas tools let run (internal/canvas, trust.go). ConfigHome holds
+	// the receipts.
+	CanvasProjectTrust string
+
 	// PreviewServer is the resolved tools.preview_server section the
 	// preview_server tool reads its bind host from. Like WebSearch it travels
 	// on the environment so a config reload reaches the next call. Nil means

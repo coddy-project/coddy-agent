@@ -128,6 +128,8 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeErrorReply(w, err)
 		return
 	}
+	ctx, finishStatistics := s.beginDirectStatistics(ctx, st, sid, req.Model, statisticsSourceFromHTTP(req.Metadata), opts.ReasoningEffort)
+	defer finishStatistics()
 	id, createdAt := responsesItemID("resp_"), time.Now().Unix()
 	if req.Stream {
 		writeSSEHeaders(w)

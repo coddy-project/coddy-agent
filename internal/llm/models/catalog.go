@@ -4,7 +4,8 @@
 // talks to. The table is models.json, built from models.dev
 // (https://models.dev, MIT licence) by `make models-catalog` and embedded into
 // the binary, so nothing is downloaded or read from disk at run time and no
-// session ever reads it: it only fills the forms of the settings screen.
+// session uses its window numbers directly: they fill settings forms. The
+// companion prices.json supplies Statistics with list-price estimates.
 package models
 
 import (

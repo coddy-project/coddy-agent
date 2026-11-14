@@ -256,6 +256,15 @@ type State struct {
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
 
+	// promptSuggestionFork is the completed turn's provider context for the
+	// next-prompt side call. It is process-local and never persisted.
+	promptSuggestionFork *promptSuggestionFork
+
+	// turnSend is the shape of the last request this session put on the wire
+	// (turn_send.go), which is what a compaction repeats so the provider reads
+	// the history back from its prompt cache. Process-local, never persisted.
+	turnSend *TurnSend
+
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 

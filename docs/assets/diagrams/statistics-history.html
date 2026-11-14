@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Persistent usage history</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .pipeline { display: grid; grid-template-columns: 280px 300px 1fr; gap: 70px; align-items: start; }
+      .pipeline section { min-width: 0; }
+      .pipeline .box { margin-bottom: 12px; }
+      .bottom { margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 36px; }
+    </style>
+  </head>
+  <body style="--width: 1280px">
+    <h1>Persistent usage history</h1>
+    <p class="lead">Counters stay on the agent node when a conversation is deleted.</p>
+    <div class="pipeline">
+      <section>
+        <h2>1. Collect</h2>
+        <div class="box core" id="calls">Model attempts<br /><code>llm.callWithRetry</code></div>
+        <div class="box amber" id="turns">Agent turns and skills<br />Human waits excluded</div>
+        <div class="box gray">Old chat bundles<br />Background import, stable ids</div>
+      </section>
+      <section>
+        <h2>2. Keep</h2>
+        <div class="box blue" id="journal"><code>&lt;home&gt;/statistics/</code><br />Monthly JSONL journals</div>
+        <div class="box green">Dataset + event identity<br />Last complete checkpoint wins</div>
+        <div class="box core">Settings and import progress<br />Cleanup cutoff blocks reimport</div>
+      </section>
+      <section>
+        <h2>3. Read</h2>
+        <div class="box blue" id="page">Statistics page<br />Calendar, filters, CSV / JSON</div>
+        <div class="box purple" id="swarm">Swarm summary<br />Merge leaf event identities</div>
+        <div class="box gray">Offline nodes are named<br />No second permanent relay store</div>
+      </section>
+    </div>
+    <div class="bottom">
+      <div><h3>Preserve what is known</h3><p>Provider usage supplies tokens. Historical values that were never recorded stay unavailable.</p></div>
+      <div><h3>Clear counters separately</h3><p>Keep the last day, week or month, or remove all counters. Conversation bundles are left intact.</p></div>
+    </div>
+    <script src="diagram.js"></script>
+    <script>wires([{from:"#calls",to:"#journal"},{from:"#turns",to:"#journal"},{from:"#journal",to:"#page"},{from:"#journal",to:"#swarm"}]);</script>
+  </body>
+</html>

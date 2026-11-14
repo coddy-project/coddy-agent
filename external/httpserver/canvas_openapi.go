@@ -34,7 +34,8 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		"added_by":   prop("string"),
 		"gen":        map[string]interface{}{"type": "integer", "description": "The frame's generation; its address is signed for it, and a rotate moves it on."},
 		"stamp":      map[string]interface{}{"type": "string", "description": "Digest of the names, sizes and modification times of the files under the frame's root; it moves when they change."},
-		"url":        map[string]interface{}{"type": "string", "description": "The frame's address relative to the API base: /coddy/canvas/<capability>/<page>. Valid while the file holds the frame at this generation, for 12 hours."},
+		"held":       map[string]interface{}{"type": "boolean", "description": "The page waits for the person: the board came with the workspace and tools.canvas.project_trust does not let this page run yet. A held frame has no url and no expires_at."},
+		"url":        map[string]interface{}{"type": "string", "description": "The frame's address relative to the API base: /coddy/canvas/<capability>/<page>. Valid while the file holds the frame at this generation, for 12 hours. Absent while the frame is held."},
 		"expires_at": map[string]interface{}{"type": "string", "format": "date-time"},
 		"report":     report,
 	})
@@ -59,6 +60,11 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		"frames":     map[string]interface{}{"type": "array", "items": frame},
 		"items":      map[string]interface{}{"type": "array", "items": item, "description": "The file's nodes that are not live frames."},
 		"edges":      map[string]interface{}{"type": "array", "items": edge},
+		"trust": map[string]interface{}{"type": "object", "description": "Which pages of the board run; absent while the chat has no file or the file cannot be read.", "properties": map[string]interface{}{
+			"policy":  map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "tools.canvas.project_trust."},
+			"digest":  map[string]interface{}{"type": "string", "description": "Digest of the board's pages (their paths, sorted): what POST .../canvas/trust sends back."},
+			"trusted": map[string]interface{}{"type": "boolean", "description": "Every page of the board runs."},
+		}},
 	})
 	errs := func(codes ...string) map[string]interface{} {
 		out := map[string]interface{}{}
@@ -73,7 +79,7 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 	}
 	paths["/coddy/sessions/{id}/canvas"] = map[string]interface{}{"get": map[string]interface{}{
 		"operationId": "coddyCanvasGet", "summary": "Read a canvas of the chat",
-		"description": "A .canvas file of the session's workspace (JSON Canvas, the format of Obsidian's canvases) as the canvas shows it: its file nodes naming HTML pages as frames, each with its stamp, a fresh address and the counts of the newest browser report, its other nodes and its edges. Without file, the file the agent shows pages on, or an answer with an empty file while the chat has none. Reading writes nothing. 404 while tools.canvas.enable is false.",
+		"description": "A .canvas file of the session's workspace (JSON Canvas, the format of Obsidian's canvases) as the canvas shows it: its file nodes naming HTML pages as frames, each with its stamp, a fresh address (none for a held frame, whose page waits for the person) and the counts of the newest browser report, its other nodes, its edges and the trust decision it offers. Without file, the file the agent shows pages on, or an answer with an empty file while the chat has none. Reading writes nothing. 404 while tools.canvas.enable is false.",
 		"parameters":  []interface{}{id, fileParam(false, "The .canvas file; default the chat's current one.")},
 		"responses":   with(errs("400", "404", "409"), "200", ok("The board", board)),
 	}}
@@ -124,6 +130,19 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		})),
 		"responses": with(errs("400", "404"), "204", map[string]interface{}{"description": "Stored"}),
 	}}
+	paths["/coddy/sessions/{id}/canvas/trust"] = map[string]interface{}{"post": map[string]interface{}{
+		"operationId": "coddyCanvasTrust", "summary": "Let the pages of a canvas run",
+		"description": "Records the person's approval of the pages the board shows now, in ${CODDY_HOME}/canvas-trust.json for this checkout under the project's key (a linked git worktree shares its main checkout's). digest is trust.digest of the board the person was shown; 409 when the board's pages changed since, and nothing is approved. The approval binds which pages run, not what they hold: a page the file names later waits again. 403 under tools.canvas.project_trust deny.",
+		"parameters":  []interface{}{id, theFile},
+		"requestBody": jsonBody(object(map[string]interface{}{"digest": prop("string")})),
+		"responses":   with(errs("400", "403", "404", "409"), "200", ok("The board, its pages running", board)),
+	}}
+	paths["/coddy/sessions/{id}/canvas/untrust"] = map[string]interface{}{"post": map[string]interface{}{
+		"operationId": "coddyCanvasUntrust", "summary": "Hold the pages of a canvas again",
+		"description": "Removes every approval of the board and every page Coddy put on it, in every checkout of the project; its pages wait for the person again and the addresses handed out before answer 403.",
+		"parameters":  []interface{}{id, theFile},
+		"responses":   with(errs("400", "404"), "200", ok("The board, its pages held", board)),
+	}}
 	file := map[string]interface{}{
 		"summary": "Serve a file of a frame",
 		"description": "Authenticated by the capability in the path alone (no bearer, no cookie), valid while the .canvas file holds the frame at the generation it was signed for, in the session's working directory. Serves the files of the frame's root through os.Root: GET and HEAD, no dot-named paths, no symbolic links, a folder's index.html, never a listing. " +
@@ -137,6 +156,7 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 			"200": map[string]interface{}{"description": "File bytes", "content": map[string]interface{}{"application/octet-stream": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "format": "binary"}}}},
 			"301": map[string]interface{}{"description": "A folder without its trailing slash"},
 			"401": map[string]interface{}{"description": "The address is invalid, expired or no longer applies"},
+			"403": map[string]interface{}{"description": "The frame's page waits for the person: its board is not trusted"},
 			"404": map[string]interface{}{"description": "No such file of the frame"},
 			"405": map[string]interface{}{"description": "Not GET or HEAD"},
 		},

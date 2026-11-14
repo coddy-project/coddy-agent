@@ -141,6 +141,9 @@ func FrameOf(ref Ref, id string) (Frame, error) {
 		if why != "" {
 			return Frame{}, errors.New(why)
 		}
+		if !ref.Trust.runs(ref.Workspace, rel)(frame.Path) {
+			return Frame{}, ErrFrameHeld
+		}
 		return frame, nil
 	}
 	return Frame{}, fmt.Errorf("%w: %s", ErrFrameNotFound, id)

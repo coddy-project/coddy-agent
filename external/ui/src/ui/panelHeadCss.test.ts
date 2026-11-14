@@ -19,6 +19,7 @@ test("every head of a window, a panel or a popover takes one height", () => {
     ".files-header",
     ".docs-header",
     ".swarm-header",
+    ".terminal-head",
   ]) {
     expect(body(head), head).toContain(
       "min-height: var(--coddy-panel-head-height)",
@@ -30,6 +31,7 @@ test("every head of a window, a panel or a popover takes one height", () => {
   expect(body(".files-header")).toMatch(/padding: 0 /);
   expect(body(".docs-header")).toMatch(/padding: 0 /);
   expect(body(".swarm-header")).toMatch(/padding: 0 /);
+  expect(body(".terminal-head")).toMatch(/padding: 0 /);
   expect(body(".context-breakdown-head")).toContain("padding: 0 12px");
   expect(body(".goal-popover-head")).toContain("padding: 0 12px");
 });
@@ -43,6 +45,7 @@ test("every head of a window keeps one inset from the sides", () => {
   expect(body(".files-header")).toContain(`padding: 0 ${inset}`);
   expect(body(".docs-header")).toContain(`padding: 0 ${inset}`);
   expect(body(".swarm-header")).toContain(`padding: 0 ${inset}`);
+  expect(body(".terminal-head")).toContain(`padding: 0 ${inset}`);
 });
 
 // On the stacked shell the head has a second row, the search: the first row is
