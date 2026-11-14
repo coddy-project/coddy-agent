@@ -91,6 +91,10 @@ type guard struct {
 	stamp  string
 	cached Settings
 	known  bool
+	// The lifetime summary a screen asks for beside every filtered report,
+	// and the state of the journals and settings it was read from.
+	lifetime    Report
+	lifetimeKey string
 }
 
 var locks sync.Map
@@ -317,7 +321,11 @@ func journalEvents(path string, visit func(Event) error) error {
 		}
 		var e Event
 		if err := json.Unmarshal(line, &e); err != nil {
-			return fmt.Errorf("statistics %s: %w", filepath.Base(path), err)
+			// A line nothing can read costs its own checkpoint and no more.
+			// These are counters: losing one is a wrong number somewhere,
+			// while refusing the file leaves every screen and every relay
+			// with no statistics at all until somebody edits it by hand.
+			continue
 		}
 		if err := visit(e); err != nil {
 			return err
@@ -342,14 +350,62 @@ func (s *Store) journals() ([]string, error) {
 	return paths, nil
 }
 
-func (s *Store) events(cutoff time.Time) ([]Event, error) {
+// journalStamp names the state of every journal, cheaply enough to ask before
+// a read. os.ReadDir answers in order, so the stamp is stable.
+func (s *Store) journalStamp() (string, error) {
+	paths, err := s.journals()
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(filepath.Base(path))
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(info.Size(), 10))
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		b.WriteByte(';')
+	}
+	return b.String(), nil
+}
+
+// monthOffset names the journal of a date a number of months away. It counts
+// from the first of the month, so the end of a long month does not slide past
+// a short one.
+func monthOffset(date string, months int) string {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return ""
+	}
+	return time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, months, 0).Format("2006-01")
+}
+
+// window is the journals a period can be answered from, a month wider on each
+// side because a day is bucketed in the reader's zone and a journal in UTC.
+func (f Filter) window() (string, string) {
+	return monthOffset(f.From, -1), monthOffset(f.To, 1)
+}
+
+// events reads the journals of [lower, upper], both inclusive and both
+// optional ("" is unbounded). Every checkpoint of one id is written at the
+// same moment, so no id is split across two journals and this never cuts a
+// record in half.
+func (s *Store) events(cutoff time.Time, lower, upper string) ([]Event, error) {
 	paths, err := s.journals()
 	if err != nil {
 		return nil, err
 	}
 	last := map[string]Event{}
 	for _, path := range paths {
-		if filepath.Base(path) < cutoff.UTC().Format("2006-01")+".jsonl" {
+		month := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		if month < cutoff.UTC().Format("2006-01") {
+			continue
+		}
+		if (lower != "" && month < lower) || (upper != "" && month > upper) {
 			continue
 		}
 		if err := journalEvents(path, func(e Event) error {
@@ -381,7 +437,7 @@ func (s *Store) Events() ([]Event, error) {
 		if err != nil {
 			return err
 		}
-		out, err = s.events(st.Cutoff)
+		out, err = s.events(st.Cutoff, "", "")
 		return err
 	})
 	return out, err

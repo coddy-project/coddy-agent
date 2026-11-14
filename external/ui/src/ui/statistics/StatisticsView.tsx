@@ -114,8 +114,15 @@ export default function StatisticsView({
         aggregate ? statisticsRelay() : undefined,
       );
       if (request.current !== id) return;
-      if (!aggregate && next.report.timezone !== timezone)
-        setTimezone(next.report.timezone);
+      // The server lays its own screen out in the zone it was given, so the
+      // zone saved on it has to be the one asked for. Taken from the settings
+      // rather than from the answer's own zone, which is what was just sent.
+      if (
+        !aggregate &&
+        next.settings?.timezone &&
+        next.settings.timezone !== timezone
+      )
+        setTimezone(next.settings.timezone);
       setData(next);
       setError("");
     } catch (e) {

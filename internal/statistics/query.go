@@ -135,28 +135,60 @@ func (s *Store) Query(f Filter) (Report, error) {
 	return out[0], nil
 }
 
-// Reports answers several filters from one read of the journals. A screen asks
-// for the filtered report and the lifetime one together, and reading the whole
-// history twice for them held the store's lock away from running turns for as
-// long again.
+// Reports answers several filters from one read of the journals, reading only
+// the journals their periods can touch.
 func (s *Store) Reports(filters ...Filter) ([]Report, error) {
-	var st Settings
-	var events []Event
+	var out []Report
 	err := s.locked(func() error {
-		var err error
-		if st, err = s.settings(); err != nil {
+		st, err := s.settings()
+		if err != nil {
 			return err
 		}
-		events, err = s.events(st.Cutoff)
+		lower, upper := unionWindow(filters)
+		events, err := s.events(st.Cutoff, lower, upper)
+		if err != nil {
+			return err
+		}
+		out, err = summarizeEach(events, filters, st, time.Now())
 		return err
 	})
-	if err != nil {
-		return nil, err
+	return out, err
+}
+
+// unionWindow is the journals every one of these periods can be answered
+// from. One unbounded period makes the union unbounded.
+func unionWindow(filters []Filter) (string, string) {
+	lower, upper := "", ""
+	for i, f := range filters {
+		low, up := f.window()
+		if i == 0 {
+			lower, upper = low, up
+			continue
+		}
+		if low == "" || lower == "" {
+			lower = ""
+		} else if low < lower {
+			lower = low
+		}
+		if up == "" || upper == "" {
+			upper = ""
+		} else if up > upper {
+			upper = up
+		}
 	}
-	now := time.Now()
+	return lower, upper
+}
+
+// summarizeEach applies the store's own settings to every filter: the saved
+// zone is what a request naming none is laid out in, and the dataset is what
+// a relay tells this machine's contribution apart by.
+func summarizeEach(events []Event, filters []Filter, st Settings, now time.Time) ([]Report, error) {
 	out := make([]Report, 0, len(filters))
 	for _, f := range filters {
-		if st.Timezone != "" {
+		// A request that names a zone wins: a relay has to lay every node of a
+		// fleet out on one calendar, or the days of two machines cannot be
+		// added at all.
+		if f.Timezone == "" {
 			f.Timezone = st.Timezone
 		}
 		r, err := Summarize(events, f, st.Prices, now)
@@ -167,6 +199,62 @@ func (s *Store) Reports(filters ...Filter) ([]Report, error) {
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// Page answers the filtered report a screen draws and the lifetime summary it
+// shows beside it. The lifetime one covers everything and so reads every
+// journal; it is kept until a journal or the settings move, which leaves the
+// usual read of an open screen the period alone.
+func (s *Store) Page(f Filter) (Report, Report, error) {
+	var report, lifetime Report
+	err := s.locked(func() error {
+		st, err := s.settings()
+		if err != nil {
+			return err
+		}
+		g, err := s.guard()
+		if err != nil {
+			return err
+		}
+		zone := f.Timezone
+		if zone == "" {
+			zone = st.Timezone
+		}
+		lifetimeFilter := Filter{Timezone: zone}
+		stamp, err := s.journalStamp()
+		if err != nil {
+			return err
+		}
+		key := stamp + "|" + g.stamp + "|" + zone
+		if g.lifetimeKey == key {
+			lower, upper := f.window()
+			events, err := s.events(st.Cutoff, lower, upper)
+			if err != nil {
+				return err
+			}
+			out, err := summarizeEach(events, []Filter{f}, st, time.Now())
+			if err != nil {
+				return err
+			}
+			report, lifetime = out[0], g.lifetime
+			return nil
+		}
+		events, err := s.events(st.Cutoff, "", "")
+		if err != nil {
+			return err
+		}
+		// The journals outside the period hold no day it covers, so the two
+		// reports come from this one read and the narrowed read above answers
+		// the period alike.
+		out, err := summarizeEach(events, []Filter{f, lifetimeFilter}, st, time.Now())
+		if err != nil {
+			return err
+		}
+		report, lifetime = out[0], out[1]
+		g.lifetime, g.lifetimeKey = lifetime, key
+		return nil
+	})
+	return report, lifetime, err
 }
 
 // Summarize is also used by a relay, which merges leaf datasets before
@@ -276,7 +364,17 @@ func Summarize(events []Event, f Filter, prices map[string]Price, now time.Time)
 	}
 	r.Totals.Chats = len(chats)
 	r.Totals.UniqueSkills = len(skills)
-	var dates []string
+	finishDays(&r, days, loc, now)
+	r.Models, r.Providers, r.Projects, r.Sources, r.Reasoning, r.Skills = breakdownRows(models), breakdownRows(providers), breakdownRows(projects), breakdownRows(sources), breakdownRows(reasoning), breakdownRows(skills)
+	return r, nil
+}
+
+// finishDays writes the daily series in order and derives from it what only
+// the whole series can say: the daily record and the streaks. A merge of
+// several datasets runs it over their merged days, which is why a relay
+// cannot simply add up finished reports.
+func finishDays(r *Report, days map[string]*Day, loc *time.Location, now time.Time) {
+	dates := make([]string, 0, len(days))
 	for date := range days {
 		dates = append(dates, date)
 	}
@@ -305,19 +403,104 @@ func Summarize(events []Event, f Filter, prices map[string]Price, now time.Time)
 	if previous == today.Format("2006-01-02") || previous == today.AddDate(0, 0, -1).Format("2006-01-02") {
 		r.Totals.CurrentStreak = run
 	}
-	rows := func(m map[string]*Breakdown) []Breakdown {
-		out := make([]Breakdown, 0, len(m))
-		for _, v := range m {
-			out = append(out, *v)
-		}
-		sort.Slice(out, func(i, j int) bool {
-			if out[i].Count == out[j].Count {
-				return out[i].Name < out[j].Name
-			}
-			return out[i].Count > out[j].Count
-		})
-		return out
+}
+
+func breakdownRows(m map[string]*Breakdown) []Breakdown {
+	out := make([]Breakdown, 0, len(m))
+	for _, v := range m {
+		out = append(out, *v)
 	}
-	r.Models, r.Providers, r.Projects, r.Sources, r.Reasoning, r.Skills = rows(models), rows(providers), rows(projects), rows(sources), rows(reasoning), rows(skills)
-	return r, nil
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Count > out[j].Count
+	})
+	return out
+}
+
+// MergeReports combines the reports of several datasets into one.
+//
+// A report is a partial aggregate that carries the dataset it belongs to, so a
+// ring delivering the same dataset by two routes contributes it once: a
+// dataset already seen is dropped whole rather than added, which is what makes
+// the merge idempotent. What is summed is summed per dataset, never per day
+// (a chat belongs to one dataset but may span midnight); the daily series is
+// merged first, and the daily record and the streaks are derived from the
+// merged series afterwards.
+func MergeReports(reports []Report, f Filter, now time.Time) (Report, error) {
+	out := Report{Days: []Day{}, Models: []Breakdown{}, Providers: []Breakdown{}, Projects: []Breakdown{}, Sources: []Breakdown{}, Reasoning: []Breakdown{}, Skills: []Breakdown{}}
+	if err := f.Validate(); err != nil {
+		return out, err
+	}
+	loc, _ := f.Location()
+	out.Timezone = loc.String()
+	days := map[string]*Day{}
+	models, providers, projects, sources, reasoning, skills := map[string]*Breakdown{}, map[string]*Breakdown{}, map[string]*Breakdown{}, map[string]*Breakdown{}, map[string]*Breakdown{}, map[string]*Breakdown{}
+	merge := func(m map[string]*Breakdown, rows []Breakdown) {
+		for _, row := range rows {
+			if row.Name == "" {
+				continue
+			}
+			if m[row.Name] == nil {
+				m[row.Name] = &Breakdown{Name: row.Name}
+			}
+			m[row.Name].Count += row.Count
+			sum(&m[row.Name].Tokens, row.Tokens)
+		}
+	}
+	seen := map[string]bool{}
+	for _, r := range reports {
+		if r.Dataset != "" {
+			if seen[r.Dataset] {
+				continue
+			}
+			seen[r.Dataset] = true
+		}
+		t := r.Totals
+		sum(&out.Totals.Input, t.Input)
+		sum(&out.Totals.Output, t.Output)
+		sum(&out.Totals.Cached, t.Cached)
+		sum(&out.Totals.Total, t.Total)
+		sum(&out.Totals.ActiveMS, t.ActiveMS)
+		if t.CostUSD != nil {
+			if out.Totals.CostUSD == nil {
+				out.Totals.CostUSD = new(float64)
+			}
+			*out.Totals.CostUSD += *t.CostUSD
+		}
+		if t.LongestMS != nil && (out.Totals.LongestMS == nil || *t.LongestMS > *out.Totals.LongestMS) {
+			out.Totals.LongestMS = Int(*t.LongestMS)
+		}
+		out.Totals.Requests += t.Requests
+		out.Totals.Calls += t.Calls
+		out.Totals.Chats += t.Chats
+		out.Totals.SkillCalls += t.SkillCalls
+		out.Totals.UnpricedCalls += t.UnpricedCalls
+		out.Totals.UnknownUsage += t.UnknownUsage
+		out.Totals.ImportedTurns += t.ImportedTurns
+		for _, d := range r.Days {
+			day := days[d.Date]
+			if day == nil {
+				day = &Day{Date: d.Date}
+				days[d.Date] = day
+			}
+			sum(&day.Input, d.Input)
+			sum(&day.Output, d.Output)
+			sum(&day.Cached, d.Cached)
+			sum(&day.Total, d.Total)
+			day.Requests += d.Requests
+			day.Manual = day.Manual || d.Manual
+		}
+		merge(models, r.Models)
+		merge(providers, r.Providers)
+		merge(projects, r.Projects)
+		merge(sources, r.Sources)
+		merge(reasoning, r.Reasoning)
+		merge(skills, r.Skills)
+	}
+	out.Totals.UniqueSkills = len(skills)
+	finishDays(&out, days, loc, now)
+	out.Models, out.Providers, out.Projects, out.Sources, out.Reasoning, out.Skills = breakdownRows(models), breakdownRows(providers), breakdownRows(projects), breakdownRows(sources), breakdownRows(reasoning), breakdownRows(skills)
+	return out, nil
 }

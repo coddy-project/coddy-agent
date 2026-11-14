@@ -27,7 +27,6 @@ func (s *Server) auxiliaryStatistics(ctx context.Context, source string) (contex
 
 func (s *Server) registerStatisticsRoutes() {
 	s.mux.HandleFunc("GET /coddy/statistics", s.statisticsGet)
-	s.mux.HandleFunc("GET /coddy/statistics/events", s.statisticsEvents)
 	s.mux.HandleFunc("GET /coddy/statistics/export", s.statisticsExport)
 	s.mux.HandleFunc("PUT /coddy/statistics/settings", s.statisticsSettings)
 	s.mux.HandleFunc("POST /coddy/statistics/import", s.statisticsImport)
@@ -76,42 +75,12 @@ func (s *Server) statisticsGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// One read of the journals answers both the filtered report and the
-	// lifetime one the screen shows beside it.
-	out, err := store.Reports(f, statistics.Filter{Timezone: f.Timezone})
+	report, all, err := store.Page(f)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	statisticsJSON(w, 200, map[string]any{"report": out[0], "allTime": out[1], "settings": settings, "installedSkills": s.mgr.StatisticsSkillCount(cwd)})
-}
-
-// The relay consumes counters with identities, not pre-summed reports, so a
-// ring cannot duplicate them and streaks are computed over the merged days.
-func (s *Server) statisticsEvents(w http.ResponseWriter, r *http.Request) {
-	store := s.statisticsStore(w)
-	if store == nil {
-		return
-	}
-	events, err := store.Events()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	st, err := store.Settings()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	for i := range events {
-		statistics.ApplyPrice(&events[i], st.Prices)
-	}
-	status, err := s.mgr.StatisticsImportStatus()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	statisticsJSON(w, 200, map[string]any{"dataset": st.Dataset, "events": events, "import": status.Import})
+	statisticsJSON(w, 200, map[string]any{"report": report, "allTime": all, "settings": settings, "installedSkills": s.mgr.StatisticsSkillCount(cwd)})
 }
 
 func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {

@@ -30,8 +30,13 @@ func (s statisticsTransport) TargetURL() *url.URL {
 func (s statisticsTransport) Alive() bool  { return true }
 func (s statisticsTransport) Close() error { return nil }
 func (s statisticsTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Header.Get("Authorization") != "Bearer node-secret" || r.URL.Path != "/coddy/statistics/events" {
+	// The relay asks a node for its own summary under the filters it was
+	// given, never for the node's whole history.
+	if r.Header.Get("Authorization") != "Bearer node-secret" || r.URL.Path != "/coddy/statistics" {
 		s.t.Errorf("incorrect authenticated mount request: %s", r.URL.Path)
+	}
+	if got := r.URL.Query().Get("timezone"); got != "Europe/Moscow" {
+		s.t.Errorf("the filter did not reach the node: timezone=%q", got)
 	}
 	return &http.Response{StatusCode: s.status, Status: http.StatusText(s.status), Body: io.NopCloser(strings.NewReader(s.body)), Header: make(http.Header)}, nil
 }
@@ -43,7 +48,12 @@ func TestStatisticsSwarmDeduplicatesRoutesAndReportsUnavailableNodes(t *testing.
 	}
 	at := time.Now().UTC()
 	e := statistics.Event{ID: "one", Dataset: "shared", Session: "s", At: at, Kind: "call", Input: statistics.Int(100), Output: statistics.Int(20)}
-	body, _ := json.Marshal(map[string]any{"dataset": "shared", "events": []statistics.Event{e}, "import": statistics.ImportStatus{State: "complete"}})
+	report, err := statistics.Summarize([]statistics.Event{e}, statistics.Filter{Timezone: "Europe/Moscow"}, nil, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.Dataset = "shared"
+	body, _ := json.Marshal(map[string]any{"report": report, "allTime": report, "settings": statistics.Settings{Import: statistics.ImportStatus{State: "complete"}}})
 	for _, name := range []string{"a", "b"} {
 		s.registry.nodes[name] = &lease{info: swarmdto.NodeInfo{Name: name, Kind: swarmdto.KindAgent}, token: "node-secret", expiresAt: at.Add(time.Hour), transport: statisticsTransport{body: string(body), status: 200, t: t}}
 	}

@@ -48,6 +48,8 @@ func TestStatisticsHTTPPersistenceSettingsAndExport(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("settings: %d %s", w.Code, w.Body.String())
 	}
+	// A request that names a zone is laid out in it; the saved one is what a
+	// request without one gets, and a relay leans on exactly that difference.
 	w = statisticsDo(s, http.MethodGet, "/coddy/statistics?timezone=UTC", "")
 	var out struct {
 		Report   statistics.Report   `json:"report"`
@@ -56,8 +58,15 @@ func TestStatisticsHTTPPersistenceSettingsAndExport(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if w.Code != 200 || out.Report.Timezone != "Europe/Moscow" || out.Report.Totals.Total == nil || *out.Report.Totals.Total != 120 || out.Report.Totals.CostUSD == nil || *out.Report.Totals.CostUSD != 0.000325 {
+	if w.Code != 200 || out.Report.Timezone != "UTC" || out.Report.Totals.Total == nil || *out.Report.Totals.Total != 120 || out.Report.Totals.CostUSD == nil || *out.Report.Totals.CostUSD != 0.000325 {
 		t.Fatalf("report: %s", w.Body.String())
+	}
+	w = statisticsDo(s, http.MethodGet, "/coddy/statistics", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || out.Report.Timezone != "Europe/Moscow" {
+		t.Fatalf("the saved zone is the default: %s", w.Body.String())
 	}
 	for _, format := range []string{"csv", "json"} {
 		w = statisticsDo(s, http.MethodGet, "/coddy/statistics/export?format="+format, "")

@@ -69,7 +69,6 @@ func mergeStatisticsOpenAPI(doc map[string]interface{}) {
 	}
 	report := schema(reflect.TypeFor[statistics.Report]())
 	settings := schema(reflect.TypeFor[statistics.Settings]())
-	events := schema(reflect.TypeFor[[]statistics.Event]())
 	status := schema(reflect.TypeFor[statistics.ImportStatus]())
 	priceMap := schema(reflect.TypeFor[map[string]statistics.Price]())
 	object := func(props map[string]interface{}) map[string]interface{} {
@@ -92,7 +91,6 @@ func mergeStatisticsOpenAPI(doc map[string]interface{}) {
 	clear := operation("statisticsClear", "Permanently clear counters, retaining the selected trailing period", object(map[string]interface{}{"ok": map[string]interface{}{"type": "boolean"}}), "200")
 	clear["parameters"] = []interface{}{map[string]interface{}{"name": "keep", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"none", "day", "week", "month"}}}}
 	paths["/coddy/statistics"] = map[string]interface{}{"get": get, "delete": clear}
-	paths["/coddy/statistics/events"] = map[string]interface{}{"get": operation("statisticsEvents", "Counters with stable dataset identities for swarm aggregation", object(map[string]interface{}{"dataset": str(), "events": events, "import": status}), "200")}
 	put := operation("statisticsSettingsPut", "Save time zone and USD rates per million tokens; a field the body omits keeps its value, and a tariff without a cache rate reads the input rate", settings, "200")
 	put["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": object(map[string]interface{}{"timezone": str(), "prices": priceMap})}}}
 	paths["/coddy/statistics/settings"] = map[string]interface{}{"put": put}
