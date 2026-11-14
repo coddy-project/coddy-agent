@@ -2662,4 +2662,4 @@ Playwright ставится так же, как для проверки шевр
 
 *Anthropic-совместимый провайдер по умолчанию предлагает имя своего SDK.*
 
-<!-- docsgen:source sha256=6c5e2754d86cea93 -->
+<!-- docsgen:source sha256=ca3c6cdbd425ee35 -->
