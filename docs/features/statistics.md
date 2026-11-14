@@ -22,6 +22,10 @@ offering the page, since there would be nothing to draw. What is already
 recorded stays on disk; the reset below is what removes it. Switching the
 collection back on starts recording again from that moment.
 
+![The statistics settings](../assets/statistics/statistics-settings-dark-1280.png)
+
+*The switch, the time zone, the reset and the custom tariffs, saved by the Save of the drawer.*
+
 ## Storage and cleanup
 
 The counters live under `<home>/statistics/`, apart from session bundles. Monthly `.jsonl` journals keep call records and turn checkpoints; `settings.json` keeps the dataset identity, time zone, prices, import progress and cleanup cutoff. Writes are serialized across Coddy processes sharing the same home. The last complete checkpoint wins; an unfinished final journal record is dropped before the next append. No prompt, answer, tool arguments or credential is copied into this store.
