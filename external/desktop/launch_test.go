@@ -25,14 +25,19 @@ func TestAWindowBackendThatDoesNotExistIsNamed(t *testing.T) {
 }
 
 // Asking for the native window in a build that has none is an error that says
-// how to get one, not a run that opens nothing and waits.
-func TestTheNativeWindowSaysWhichTagCarriesIt(t *testing.T) {
+// which build has one, not a run that opens nothing and waits.
+func TestTheNativeWindowSaysWhichBuildCarriesIt(t *testing.T) {
 	if nativeAvailable {
 		t.Skip("this build has the native window")
 	}
 	err := openWindow(context.Background(), Options{Window: WindowNative}, "http://127.0.0.1:1/desktop/")
-	if err == nil || !strings.Contains(err.Error(), "desktop.native") {
-		t.Fatalf("--window native answered %v, which does not name the tag that carries it", err)
+	if err == nil {
+		t.Fatal("--window native was accepted by a build with no native window")
+	}
+	for _, want := range []string{"macOS", "cgo", WindowBrowser} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("--window native answered %q, which does not name %q", err, want)
+		}
 	}
 }
 

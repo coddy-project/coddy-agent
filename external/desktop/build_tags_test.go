@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"runtime"
 
 	"regexp"
 	"strings"
@@ -38,12 +39,20 @@ func TestTheReleaseTagSetCarriesTheWindow(t *testing.T) {
 	}
 }
 
-// Darwin releases add the native backend without changing other platforms.
+// Darwin releases carry the native window, and no tag of their own says so.
+//
+// The Cocoa/WKWebView window is the default on the platform that has one: a
+// macOS build with cgo takes it, which is what every release archive is. So
+// the shipped tag set is the whole of what the archive builder passes to `go
+// build`, there is no second set to keep in step with it, and the Makefile
+// names no `desktop.native` at all.
 func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
-	full := makeVariable(t, "FULL_TAGS")
-	darwin := makeVariable(t, "DARWIN_TAGS")
-	if contains(full, "desktop.native") || !sameTags(darwin, append(full, "desktop.native")) {
-		t.Fatalf("platform tag sets: full=%v darwin=%v", full, darwin)
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(makefile), "desktop.native") {
+		t.Error("the native window needs no build tag: the Makefile still names desktop.native")
 	}
 	b, err := os.ReadFile("../../.github/workflows/release-binaries.yaml")
 	if err != nil {
@@ -95,7 +104,7 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 	}
 	// The whole package, with no -run filter: the native tests and the BDD
 	// suite both, since this is the only job that runs a `desktop` tag on a Mac.
-	macTest := regexp.MustCompile(`go test -tags 'desktop desktop\.native' \./external/desktop\b([^\n]*)`).FindStringSubmatch(prBuild)
+	macTest := regexp.MustCompile(`go test -tags desktop \./external/desktop\b([^\n]*)`).FindStringSubmatch(prBuild)
 	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || macTest == nil {
 		t.Error("the macOS PR job must build the release archives and test ./external/desktop with the native tags")
 	} else if strings.Contains(macTest[1], "-run") {
@@ -105,7 +114,7 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"make -s print-darwin-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${DARWIN_TAGS}\"", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=13.0", "-Werror=unguarded-availability-new", "--no-xattrs", "--no-mac-metadata", "COPYFILE_DISABLE=1", "mktemp -d", "trap "} {
+	for _, contract := range []string{"make -s print-full-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${TAGS}\"", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=13.0", "-Werror=unguarded-availability-new", "--no-xattrs", "--no-mac-metadata", "COPYFILE_DISABLE=1", "mktemp -d", "trap "} {
 		if !strings.Contains(string(script), contract) {
 			t.Errorf("shared Darwin archive builder lost %q", contract)
 		}
@@ -221,33 +230,71 @@ func sameTags(a, b []string) bool {
 	return true
 }
 
-func TestNativeTagWithoutCgoKeepsTheStub(t *testing.T) {
-	withoutCgo := func(args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(context.Background(), "go", args...)
-		for _, entry := range os.Environ() {
-			if !strings.HasPrefix(entry, "CGO_ENABLED=") && !strings.HasPrefix(entry, "USER=") {
-				cmd.Env = append(cmd.Env, entry)
+// The native window follows the platform and cgo, and nothing else.
+//
+// There is no tag to remember or to forget: a macOS build with cgo compiles
+// the Cocoa window, and everything that is not one - another platform, or a
+// darwin build without cgo, which is what cross-compiling gives by default -
+// compiles the stub beside it. The two constraints are complements, so for
+// every combination below exactly one of the files is in the package. `go
+// list` is what reads that, because a cgo build for a platform this host
+// cannot link is still a file selection it answers.
+func TestTheNativeWindowFollowsMacOSAndCgo(t *testing.T) {
+	for _, build := range []struct {
+		goos, arch, cgo string
+		native          bool
+	}{
+		{"darwin", "arm64", "1", true},
+		{"darwin", "amd64", "1", true},
+		{"darwin", "arm64", "0", false},
+		{"linux", "amd64", "1", false},
+		{"windows", "amd64", "0", false},
+	} {
+		name := build.goos + "-" + build.arch + "-cgo" + build.cgo
+		t.Run(name, func(t *testing.T) {
+			output, err := goCommand(t, build.goos, build.arch, build.cgo, "list", "-json", "-tags", "desktop", ".").Output()
+			if err != nil {
+				t.Fatalf("go list for %s: %v", name, err)
 			}
+			var pkg struct {
+				GoFiles  []string
+				CgoFiles []string
+			}
+			if err := json.Unmarshal(output, &pkg); err != nil {
+				t.Fatal(err)
+			}
+			if got := contains(pkg.CgoFiles, "native_darwin.go"); got != build.native {
+				t.Errorf("%s compiles the Cocoa window: %v, want %v (CgoFiles=%v)", name, got, build.native, pkg.CgoFiles)
+			}
+			if got := contains(pkg.GoFiles, "native_stub.go"); got == build.native {
+				t.Errorf("%s compiles the stub: %v (GoFiles=%v)", name, got, pkg.GoFiles)
+			}
+		})
+	}
+	// Selection is not compilation: the stub half of the partition is the one
+	// this host can prove builds, and it is the half every release but macOS
+	// ships.
+	if out, err := goCommand(t, runtime.GOOS, runtime.GOARCH, "0", "build", "-o", os.DevNull, "-tags", "desktop", ".").CombinedOutput(); err != nil {
+		t.Fatalf("the package does not build without cgo: %v\n%s", err, out)
+	}
+}
+
+// goCommand runs the toolchain for one platform, with the environment this
+// process was started with but none of the three variables it sets itself.
+func goCommand(t *testing.T, goos, arch, cgo string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "go", args...)
+	for _, entry := range os.Environ() {
+		switch {
+		case strings.HasPrefix(entry, "CGO_ENABLED="),
+			strings.HasPrefix(entry, "GOOS="),
+			strings.HasPrefix(entry, "GOARCH="),
+			strings.HasPrefix(entry, "USER="):
+		default:
+			cmd.Env = append(cmd.Env, entry)
 		}
-		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
-		platform.AdaptCommand(cmd)
-		return cmd
 	}
-	if out, err := withoutCgo("build", "-o", os.DevNull, "-tags", "desktop desktop.native", ".").CombinedOutput(); err != nil {
-		t.Fatalf("the package does not build with desktop.native and no cgo: %v\n%s", err, out)
-	}
-	output, err := withoutCgo("list", "-json", "-tags", "desktop desktop.native", ".").Output()
-	if err != nil {
-		t.Fatalf("go list without cgo: %v", err)
-	}
-	var pkg struct {
-		GoFiles  []string
-		CgoFiles []string
-	}
-	if err := json.Unmarshal(output, &pkg); err != nil {
-		t.Fatal(err)
-	}
-	if !contains(pkg.GoFiles, "native_stub.go") || contains(pkg.CgoFiles, "native_darwin.go") {
-		t.Fatalf("without cgo: GoFiles=%v CgoFiles=%v", pkg.GoFiles, pkg.CgoFiles)
-	}
+	cmd.Env = append(cmd.Env, "CGO_ENABLED="+cgo, "GOOS="+goos, "GOARCH="+arch)
+	platform.AdaptCommand(cmd)
+	return cmd
 }

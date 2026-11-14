@@ -1,4 +1,4 @@
-//go:build desktop && desktop.native && darwin && cgo
+//go:build desktop && darwin && cgo
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>

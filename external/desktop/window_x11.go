@@ -27,8 +27,8 @@ import (
 // compositor to move or undecorate somebody else's surface at all, by design.
 // A Wayland session therefore keeps the system frame, which is what
 // Supported() reports, and the window around the tab strip is an ordinary
-// decorated window. The native window of the desktop.native tag is what closes
-// that gap, because there the window is this process's own.
+// decorated window. The native macOS window is what closes that gap, because
+// there the window is this process's own.
 
 var errWindowUnsupported = errors.New("desktop: this session cannot be asked to change the window")
 

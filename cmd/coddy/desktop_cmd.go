@@ -2,7 +2,7 @@
 
 // `coddy desktop` opens Coddy as a window on this machine.
 //
-// The window uses Cocoa/WKWebView on macOS with desktop.native and cgo, or
+// The window uses Cocoa/WKWebView on macOS, where the build has cgo, or
 // a Chromium-family browser in app mode with its own profile, over a loopback
 // HTTP surface whose port the agent home remembers. The page is a tab strip
 // with one chat per tab (external/desktop/shell). The whole of Coddy is behind it - the same
@@ -20,9 +20,10 @@
 // is new. A second 72 MiB artefact to ship, package and update was the larger
 // cost by far.
 //
-// macOS release archives include desktop.native and cgo. The binary starts on
-// macOS 13; the native window needs macOS 14 for isolated persistent WebKit
-// stores, and auto falls back to a browser on older systems.
+// On macOS the native window is the default rather than an opt-in: the release
+// archives are built there with cgo, which is the whole of what compiles it.
+// The binary starts on macOS 13; the window itself needs macOS 14 for isolated
+// persistent WebKit stores, and auto falls back to a browser on older systems.
 
 package main
 

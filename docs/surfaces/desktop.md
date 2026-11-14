@@ -88,7 +88,7 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 
 | Flag | What it does |
 | --- | --- |
-| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+ in macOS release archives; source builds need cgo and `desktop.native`; it reports an error if unavailable |
+| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS release archive carries and a source build gets by building on macOS with cgo; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
 | `--frame` | keep the system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar |
@@ -393,8 +393,8 @@ file inputs and the system browser for HTTP(S) links opened in a new window. The
 `Cmd`+`C`, `Cmd`+`V`, `Cmd`+`X`, `Cmd`+`A` and `Cmd`+`Z`; `Cmd`+`Q` closes the window and ends the
 run. Downloads from an HTML `download` link or an attachment response go to the standard Downloads
 folder. A duplicate name receives a numeric suffix, so an existing file is kept.
-The macOS release archives include this backend, built with cgo and `desktop.native`. The native
-window needs macOS 14 because its isolated persistent data store uses
+Every macOS release archive carries this backend: it is built on macOS with cgo, and no build tag
+selects it. The native window needs macOS 14 because its isolated persistent data store uses
 `WKWebsiteDataStore.dataStoreForIdentifier`. `auto` uses the browser backend on older macOS versions.
 This build adds no tray icon, signing, notarisation or application bundle.
 

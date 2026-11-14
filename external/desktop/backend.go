@@ -17,8 +17,8 @@ const (
 	// WindowBrowser is a Chromium-family browser started with --app, in a
 	// profile of its own so that it is a process this run can wait on.
 	WindowBrowser = "browser"
-	// WindowNative is a window around the system WebView (build tag
-	// desktop.native, cgo).
+	// WindowNative is a window around the system WebView, which a macOS build
+	// with cgo carries and nothing else does.
 	WindowNative = "native"
 )
 

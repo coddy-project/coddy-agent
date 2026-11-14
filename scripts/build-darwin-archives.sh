@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the two macOS release archives with the native desktop backend.
+# Build the two macOS release archives, which carry the native desktop window.
+# It needs no tag: the shipped set plus cgo on macOS is what compiles it.
 # Usage: scripts/build-darwin-archives.sh [--version VER] [--out DIR]
 # Defaults: version from `make -s print-version`, output in dist.
 set -euo pipefail
@@ -31,7 +32,7 @@ export CGO_ENABLED=1
 export MACOSX_DEPLOYMENT_TARGET=13.0
 export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=13.0 -Werror=unguarded-availability-new"
 export COPYFILE_DISABLE=1
-DARWIN_TAGS="$(make -s print-darwin-tags)"
+TAGS="$(make -s print-full-tags)"
 LDFLAGS="-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${version}"
 
 for arch in arm64 amd64; do
@@ -41,7 +42,7 @@ for arch in arm64 amd64; do
     cc="clang -arch arm64"
     if [ "$arch" = "amd64" ]; then cc="clang -arch x86_64"; fi
     GOOS=darwin GOARCH="$arch" CC="$cc" go build \
-        -tags="${DARWIN_TAGS}" -trimpath -ldflags "$LDFLAGS" \
+        -tags="${TAGS}" -trimpath -ldflags "$LDFLAGS" \
         -o "$bindir/coddy" ./cmd/coddy/
     cp packaging/man/coddy.1 "$bindir/coddy.1"
     cp packaging/completions/coddy.bash "$bindir/coddy.bash"
