@@ -967,11 +967,11 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "Сколько самых свежих результатов read и grep остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего).",
+    "Наименьшее число самых свежих результатов read и grep, которые остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего). Если значение больше нуля, они уходят из окна по четыре, поэтому пока набирается следующая порция, в нём остаётся до трёх лишних.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
-    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
+    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 - кандидат любой результат).",
   "settings.schema.compaction.fallback_models.label":
     "Резервные модели суммаризации",
   "settings.schema.compaction.fallback_models.desc":

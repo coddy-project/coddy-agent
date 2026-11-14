@@ -1300,18 +1300,27 @@ func TestEvictionOptionsCarryTheListingSettings(t *testing.T) {
 
 // --- the listing gate ----------------------------------------------------------
 
-// listingGateHistory is a turn of five glob steps of about 300 lines each, then
-// three reads of about 3000 characters: the listings are large enough to be
-// candidates and the reads clear min_result_bytes.
+// listingGateSteps and listingGateReads are the candidates of the fixture
+// below: a working window plus one whole batch of each kind, so the batch is
+// due and the window is exactly what keep_recent and keep_recent_steps name.
+const (
+	listingGateSteps = listingKeepRecentSteps + resultEvictionBatch
+	listingGateReads = 2 + resultEvictionBatch
+)
+
+// listingGateHistory is a turn of listingGateSteps glob steps of about 300
+// lines each, then listingGateReads reads of about 3000 characters: the
+// listings are large enough to be candidates and the reads clear
+// min_result_bytes.
 func listingGateHistory() []llm.Message {
 	hist := []llm.Message{{Role: llm.RoleUser, Content: "map the repo"}}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < listingGateSteps; i++ {
 		id := fmt.Sprintf("g%d", i)
 		hist = append(hist,
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "glob", InputJSON: `{"pattern":"**/*.go"}`}}},
 			llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: strings.Repeat("pkg/file.go\n", 300)})
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < listingGateReads; i++ {
 		id := fmt.Sprintf("r%d", i)
 		hist = append(hist,
 			asstRead(id, fmt.Sprintf("file_%d.go", i), 0, 0, false),
@@ -1336,20 +1345,19 @@ func TestPrunedForLLMGatesListingsByTheResolvedWindow(t *testing.T) {
 			t.Fatalf("fixture: window = %d, want the default %d", window, config.DefaultContextWindowTokens)
 		}
 		out := ag.prunedForLLM(hist)
-		for i := 0; i < 5; i++ {
+		for i := 0; i < listingGateSteps; i++ {
 			id := fmt.Sprintf("g%d", i)
 			if got := contentByID(out, id); got != contentByID(hist, id) {
 				t.Fatalf("%s was collapsed below start_percent of the default window: %q", id, got)
 			}
 		}
 		// Read and grep go by the old gate: no max_context_tokens, eviction from
-		// the first result, a working window of two.
-		if !evicted(contentByID(out, "r0")) {
-			t.Fatalf("r0 is outside the read/grep working window and must be evicted: %q", firstChars(contentByID(out, "r0"), 80))
-		}
-		for _, id := range []string{"r1", "r2"} {
-			if evicted(contentByID(out, id)) {
-				t.Fatalf("%s is inside the working window: %q", id, contentByID(out, id))
+		// the first result, a working window of two, a batch at a time.
+		for i := 0; i < listingGateReads; i++ {
+			id := fmt.Sprintf("r%d", i)
+			want := i < listingGateReads-2
+			if got := evicted(contentByID(out, id)); got != want {
+				t.Fatalf("%s evicted = %v, want %v: the working window is the last two reads", id, got, want)
 			}
 		}
 	})
@@ -1363,10 +1371,10 @@ func TestPrunedForLLMGatesListingsByTheResolvedWindow(t *testing.T) {
 		}
 		ag.cfg.Models[0].MaxContextTokens = window
 		out := ag.prunedForLLM(hist)
-		for i := 0; i < 5; i++ {
+		for i := 0; i < listingGateSteps; i++ {
 			id := fmt.Sprintf("g%d", i)
 			collapsed := evicted(contentByID(out, id))
-			if want := i < 5-listingKeepRecentSteps; collapsed != want {
+			if want := i < listingGateSteps-listingKeepRecentSteps; collapsed != want {
 				t.Fatalf("%s collapsed = %v, want %v: the last %d listing steps stay", id, collapsed, want, listingKeepRecentSteps)
 			}
 		}
@@ -1377,9 +1385,10 @@ func TestPrunedForLLMGatesListingsByTheResolvedWindow(t *testing.T) {
 		ag := compactTestAgent(t, st, config.Compaction{}, &compactCannedProvider{t: t})
 		ag.evictionForced = true
 		out := ag.prunedForLLM(hist)
-		if !evicted(contentByID(out, "g0")) || evicted(contentByID(out, "g4")) {
-			t.Fatalf("forced eviction must collapse the older listing steps and keep the latest: g0=%q g4=%q",
-				firstChars(contentByID(out, "g0"), 60), firstChars(contentByID(out, "g4"), 60))
+		latest := fmt.Sprintf("g%d", listingGateSteps-1)
+		if !evicted(contentByID(out, "g0")) || evicted(contentByID(out, latest)) {
+			t.Fatalf("forced eviction must collapse the older listing steps and keep the latest: g0=%q %s=%q",
+				firstChars(contentByID(out, "g0"), 60), latest, firstChars(contentByID(out, latest), 60))
 		}
 	})
 }

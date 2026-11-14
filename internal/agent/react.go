@@ -1242,6 +1242,12 @@ func (a *Agent) runReActLoop(
 				a.state.GetID(), formatToolPairingIssues(issues))
 		}
 		latency.paired(pairingStart)
+		// What this request puts on the wire, for a later call over the same
+		// conversation to repeat: a compaction asks its summarizer with this
+		// system message, these tools and this provider input, so everything in
+		// front of its instruction is the prefix the provider is about to cache
+		// (compact_cached.go).
+		a.noteTurnSend(transport, sendMessages, toolDefs)
 		// The estimate the provider's incoming input_tokens is anchored to is
 		// taken here, while the breakdown still describes the prompt about to
 		// be sent - anything persisted or refreshed during the call must not
@@ -2989,7 +2995,29 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	// replayed exactly as it was stored: what a /skill or an @mention brought
 	// was written into it when it was sent (mentions.go), so no request
 	// rewrites an earlier message and the provider's cached prefix holds.
-	history := session.MessagesForLLM(a.state.GetMessages())
+	filtered := llmHistoryMessages(session.MessagesForLLM(a.state.GetMessages()))
+	repaired, _ := session.RepairMissingToolResults(filtered)
+	if a.log != nil {
+		if issues := session.ValidateToolPairing(repaired); len(issues) > 0 {
+			a.log.Warn("unrepairable tool-call pairing in LLM history",
+				"session", a.state.GetID(), "issues", issues)
+		} else if len(repaired) != len(filtered) {
+			a.log.Info("repaired missing tool results in LLM history",
+				"session", a.state.GetID(), "inserted", len(repaired)-len(filtered))
+		}
+	}
+	msgs := make([]llm.Message, 0, len(repaired)+1)
+	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
+	msgs = append(msgs, repaired...)
+	return msgs
+}
+
+// llmHistoryMessages is the window of a session as the model reads it back:
+// the UI-only rows dropped, the assistant text stripped the way a continued
+// answer needs it, and the two messages a recovery left in a row folded into
+// one. A compaction builds the same list when it repeats the turn's own
+// request (compact_cached.go), so both agree on the bytes the provider cached.
+func llmHistoryMessages(history []llm.Message) []llm.Message {
 	// UI-only rows (a bare plan document between a call and its result) must be
 	// out of the analysis: they would cut a batch's contiguous result chain and
 	// make a healthy pair look misplaced.
@@ -3019,21 +3047,7 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	}
 	// What the recoveries left as two assistant messages in a row goes out as one,
 	// the same way each time (foldSplitAnswers).
-	filtered = foldSplitAnswers(filtered)
-	repaired, _ := session.RepairMissingToolResults(filtered)
-	if a.log != nil {
-		if issues := session.ValidateToolPairing(repaired); len(issues) > 0 {
-			a.log.Warn("unrepairable tool-call pairing in LLM history",
-				"session", a.state.GetID(), "issues", issues)
-		} else if len(repaired) != len(filtered) {
-			a.log.Info("repaired missing tool results in LLM history",
-				"session", a.state.GetID(), "inserted", len(repaired)-len(filtered))
-		}
-	}
-	msgs := make([]llm.Message, 0, len(repaired)+1)
-	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
-	msgs = append(msgs, repaired...)
-	return msgs
+	return foldSplitAnswers(filtered)
 }
 
 func formatToolPairingIssues(issues []session.ToolPairingIssue) string {

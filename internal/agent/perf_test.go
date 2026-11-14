@@ -449,3 +449,190 @@ func total(ns []int) int {
 	}
 	return sum
 }
+
+// BenchmarkCompactionCacheSplit measures what a long session costs a provider
+// that caches by prefix: the model reads a large file and answers, turn after
+// turn, until the window has been folded several times. Every request the
+// session makes - the turns and the summarizer's own - is split against the
+// requests before it:
+//
+//   - raw-tokens, everything the requests carry;
+//   - cached-tokens, the leading messages some earlier request already sent,
+//     which the provider reads back at about a tenth of the input price;
+//   - fresh-tokens, the rest, which it processes at full price;
+//   - effective-units, fresh plus a tenth of cached: the bill, in units of one
+//     fresh token;
+//   - rewrites, requests that changed a message an earlier one carried rather
+//     than only adding to it. Each one is a cached prefix thrown away.
+//
+// Read them as the shape of the cost, not as a bound: the numbers move with the
+// size of the file and the window. What matters is that the folds stay small
+// beside the turns and that the rewrites stay few. A fold that stops repeating
+// the turn's own prefix (compact_cached.go), or results that go back to
+// collapsing one at a time (resultEvictionBatch), show up here as fresh tokens
+// and rewrites; TestPromptCacheCompactionRepeatsTheRecordedRequest and the
+// prompt_cache_compaction.feature scenarios fail first when they do.
+func BenchmarkCompactionCacheSplit(b *testing.B) {
+	var split cacheSplit
+	for i := 0; i < b.N; i++ {
+		split = measureCompactionCache(b)
+	}
+	b.ReportMetric(float64(split.requests), "requests")
+	b.ReportMetric(float64(split.folds), "folds")
+	b.ReportMetric(float64(split.raw), "raw-tokens")
+	b.ReportMetric(float64(split.cached), "cached-tokens")
+	b.ReportMetric(float64(split.fresh), "fresh-tokens")
+	b.ReportMetric(float64(split.cached/10+split.fresh), "effective-units")
+	b.ReportMetric(float64(split.rewrites), "rewrites")
+}
+
+// cacheSplitTurns is how many turns the measured session runs.
+const cacheSplitTurns = 30
+
+// cacheSplit is one session's requests measured against the prompt cache.
+type cacheSplit struct{ requests, folds, raw, cached, fresh, rewrites int }
+
+// cacheSplitProvider answers a turn with one read and one reply, and any
+// blocking call (the summarizer) with a short summary, keeping every request.
+type cacheSplitProvider struct {
+	file  string
+	turn  int
+	step  int
+	seen  [][]llm.Message
+	folds int
+}
+
+func (p *cacheSplitProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	p.folds++
+	return &llm.Response{Content: fmt.Sprintf("Summary of the work so far, part %d.", p.folds), StopReason: "end_turn"}, nil
+}
+
+func (p *cacheSplitProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	p.step++
+	if p.step%2 == 1 {
+		call := llm.ToolCall{
+			ID:        fmt.Sprintf("read_%03d", p.turn),
+			Name:      "read",
+			InputJSON: fmt.Sprintf(`{"path":%q}`, p.file),
+		}
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	}
+	// The answers are what a fold cannot evict, so they are what pushes the
+	// session past the threshold turn after turn. Every line differs: a reply
+	// that repeats one phrase is cut off by the repetition guard.
+	var text strings.Builder
+	fmt.Fprintf(&text, "I read %s and here is what it does.\n", p.file)
+	for i := 0; i < 150; i++ {
+		fmt.Fprintf(&text, "Call site %d of %s wraps the error of run(ctx, opts) and returns it to its caller.\n", i, p.file)
+	}
+	onChunk(llm.StreamChunk{TextDelta: text.String()})
+	return &llm.Response{Content: text.String(), StopReason: "end_turn"}, nil
+}
+
+// measureCompactionCache runs a session of thirty turns over a 200k window and
+// splits every request it made against the ones before it.
+func measureCompactionCache(b *testing.B) cacheSplit {
+	b.Helper()
+	b.StopTimer()
+	defer b.StartTimer()
+
+	cwd := b.TempDir()
+	// About 6k tokens a turn, which fills the window below every few turns.
+	body := strings.Repeat("\tif err := run(ctx, opts); err != nil { return fmt.Errorf(\"run: %w\", err) }\n", 240)
+	// One file per turn: a model that asks for the same page twice is stopped
+	// by the loop guard, which is not what this measures.
+	for i := 0; i < cacheSplitTurns; i++ {
+		name := fmt.Sprintf("service_%02d.go", i)
+		if err := os.WriteFile(filepath.Join(cwd, name), []byte("package service\n\n"+body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	provider := &cacheSplitProvider{}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 4096, MaxContextTokens: 60000}},
+		Agent:     config.Agent{Model: "fake/model"},
+		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	store := b.TempDir()
+	st := &session.State{ID: "sess_cache_split", CWD: cwd, Mode: session.ModeAgent, SessionDir: store}
+	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, cwd))
+	ag := NewAgent(cfg, st, resumePermissionSender{}, slog.New(slog.DiscardHandler))
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	for turn := 0; turn < cacheSplitTurns; turn++ {
+		provider.turn, provider.step = turn, 0
+		provider.file = fmt.Sprintf("service_%02d.go", turn)
+		prompt := fmt.Sprintf("Look at %s and tell me about part %d.", provider.file, turn)
+		if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: prompt}}); err != nil {
+			b.Fatalf("turn %d failed: %v", turn, err)
+		}
+	}
+	if provider.folds < 2 {
+		b.Fatalf("the session folded %d time(s): the fixture no longer reaches the threshold", provider.folds)
+	}
+	return splitAgainstTheCache(provider.seen, provider.folds)
+}
+
+// splitAgainstTheCache measures each request against every request before it:
+// its cached part is the longest run of leading messages one of them carried,
+// which is what a provider that caches by prefix serves without reading.
+func splitAgainstTheCache(reqs [][]llm.Message, folds int) cacheSplit {
+	out := cacheSplit{requests: len(reqs), folds: folds}
+	// The turn context block trails a request, is request-only and is rebuilt
+	// every time, so it is never part of a prefix; its tokens count as fresh
+	// below, where they fall past the shared run anyway.
+	bodies := make([][]llm.Message, len(reqs))
+	for i, r := range reqs {
+		bodies[i] = withoutTurnContext(r)
+	}
+	shareWith := func(req, prev []llm.Message) int {
+		n := 0
+		for n < len(req) && n < len(prev) && sameSentMessage(req[n], prev[n]) {
+			n++
+		}
+		return n
+	}
+	for i, req := range reqs {
+		shared := 0
+		for _, prev := range bodies[:i] {
+			if n := shareWith(bodies[i], prev); n > shared {
+				shared = n
+			}
+		}
+		// A request that changed a message the one before it carried, rather
+		// than only adding after it, threw that cached prefix away. A shorter
+		// request is not one of them: a fold is the turn's prefix cut at the
+		// boundary, and the turn after a compaction starts from the summary row.
+		if i > 0 && len(bodies[i]) >= len(bodies[i-1]) && shareWith(bodies[i], bodies[i-1]) < len(bodies[i-1]) {
+			out.rewrites++
+		}
+		for j, m := range req {
+			n := session.EstimateContextTokens(m.Content)
+			out.raw += n
+			if j < shared {
+				out.cached += n
+			} else {
+				out.fresh += n
+			}
+		}
+	}
+	return out
+}
+
+// sameSentMessage is whether two messages of two requests are the same bytes to
+// a provider: the role, the text, the call they answer and the calls they make.
+func sameSentMessage(a, b llm.Message) bool {
+	if a.Role != b.Role || a.Content != b.Content || a.ToolCallID != b.ToolCallID || len(a.ToolCalls) != len(b.ToolCalls) {
+		return false
+	}
+	for i := range a.ToolCalls {
+		if a.ToolCalls[i] != b.ToolCalls[i] {
+			return false
+		}
+	}
+	return true
+}

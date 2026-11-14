@@ -145,13 +145,19 @@ each time even with the prompt frozen. **`compaction.result_eviction.start_perce
 holds the projection off until the estimated context reaches that share of the model's
 **`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
 decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
-mark and make the projection flap between two shapes. A request the provider
+mark and make the projection flap between two shapes. Above the mark, results leave the working
+window **a batch of four at a time** (**`resultEvictionBatch`**), so the set of collapsed results
+moves once every four candidates and three requests out of four still repeat the previous one byte
+for byte. A request the provider
 refused as too large opens the gate for the rest of that turn
 (**`Agent.evictionForced`**): the cache the gate protects is moot once the
 provider has refused to read the prefix. The fold inside a turn
 (**`compact_in_turn.go`**) is the same trade: it rewrites the history only at the
 compaction threshold, and the summary row it writes starts with the prompt, so the
-rewritten prefix still opens with what the model was asked. See
+rewritten prefix still opens with what the model was asked. The fold's own request
+reads the cache rather than spending it: when the summarizer is the session's model,
+**`compact_cached.go`** asks it with the request the turn has just sent, cut at the
+boundary, with the summarization brief appended as a request-only message. See
 [compaction.md](../features/compaction.md).
 
 ### Reading the cache hit
