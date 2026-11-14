@@ -144,6 +144,16 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: make build TAGS="http ui swarm"
 
+      # check:desktop walks the rail and drives the `coddy desktop` verb, which
+      # the lean binary above carries neither of, so it gets one of its own
+      # under build/desktop. It is built here rather than beside its own step
+      # because `make build` with `ui` runs `npm install`, which puts the
+      # playwright of package-lock.json back over the one the next step
+      # installs with --no-save and leaves its browser undownloaded.
+      - name: Build the desktop binary for its browser check
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: make build BUILD_DIR=build/desktop TAGS="http ui swarm scheduler desktop"
+
       - name: Drive a long transcript in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: |
@@ -193,15 +203,12 @@ jobs:
 
       # The desktop tab shell against the real binary: tabs, the chords, links
       # out of Coddy through a stub of this machine's opener, the menu, and the
-      # tab list surviving a restart. It walks the rail, so it needs the
-      # scheduler beside the window, which the lean binary of the checks above
-      # does not carry; it rebuilds here, last in the row, so none of them
-      # changes. It names its binary CODDY_DESKTOP_BIN, not CODDY_BIN.
+      # tab list surviving a restart. It names its binary CODDY_DESKTOP_BIN,
+      # not CODDY_BIN, and takes the one built for it above, so the lean binary
+      # the checks before it drive is left alone.
       - name: Drive the desktop tab shell in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
-        run: |
-          make build TAGS="http ui swarm scheduler desktop"
-          CODDY_DESKTOP_BIN="$PWD/build/coddy" npm --prefix external/ui run check:desktop
+        run: CODDY_DESKTOP_BIN="$PWD/build/desktop/coddy" npm --prefix external/ui run check:desktop
 
   # The integration layer against tgfake (github.com/EvilFreelancer/tgfake),
   # the fake Telegram Bot API and scripted model this repository tests its
