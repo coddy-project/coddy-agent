@@ -115,21 +115,26 @@
       <div>
         <h2>3. Writing the next block (B3)</h2>
         <div class="panel req" id="req">
-          <div class="title">summarizer request</div>
-          <div class="tag">&lt;earlier-summaries&gt;</div>
+          <div class="title">summarizer request: the turn's own, cut at the boundary</div>
+          <div class="box core">system prompt</div>
           <div class="box blue">B1</div>
           <div class="box blue">B2</div>
-          <div class="tag">&lt;/earlier-summaries&gt;</div>
-          <p class="note blue" style="margin: 2px 0 8px 10px; font-style: italic">
-            read-only context: never retold, at most half of a pass, the newest kept when they do not all fit
-          </p>
-          <div class="tag green">&lt;transcript&gt;</div>
           <div class="box green">q5, a5: the tail before the new boundary</div>
-          <div class="tag green">&lt;/transcript&gt;</div>
+          <div class="box amber">Summarize the conversation above... (request-only)</div>
+          <p class="note blue" style="margin: 8px 0 2px 10px; font-style: italic">
+            the same system message, the same tools, the same messages: the provider reads all of it back from the
+            cache the turn wrote, and only the instruction is new
+          </p>
         </div>
         <div class="box blue b" id="b3" style="margin-top: 34px">B3 inserted at the boundary, before q6</div>
         <p class="note" style="margin: 10px 0 8px">
           q6 and a6 stay verbatim (<code>keep_recent_turns</code>).
+        </p>
+        <p class="note" style="margin: 0 0 8px">
+          Another summarizer, another reasoning level, or a head that is not the head of what the turn sends, gets the
+          older request instead:
+          its own system prompt, the earlier blocks under <code>&lt;earlier-summaries&gt;</code> and the head flattened
+          under <code>&lt;transcript&gt;</code>, in as many passes as it takes.
         </p>
         <p class="note" style="margin: 0 0 8px">
           Inside one long turn the first block starts with the turn's prompt verbatim; later blocks of that turn do

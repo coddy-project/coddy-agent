@@ -92,10 +92,6 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 
 ## Current todo checklist
 - [ ] ...
-
-## Long-term memory
-Already on disk:
-- ...
 </turn_context>
 ```
 
@@ -106,12 +102,6 @@ Already on disk:
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
   reflected on the very next step;
-- the **memory subagent's report** for this turn, when long-term memory is on
-  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
-  the system message would make **`messages[0]`** a new one on every turn and cost the cached
-  conversation each time. It joins the block on the first request when the run settled inside
-  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
-  **`{{.Memory}}`** slot of the templates holds the session notes alone;
 - the **background tasks still running** in this session, one line each in the wording of
   **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
   so the model knows what it left running without a call. Finished and system tasks are left out,
@@ -139,8 +129,10 @@ See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
-checklist after the history; its block carries the two sections no template prints, the memory
-report and the running background tasks, and is left out when there is neither.
+checklist after the history. Its block still carries every other applicable section the template
+does not print: git workspace facts, running background tasks, surface turn context and the
+one-time enrichment of a `FirstPrompt` hook on the requests of the first turn. It is omitted only
+when none of those sections applies.
 
 ### The other half: result eviction
 
@@ -153,13 +145,19 @@ each time even with the prompt frozen. **`compaction.result_eviction.start_perce
 holds the projection off until the estimated context reaches that share of the model's
 **`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
 decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
-mark and make the projection flap between two shapes. A request the provider
+mark and make the projection flap between two shapes. Above the mark, results leave the working
+window **a batch of four at a time** (**`resultEvictionBatch`**), so the set of collapsed results
+moves once every four candidates and three requests out of four still repeat the previous one byte
+for byte. A request the provider
 refused as too large opens the gate for the rest of that turn
 (**`Agent.evictionForced`**): the cache the gate protects is moot once the
 provider has refused to read the prefix. The fold inside a turn
 (**`compact_in_turn.go`**) is the same trade: it rewrites the history only at the
 compaction threshold, and the summary row it writes starts with the prompt, so the
-rewritten prefix still opens with what the model was asked. See
+rewritten prefix still opens with what the model was asked. The fold's own request
+reads the cache rather than spending it: when the summarizer is the session's model,
+**`compact_cached.go`** asks it with the request the turn has just sent, cut at the
+boundary, with the summarization brief appended as a request-only message. See
 [compaction.md](../features/compaction.md).
 
 ### Reading the cache hit
@@ -254,7 +252,7 @@ messages: [
      e. Append tool result to conversation history
 
 5. REFRESH_TURN_CONTEXT
-   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
    - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
    - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace, and a turn resumed after a permission prompt renders it again on entry; no other step of the turn does
    - Next loop iteration repeats from step 2
@@ -298,11 +296,12 @@ messages: [
      status is also read from the text of
      an untyped error, as a number with no digit in front of it (`529 `, not
      the end of `1529 tokens`). A cancellation, an unknown host, and any
-     failure after output was emitted stay final. A Codex `response.failed`
-     event is read as an untyped error: its `code` (`server_is_overloaded`
-     included) only joins the text of the message and is not classified, so
-     it is retried only when its message names a status that way
-     (`503 Service Unavailable`) and is final otherwise.
+     failure after output was emitted stay final. The Responses API's own
+     failure events, `response.failed` (its error object rides on the
+     response) and the flat `error` event (its `code` is a field of the
+     event), are read by the same fields, so an overload there counts as a
+     503 as well; any other failure they report is an untyped error, named by
+     its `code` in front of its message and read by that text as above.
    - **First-token re-issue.** A streamed call the first-token guard
      (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
      re-issued at most once, using a normal **`max_turns`** iteration. The
@@ -509,7 +508,7 @@ Plus MCP tools (**`serverName__toolName`**). The allowlist is also enforced at e
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. As in plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice; ask refuses MCP tool names there, while plan lets them through to the MCP layer. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. As in plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice; ask refuses MCP tool names there, while plan lets them through to the MCP layer. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn; a memory child spawned while the session is read-only is built recall-only, with the three read-only tools of its six (**`memory.ToolNames(true)`**, [memory.md](../features/memory.md)).
 
 ## Built-in Tools Specification
 

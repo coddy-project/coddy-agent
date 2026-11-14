@@ -40,6 +40,18 @@ test("the reserve never drops under its floor", () => {
   ).toBe(140);
 });
 
+test("the desktop reserve leaves five fewer pixels above the composer", () => {
+  expect(
+    composerReserveFor({
+      blockHeight: 166,
+      blockPaddingTop: 18,
+      rowGap: 10,
+      contentEndAboveBlockEnd: 0,
+      endGapReductionPx: 5,
+    }),
+  ).toBe(163);
+});
+
 // The block's empty padding counts only above its card. A usage banner rises
 // over the composer inside the block, before the card's wrapper: the banner is
 // then the first visible edge, and the wrapper's padding lies under it.
@@ -56,6 +68,29 @@ test("the empty padding over the block counts only while the card is its top", (
     banner.className = "usage-banner";
     host.prepend(banner);
     expect(blockEdgePaddingTop(host)).toBe(0);
+  } finally {
+    host.remove();
+  }
+});
+
+test("reserve uses the visible card edge, including on desktop", () => {
+  const host = document.createElement("div");
+  const wrap = document.createElement("div");
+  wrap.className = "composer-wrap";
+  wrap.style.paddingTop = "18px";
+  wrap.innerHTML = '<textarea style="padding-top: 9px"></textarea>';
+  host.append(wrap);
+  document.body.append(host);
+  try {
+    expect(blockEdgePaddingTop(host)).toBe(18);
+    expect(
+      composerReserveFor({
+        blockHeight: 166,
+        blockPaddingTop: 18,
+        rowGap: 10,
+        contentEndAboveBlockEnd: 0,
+      }),
+    ).toBe(168);
   } finally {
     host.remove();
   }

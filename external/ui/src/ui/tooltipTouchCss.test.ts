@@ -46,6 +46,59 @@ test("a tooltip of the composer card stands over the plate joined to it", () => 
   );
 });
 
+// Regression: the ring's tip stands 12px above the ring, and it carried the
+// rail's shadow - 10px down over 28px of blur - which washed grey over the
+// ring and the bar under it. Cast upward it still spilled under its own
+// bottom edge, so the tip carries no shadow at all: an opaque plate with a
+// border is what tells it from the transcript.
+test("the tip above the context ring draws no shadow", () => {
+  expect(css).toMatch(
+    /\.composer-context-tip-host \.composer-context-tip\.rail-tip \{[^}]*box-shadow: none;/,
+  );
+  // And no palette keeps a token nothing draws with.
+  expect(css).not.toContain("--coddy-tip-shadow-above");
+});
+
+// The panel of the plate and the card draws the shadow while a tip is up -
+// not the wrap, which also holds the queue and the banners above the plate.
+// On a touch device a tap leaves :hover behind, so the hover rules run only
+// where a real pointer hovers; :focus-visible stays for the keyboard.
+test("the composer shadow stays under the plate while a tip is up", () => {
+  expect(css).toContain(
+    "@media (hover: hover) { .composer-panel:has(.rail-tip-host:hover, .composer-context-tip-host:hover) { border-radius: 12px; box-shadow: var(--coddy-glass-panel-shadow); }",
+  );
+  expect(css).toContain(
+    "@media (hover: hover) { .composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover) { box-shadow: none; }",
+  );
+  expect(css).toMatch(
+    /\.composer-panel:has\( ?\.rail-tip-host :focus-visible, \.composer-context-tip-host:focus-visible ?\) \{ border-radius: 12px; box-shadow: var\(--coddy-glass-panel-shadow\); \}/,
+  );
+  expect(css).toMatch(
+    /\.composer-card:has\( ?\.rail-tip-host :focus-visible, \.composer-context-tip-host:focus-visible ?\) \{ box-shadow: none; \}/,
+  );
+  // The wrap holds the queue and the banners too: a shadow on it would
+  // cover them, so it is not the element that draws it.
+  expect(css).not.toMatch(
+    /\.composer-wrap:has\([^)]*rail-tip[^)]*\)[^{]*\{[^}]*box-shadow/,
+  );
+});
+
+test("the composer shadow has the same owner before and during a tooltip", () => {
+  expect(css).toContain(
+    ".composer-panel { border-radius: 12px; box-shadow: var(--coddy-glass-panel-shadow); }",
+  );
+  expect(css).toContain(".composer-panel .composer-card { box-shadow: none; }");
+});
+
+// A finger is wider than a cursor and the control beside the ring stops the
+// turn, so the two stand further apart wherever the pointer is coarse.
+test("the ring keeps its distance from the stop control on a touch screen", () => {
+  expect(css).toMatch(
+    /@media \(max-width: 599px\), \(any-hover: none\) and \(any-pointer: coarse\) \{ \.composer-bar-actions \{ gap: 20px; \}/,
+  );
+  expect(css).toMatch(/\.composer-bar-actions \{[^}]*gap: 10px;/);
+});
+
 test("the plus of the rail changes its frame and its ground under the pointer", () => {
   expect(css).toMatch(
     /@media \(hover: hover\) \{ \.rail-pill \.rail-hit\.rail-new-chat:hover \{ border-color: var\(--accent\); background: color-mix\(in srgb, var\(--accent\) 28%/,

@@ -95,7 +95,7 @@ test("a closed panel renders nothing", () => {
   expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
 });
 
-// One card for every task: a shell command, a subagent, the memory run, running or
+// One card for every task: a shell command, a subagent, a preview server, running or
 // finished. A click expands it in place - there is no second pane.
 
 test("running tasks stand above the counter, finished ones behind it, all as the same card", () => {
@@ -250,7 +250,7 @@ test("a card names what runs in a tag on the left and the work in its title", ()
   expect(screen.getByTestId("bgtask-title-bg_7").textContent).toBe(
     "survey the repo",
   );
-  // The memory run of a turn.
+  // A delegated memory run.
   expect(screen.getByTestId("bgtask-tag-bg_9")).toHaveTextContent("memory");
   expect(screen.getByTestId("bgtask-title-bg_9").textContent).toBe(
     "what did we decide",
@@ -266,6 +266,27 @@ test("a card names what runs in a tag on the left and the work in its title", ()
     el.getAttribute("data-part"),
   );
   expect(parts.indexOf("tag")).toBeLessThan(parts.indexOf("title"));
+});
+
+test("an incomplete subagent usage keeps its model but hides the partial total", () => {
+  const agent = {
+    name: "explore",
+    session_id: "sess_0a1b2c",
+    model: "neuraldeep/qwen3.8-27b",
+    input_tokens: 1200,
+    output_tokens: 100,
+    usage_incomplete: true,
+  };
+  renderPanel({ tasks: [agentTask({ agent })] });
+  expect(screen.getByTestId("bgtask-model-bg_7")).toHaveTextContent(
+    "qwen3.8-27b",
+  );
+  expect(screen.getByTestId("bgtask-usage-bg_7")).not.toHaveTextContent(
+    "tokens",
+  );
+  expect(
+    screen.getByTestId("bgtask-open-bg_7").getAttribute("title"),
+  ).not.toMatch(/1,200/);
 });
 
 test("a folded subagent card names its model and the tokens it spent, a command card neither", () => {

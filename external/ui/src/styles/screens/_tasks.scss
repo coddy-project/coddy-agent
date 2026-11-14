@@ -6,7 +6,7 @@
    Commands the agent left running. The panel reuses the scheduler dock cluster
    for placement (including the phone insets), so only the row and detail chrome
    is defined here. Every color is derived from theme tokens: the drawer has to
-   read correctly in all seven themes without per-theme overrides. */
+   read correctly in all eight themes without per-theme overrides. */
 
 .bgtask-list {
   display: flex;

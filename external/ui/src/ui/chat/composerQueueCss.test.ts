@@ -67,6 +67,28 @@ function paddingRight(block: string): number {
   return parts.length === 1 ? parts[0]! : parts[1]!;
 }
 
+// Everything stacked over the composer card stands one gap apart: two queued
+// messages, and the lowest block of the stack over the card. Rows 4px apart
+// under a last row 6px over the card read as a crooked stack.
+test("the stack over the composer card has one gap", () => {
+  expect(css).toMatch(/--coddy-composer-stack-gap:\s*4px/);
+  const queue = body(".composer-queue");
+  expect(queue).toMatch(/gap:\s*var\(--coddy-composer-stack-gap\)/);
+  for (const selector of [
+    ".composer-queue",
+    ".composer-queue-choice",
+    ".composer-edit-banner",
+    ".usage-banner",
+  ]) {
+    expect(
+      /margin:\s*0 0 var\(--coddy-composer-stack-gap\)( 0)?\s*;/.test(
+        body(selector),
+      ),
+      `${selector} keeps the stack's gap over the block under it`,
+    ).toBe(true);
+  }
+});
+
 // A queued message sits right above the composer card, the two as wide as each
 // other, and each ends in a small square control: the queued row in its remove
 // cross, the card's field in the improve-prompt wand in its top right corner.

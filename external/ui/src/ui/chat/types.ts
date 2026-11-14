@@ -13,6 +13,8 @@ import type { ToolArtifact } from "./toolArtifacts";
 import type { GenerationSummary } from "./generationSpeed";
 
 export type TokenUsage = {
+  usageKnown?: boolean;
+  sessionUsageKnown?: boolean;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -167,21 +169,4 @@ export type TranscriptItem =
       level: "error" | "notice";
       message: string;
       createdAtUtc?: string;
-    }
-  | {
-      id: string;
-      /**
-       * The memory subagent run of the turn, from the `memory_run` events:
-       * nothing renders it, the live status line reads it while it runs. The
-       * run's record is the Tasks drawer and the child transcript it names.
-       */
-      type: "memory_run";
-      status: "started" | "finished" | "skipped";
-      taskId?: string;
-      childSessionId?: string;
-      startedAtMs?: number;
-      taskStatus?: string;
-      durationMs?: number;
-      delivered?: boolean;
-      reason?: string;
     };

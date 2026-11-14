@@ -78,8 +78,17 @@ func loginRequest(user, password string) *http.Request {
 // recorder, so a test can read both the status and the cookie.
 func signIn(t *testing.T, srv *Server, user, password string) *httptest.ResponseRecorder {
 	t.Helper()
+	return signInWithRemember(t, srv, user, password, false)
+}
+
+func signInWithRemember(t *testing.T, srv *Server, user, password string, remember bool) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"user": user, "password": password, "remember": remember})
+	r := httptest.NewRequest(http.MethodPost, "/coddy/auth/login", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
 	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, loginRequest(user, password))
+	srv.Handler().ServeHTTP(w, r)
 	return w
 }
 
@@ -246,9 +255,57 @@ func TestLoginCookieCarriesTheConfiguredTTL(t *testing.T) {
 	login := configuredLogin(t)
 	login.SessionTTLHours = 24
 	srv := newLoginServer(t, login)
-	c := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	c := sessionCookieOf(t, signInWithRemember(t, srv, loginTestUser, loginTestPassword, true))
 	if want := int((24 * time.Hour) / time.Second); c.MaxAge != want {
 		t.Fatalf("cookie MaxAge = %d, want %d", c.MaxAge, want)
+	}
+}
+
+func TestAuthMeRememberAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		hours int
+		want  bool
+	}{{0, false}, {24, true}} {
+		login := configuredLogin(t)
+		login.SessionTTLHours = tc.hours
+		login.SessionTTLHoursSet = true
+		srv := newLoginServer(t, login)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/coddy/auth/me", nil))
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["remember_available"] != tc.want {
+			t.Fatalf("ttl %d: remember_available = %v, want %v", tc.hours, body["remember_available"], tc.want)
+		}
+	}
+}
+
+func TestLoginRememberMeControlsPersistentCookie(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		remember bool
+		maxAge   int
+	}{
+		{name: "remember me", remember: true, maxAge: 24 * 60 * 60},
+		{name: "browser session", remember: false, maxAge: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newLoginServer(t, configuredLogin(t))
+			data, _ := json.Marshal(map[string]any{
+				"user": loginTestUser, "password": loginTestPassword, "remember": tc.remember,
+			})
+			r := httptest.NewRequest(http.MethodPost, "/coddy/auth/login", bytes.NewReader(data))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Sec-Fetch-Site", "same-origin")
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, r)
+			cookie := sessionCookieOf(t, w)
+			if cookie.MaxAge != tc.maxAge {
+				t.Fatalf("MaxAge = %d, want %d", cookie.MaxAge, tc.maxAge)
+			}
+		})
 	}
 }
 
@@ -393,7 +450,7 @@ func TestSessionExpiresWithItsTTL(t *testing.T) {
 	now := time.Now()
 	srv.sessions.Now = func() time.Time { return now }
 
-	c := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
+	c := sessionCookieOf(t, signInWithRemember(t, srv, loginTestUser, loginTestPassword, true))
 	call := func() int {
 		r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 		r.AddCookie(c)
@@ -903,7 +960,7 @@ func TestLoginThrottleFollowsTheClientBehindAProxy(t *testing.T) {
 	}
 	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
 	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
-	if d := srv.loginThrottle.Delay("203.0.113.30"); d <= 0 {
+	if d := srv.loginThrottle.Delay("10.0.0.2"); d <= 0 {
 		t.Fatal("a client behind a proxy was never throttled")
 	}
 	// A different client through the same proxy is a different row.

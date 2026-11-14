@@ -46,6 +46,12 @@ groups:
       title: "Contributing"
       summary: "How Coddy is built, tested, documented and released."
 pages:
+  features/kimi.md:
+    title: "Kimi"
+    summary: "Настройка подписки Kimi Code и Platform, региональные эндпоинты, учётные данные CLI, лимиты и безопасность."
+    en:
+      title: "Kimi"
+      summary: "Kimi Code subscription and Platform configuration, regional endpoints, CLI credentials, usage and security."
   features/browser.md:
     title: "Coddy for Browser"
     summary: "Ваш собственный браузер - Chrome, Яндекс Браузер или Firefox - как руки агента через расширение Coddy for Browser - инструмент browser, группы вкладок, одобрение сайтов, файлы, веб-интерфейс в боковой панели, чаты других процессов и роя."
@@ -100,12 +106,6 @@ pages:
     en:
       title: "Troubleshooting"
       summary: "What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build."
-  getting-started/changelog.md:
-    title: "История изменений"
-    summary: "Описания каждого опубликованного релиза, сгенерированные из GitHub Releases."
-    en:
-      title: "Changelog"
-      summary: "Release notes of every published version, generated from GitHub Releases."
   surfaces/console.md:
     title: "Консоль (TUI)"
     summary: "coddy без аргументов в терминале, раскладка экрана, клавиши, слэш-команды, локальная оболочка, режим печати и удалённый режим."
@@ -118,6 +118,12 @@ pages:
     en:
       title: "Web UI"
       summary: "The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages."
+  surfaces/desktop.md:
+    title: "Окно на рабочем столе"
+    summary: "coddy desktop, веб-интерфейс как окно приложения с чатами по вкладкам, запоминаемый порт, клавиши и что даёт окну каждая платформа."
+    en:
+      title: "Desktop window"
+      summary: "coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window."
   surfaces/editors.md:
     title: "Редакторы (ACP)"
     summary: "Zed, VS Code, Obsidian и скрипты как ACP-клиенты coddy acp и что у них общего с другими интерфейсами."
@@ -324,10 +330,10 @@ pages:
       summary: "/compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result."
   features/memory.md:
     title: "Долговременная память"
-    summary: "Субагент памяти, который запускается на каждом ходе в пуле задач, что он вспоминает и сохраняет, как его отчёт попадает в ход, устройство хранилища, настройка и стоимость."
+    summary: "Субагент памяти, которого модель вызывает по требованию через spawn_agent, что он вспоминает и сохраняет, его инструменты, устройство хранилища, настройка и стоимость."
     en:
       title: "Long-term memory"
-      summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
+      summary: "The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost."
   features/decisions.md:
     title: "Безопасность команд (decisions)"
     summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают в любом режиме, включая bypass, а если ответить некому, её отклоняют."
@@ -540,10 +546,10 @@ pages:
       summary: "Deterministic delivery of the Cursor rules to Kimi Code sessions working on this repository."
   contributing/syntax-highlighting-audit.md:
     title: "Аудит подсветки синтаксиса"
-    summary: "Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно."
+    summary: "Аудит подсветки кода в восьми темах от NeuralDeep, его фикстуры и как запустить его повторно."
     en:
       title: "Syntax highlighting audit"
-      summary: "The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it."
+      summary: "The NeuralDeep audit of code highlighting across the eight themes, its fixtures and how to re-run it."
   ../AGENTS.md:
     title: "Заметки для агентов"
     summary: "Карта репозитория и заметки для агентов, которые пишут код."

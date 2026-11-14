@@ -16,6 +16,7 @@
 @use "styles/themes/monokai";
 @use "styles/themes/nord";
 @use "styles/themes/rose-pine";
+@use "styles/themes/neuraldeep";
 
 // What every theme shares, and the page itself.
 @use "styles/tokens";
@@ -80,11 +81,15 @@
 @use "styles/screens/auth";
 @use "styles/settings/sessions-table";
 
+// First-run provider setup and the guided tour.
+@use "styles/onboarding";
+
 // The phone tier, after the stacked-shell rules it narrows.
 @use "styles/shell/phone";
 
 // The windows over the chat: Files, the canvas, the edits.
 @use "styles/screens/changes";
+@use "styles/screens/terminal";
 @use "styles/screens/files";
 @use "styles/screens/canvas";
 @use "styles/screens/files-narrow";

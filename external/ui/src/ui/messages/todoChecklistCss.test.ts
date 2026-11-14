@@ -102,8 +102,11 @@ test("an item in progress carries a still mark of its own", () => {
   expect(css).not.toMatch(/@keyframes todo-checklist-(spin|shimmer)/);
 });
 
-test("the checklist adds 6px above the transcript gap and gives it back on exit", () => {
-  expect(plain(".message-row-todo")).toMatch(/(?:^|; )margin-top: 6px;/);
+test("the checklist stands on the transcript's own gap and gives it back on exit", () => {
+  // It used to add 6px over that gap, which put the card further from the row
+  // above - the live line, or the one a finished turn leaves - than any two
+  // rows of the transcript stand apart.
+  expect(plain(".message-row-todo")).toMatch(/(?:^|; )margin-top: 0;/);
   const closedMargin =
     "margin-top: calc(-1 * var(--coddy-transcript-row-gap, 10px))";
   expect(plain(".message-row-todo.is-leaving")).toContain(closedMargin);
@@ -118,7 +121,9 @@ test("a header-only collapsed checklist has equal top and bottom insets", () => 
     '.todo-checklist:has(> .todo-checklist-head[aria-expanded="false"])',
   );
   // The open card and the heading-to-item gap keep their existing padding.
-  expect(card).toContain("padding: 4px 14px 8px;");
+  // The 16px on either side stand the card's marks on the vertical line of
+  // the folder icon on the plate over the composer, over its own 1px border.
+  expect(card).toContain("padding: 4px 16px 8px;");
   expect(head).toContain("padding: 6px 0 4px;");
   expect(collapsed).toContain("padding-bottom: 6px;");
   const bottom = Number(collapsed.match(/padding-bottom: (\d+)px;/)?.[1]);

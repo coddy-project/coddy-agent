@@ -30,6 +30,10 @@ On a machine reached over SSH there is no browser to open, and a browser on your
 
 In the console, `/login devin` runs the same sign-in and writes the same three things, then the console runs on the new models without a restart; the address of a browser on another machine is pasted into the editor ([Console](../surfaces/console.md#signing-in-to-a-provider-login)).
 
+### Sign in from settings
+
+A Devin row under **Settings → LLM providers** offers **Sign In with Devin**. It starts the same PKCE flow through `POST /coddy/providers/{name}/devin-auth/device`, using the proxy currently in the unsaved form, and opens the verification page. When the browser cannot reach Coddy's loopback callback, paste the full callback address into the field below the sign-in link. The row then shows the account and **Sign Out**. The token stays on the Coddy server at `$CODDY_HOME/providers/<name>/devin-auth.json`; **Save All** writes only the provider row, never the token.
+
 `--no-config` stores the token and leaves `config.yaml` alone. A second login only adds what is missing: rows and models already in the file stay as you wrote them.
 
 ### Reuse the Devin CLI login
@@ -88,6 +92,8 @@ What the panel shows is what the plan reports:
 - a **quota** plan reads `day` and `week` meters with their reset times; the server reports *remaining* percents, so the panel shows them as used. A plan that hides a quota window skips that meter;
 - an **ACU** plan reads a single `acu` meter from the consumed/limit pair, with no reset clock;
 - a **credits** plan, an unknown billing strategy, or a status that names only the plan reads as the plan alone - Coddy invents no meter, request count or reset the server did not send, and a missing quota reads as `quota unavailable` rather than `0%`.
+
+A plan's quota is not the only thing that can stop a turn. A model can refuse one on a rate limit of its own - `HTTP 429 resource_exhausted: Reached free model rate limit ... Your limit will reset in 20 minutes` - and no field of `GetUserStatus` carries that limit, so the `day` and `week` meters read 100 % remaining while that model refuses every request. Devin sends no `Retry-After` header with the refusal and writes the moment the window reopens into the message instead. Coddy reads that phrase, so the reset time reaches the panel and the turn does not end on a bare error, and [`agent.wait_for_limit_reset`](../reference/config.md#agent) waits the limit out and re-issues the same call, with the countdown in the panel meanwhile. Until such a limit is hit nothing shows it, because the account reports no counter for it.
 
 `usage_limits_panel: false` on the row hides the panel everywhere and stops the `GetUserStatus` reads. The protocol is not published by Cognition, so the read follows the editor's current wire shape (the 3.10.31 descriptors) and can break when Devin moves it.
 

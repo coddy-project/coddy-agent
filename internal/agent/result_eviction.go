@@ -46,6 +46,15 @@ var listingTools = map[string]bool{"glob": true, "print_tree": true, "websearch"
 // keeps one fan-out of parallel calls from filling the window by itself.
 const listingKeepRecentSteps = 3
 
+// resultEvictionBatch is how many results leave the working window at once.
+// Collapsing one result per step rewrites the replayed history at every step,
+// and a provider caches a request by its prefix: each collapse costs the cached
+// copy of everything behind it, which is the whole working window the model is
+// reasoning in. Candidates therefore leave in batches, and between two
+// boundaries the projection is the same bytes, so the only thing a batch costs
+// is up to this many results carried a little longer than the window asks.
+const resultEvictionBatch = 4
+
 // resultEvictionOptions configures pruneToolResults.
 type resultEvictionOptions struct {
 	Enabled        bool
@@ -61,6 +70,11 @@ type resultEvictionOptions struct {
 	// listing the model has just asked for reaches it instead of being collapsed
 	// in the next request and asked for again.
 	KeepRecentSteps int
+	// Batch is how many candidates leave the working window at once
+	// (resultEvictionBatch, which is what the agent asks for). Below 2 every
+	// candidate leaves on its own, which is the window taken literally and what
+	// a test of the window alone wants.
+	Batch int
 }
 
 // evictionOptions reads the effective result-eviction settings for this agent.
@@ -73,6 +87,7 @@ func (a *Agent) evictionOptions() resultEvictionOptions {
 		CWD:             a.state.GetCWD(),
 		ListingTools:    listingTools,
 		KeepRecentSteps: listingKeepRecentSteps,
+		Batch:           resultEvictionBatch,
 	}
 }
 
@@ -299,8 +314,8 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 	// message position stay intact so the model is never forced to mark a result it
 	// is still reasoning about. Listings are not part of it: they are judged by the
 	// step window below.
-	windowIdx := recentCandidateWindow(reads, greps, opt.KeepRecent)
-	stepWindow := listingStepWindow(listings, max(opt.KeepRecentSteps, 1))
+	windowIdx := recentCandidateWindow(reads, greps, opt.KeepRecent, opt.Batch)
+	stepWindow := listingStepWindow(listings, max(opt.KeepRecentSteps, 1), opt.Batch)
 
 	out := history
 	cloned := false
@@ -474,7 +489,7 @@ func countLines(s string) int {
 // keepSteps distinct steps that hold a listing candidate. A step is the
 // assistant message that issued the call, so a batch of parallel calls takes one
 // place however many results it brings.
-func listingStepWindow(listings []evListing, keepSteps int) map[int]struct{} {
+func listingStepWindow(listings []evListing, keepSteps, batch int) map[int]struct{} {
 	window := make(map[int]struct{})
 	if keepSteps <= 0 || len(listings) == 0 {
 		return window
@@ -489,11 +504,10 @@ func listingStepWindow(listings []evListing, keepSteps int) map[int]struct{} {
 		steps = append(steps, l.step)
 	}
 	sort.Ints(steps)
-	start := len(steps) - keepSteps
-	if start < 0 {
-		start = 0
-	}
-	for _, step := range steps[start:] {
+	// Steps leave the window in batches for the same reason results do
+	// (evictionWindowStart): a step whose listings collapse rewrites the history
+	// from there on, and a fan-out of listings is the step that costs most.
+	for _, step := range steps[evictionWindowStart(len(steps), keepSteps, batch):] {
 		window[step] = struct{}{}
 	}
 	return window
@@ -589,9 +603,12 @@ func writeTargets(toolName, argsJSON, cwd string) []string {
 
 // recentCandidateWindow returns the message indices of the last keepRecent
 // candidates (reads and greps combined), which stay intact as a working window.
-func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecent int) map[int]struct{} {
+func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecent, batch int) map[int]struct{} {
 	window := make(map[int]struct{})
 	if keepRecent <= 0 {
+		// keep_recent: 0 keeps none, which is what the setting says and what an
+		// operator who set it asked for: there is no working window to let a
+		// batch leave from.
 		return window
 	}
 	idx := make([]int, 0, len(reads)+len(greps))
@@ -608,14 +625,36 @@ func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecen
 			idx[j], idx[j-1] = idx[j-1], idx[j]
 		}
 	}
-	start := len(idx) - keepRecent
-	if start < 0 {
-		start = 0
-	}
-	for _, v := range idx[start:] {
+	for _, v := range idx[evictionWindowStart(len(idx), keepRecent, batch):] {
 		window[v] = struct{}{}
 	}
 	return window
+}
+
+// evictionWindowStart is where the working window begins among n candidates
+// ordered oldest first: everything before it collapses, everything from it on
+// stays whole.
+//
+// The window never holds fewer than keepRecent, and it holds more until a whole
+// batch is ready to leave. A keepRecent of zero has no window to batch from and
+// does not reach this (recentCandidateWindow). Collapsing the one candidate that falls out at every
+// step rewrites the replayed history at every step, and a provider caches a
+// request by its prefix, so each collapse costs the cached copy of everything
+// behind it - the whole working window the model is reasoning in, measured at
+// about 32k tokens re-read per step against the 90 tokens a step adds. Leaving
+// in batches makes the set of collapsed candidates move once every
+// resultEvictionBatch, and between two boundaries the projection is the same
+// bytes; the price is up to a batch of results carried longer than the window
+// asks for.
+func evictionWindowStart(n, keepRecent, batch int) int {
+	evictable := n - keepRecent
+	if evictable <= 0 {
+		return 0
+	}
+	if batch < 2 {
+		return evictable
+	}
+	return evictable / batch * batch
 }
 
 func readPinned(r evReadResult, pins []evReadPin) bool {

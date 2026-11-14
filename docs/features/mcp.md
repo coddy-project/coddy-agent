@@ -688,6 +688,24 @@ user the tools arrive with the next turn.
 
 ## Error Handling
 
+Tool parameter schemas accompany every request that offers tools, even a simple
+greeting, before any tool runs. If the provider rejects them as too large or too
+complex, Coddy explains the failure. Offer fewer tools by disabling unused MCP
+tools or servers, or ask the responsible server's maintainer to simplify its
+parameter schemas. Coddy names a tool or server only when the diagnostic and
+outgoing request establish its identity; otherwise it reports the culprit as
+unknown. Limits vary by provider. Coddy reports a recognized limit when available
+and leaves other limits unknown, without changing schemas or repeating the same
+rejected request. Compacting the conversation does not shrink tool schemas.
+
+![Console explanation of a tool schema rejection in the Dark theme](../assets/mcp/tool-schema-error-dark-1280.png)
+
+*Coddy explains why a greeting failed and suggests fewer tools or simpler parameter schemas.*
+
+![Console explanation of a tool schema rejection in the Light theme](../assets/mcp/tool-schema-error-light-1280.png)
+
+*The same tool schema rejection in the Light theme.*
+
 - If an MCP server fails to start, the session still proceeds with a warning,
   and the server is not dialed again at every turn: an edit of its declaration,
   its switch (`/mcp`, Settings → MCP servers), a changed trust policy or a new

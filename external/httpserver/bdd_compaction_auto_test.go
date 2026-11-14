@@ -45,7 +45,7 @@ func (s *compactHTTPFeatureState) startServerProviderReportsTinyWindow() error {
 		_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":"model","limit":{"context":%d}}]}`, providerReportedWindow)
 	}))
 	return s.startServerWithProvider(config.ProviderConfig{
-		Name: "fake", Type: "openai", APIKey: "test", APIBase: s.listing.URL,
+		Name: "fake", Type: "openai", UsageLimitsPanel: new(bool), APIKey: "test", APIBase: s.listing.URL,
 	}, 0)
 }
 
@@ -147,7 +147,7 @@ func initializeCompactionAutoScenario(sc *godog.ScenarioContext) {
 	const lateWindow = 262144
 	sc.Step(`^a running coddy HTTP server with a delayed provider window$`, func() error {
 		if err := s.startServerWithProvider(config.ProviderConfig{
-			Name: "fake", Type: "openai", APIKey: "test", APIBase: "https://listing.invalid/v1",
+			Name: "fake", Type: "openai", UsageLimitsPanel: new(bool), APIKey: "test", APIBase: "https://listing.invalid/v1",
 		}, 0); err != nil {
 			return err
 		}

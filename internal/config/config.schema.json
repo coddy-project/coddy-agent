@@ -9,7 +9,7 @@
     "providers": {
       "type": "array",
       "title": "LLM providers",
-      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key.",
+      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key, and a Kimi subscription reads no API key.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -25,7 +25,7 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (account device login or a service account key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server (see https://coddy.dev/docs/features/devin), or \"acp\" for a local agent that speaks the Agent Client Protocol on stdio (claude-agent-acp, codex-acp, opencode acp, coddy acp), named in the acp block; see https://coddy.dev/docs/features/acp-provider.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"opencode\" for the OpenCode Go/Console gateway (account device login or a service account key, its models served over the Responses, Anthropic, Google or OpenAI-compatible protocol per model id and gateway; api_base picks Go or Console), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server (see https://coddy.dev/docs/features/devin), \"kimi\" for Kimi Code subscription or Kimi Platform keys (see https://coddy.dev/docs/features/kimi), or \"acp\" for a local agent that speaks the Agent Client Protocol on stdio (claude-agent-acp, codex-acp, opencode acp, coddy acp), named in the acp block; see https://coddy.dev/docs/features/acp-provider.",
             "enum": [
               "openai",
               "anthropic",
@@ -33,20 +33,42 @@
               "opencode",
               "codex",
               "devin",
+              "kimi",
               "acp"
             ]
           },
+          "mode": {
+            "type": "string",
+            "enum": ["", "subscription", "platform"],
+            "description": "Kimi credential mode. Omitted means subscription."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["", "global", "china"],
+            "description": "Kimi region. Omitted means global."
+          },
+          "kimi_identity": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{32}|[0-9a-f]{64})$",
+            "description": "Stable random identity of this Kimi provider row, used to isolate managed credentials."
+          },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type \"opencode\" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. For type \"opencode\" it selects the gateway: https://opencode.ai/inference/go/v1 (the Go subscription, the default) or https://opencode.ai/inference/v1 (pay-as-you-go Console); any other value falls back to the default. For type \"kimi\", subscription rejects api_base; Platform requests use the endpoint selected by region rather than api_base. Ignored for types \"codex\" and \"devin\", which always use their official endpoints, and for type \"acp\", whose agent runs on this machine."
+          },
+          "user_agent": {
+            "type": "string",
+            "enum": ["", "openai", "anthropic", "coddy"],
+            "default": "",
+            "description": "Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); coddy sends Coddy/<running version>. Applies to completions and model listing. Ignored for other provider types."
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type \"opencode\" an explicit key wins over the login `coddy providers login opencode` stored. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. For type \"opencode\" an explicit key wins over the login `coddy providers login opencode` stored. For type \"kimi\", Platform uses a Platform API key; subscription rejects api_key and does not use NAME_API_KEY. Ignored for type \"codex\", which signs in with ChatGPT, and for type \"acp\", whose agent signs in on its own."
           },
           "api_key_command": {
             "type": "string",
-            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for types \"codex\" and \"acp\", which take no key."
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. For type \"kimi\", Platform can use this command; subscription rejects it. Never run for types \"codex\" and \"acp\", which take no key."
           },
           "proxy": {
             "type": "string",
@@ -64,7 +86,7 @@
               "boolean",
               "null"
             ],
-            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin, GET {api_base}/limits for type openai). For type kimi, subscription usage reads /usages and Platform has no usage source. Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
           },
           "acp": {
@@ -168,6 +190,18 @@
             "type": "string",
             "description": "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes).",
             "pattern": "^[^/]+/.+$"
+          },
+          "kimi_metadata": {
+            "type": ["object", "null"],
+            "description": "Kimi catalog protocol bound to this model reference, provider mode and region.",
+            "additionalProperties": false,
+            "required": ["model", "protocol", "mode", "region"],
+            "properties": {
+              "model": {"type": "string", "description": "Full provider/model reference listed in the catalog."},
+              "protocol": {"type": "string", "enum": ["kimi", "anthropic", "openai_responses"], "description": "Protocol reported for this model."},
+              "mode": {"type": "string", "enum": ["subscription", "platform"], "description": "Provider mode used to list the model."},
+              "region": {"type": "string", "enum": ["global", "china"], "description": "Provider region used to list the model."}
+            }
           },
           "max_tokens": {
             "type": "integer",
@@ -345,9 +379,17 @@
           "default": 1,
           "minimum": 0
         },
+        "prompt_suggestions": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Suggest the next prompt in the empty console or web composer after a turn. An extra model call forks the turn's provider context; tools are never executed and nothing enters the transcript. Tab or Right accepts the suggestion. Defaults to true; false disables generation.",
+          "default": true
+        },
         "wait_for_limit_reset": {
           "type": "boolean",
-          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",
+          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget, in a Retry-After header or in the text of the 429 itself; the turn lock and the client stream stay open while it waits, so it is off by default.",
           "default": false
         },
         "wait_for_limit_reset_max_ms": {
@@ -707,6 +749,16 @@
                 "pattern": "^https?://(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$"
               },
               "description": "Further hosts a frame may load from and connect to, as https://host or https://*.host with an optional port and path. A page on the canvas can send what it reads under its folder to any of them."
+            },
+            "project_trust": {
+              "type": "string",
+              "description": "Which pages of a board run. A .canvas file travels with the checkout, and a page on it reads every file under its root and can send it anywhere: \"ask\" (default) runs a page Coddy put on the board (canvas_show, the Files window) and the pages the person trusted from the board, and holds the rest; \"allow\" runs every page; \"deny\" runs only the pages Coddy put. Receipts live in ${CODDY_HOME}/canvas-trust.json. See https://coddy.dev/docs/features/canvas#pages-that-came-with-the-checkout.",
+              "enum": [
+                "ask",
+                "allow",
+                "deny"
+              ],
+              "default": "ask"
             }
           }
         },
@@ -1077,7 +1129,7 @@
         "result_eviction": {
           "type": "object",
           "title": "Tool result eviction",
-          "description": "Collapses superseded tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file, a wide search or a fan-out of directory listings cannot pin dead lines in every later turn. Read and grep results survive while the model marks them (keep_result, or keep:true) or they are among the most recent; the listings of glob, print_tree, websearch and webfetch survive within the latest three steps that hold one (a step is one assistant message with every result of its tool calls). A write invalidates earlier reads, greps and file listings that covered what it changed.",
+          "description": "Collapses superseded tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file, a wide search or a fan-out of directory listings cannot pin dead lines in every later turn. Read and grep results survive while the model marks them (keep_result, or keep:true) or they are among the most recent; the listings of glob, print_tree, websearch and webfetch survive within the latest three steps that hold one, and up to three more while the next batch fills (a step is one assistant message with every result of its tool calls). A write invalidates earlier reads, greps and file listings that covered what it changed.",
           "additionalProperties": false,
           "properties": {
             "enable": {
@@ -1093,7 +1145,7 @@
                 "integer",
                 "null"
               ],
-              "description": "How many most recent evictable read and grep results (read pages, grep dumps) stay intact as a working window. 0 keeps none. Listing results do not count toward it. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
+              "description": "The fewest most recent evictable read and grep results (read pages, grep dumps) that stay intact as a working window. 0 keeps none. Listing results do not count toward it. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted. Above zero, results leave the window four at a time, so up to three more than this stay while the next batch fills: a collapsed result rewrites the replayed history and takes from the provider its cached copy of everything after it.",
               "default": 2,
               "minimum": 0
             },
@@ -1128,7 +1180,7 @@
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Run the memory subagent on every user turn (needs the memory build tag).",
+          "description": "Expose the bundled memory subagent to the model through spawn_agent (needs the memory build tag).",
           "default": false
         },
         "model": {
@@ -1147,27 +1199,6 @@
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~.",
           "default": ""
-        },
-        "wait_seconds": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel.",
-          "default": 20
-        },
-        "timeout_seconds": {
-          "type": "integer",
-          "description": "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool.",
-          "default": 300
-        },
-        "keep_runs": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run.",
-          "default": 20
         },
         "recall_max_turns": {
           "type": "integer",
@@ -1264,6 +1295,24 @@
           "minimum": 0,
           "maximum": 65535
         },
+        "max_body_bytes": {
+          "type": "integer",
+          "description": "Largest request body accepted by POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 512 MiB. A larger body is refused with 413 and the request_too_large error.",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_client_tools": {
+          "type": "integer",
+          "description": "Most tools a client may offer a direct model on POST /v1/chat/completions and POST /v1/responses. 0 means the built-in 128, OpenAI's own limit. More are refused with 400 and the too_many_tools error, which names the count and this setting. Raise it for a client whose MCP servers offer more; a provider with a limit of its own still applies it.",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_client_tool_schema_bytes": {
+          "type": "integer",
+          "description": "Largest parameters schema of one client tool on POST /v1/chat/completions and POST /v1/responses, in bytes. 0 means the built-in 256 KiB. A larger one is refused with 400 and the tool_parameters_too_large error.",
+          "default": 0,
+          "minimum": 0
+        },
         "auth_token": {
           "type": "string",
           "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote.",
@@ -1301,10 +1350,24 @@
               "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here.",
               "default": ""
             },
+            "totp_secret": {
+              "type": "string",
+              "description": "Base32 secret of the one-time codes asked for after the password (TOTP: an authenticator app such as Google Authenticator or FreeOTP). Enrollment accepts Base32 or Base16 and stores canonical Base32. Written in the web UI under Settings, Authentication, which shows a QR code and saves the key only after code verification; empty means the password alone signs in, and removing the key there empties it. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it.",
+              "default": ""
+            },
+            "backup_codes": {
+              "type": "object",
+              "description": "Opaque generation identifier and SHA-256 hashes of the recovery codes for the web account. Plaintext codes are shown only when issued, and GET /coddy/config never returns their hashes.",
+              "additionalProperties": false,
+              "properties": {
+                "generation": {"type": "string", "description": "Identifier of the current recovery-code set."},
+                "hashes": {"type": "array", "description": "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored.", "items": {"type": "string"}}
+              }
+            },
             "session_ttl_hours": {
               "type": "integer",
-              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
-              "default": 0,
+              "description": "How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked.",
+              "default": 24,
               "minimum": 0
             }
           }

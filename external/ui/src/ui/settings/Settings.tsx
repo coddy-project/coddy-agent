@@ -210,6 +210,7 @@ export function Settings(props: {
    */
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
+  onRestartOnboarding?: () => void;
   /**
    * The page is on a swarm relay: its settings are the relay's deployment and
    * its log, and there is no Sessions tab (issue #401).
@@ -527,7 +528,7 @@ export function Settings(props: {
       touchOnly: snapshotTouchOnly(),
       reducedMotion: motionIsReduced(),
     });
-  }, [trip]);
+  }, [trip, draft.replaced]);
 
   // An address that names a setting (a pasted link, a reload, the Mini App's
   // launch) is followed like a choice. The index may not hold it yet, so this
@@ -799,6 +800,7 @@ export function Settings(props: {
               schema={schema}
               doc={doc}
               setDoc={setDoc}
+              onRestartOnboarding={props.onRestartOnboarding}
               // The address names a row of one section. For the render in
               // which the tab has not caught up with a new address yet,
               // another section must not take that name for its own (it
@@ -869,6 +871,7 @@ export function Settings(props: {
               schema={{ type: "object", properties: {} } as JsonSchema}
               doc={doc}
               setDoc={setDoc}
+              onRestartOnboarding={props.onRestartOnboarding}
               {...(props.activeSessionId
                 ? { activeSessionId: props.activeSessionId }
                 : {})}

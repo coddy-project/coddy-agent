@@ -417,7 +417,6 @@ const (
 	UpdateTypeTokenUsage              = "token_usage"
 	UpdateTypeUsage                   = "usage_update"
 	UpdateTypeProviderUsage           = "provider_usage"
-	UpdateTypeMemoryRun               = "memory_run"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeMessageQueue            = "message_queue"
 	UpdateTypeTurnProgress            = "turn_progress"
@@ -720,6 +719,8 @@ type ConfigOptionUpdate struct {
 // TokenUsageUpdate reports token consumption for the current turn.
 type TokenUsageUpdate struct {
 	SessionUpdate     string `json:"sessionUpdate"` // "token_usage"
+	UsageKnown        *bool  `json:"usageKnown,omitempty"`
+	SessionUsageKnown *bool  `json:"sessionUsageKnown,omitempty"`
 	InputTokens       int    `json:"inputTokens"`
 	OutputTokens      int    `json:"outputTokens"`
 	TotalTokens       int    `json:"totalTokens"`
@@ -908,30 +909,6 @@ type UsageBlockedModel struct {
 type UsageWallet struct {
 	BalanceRub  float64 `json:"balanceRub"`
 	SpentRub30d float64 `json:"spentRub30d"`
-}
-
-// MemoryRunUpdate reports the memory subagent run of a user turn: "started"
-// once its task is launched, "finished" once the task settled, "skipped" when
-// no run could be launched. Nothing of the report travels on it: the child
-// transcript and the task log hold the text, and the Tasks drawer is the
-// record. It is neither persisted nor replayed.
-type MemoryRunUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_run"
-	Status        string `json:"status"`        // "started" | "finished" | "skipped"
-	// TaskID and ChildSessionID name the pool task and the child session of
-	// the run; empty on a skip.
-	TaskID         string `json:"taskId,omitempty"`
-	ChildSessionID string `json:"childSessionId,omitempty"`
-	// TaskStatus is the pool's verdict on "finished": succeeded, failed,
-	// timed_out or stopped.
-	TaskStatus string `json:"taskStatus,omitempty"`
-	DurationMs int64  `json:"durationMs,omitempty"`
-	// Delivered says whether a non-empty report reached the main model in
-	// this turn, in the turn context block of the first request or of a
-	// later step.
-	Delivered bool `json:"delivered,omitempty"`
-	// Reason explains a skip, or a run that ended with an error.
-	Reason string `json:"reason,omitempty"`
 }
 
 // BackgroundWakeUpdate opens a turn nobody typed: background tasks the model

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { installMarkupFakes } from "./markupFakes";
-import { renderPicture } from "./markupCanvas";
+import { drawShape, renderPicture } from "./markupCanvas";
 
 describe("renderPicture", () => {
   let fakes: ReturnType<typeof installMarkupFakes> | null = null;
@@ -55,5 +55,41 @@ describe("renderPicture", () => {
     const first = fakes.calls.find((c) => c.op === "strokeRect")!.canvas;
     expect([first.width, first.height]).toEqual([0, 0]);
     expect(out.width).toBe(50);
+  });
+});
+
+describe("drawShape for a pen", () => {
+  let fakes: ReturnType<typeof installMarkupFakes> | null = null;
+  afterEach(() => {
+    fakes?.restore();
+    fakes = null;
+  });
+  const points = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 20, y: 10 },
+    { x: 30, y: 10 },
+  ];
+
+  it("draws a stroke without pressure as one smooth path", () => {
+    fakes = installMarkupFakes();
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    drawShape(ctx, { kind: "pen", color: "#ff3b30", width: 4, points });
+    const ops = fakes.calls.map((c) => c.op);
+    expect(ops.filter((o) => o === "stroke")).toHaveLength(1);
+    expect(ops.filter((o) => o === "quadraticCurveTo")).toHaveLength(2);
+  });
+
+  it("draws a stroke with pressure piece by piece", () => {
+    fakes = installMarkupFakes();
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    drawShape(ctx, {
+      kind: "pen",
+      color: "#ff3b30",
+      width: 4,
+      points,
+      pressures: [0.2, 0.4, 0.6, 0.8],
+    });
+    expect(fakes.calls.filter((c) => c.op === "stroke")).toHaveLength(4);
   });
 });

@@ -4,8 +4,8 @@ package httpserver
 
 // Godog harness for features/memory_http.feature. It reuses the subagents
 // HTTP harness (a real httptest server over a real session.Manager and the
-// process-wide pool) and adds what a memory run is on the REST surface: a
-// system agent task named memory, and a child session like any other.
+// process-wide pool) and adds what a memory run is on the REST surface: an
+// agent task named memory, and a child session like any other.
 
 import (
 	"context"
@@ -32,9 +32,9 @@ type memoryHTTPState struct {
 	outside, secret string
 }
 
-// startedMemoryRun registers the system task of a memory run under the
-// session and creates its child inside the launch callback, as the memory
-// runtime does.
+// startedMemoryRun registers the agent task of a memory run under the
+// session and creates its child inside the launch callback, as a spawn under
+// the bundled memory definition does.
 func (s *memoryHTTPState) startedMemoryRun(childID string) error {
 	pool := bgtask.Default()
 	if dir := s.sessionDir(s.sessionID); dir != "" {
@@ -46,7 +46,7 @@ func (s *memoryHTTPState) startedMemoryRun(childID string) error {
 		Kind:      bgtask.KindAgent,
 		Label:     "memory: what did we decide",
 		CWD:       s.root,
-		Agent:     &bgtask.AgentInfo{Name: session.SubagentKindMemory, SessionID: childID, System: true},
+		Agent:     &bgtask.AgentInfo{Name: session.SubagentKindMemory, SessionID: childID},
 	}
 	snap, err := pool.Launch(spec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
 		_, _ = fmt.Fprintf(out, "subagent memory (task %s, session %s) starting\n", taskID, childID)
@@ -95,7 +95,7 @@ func (s *memoryHTTPState) liveMemoryChildSaying(childID, text string) error {
 	return s.mgr.FileStore().Save(st)
 }
 
-func (s *memoryHTTPState) taskRowIsSystem() error {
+func (s *memoryHTTPState) taskRowIsNotSystem() error {
 	if s.taskRow == nil {
 		return fmt.Errorf("no task row matched yet")
 	}
@@ -103,8 +103,8 @@ func (s *memoryHTTPState) taskRowIsSystem() error {
 	if !ok {
 		return fmt.Errorf("task row carries no agent object: %v", s.taskRow)
 	}
-	if info["system"] != true {
-		return fmt.Errorf("agent object %v is not flagged as a system task", info)
+	if info["system"] == true {
+		return fmt.Errorf("agent object %v is flagged as a system task, want an ordinary agent task", info)
 	}
 	return nil
 }
@@ -220,7 +220,7 @@ func initializeMemoryHTTPScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the response lists a task of kind "([^"]*)"$`, s.listsTaskOfKind)
 	sc.Step(`^that task row names the agent "([^"]*)" and the child session "([^"]*)"$`, s.taskRowNames)
-	sc.Step(`^that task row is flagged as a system task$`, s.taskRowIsSystem)
+	sc.Step(`^that task row is an ordinary agent task$`, s.taskRowIsNotSystem)
 	sc.Step(`^the messages contain "([^"]*)"$`, s.messagesContain)
 	sc.Step(`^the messages payload is read-only and links the parent session$`, s.messagesReadOnlyWithParent)
 	sc.Step(`^the messages payload carries no "([^"]*)" field$`, s.messagesPayloadLacks)

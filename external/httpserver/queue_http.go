@@ -127,13 +127,11 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	// Images reach the model only when it reads them - the rule POST
-	// /v1/responses applies to an ordinary prompt.
-	if cfg := s.activeCfg(); len(files) > 0 && !configuredModelMultimodal(cfg, effectiveYAMLModel(cfg, st)) {
-		files = nil
-	}
 	msg, queued, notice, err := s.mgr.EnqueueFollowUpWithMode(r.Context(), id, body.Text, "web", body.Mode, files)
 	switch {
+	case errors.Is(err, session.ErrImagesNotSupported):
+		s.queueError(w, http.StatusBadRequest, "images_not_supported", err)
+		return
 	case errors.Is(err, session.ErrTurnScopedFollowUp):
 		s.queueError(w, http.StatusConflict, "turn_scoped_follow_up", err)
 		return

@@ -188,7 +188,7 @@ func (s *acpWebState) server() error {
 	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
-		Providers: append([]config.ProviderConfig{{Name: "stub", Type: "openai", APIBase: s.stub.URL + "/v1", APIKey: "sk-stub"}}, s.rows...),
+		Providers: append([]config.ProviderConfig{{Name: "stub", Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.stub.URL + "/v1", APIKey: "sk-stub"}}, s.rows...),
 		Models:    append([]config.ModelEntry{{Model: "stub/coddy-demo", MaxContextTokens: 131072}}, s.models...),
 		Agent:     config.Agent{Model: s.models[0].Model},
 	}

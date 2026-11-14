@@ -1,0 +1,517 @@
+/*
+ * The tab strip of the desktop window, which is also its title bar: with no
+ * system frame the window has nothing else to be dragged by and no buttons of
+ * its own, so this bar carries both.
+ *
+ * The strip is a frame around the web UI rather than part of it, so it does not
+ * build with the SPA and has no theme files of its own. It takes the four
+ * colours a theme is made of - the text, the ground, the accent and the danger
+ * colour - off the chat in the frame below it (shell.js, syncTheme), which is
+ * same-origin, and derives everything else from them the way the SPA's
+ * mix-text() does. All nine themes therefore reach the strip, and the values
+ * below are only what it draws with before the first chat has loaded.
+ *
+ * The tabs are the Files window's tabs of the web UI itself (.files-tab in
+ * styles/screens/_files.scss): 33px tall, rounded at the top, the one in front
+ * on a lighter ground inside a hairline, a close on every tab. Ahead of the
+ * name each tab carries the state dot of the History list, so a window of five
+ * chats says which of them is working, which is done and which failed.
+ */
+
+:root {
+  --text: #ffffff;
+  --bg: #121212;
+  --accent: #9333ea;
+  --danger: #f87171;
+}
+
+:root[data-theme="light"] {
+  --text: #1a1d21;
+  --bg: #ffffff;
+  --accent: #2f6fd0;
+  --danger: #dc2626;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* The ground of the chat below, continued.
+ *
+ * The SPA paints its page with two glows over a vertical gradient
+ * (styles/_base.scss), not with a flat colour, and the bar stands exactly
+ * where the top of that page would be. Painting it with the same stack, at the
+ * same geometry, is what makes the strip belong to the theme in all nine of
+ * them - a flat `--bg` only matches in the light theme, where the top of the
+ * gradient happens to be the same white. The values come off the chat in
+ * front (shell.js, syncTheme); before any chat has loaded the fallbacks below
+ * stand in. It is also what keeps a corner from being a hole onto the desktop,
+ * which is why it is on html and not on the body. */
+html {
+  background-color: var(--canvas-bottom, var(--bg));
+  background-image:
+    radial-gradient(
+      1200px 600px at 30% 10%,
+      var(--canvas-glow-1, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 500px at 80% 70%,
+      var(--canvas-glow-2, transparent),
+      transparent 50%
+    ),
+    linear-gradient(
+      180deg,
+      var(--canvas-top, var(--bg)),
+      var(--canvas-bottom, var(--bg))
+    );
+}
+
+/* Rounded while the window floats, square when it fills the screen - the way
+   every application on this desktop draws itself. The shape of the window
+   itself is asked of the X server by the launcher; this only keeps the page
+   from painting into the corners the shape cut away. */
+:root[data-window="floating"] body {
+  --window-radius: 10px 10px 0 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--window-radius, 0);
+  /* Transparent, so the canvas on html shows through the bar. */
+  background: transparent;
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* --- the bar ------------------------------------------------------------ */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 5px 8px 0;
+  /* Mixed into what is behind it rather than into `--bg`: the ground here is
+     the chat's own canvas, drawn on html. */
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  user-select: none;
+}
+
+/* The menu stands first, where the screenshot of the browser this window is
+   modelled on puts its own: before the tabs, not among them. */
+.menu-btn {
+  margin-right: 6px;
+}
+
+.strip {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* What is left of the bar when the tabs and the buttons have taken theirs:
+   the window's title bar. Dragging it moves the window, and a double click
+   maximises or restores it. */
+.drag {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 24px;
+}
+
+/* --- a tab -------------------------------------------------------------- */
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 220px;
+  min-width: 108px;
+  max-width: 240px;
+  height: 33px;
+  align-self: flex-end;
+  padding: 0 5px 0 10px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: default;
+}
+
+.tab:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border-color: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
+.tab .label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Every tab closes from the tab itself, not only the one in front and not only
+   on hover: a close that appears under the pointer is a close nobody finds. */
+.tab .close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tab:hover .close,
+.tab[aria-selected="true"] .close {
+  opacity: 1;
+}
+
+.tab .close:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+/* --- the state of the chat behind a tab --------------------------------- */
+
+/* The marks of the History list, in the same family and the same order of
+   precedence (sessions/sessionRowActivity.ts): working, waiting for a person,
+   failed, finished but not read, finished. The theme's accent carries them,
+   never a fixed violet. */
+.tab .dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot.is-idle {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.dot.is-busy {
+  background: color-mix(in srgb, var(--accent) 67%, #000);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+.tab .dot.is-permission,
+.tab .dot.is-question {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  color: rgba(196, 181, 253, 0.95);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.dot.is-unread {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.dot.is-error {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.dot.is-error-seen {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.tab.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.tab.is-drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tab.is-drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.is-busy {
+    animation: none;
+  }
+}
+
+/* --- the bar's own buttons --------------------------------------------- */
+
+.bar-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  cursor: default;
+}
+
+.bar-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bar-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.bar-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.new {
+  margin-left: 4px;
+}
+
+/* The three a frameless window has to carry, at the right edge with a step of
+   their own between them and the bar's work. They are hidden while the system
+   frame is on, where they would only duplicate the manager's own. */
+.window-btns {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 0;
+  flex: 0 0 auto;
+  margin-left: 10px;
+  margin-top: -5px;
+  margin-right: -8px;
+}
+
+.window-btns .win {
+  width: 38px;
+  height: 38px;
+  border-radius: 0;
+}
+
+.window-btns .win:hover {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  color: var(--text);
+}
+
+.window-btns[hidden] {
+  display: none;
+}
+
+/* The two that walk the row of tabs, beside the window's own and before them,
+   so the three at the very edge stay where every window on this desktop puts
+   them. They appear only when the tabs are wider than the strip. */
+.scroll-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: 10px;
+}
+
+.scroll-btns[hidden] {
+  display: none;
+}
+
+/* The end of the row reached: the arrow stays where it is rather than moving
+   the buttons beside it around. */
+.scroll-btns button:disabled {
+  opacity: 0.35;
+}
+
+.win {
+  width: 40px;
+}
+
+.win.close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+/* --- the desktop menu --------------------------------------------------- */
+
+/* The menu hangs under its button, which stands first on the bar. */
+.menu {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+  z-index: 20;
+  min-width: 236px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
+  color: var(--text);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 35%);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.menu button:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.menu .mark {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  opacity: 0.9;
+}
+
+/* A switch the launcher could not throw says so where it was thrown, and keeps
+   its tick where the machine actually left it. */
+.menu .row.failed {
+  color: var(--danger);
+}
+
+.menu .sep {
+  height: 1px;
+  margin: 5px 9px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* --- the chats ---------------------------------------------------------- */
+
+.frames {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.frames iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+}
+
+.frames iframe[hidden] {
+  display: block;
+  visibility: hidden;
+  z-index: -1;
+}
+
+/* The system frame is absent, so the page supplies the thin edge a pointer
+   takes hold of. Corners get a square target where the two edges meet. */
+.resize-edge {
+  position: fixed;
+  z-index: 50;
+}
+
+#resize-edges[hidden] {
+  display: none;
+}
+
+.resize-n,
+.resize-s {
+  right: 6px;
+  left: 6px;
+  height: 6px;
+}
+
+.resize-n { top: 0; cursor: n-resize; }
+.resize-s { bottom: 0; cursor: s-resize; }
+
+.resize-w,
+.resize-e {
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+}
+
+.resize-w { left: 0; cursor: w-resize; }
+.resize-e { right: 0; cursor: e-resize; }
+
+.resize-nw,
+.resize-ne,
+.resize-sw,
+.resize-se {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-nw { top: 0; left: 0; cursor: nw-resize; }
+.resize-ne { top: 0; right: 0; cursor: ne-resize; }
+.resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.resize-se { right: 0; bottom: 0; cursor: se-resize; }

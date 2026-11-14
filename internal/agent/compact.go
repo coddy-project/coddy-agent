@@ -285,36 +285,37 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
 
-	// Lines the history already carried go before anything is measured: a
-	// session fills its window by repeating itself, and the repeats are what
-	// push a fold past the summarizer's window (compact_fold.go).
-	if deduped, dropped := dedupeCompactionHead(head); dropped > 0 {
-		a.log.Info("compaction dropped repeated lines from the history it is folding",
-			"lines", dropped, "messages", len(head))
-		head = deduped
-	}
-
-	// The fold is sized against the summarizer's own window, not the session's:
-	// compaction.model may name a smaller or larger model than the turn runs on.
-	// The first of the chain sets the size; a fallback below it reads the same
-	// pass, which is why the share is a share rather than the whole window.
-	window, _ := a.contextWindowFor(chain[0].modelID)
-	// The summaries already written are what the new one continues: the
-	// summarizer reads them so it does not repeat them, and never retells them.
-	// They are reference only and take at most half of a pass: the chain is
-	// sized against the session's window, and a summarizer with a smaller one
-	// would otherwise get passes with no room for the transcript, or none that
-	// fit at all.
-	instructionTokens := session.EstimateContextTokens(instructions)
-	earlier := renderEarlierSummaries(visible[:len(blocks)], compactionInputBudget(window, instructionTokens)/compactionCarryShare)
-	budget := compactionInputBudget(window, instructionTokens+session.EstimateContextTokens(earlier))
-
 	row := a.newCompactionRow()
-	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, earlier, head, instructions, budget, row.step)
-	if err != nil {
-		row.failed(err)
-		return nil, err
+
+	// The summarizer that is the session's own model reads the conversation as
+	// the turn sent it, so the provider serves the whole head out of the prompt
+	// cache it has just written (compact_cached.go). Nothing is deduplicated on
+	// that path and no pass is planned: rewriting the head would cost the cache
+	// the very bytes this exists to reuse, and a head that is the beginning of a
+	// request the provider accepted fits one request by construction.
+	summary, modelID, cached := a.cachedFold(ctx, chain, cachedFoldSpec{
+		Window:           visible,
+		Cut:              splitIdx - viewOffset,
+		Instructions:     instructions,
+		EarlierSummaries: len(blocks) > 0,
+		Reasoning:        reasoning,
+	})
+	steps := 1
+	if !cached {
+		// A cancelled call answers like any other that did not produce a
+		// summary, and the flattened fold would pay for the dedupe and one more
+		// provider call before it reported the same cancellation.
+		if err := ctx.Err(); err != nil {
+			row.failed(err)
+			return nil, err
+		}
+		summary, modelID, steps, err = a.foldFlattened(ctx, chain, visible[:len(blocks)], head, instructions, row.step)
+		if err != nil {
+			row.failed(err)
+			return nil, err
+		}
 	}
+	a.compactionOutcomeLog(cached, modelID, steps)
 
 	// A cut inside the turn takes the prompt out of the window with the steps,
 	// so the row that replaces them begins with it (the prompt's pictures stay
@@ -328,7 +329,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The chain grows by a row per compaction; one that outgrew its share of the
 	// window has its earliest rows retold as one. A merge that fails leaves the
 	// chain as it was and the compaction done.
-	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, row.step)
+	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, reasoning, row.step)
 	if mergeErr != nil {
 		a.log.Warn("compaction could not merge the earliest summaries; the chain stays as it is", "error", mergeErr)
 	}

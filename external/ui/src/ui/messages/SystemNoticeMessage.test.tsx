@@ -50,6 +50,24 @@ test("a turn saved before its duration was kept shows the rest of the row", () =
   );
 });
 
+// A turn nobody could measure the generation of (an agent behind an acp row)
+// keeps the line and leaves the speed off it; it used to have no line at all.
+test("a turn with no measured speed keeps its clock and its count", () => {
+  render(
+    <SystemNoticeMessage
+      level="notice"
+      message="Generation complete"
+      generation={{ outputTokens: 890, elapsedMs: 111_000 }}
+    />,
+  );
+  const parts = [
+    ...screen
+      .getByTestId("generation-summary")
+      .querySelectorAll(".typing-dots-turn-item"),
+  ].map((el) => el.textContent);
+  expect(parts).toEqual(["1m 51s", "890 tokens"]);
+});
+
 test("renders a retry button next to copy that calls onRetry", () => {
   const onRetry = vi.fn();
   render(

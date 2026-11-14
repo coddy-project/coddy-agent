@@ -4,7 +4,7 @@ import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { Chevron } from "../components/Chevron";
 
 import { Combobox } from "./Combobox";
-import { FieldLabel, LegendWithHint } from "./FieldHint";
+import { FieldHint, FieldLabel, LegendWithHint } from "./FieldHint";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 import {
   schemaFieldDesc,
@@ -51,6 +51,12 @@ export type FieldOverride = (ctx: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  updateParent?:
+    | ((
+        snapshot: Record<string, unknown>,
+        patch: Record<string, unknown>,
+      ) => boolean)
+    | undefined;
 }) => ReactNode | null;
 
 export type JsonSchema = {
@@ -203,6 +209,12 @@ function SchemaField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  updateParent?:
+    | ((
+        snapshot: Record<string, unknown>,
+        patch: Record<string, unknown>,
+      ) => boolean)
+    | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   /** Settings section id ("tools", "system.prompts") selecting the dictionary domain. */
@@ -263,6 +275,7 @@ function SchemaField(props: {
       value,
       onChange,
       parentObj,
+      updateParent: props.updateParent,
     });
     // false: the override draws nothing for this field, and nothing is a box.
     if (override === false) {
@@ -282,7 +295,11 @@ function SchemaField(props: {
       parentObj["name"] === undefined || parentObj["name"] === null
         ? ""
         : String(parentObj["name"]);
-    ph = providerApiKeyFieldPlaceholder(pname);
+    ph = providerApiKeyFieldPlaceholder(
+      pname,
+      String(parentObj.type ?? ""),
+      String(parentObj.mode ?? ""),
+    );
   }
 
   if (t === "object" && schema.properties) {
@@ -779,6 +796,8 @@ export type SchemaFormGroup = {
  */
 export function CollapsibleFieldset(props: {
   legend: string;
+  /** Behind the (i) beside the legend, as an open fieldset's description is. */
+  description?: ReactNode | undefined;
   children: ReactNode;
   testid?: string | undefined;
   defaultOpen?: boolean | undefined;
@@ -806,17 +825,22 @@ export function CollapsibleFieldset(props: {
       data-settings-anchor={props.anchor}
     >
       <legend>
-        <button
-          type="button"
-          className="settings-fieldset-toggle"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          data-testid={props.testid ? `${props.testid}-toggle` : undefined}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <Chevron open={open} />
-          <span>{props.legend}</span>
-        </button>
+        <span className="settings-legend-line">
+          <button
+            type="button"
+            className="settings-fieldset-toggle"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            data-testid={props.testid ? `${props.testid}-toggle` : undefined}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <Chevron open={open} />
+            <span>{props.legend}</span>
+          </button>
+          {props.description ? (
+            <FieldHint text={props.description} label={props.legend} />
+          ) : null}
+        </span>
       </legend>
       <div id={bodyId} className="settings-form-group-body" hidden={!open}>
         {props.children}
@@ -914,6 +938,31 @@ export function SchemaForm(props: {
   groups?: SchemaFormGroup[] | undefined;
 }) {
   const { schema, value, onChange, fieldOverride, i18nDomain } = props;
+  const latest = useRef({ value, onChange, alive: true });
+  latest.current.value = value;
+  latest.current.onChange = onChange;
+  useLayoutEffect(() => {
+    latest.current.alive = true;
+    return () => {
+      latest.current.alive = false;
+    };
+  }, []);
+  const updateParent = (
+    snapshot: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => {
+    const current = latest.current;
+    const norm = (v: unknown) => (v == null ? "" : String(v));
+    if (
+      !current.alive ||
+      ["type", "mode", "region", "kimi_identity"].some(
+        (key) => norm(current.value[key]) !== norm(snapshot[key]),
+      )
+    )
+      return false;
+    current.onChange({ ...current.value, ...patch });
+    return true;
+  };
   const { t } = useT();
   if (schema.type !== "object" || !schema.properties) {
     return (
@@ -929,6 +978,7 @@ export function SchemaForm(props: {
       schema={sub}
       value={value[k]}
       parentObj={value}
+      updateParent={updateParent}
       path={k}
       fieldOverride={fieldOverride}
       i18nDomain={i18nDomain}
@@ -941,6 +991,7 @@ export function SchemaForm(props: {
       <CollapsibleFieldset
         key={`group:${g.id}`}
         legend={g.legend}
+        description={g.description}
         testid={testid}
         anchor={groupAnchor(i18nDomain, g.id)}
       >

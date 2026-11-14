@@ -19,23 +19,65 @@ function deleteDeclarations(): string[] {
     );
 }
 
-test("a wallpaper covers the viewport, dimmed toward the theme's canvas colour", () => {
-  const body = squash(
+/** The body of the one fixed layer the page stands on. */
+function canvasLayer(): string {
+  return squash(css.match(/\nhtml::before \{([^}]+)\}/)?.[1] ?? "");
+}
+
+/** What a chosen wallpaper paints on that layer in place of the canvas. */
+function wallpaperLayer(): string {
+  return squash(
     css.match(
-      /html\[data-wallpaper="true"\]\[data-simple="on"\] \{([^}]+)\}/,
+      /html\[data-wallpaper="true"\]::before,\s*html\[data-wallpaper="true"\]\[data-simple="on"\]::before \{([^}]+)\}/,
     )?.[1] ?? "",
   );
-  expect(body).toContain("var(--coddy-wallpaper) center / cover no-repeat");
-  expect(body).toContain(
+}
+
+// The picture is painted on a fixed layer and not on the root, because
+// background-attachment: fixed is the one thing that cannot be relied on here:
+// mobile WebKit ignores it, and on the stacked shell the root's box is the
+// whole document, so `cover` sized the picture to a page several screens tall
+// and left one magnified fragment of it on screen, stretching further as the
+// conversation grew (reported on iOS Safari). A fixed box is the viewport on
+// every engine. Held in a real mobile browser by `npm run check:webkit` (the
+// wallpaper scenario).
+test("a wallpaper covers the viewport, dimmed toward the theme's canvas colour", () => {
+  const canvas = canvasLayer();
+  expect(canvas).toContain("position: fixed;");
+  expect(canvas).toContain("inset: 0;");
+  expect(canvas).toContain("z-index: -1;");
+  const layer = wallpaperLayer();
+  expect(layer).toContain("var(--coddy-wallpaper) center / cover no-repeat");
+  expect(layer).toContain(
     "color-mix( in srgb, var(--coddy-canvas-gradient-bottom) var(--coddy-wallpaper-dim, 40%), transparent )",
   );
-  expect(body).toContain("background-attachment: fixed;");
+  // Nothing about the canvas or the picture may depend on it again.
+  expect(canvas).not.toContain("background-attachment");
+  expect(layer).not.toContain("background-attachment");
+});
+
+// The root keeps the theme's colour and paints nothing: the glows and the
+// gradient are the layer's, and under an opaque `cover` picture they would be
+// paid for on every paint and never seen.
+test("a wallpaper leaves the root nothing but the canvas colour", () => {
+  const root = squash(css.match(/\nhtml \{([^}]+)\}/)?.[1] ?? "");
+  expect(root).toContain(
+    "background-color: var(--coddy-canvas-gradient-bottom);",
+  );
+  expect(root).not.toContain("background:");
+  expect(root).not.toContain("background-attachment");
+  expect(root).not.toContain("gradient(");
 });
 
 test("a wallpaper remains visible in simplified mode", () => {
   const base = stylesPartial("base");
+  // The simplified mode clears the canvas layer, so the picture needs both
+  // selectors to keep its specificity over that rule.
   expect(base).toMatch(
-    /html\[data-wallpaper="true"\],\s*html\[data-wallpaper="true"\]\[data-simple="on"\] \{/,
+    /html\[data-wallpaper="true"\]::before,\s*html\[data-wallpaper="true"\]\[data-simple="on"\]::before \{/,
+  );
+  expect(stylesPartial("simple")).toMatch(
+    /html\[data-simple="on"\]::before \{\s*background: none;\s*\}/,
   );
 });
 
@@ -44,7 +86,9 @@ test("wallpaper leaves the native gradients, grain and panel glass in place with
   expect(css).not.toContain("data-smooth-backdrop");
   expect(css).not.toContain("--coddy-smooth-");
   const base = stylesPartial("base");
-  expect(base).toMatch(/html \{[^}]*background:\s*var\(--coddy-grain\),/);
+  expect(base).toMatch(
+    /html::before \{[^}]*background:\s*var\(--coddy-grain\),/,
+  );
   expect(base).toContain("1200px 600px at 30% 10%");
   expect(base).toContain("900px 500px at 80% 70%");
   expect(base).toContain("var(--coddy-canvas-glow-purple)");

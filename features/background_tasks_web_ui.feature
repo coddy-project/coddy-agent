@@ -27,6 +27,9 @@ Feature: The background tasks of a chat in the web UI
   Scenario: A subagent's card says what it runs on and what it spent
     Then a folded subagent card names its model and the tokens its calls spent, and a command card neither
 
+  Scenario: A subagent's incomplete usage is not presented as a total
+    Then an incomplete subagent card shows its model without a token total
+
   Scenario: A card opens in place
     Then a click on a card expands it in place and another folds it
     And an open command card shows the command with a copy control, the output and how it ended

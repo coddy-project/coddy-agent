@@ -632,6 +632,32 @@ func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamFilter_NoUsageChunkWhenProviderReportedNone(t *testing.T) {
+	// include_usage asked but the turn produced no token_usage event: the usage
+	// chunk stays out so a client can tell "no data" from "zero tokens" - an
+	// all-zero object is indistinguishable from a real count (issue #576).
+	frames := openAIFilterFrames(t, true,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"}}]}`+"\n\n",
+		"data: [DONE]\n\n")
+	for _, fr := range frames {
+		if strings.Contains(fr, `"usage"`) {
+			t.Fatalf("usage chunk written without provider counters: %s", fr)
+		}
+	}
+	if frames[len(frames)-1] != "data: [DONE]" || !strings.Contains(frames[len(frames)-2], `"finish_reason":"stop"`) {
+		t.Fatalf("the stream must still open and finish one choice:\n%s", strings.Join(frames, "\n"))
+	}
+	// A token_usage update that sums to zero is "no data" all the same.
+	frames = openAIFilterFrames(t, true,
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":0,\"outputTokens\":0,\"totalTokens\":0}\n\n",
+		"data: [DONE]\n\n")
+	for _, fr := range frames {
+		if strings.Contains(fr, `"usage"`) {
+			t.Fatalf("usage chunk written for zero counters: %s", fr)
+		}
+	}
+}
+
 func TestOpenAIStreamFilter_SumsUsageAcrossCallsAndIncludesCache(t *testing.T) {
 	frames := openAIFilterFrames(t, true,
 		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42,\"cachedInputTokens\":20}\n\n",

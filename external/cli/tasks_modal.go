@@ -126,6 +126,7 @@ func (m *tasksModal) HandleInput(data []byte) {
 			m.requestRender()
 		}
 	}()
+	s := string(data)
 	if key, ok := tui.ParseKey(data); ok {
 		switch key.String() {
 		case "up":
@@ -160,8 +161,11 @@ func (m *tasksModal) HandleInput(data []byte) {
 			}
 			return
 		}
+		if key.Text != "" {
+			s = key.Text
+		}
 	}
-	switch string(data) {
+	switch s {
 	case "s", "S":
 		row, ok := m.selectedRow()
 		if m.openID != "" {

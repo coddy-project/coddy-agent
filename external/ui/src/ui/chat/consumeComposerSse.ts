@@ -1,4 +1,3 @@
-import type { MemoryRunEvt } from "./memoryRun";
 import { backgroundWakeItem } from "./backgroundWake";
 import {
   applyGoalTurnToItems,
@@ -142,14 +141,10 @@ export type ConsumeComposerSseParams = {
     input: number;
     output: number;
     total: number;
+    known?: boolean;
   }>;
   reasoningDurationMsByContentRef: MutableRefObject<Map<string, number>>;
   newId: (prefix: string) => string;
-  /** Coddy extension. The memory subagent run of the turn (`event: memory_run`). */
-  applyMemoryRunToItems: (
-    prev: TranscriptItem[],
-    e: MemoryRunEvt,
-  ) => TranscriptItem[];
   /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
   /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
@@ -219,7 +214,6 @@ export async function consumeComposerSseReader(
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
-    applyMemoryRunToItems,
     onQuestion,
     onPermission,
     onProviderUsage,
@@ -632,13 +626,21 @@ export async function consumeComposerSseReader(
         callThinkingId = null;
         try {
           const u = JSON.parse(ev.data) as TokenUsage;
-          const merged: TokenUsage = {
-            inputTokens: tokenBaselineRef.current.input + (u.inputTokens || 0),
-            outputTokens:
-              tokenBaselineRef.current.output + (u.outputTokens || 0),
-            totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
-          };
-          setTokenUsage(merged);
+          if (u.usageKnown === false || u.sessionUsageKnown === false)
+            tokenBaselineRef.current.known = false;
+          if (tokenBaselineRef.current.known === false) {
+            setTokenUsage(null);
+          } else {
+            const merged: TokenUsage = {
+              inputTokens:
+                tokenBaselineRef.current.input + (u.inputTokens || 0),
+              outputTokens:
+                tokenBaselineRef.current.output + (u.outputTokens || 0),
+              totalTokens:
+                tokenBaselineRef.current.total + (u.totalTokens || 0),
+            };
+            setTokenUsage(merged);
+          }
           const reasoningTokens = Number(u.reasoningTokens);
           if (
             thinkingId &&
@@ -822,31 +824,6 @@ export async function consumeComposerSseReader(
         continue;
       }
 
-      if (ev.event === "memory_run") {
-        try {
-          const raw = JSON.parse(ev.data) as MemoryRunEvt;
-          applyStreamItems((prev) =>
-            applyMemoryRunToItems(prev, {
-              status: String(raw.status || ""),
-              ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
-              ...(raw.childSessionId
-                ? { childSessionId: String(raw.childSessionId) }
-                : {}),
-              ...(raw.taskStatus ? { taskStatus: String(raw.taskStatus) } : {}),
-              ...(typeof raw.durationMs === "number"
-                ? { durationMs: raw.durationMs }
-                : {}),
-              ...(typeof raw.delivered === "boolean"
-                ? { delivered: raw.delivered }
-                : {}),
-              ...(raw.reason ? { reason: String(raw.reason) } : {}),
-            }),
-          );
-        } catch {
-          // ignore
-        }
-        continue;
-      }
       if (ev.event === "permission") {
         try {
           // The gate row is applied straight away, outside the rAF-batched
@@ -1121,31 +1098,6 @@ export async function consumeComposerSseReader(
         continue;
       }
 
-      if (ev.event === "memory_run") {
-        try {
-          const raw = JSON.parse(ev.data) as MemoryRunEvt;
-          applyStreamItems((prev) =>
-            applyMemoryRunToItems(prev, {
-              status: String(raw.status || ""),
-              ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
-              ...(raw.childSessionId
-                ? { childSessionId: String(raw.childSessionId) }
-                : {}),
-              ...(raw.taskStatus ? { taskStatus: String(raw.taskStatus) } : {}),
-              ...(typeof raw.durationMs === "number"
-                ? { durationMs: raw.durationMs }
-                : {}),
-              ...(typeof raw.delivered === "boolean"
-                ? { delivered: raw.delivered }
-                : {}),
-              ...(raw.reason ? { reason: String(raw.reason) } : {}),
-            }),
-          );
-        } catch {
-          // ignore
-        }
-        continue;
-      }
       if (ev.event === "permission") {
         try {
           // The gate row is applied straight away, outside the rAF-batched

@@ -8,7 +8,8 @@ package llm
 // provider makes is driven: neuraldeep completions, models, usage and the
 // device-auth endpoints; codex streams, catalog, usage, token refresh,
 // device sign-in and the login apply; devin JWT mints, catalog, chat, usage
-// and the PKCE exchange; openai and anthropic completions and model lists.
+// and the PKCE exchange; openai and anthropic completions and model lists,
+// and the openai account-usage read.
 // The model server counts the requests that reach it directly. The
 // environment's proxy is stood in through the environmentProxy seam: net/http
 // reads HTTPS_PROXY once per process and never proxies a loopback address,
@@ -107,6 +108,14 @@ func answerProviderRequest(t *testing.T, w http.ResponseWriter, r *http.Request)
 		}
 	}
 	switch {
+	case r.Method == http.MethodPost && path == "/api/oauth/device_authorization":
+		_, _ = io.WriteString(w, `{"device_code":"dc","user_code":"UC","verification_uri_complete":"https://www.kimi.ai/code/authorize_device","expires_in":600,"interval":1}`)
+	case r.Method == http.MethodPost && path == "/api/oauth/token":
+		_, _ = io.WriteString(w, `{"access_token":"access","refresh_token":"refresh","expires_in":3600}`)
+	case r.Method == http.MethodGet && path == "/coding/v1/usages":
+		_, _ = io.WriteString(w, `{"usages":{"limit_5h":{"used_ratio":0.25}}}`)
+	case r.Method == http.MethodGet && (path == "/coding/v1/models" || path == "/platform/v1/models"):
+		_, _ = io.WriteString(w, `{"data":[{"id":"m","limit":{"context":8192},"context_length":8192}]}`)
 	case r.Method == http.MethodPost && path == "/console/auth/device/code":
 		requireOpenCodeClientID(t, r, "")
 		_, _ = io.WriteString(w, `{"device_code":"device-test","user_code":"USER-CODE","verification_uri_complete":"/console/device","expires_in":600,"interval":0}`)
@@ -561,6 +570,133 @@ func (s *providerProxyState) askOpenCodeAccount(name string) error {
 	return err
 }
 
+func (s *providerProxyState) askOpenAIEverything(name string) error {
+	if err := s.askCompletionAndModels(name); err != nil {
+		return err
+	}
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	payload, err := OpenAIUsageForProvider(ctx, config.ProviderConfig{Name: name, Type: row.typ, APIBase: s.model.srv.URL + "/v1", APIKey: "k", Proxy: row.setting})
+	if err != nil {
+		return fmt.Errorf("%s: account usage: %w", name, err)
+	}
+	if payload.Neural == nil || payload.Neural.Tier != "pro" {
+		return fmt.Errorf("%s: account usage payload = %+v, want neural tier pro", name, payload)
+	}
+	return nil
+}
+
+// Kimi's fixed production endpoints are replaced only on these test objects.
+// The HTTP client still uses the real provider proxy selection logic.
+func (s *providerProxyState) kimiRequests(name, mode string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	client, err := HTTPClientForProviderProxy(row.setting)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	base := s.model.srv.URL
+	if mode == "subscription" {
+		login, err := startKimiDeviceLogin(ctx, "global", client, base)
+		if err != nil {
+			return err
+		}
+		token, err := login.Wait(ctx)
+		if err != nil || token.AccessToken != "access" {
+			return fmt.Errorf("device poll: token %q: %v", token.AccessToken, err)
+		}
+		refresher, err := NewKimiCredentialRefresher(NewKimiCredentialStore(s.home), "global", base, client)
+		if err != nil {
+			return err
+		}
+		rotated, err := refresher.refreshRequest(ctx, token.RefreshToken, token.DeviceID)
+		if err != nil || rotated.AccessToken != "access" {
+			return fmt.Errorf("refresh: token %q: %v", rotated.AccessToken, err)
+		}
+		usage, err := fetchKimiUsage(ctx, "access", base+"/coding/v1/usages", client)
+		if err != nil {
+			return err
+		}
+		if usage.Limit5H == nil || usage.Limit5H.UsedRatio != .25 {
+			return fmt.Errorf("unexpected Kimi usage: %+v", usage)
+		}
+	}
+	prefix := "/coding/v1"
+	if mode == "platform" {
+		prefix = "/platform/v1"
+	}
+	models, err := fetchKimiModels(ctx, mode, "access", base+prefix+"/models", client)
+	if err != nil {
+		return err
+	}
+	if len(models) != 1 || models[0].ID != "m" {
+		return fmt.Errorf("unexpected Kimi models: %+v", models)
+	}
+	transport, err := newKimiInferenceTransport(mode, "global", "kimi", func(context.Context) (string, error) { return "access", nil }, client)
+	if err != nil {
+		return err
+	}
+	transport.endpoint = base + prefix + "/chat/completions"
+	provider := newKimiChatProvider(transport, ProviderInput{Model: "m"})
+	messages := []Message{{Role: RoleUser, Content: "ping"}}
+	response, err := provider.Complete(ctx, messages, nil)
+	if err != nil {
+		return err
+	}
+	if response.Content != "pong" {
+		return fmt.Errorf("Kimi completion = %q", response.Content)
+	}
+	if mode == "subscription" {
+		var chunks strings.Builder
+		response, err = provider.Stream(ctx, messages, nil, func(chunk StreamChunk) { chunks.WriteString(chunk.TextDelta) })
+		if err != nil {
+			return err
+		}
+		if response.Content != "pong" || chunks.String() != "pong" {
+			return fmt.Errorf("Kimi stream = %q, chunks = %q", response.Content, chunks.String())
+		}
+		for _, protocol := range []string{"anthropic", "openai_responses"} {
+			tr, err := newKimiInferenceTransport(mode, "global", protocol, func(context.Context) (string, error) { return "access", nil }, client)
+			if err != nil {
+				return err
+			}
+			var p Provider
+			if protocol == "anthropic" {
+				tr.endpoint = base + prefix + "/messages"
+				p = newKimiAnthropicProvider(tr, ProviderInput{Model: "m"})
+			} else {
+				tr.endpoint = base + prefix + "/responses"
+				p = newKimiResponsesProvider(tr, ProviderInput{Model: "m"})
+			}
+			chunks.Reset()
+			response, err = p.Stream(ctx, messages, nil, func(chunk StreamChunk) { chunks.WriteString(chunk.TextDelta) })
+			if err != nil {
+				return fmt.Errorf("%s stream: %w", protocol, err)
+			}
+			if response.Content != "pong" || chunks.String() != "pong" {
+				return fmt.Errorf("%s stream = %q, chunks = %q", protocol, response.Content, chunks.String())
+			}
+		}
+	}
+	return nil
+}
+
+func (s *providerProxyState) askKimiSubscription(name string) error {
+	return s.kimiRequests(name, "subscription")
+}
+
+func (s *providerProxyState) askKimiPlatform(name string) error {
+	return s.kimiRequests(name, "platform")
+}
+
 func (s *providerProxyState) askNeuralDeepEverything(name string) error {
 	row, err := s.row(name)
 	if err != nil {
@@ -887,8 +1023,11 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
+		sc.Step(`^"([^"]*)" is asked for a completion, its model list and its account usage$`, s.askOpenAIEverything)
 		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)
 		sc.Step(`^"([^"]*)" signs in an OpenCode account, refreshes it, lists models and chats$`, s.askOpenCodeAccount)
+		sc.Step(`^"([^"]*)" signs in, refreshes, lists subscription models, reads usage and chats with all three streams$`, s.askKimiSubscription)
+		sc.Step(`^"([^"]*)" lists Platform models and chats$`, s.askKimiPlatform)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)

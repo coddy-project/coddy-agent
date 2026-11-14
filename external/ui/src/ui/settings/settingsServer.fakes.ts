@@ -226,8 +226,10 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     if (route === "/coddy/providers/models") {
       return reply(200, { ok: true, models: [] });
     }
-    if (/^\/coddy\/providers\/[^/]+\/(codex|neuraldeep)-auth$/.test(route)) {
-      return reply(200, { connected: false });
+    if (
+      /^\/coddy\/providers\/[^/]+\/(codex|neuraldeep|devin)-auth$/.test(route)
+    ) {
+      return reply(200, { connected: false, source: "none" });
     }
     if (route === "/coddy/mcp") {
       return reply(200, { items: [], project_trust: "ask", workspace: "" });
@@ -246,6 +248,11 @@ export function stubServer(source: ServerState | (() => ServerState)) {
     if (route === "/coddy/skills/available") return reply(200, { items: [] });
     if (route === "/coddy/subagents") {
       return reply(200, { items: [], workspace: "", policy: "ask" });
+    }
+    // What the Browser tab reads while a person connects a browser: no key
+    // and nothing on the socket, the state the section opens in.
+    if (route === "/coddy/browser/setup") {
+      return reply(200, { key_set: false, connected: [] });
     }
     if (route === "/coddy/sessions") {
       return reply(200, { sessions: [], hasMore: false });

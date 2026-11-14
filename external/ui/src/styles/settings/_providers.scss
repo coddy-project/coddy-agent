@@ -412,3 +412,185 @@
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--text);
 }
+
+/* Connecting a browser (Settings -> Browser, settings/BrowserSetupField.tsx):
+   three numbered steps where the key field used to stand alone. The field
+   asked for a key and offered no way to get one and no word about the
+   extension that needs it. */
+.browser-setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0 0 0 20px;
+  list-style: decimal;
+  color: mix-text(72%);
+  font-size: 0.88rem;
+}
+
+/* The step stays a list item, so its number is drawn: a flex box here drops
+   display: list-item and the marker with it. What the step holds lays itself
+   out in the rows below. */
+.browser-setup-step {
+  display: list-item;
+}
+
+.browser-setup-step-text {
+  display: block;
+  margin-bottom: 6px;
+  color: mix-text(88%);
+}
+
+/* The key's own name, between the address field and the key's. */
+.browser-setup-step .settings-label {
+  display: block;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.browser-setup-stores {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The address and the key are read from here and pasted into the extension,
+   never typed: the field is the value, and the ways to take it sit inside it
+   at the right edge, as a code block's copy does. */
+.browser-setup-field {
+  position: relative;
+  display: block;
+}
+
+.browser-setup-field + .browser-setup-field {
+  margin-top: 8px;
+}
+
+.browser-setup-value {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: $coddy-mono-ui;
+  font-size: 0.8rem;
+  /* Room for the controls: 26px each and the gaps, plus the field's own. */
+  padding-right: calc(var(--browser-setup-actions, 34px) + 10px);
+}
+
+.browser-setup-actions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.browser-setup-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: mix-text(52%);
+  cursor: pointer;
+}
+
+.browser-setup-icon:hover {
+  background: mix-text(9%);
+  color: var(--text);
+}
+
+.browser-setup-icon[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.browser-setup-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The key's field carries three controls, the address's one. */
+.browser-setup-field:has(.browser-setup-icon ~ .browser-setup-icon) {
+  --browser-setup-actions: 86px;
+}
+
+.browser-setup-store {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+}
+
+/* The store of the browser this page runs in leads the row and is the one
+   marked: the other is there for the person setting a second browser up. */
+.browser-setup-store--suggested {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.browser-setup-store-mark {
+  flex: none;
+}
+
+.browser-setup-state {
+  color: mix-text(62%);
+}
+
+/* A browser on the socket is the one state that is finished, so it is the
+   one state in the theme's success colour. */
+.browser-setup-state--ready {
+  color: var(--coddy-todo-completed);
+  font-weight: 600;
+}
+
+/* The browsers themselves under that line, one per row: the name a person
+   gave the extension is why they gave one, so the card says which browsers
+   are there and not only how many. */
+.browser-setup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser-setup-browser {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: mix-text(78%);
+}
+
+.browser-setup-browser-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--coddy-todo-completed);
+  /* On the middle of the lowercase letters beside it, as every mark of a row
+     of text in this app stands. */
+  transform: translateY(-1px);
+}
+
+.browser-setup-browser-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-setup-browser-version {
+  flex: 0 0 auto;
+  color: mix-text(48%);
+  font-variant-numeric: tabular-nums;
+}

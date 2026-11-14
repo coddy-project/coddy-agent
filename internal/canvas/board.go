@@ -61,6 +61,10 @@ const (
 	ReasonRemoved = "removed"
 	// ReasonOpened is a .canvas file becoming the one the agent shows pages on.
 	ReasonOpened = "opened"
+	// ReasonTrusted and ReasonUntrusted are the person letting the pages of a
+	// board run, and taking that back.
+	ReasonTrusted   = "trusted"
+	ReasonUntrusted = "untrusted"
 )
 
 var deviceSizes = map[string][2]int{
@@ -104,6 +108,10 @@ type Frame struct {
 	// the frame to the next (Rotate, or pointing it at another page) revokes
 	// every address handed out before.
 	Gen int
+	// Held says the page waits for the person: the board came with the
+	// workspace and no receipt lets this page run (trust.go). A held frame
+	// has no address and its files are not served.
+	Held bool
 }
 
 // PageInRoot is the page's path relative to the frame's root.
@@ -123,6 +131,8 @@ type Ref struct {
 	Workspace string
 	// File is the .canvas file, relative to Workspace.
 	File string
+	// Trust decides which pages of the board run; nil runs none.
+	Trust *Trust
 }
 
 // Board is a .canvas file as the canvas shows it.
@@ -150,6 +160,14 @@ type Board struct {
 	// are written.
 	readItems map[string]Item
 	fileOK    bool
+	// policy is the project_trust the board was read under.
+	policy string
+	// put are the pages Coddy put on the board in this change: they are
+	// recorded as shown before the change is announced.
+	put []string
+	// removed says a frame left the board in this change: the pages it showed
+	// leave the receipt with it.
+	removed bool
 	// dirty says a change touched the file's nodes; only then is it written,
 	// so reading a board never rewrites its file.
 	dirty bool
@@ -253,6 +271,7 @@ func Load(ref Ref) (Board, error) {
 	st = st.in(ref.Workspace)
 	b := Board{File: rel, Workspace: ref.Workspace, Revision: st.Revision, state: st}
 	readBoardFile(&b)
+	applyTrust(&b, ref.Trust)
 	return b, nil
 }
 
@@ -326,6 +345,7 @@ func Show(ref Ref, req ShowRequest) (ShowResult, error) {
 			if title != "" {
 				f.Title = title
 			}
+			b.put = append(b.put, page.path)
 			b.dirty = true
 			res.Frame, res.Reason = *f, ReasonUpdated
 			return id, nil
@@ -340,6 +360,8 @@ func Show(ref Ref, req ShowRequest) (ShowResult, error) {
 					f.Title = title
 					b.dirty = true
 				}
+				// Shown again by the agent or the person: the page runs.
+				b.put = append(b.put, page.path)
 				res.Frame, res.Reason = *f, ReasonShown
 				return f.ID, nil
 			}
@@ -353,12 +375,16 @@ func Show(ref Ref, req ShowRequest) (ShowResult, error) {
 			AddedBy: strings.TrimSpace(req.AddedBy), Gen: 1,
 		}
 		b.Frames = append(b.Frames, f)
+		b.put = append(b.put, page.path)
 		b.dirty = true
 		res.Frame, res.Reason = f, ReasonAdded
 		return f.ID, nil
 	}, func() string { return res.Reason }, &res.Board, &res.Created)
 	if err != nil {
 		return ShowResult{}, err
+	}
+	if f, ok := res.Board.Frame(res.Frame.ID); ok {
+		res.Frame.Held = f.Held
 	}
 	return res, nil
 }
@@ -527,6 +553,7 @@ func Remove(ref Ref, frameID string) (Board, error) {
 			return "", fmt.Errorf("%w: %s", ErrFrameNotFound, frameID)
 		}
 		b.Frames = append(b.Frames[:i], b.Frames[i+1:]...)
+		b.removed = true
 		b.dirty = true
 		return frameID, nil
 	}, func() string { return ReasonRemoved }, &board, nil)
@@ -757,6 +784,21 @@ func mutateFile(ref Ref, fn func(*Board) (string, error), reason func() string, 
 	}
 	if b.dirty {
 		if err := writeBoardFile(&b); err != nil {
+			return err
+		}
+	}
+	if len(b.put) > 0 {
+		// A page Coddy put on the board runs, whatever came with the file:
+		// recorded before the change is announced, so the board a browser
+		// reads on the announcement already runs it.
+		if ref.Trust != nil && ref.Trust.Store != nil {
+			if err := ref.Trust.Store.Show(b.Workspace, b.File, b.Pages(), b.put...); err != nil {
+				return err
+			}
+		}
+		applyTrust(&b, ref.Trust)
+	} else if b.removed && ref.Trust != nil && ref.Trust.Store != nil {
+		if err := ref.Trust.Store.Prune(b.Workspace, b.File, b.Pages()); err != nil {
 			return err
 		}
 	}

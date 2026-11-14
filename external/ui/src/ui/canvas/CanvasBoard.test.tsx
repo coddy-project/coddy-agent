@@ -61,6 +61,8 @@ let fetches: { url: string; init?: RequestInit }[] = [];
 // What GET .../canvas?file= answers, changed by a test between reads.
 let served: Board = board([frame()]);
 let noteBody = "# One";
+// What POST .../canvas/trust answers; a test sets it.
+let trustReply: () => Response = () => json(served);
 let frameClock: { mockRestore: () => void } | null = null;
 
 function json(body: unknown, status = 200): Response {
@@ -74,6 +76,7 @@ beforeEach(() => {
   fetches = [];
   served = board([frame()]);
   noteBody = "# One";
+  trustReply = () => json(served);
   resetCanvasDraftsForTests();
   resetCanvasNodeCachesForTests();
   // The camera writes once per animation frame; here at once.
@@ -99,6 +102,8 @@ beforeEach(() => {
         });
       }
       if (url.includes("/canvas/open")) return json(served);
+      if (url.includes("/canvas/trust")) return trustReply();
+      if (url.includes("/canvas/untrust")) return json(served);
       if (/\/canvas\?file=/.test(url) && method === "GET") return json(served);
       if (url.includes("/rotate"))
         return json({ frame: frame({ gen: 2 }), revision: 2 });
@@ -814,4 +819,127 @@ test("a permission the turn waits for is asked on the canvas, which covers the c
 test("with nothing waiting the board shows no prompt strip", async () => {
   await renderBoard({ prompts: [] });
   expect(screen.queryByTestId("canvas-prompts")).toBeNull();
+});
+
+/** A board that came with the workspace: its page waits for the person. */
+function heldBoard(policy: "ask" | "deny" = "ask"): Board {
+  return board(
+    [
+      frame({ held: true, url: "", expires_at: "" }),
+      frame({
+        id: "bbbbbbbbbbbbbbbb",
+        path: "index.html",
+        root: "",
+        held: true,
+        url: "",
+        expires_at: "",
+      }),
+    ],
+    { trust: { policy, digest: "d1", trusted: false } },
+  );
+}
+
+test("a page that waits for the person is a placeholder that loads nothing", async () => {
+  served = heldBoard();
+  await renderBoard();
+  expect(document.querySelector("iframe")).toBeNull();
+  const held = screen.getAllByTestId("canvas-frame-held");
+  expect(held).toHaveLength(2);
+  expect(held[0]!.textContent).toContain("site/index.html");
+  expect(held[0]!.textContent).toContain("site/");
+  expect(held[1]!.textContent).toContain("every file of the workspace");
+  // The note may shrink to its frame (1280x800 against 320x200), never past
+  // it: a frame smaller on screen than the note keeps it inside.
+  expect(held[0]!.style.getPropertyValue("--canvas-held-fit")).toBe("4");
+  // Nothing loads it: no frame address was asked for or handed to a page.
+  expect(fetches.some((f) => f.url.includes("/coddy/canvas/"))).toBe(false);
+});
+
+test("the button asks before the pages run, naming each page and what it reads", async () => {
+  served = heldBoard();
+  await renderBoard();
+  fireEvent.click(screen.getAllByTestId("canvas-held-run")[0]!);
+  const dialog = screen.getByTestId("canvas-trust-dialog");
+  const pages = screen.getByTestId("canvas-trust-pages");
+  expect(pages.textContent).toContain("site/index.html");
+  expect(pages.textContent).toContain("reads site/");
+  expect(pages.textContent).toContain("index.html");
+  expect(pages.textContent).toContain("reads the whole workspace");
+  expect(dialog.textContent).toContain(FILE);
+  // Approved, the digest the board named goes back, and the pages run.
+  served = board([frame()], {
+    trust: { policy: "ask", digest: "d2", trusted: true },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("canvas-trust-confirm"));
+  });
+  const post = fetches.find((f) => f.url.includes("/canvas/trust"));
+  expect(post?.init?.method).toBe("POST");
+  expect(post?.url).toContain(`file=${encodeURIComponent(FILE)}`);
+  expect(JSON.parse(String(post?.init?.body))).toEqual({ digest: "d1" });
+  await waitFor(() => expect(iframe()).toBeTruthy());
+  expect(screen.queryByTestId("canvas-trust-dialog")).toBeNull();
+  expect(screen.queryByTestId("canvas-frame-held")).toBeNull();
+});
+
+test("a board whose pages changed meanwhile approves nothing and shows the new list", async () => {
+  served = heldBoard();
+  await renderBoard();
+  fireEvent.click(screen.getAllByTestId("canvas-held-run")[0]!);
+  served = board(
+    [
+      frame({
+        path: "site/other.html",
+        held: true,
+        url: "",
+        expires_at: "",
+      }),
+    ],
+    { trust: { policy: "ask", digest: "d3", trusted: false } },
+  );
+  trustReply = () => json({ error: { message: "changed" } }, 409);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("canvas-trust-confirm"));
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId("canvas-trust-error").textContent).toContain(
+      "changed while you were reading",
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("canvas-trust-pages").textContent).toContain(
+      "site/other.html",
+    ),
+  );
+  expect(document.querySelector("iframe")).toBeNull();
+  // Escape puts the question away.
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByTestId("canvas-trust-dialog")).toBeNull();
+});
+
+test("under deny a waiting page offers no button", async () => {
+  served = heldBoard("deny");
+  await renderBoard();
+  expect(screen.queryByTestId("canvas-held-run")).toBeNull();
+  expect(screen.getAllByTestId("canvas-held-deny")[0]!.textContent).toContain(
+    "deny",
+  );
+});
+
+test("Hold pages takes the board's approval back", async () => {
+  served = board([frame()], {
+    trust: { policy: "ask", digest: "d1", trusted: true },
+  });
+  await renderBoard();
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("canvas-hold"));
+  });
+  const post = fetches.find((f) => f.url.includes("/canvas/untrust"));
+  expect(post?.init?.method).toBe("POST");
+  expect(post?.url).toContain(`file=${encodeURIComponent(FILE)}`);
+});
+
+test("a board of an older server, with no trust, offers no Hold", async () => {
+  await renderBoard();
+  expect(screen.queryByTestId("canvas-hold")).toBeNull();
 });

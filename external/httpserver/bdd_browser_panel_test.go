@@ -63,7 +63,7 @@ func (p *panelStand) start() error {
 	}
 	cfg := &config.Config{
 		Paths:      config.Paths{Home: home, CWD: cwd},
-		Providers:  []config.ProviderConfig{{Name: "stub", Type: "openai", APIBase: p.model.URL + "/v1", APIKey: "sk-stub"}},
+		Providers:  []config.ProviderConfig{{Name: "stub", Type: "openai", UsageLimitsPanel: new(bool), APIBase: p.model.URL + "/v1", APIKey: "sk-stub"}},
 		Models:     []config.ModelEntry{{Model: "stub/coddy-demo", MaxContextTokens: 131072}},
 		Agent:      config.Agent{Model: "stub/coddy-demo"},
 		Browser:    config.BrowserConfig{Enable: true, Token: panelKey},

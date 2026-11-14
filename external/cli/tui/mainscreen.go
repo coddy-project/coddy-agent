@@ -482,6 +482,19 @@ func (m *MainScreen) doRender() {
 		return
 	}
 
+	// A fixed-size frame whose changes are wholly above the viewport does not
+	// alter anything the terminal can display. Adopt it as the diff baseline
+	// without clearing and replaying the visible transcript. This is the
+	// steady state of an offscreen loader in a long session.
+	if len(newLines) == len(m.previousLines) && lastChanged < prevViewportTop {
+		m.positionHardwareCursor(cursor, len(newLines))
+		m.previousLines = newLines
+		m.previousWidth = width
+		m.previousHeight = height
+		m.previousViewportTop = prevViewportTop
+		return
+	}
+
 	// Changes above the previously visible viewport need a full redraw.
 	if firstChanged < prevViewportTop {
 		fullRender(true)

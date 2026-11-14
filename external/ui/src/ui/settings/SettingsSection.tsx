@@ -1,15 +1,22 @@
+import {
+  AuthenticationSection,
+  AUTHENTICATION_FIELD_TEXTS,
+} from "./AuthenticationSection";
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
+import { BrowserSetupField } from "./BrowserSetupField";
 import { CodexAuthField } from "./CodexAuthField";
+import { DevinAuthField } from "./DevinAuthField";
 import { FieldLabel } from "./FieldHint";
 import { ContextWindowField } from "./ContextWindowField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
+import { KimiAuthField } from "./KimiAuthField";
 import { OpenCodeAuthField } from "./OpenCodeAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
-import type { ProviderRow } from "./useProviderModels";
+import type { FetchedModel, ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
@@ -104,7 +111,12 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 // Provider types with an account-usage source server-side
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
 // means something only for them, so the other types do not show it.
-const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+const USAGE_PANEL_PROVIDER_TYPES = new Set([
+  "neuraldeep",
+  "codex",
+  "devin",
+  "openai",
+]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
@@ -121,6 +133,13 @@ function seedLogicalModel(
   contextWindow?: number | undefined,
   maxTokens?: number | undefined,
   multimodal?: boolean | undefined,
+  kimiMetadata?: {
+    model: string;
+    protocol: string;
+    mode: string;
+    region: string;
+  },
+  listing?: FetchedModel,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -128,16 +147,32 @@ function seedLogicalModel(
       ? { ...(seed as Record<string, unknown>) }
       : {};
   delete row.reasoning_levels;
+  delete row.kimi_metadata;
   row.model = id;
+  if (kimiMetadata && itemSchema?.properties?.kimi_metadata) {
+    row.kimi_metadata = kimiMetadata;
+  }
   if (contextWindow && itemSchema?.properties?.max_context_tokens) {
     row.max_context_tokens = contextWindow;
   }
   if (maxTokens && itemSchema?.properties?.max_tokens) {
     row.max_tokens = maxTokens;
   }
-  if (multimodal && itemSchema?.properties?.multimodal) {
-    row.multimodal = true;
+  if (multimodal !== undefined && itemSchema?.properties?.multimodal) {
+    row.multimodal = multimodal;
+  } else if (listing?.kimi_source) {
+    delete row.multimodal;
   }
+  if (
+    listing?.kimi_reasoning_levels !== undefined &&
+    itemSchema?.properties?.reasoning_levels
+  )
+    row.reasoning_levels = listing.kimi_reasoning_levels;
+  if (
+    listing?.kimi_default_reasoning &&
+    itemSchema?.properties?.reasoning_default
+  )
+    row.reasoning_default = listing.kimi_default_reasoning;
   return row;
 }
 
@@ -319,6 +354,9 @@ export function overrideTexts(
   parent: Record<string, unknown> | undefined,
   schema: JsonSchema,
 ): false | null | OverrideTexts {
+  if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
+    return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+  }
   const label = () =>
     schemaFieldLabel(
       domain,
@@ -339,6 +377,20 @@ export function overrideTexts(
       return proxy(SETTINGS_TEXTS.proxyIgnoreSystem);
     }
     const providerType = rowText(parent, "type");
+    if (path === "kimi_identity") return false;
+    if (path === "mode" || path === "region") {
+      return providerType === "kimi"
+        ? { primary: label(), primaryDesc: desc() }
+        : false;
+    }
+    if (providerType === "kimi" && path === "api_base") {
+      return false;
+    }
+    if (path === "user_agent") {
+      return providerType === "openai" || providerType === "anthropic"
+        ? { primary: label(), primaryDesc: desc() }
+        : false;
+    }
     if (
       path === "usage_limits_panel" &&
       !USAGE_PANEL_PROVIDER_TYPES.has(providerType)
@@ -372,6 +424,12 @@ export function overrideTexts(
           primaryDesc: translate(SETTINGS_TEXTS.codexAccount.desc),
         };
       }
+    }
+    if (providerType === "devin" && path === "api_base") {
+      return {
+        primary: translate("devinAuth.fieldLabel"),
+        primaryDesc: translate("devinAuth.description"),
+      };
     }
     if (providerType === "opencode" && path === "api_base") {
       return {
@@ -407,6 +465,12 @@ export function overrideTexts(
   if (domain === "skills") {
     return path === SKILLS_HAND_DRAWN_FIELD ? false : null;
   }
+  // The extension key is the whole of connecting a browser, so the field
+  // carries the steps around it: the stores, the address and the key, and
+  // what the endpoint says while a browser is on its way.
+  if (domain === "browser") {
+    return path === "token" ? { primary: label(), primaryDesc: desc() } : null;
+  }
   return null;
 }
 
@@ -430,10 +494,107 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
   );
 }
 
+// The Browser section draws its key as the card that connects a browser: the
+// stores, the address, the key and what the endpoint says while the extension
+// is on its way (BrowserSetupField).
+function browserFieldOverride(row: Record<string, unknown>): FieldOverride {
+  return (ctx: FieldOverrideContext) => {
+    const box = boxFor("browser", ctx);
+    if (box === false || box === null) {
+      return box;
+    }
+    return (
+      <BrowserSetupField
+        value={
+          ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)
+        }
+        onChange={ctx.onChange}
+        texts={box}
+        enabled={row.enable !== false}
+      />
+    );
+  };
+}
+
 function providerFieldOverride(ctx: FieldOverrideContext) {
   const box = boxFor("providers", ctx);
   if (box === false || box === null) {
     return box;
+  }
+  if (
+    rowText(ctx.parentObj, "type") === "kimi" &&
+    (ctx.path === "mode" || ctx.path === "region")
+  ) {
+    const mode = ctx.path === "mode";
+    return (
+      <div className="settings-row">
+        <FieldLabel label={box.primary} description={box.primaryDesc} />
+        <select
+          className="settings-input"
+          aria-label={box.primary}
+          value={String(ctx.value || (mode ? "subscription" : "global"))}
+          onChange={(event) => ctx.onChange(event.target.value)}
+        >
+          {mode ? (
+            <>
+              <option value="subscription">Kimi Code</option>
+              <option value="platform">Kimi Platform</option>
+            </>
+          ) : (
+            <>
+              <option value="global">kimi.ai</option>
+              <option value="china">kimi.com</option>
+            </>
+          )}
+        </select>
+        {mode &&
+        rowText(ctx.parentObj, "mode") !== "platform" &&
+        (rowText(ctx.parentObj, "api_key").trim() ||
+          rowText(ctx.parentObj, "api_key_command").trim()) ? (
+          <p className="settings-error">
+            {translate("kimiAuth.removePlatformCredentials")}
+          </p>
+        ) : null}
+        {mode && rowText(ctx.parentObj, "mode") !== "platform" ? (
+          <KimiAuthField
+            providerName={rowText(ctx.parentObj, "name")}
+            mode={rowText(ctx.parentObj, "mode")}
+            region={rowText(ctx.parentObj, "region")}
+            proxy={rowText(ctx.parentObj, "proxy")}
+            identity={rowText(ctx.parentObj, "kimi_identity")}
+            onIdentity={(identity, expected) =>
+              ctx.updateParent?.(
+                { ...ctx.parentObj, kimi_identity: expected },
+                { kimi_identity: identity },
+              ) ?? false
+            }
+          />
+        ) : null}
+      </div>
+    );
+  }
+  if (ctx.path === "user_agent") {
+    const providerType = rowText(ctx.parentObj, "type");
+    return (
+      <div className="settings-row">
+        <FieldLabel label={box.primary} description={box.primaryDesc} />
+        <select
+          className="settings-input"
+          aria-label={box.primary}
+          value={ctx.value === "coddy" ? "coddy" : ""}
+          onChange={(e) => ctx.onChange(e.target.value)}
+        >
+          <option value="">
+            {translate(
+              providerType === "anthropic"
+                ? "settings.userAgent.anthropic"
+                : "settings.userAgent.openai",
+            )}
+          </option>
+          <option value="coddy">{translate("settings.userAgent.coddy")}</option>
+        </select>
+      </div>
+    );
   }
   // Every provider type has the proxy switch and URL field, codex included: its
   // sign-in and its requests take the row's route like any other.
@@ -450,6 +611,19 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     return (
       <CodexAuthField
         providerName={rowText(ctx.parentObj, "name")}
+        texts={box}
+        {...rowProxy(ctx.parentObj)}
+      />
+    );
+  }
+  if (rowText(ctx.parentObj, "type") === "devin") {
+    return (
+      <DevinAuthField
+        providerName={rowText(ctx.parentObj, "name")}
+        hasExplicitKey={
+          rowText(ctx.parentObj, "api_key").trim() !== "" ||
+          rowText(ctx.parentObj, "api_key_command").trim() !== ""
+        }
         texts={box}
         {...rowProxy(ctx.parentObj)}
       />
@@ -556,6 +730,7 @@ export function SettingsSection(props: {
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
+  onRestartOnboarding?: (() => void) | undefined;
 }) {
   const {
     section,
@@ -592,7 +767,9 @@ export function SettingsSection(props: {
     setDoc({ ...doc, [key]: value });
 
   if (section.kind === "appearance") {
-    return <AppearanceThemePicker />;
+    return (
+      <AppearanceThemePicker onRestartOnboarding={props.onRestartOnboarding} />
+    );
   }
   if (section.kind === "statistics") {
     return (
@@ -638,6 +815,15 @@ export function SettingsSection(props: {
           <SystemSection />
         </Suspense>
       </ChunkBoundary>
+    );
+  }
+
+  if (section.kind === "authentication") {
+    return (
+      <AuthenticationSection
+        value={asObject(doc.httpserver)}
+        onChange={(v) => setKey("httpserver", v)}
+      />
     );
   }
 
@@ -884,7 +1070,14 @@ export function SettingsSection(props: {
                 <ProviderModelList
                   provider={item}
                   existingModels={modelIds}
-                  onAddModel={(id, contextWindow, maxTokens, multimodal) => {
+                  onAddModel={(
+                    id,
+                    contextWindow,
+                    maxTokens,
+                    multimodal,
+                    kimiMetadata,
+                    listing,
+                  ) => {
                     if (modelIds.includes(id)) {
                       return;
                     }
@@ -897,6 +1090,8 @@ export function SettingsSection(props: {
                           contextWindow,
                           maxTokens,
                           multimodal,
+                          kimiMetadata,
+                          listing,
                         ),
                       ]),
                     );
@@ -958,32 +1153,34 @@ export function SettingsSection(props: {
   const override: FieldOverride | undefined =
     key === "gateways"
       ? gatewaysFieldOverride
-      : key === "agent" ||
-          key === "memory" ||
-          key === "compaction" ||
-          key === "supervisor"
-        ? (ctx) =>
-            ctx.path === "model" ? (
-              <ModelPicker
-                value={
-                  ctx.value === undefined || ctx.value === null
-                    ? ""
-                    : String(ctx.value)
-                }
-                onChange={(v) => ctx.onChange(v)}
-                models={modelIds}
-                label={
-                  schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
-                  t("settings.field.defaultModelFallback")
-                }
-                description={schemaFieldDesc(
-                  key,
-                  "model",
-                  ctx.schema.description,
-                )}
-              />
-            ) : null
-        : undefined;
+      : key === "browser"
+        ? browserFieldOverride(asObject(doc[key]))
+        : key === "agent" ||
+            key === "memory" ||
+            key === "compaction" ||
+            key === "supervisor"
+          ? (ctx) =>
+              ctx.path === "model" ? (
+                <ModelPicker
+                  value={
+                    ctx.value === undefined || ctx.value === null
+                      ? ""
+                      : String(ctx.value)
+                  }
+                  onChange={(v) => ctx.onChange(v)}
+                  models={modelIds}
+                  label={
+                    schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                    t("settings.field.defaultModelFallback")
+                  }
+                  description={schemaFieldDesc(
+                    key,
+                    "model",
+                    ctx.schema.description,
+                  )}
+                />
+              ) : null
+          : undefined;
   return (
     <SchemaForm
       schema={sub}
@@ -1002,7 +1199,7 @@ export function providerFormGroups(): SchemaFormGroup[] {
     {
       id: "advanced",
       legend: translate("settings.providers.group.advanced"),
-      paths: ["api_key_command", "proxy", "timeout_ms"],
+      paths: ["user_agent", "api_key_command", "proxy", "timeout_ms"],
       collapsible: true,
     },
   ];
@@ -1075,7 +1272,7 @@ export function objectSectionGroups(
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: ["model", "max_turns", "queue_mode"],
+        paths: ["model", "max_turns", "queue_mode", "prompt_suggestions"],
       },
       {
         id: "retries",
@@ -1197,6 +1394,22 @@ export function objectSectionGroups(
         id: "hooks",
         legend: translate("settings.group.hooks.main"),
         description: translate("settings.group.hooks.mainDesc"),
+      },
+    ];
+  }
+  if (key === "browser") {
+    // Connecting a browser is the whole tab for almost everyone, so what one
+    // Coddy process lends another folds away under the card, the way a
+    // provider's advanced settings do. The switch that opens these browsers
+    // to other processes and the list of other servers' browsers are two
+    // halves of the same arrangement and stand together.
+    return [
+      {
+        id: "browser-shared",
+        legend: translate("settings.group.browser.shared"),
+        description: translate("settings.group.browser.sharedDesc"),
+        paths: ["serve_remote", "remotes"],
+        collapsible: true,
       },
     ];
   }

@@ -1,20 +1,21 @@
-Feature: The HTTP surface shows memory runs as system agent tasks
-  A memory run is a background task of the session that started it, so the Tasks drawer
-  already polls it. The REST surface marks the task as a system agent named memory, names
-  the child session that holds its transcript, serves that transcript read-only like any
-  child's, and carries nothing else about memory in the messages payload. The notes themselves
-  are read from the session's two roots: the global memory.dir and the project's own
-  .coddy/memory, beside the rest of the project's Coddy files. The project root comes with the
-  checkout, so a link in it never leads out of it: a clone that carries a note linked to a file
-  elsewhere on the disk does not get that file served.
+Feature: The HTTP surface shows memory runs as agent tasks
+  A memory run spawned under the bundled memory definition is a background task of the
+  session that started it, so the Tasks drawer already polls it. The REST surface marks
+  the task as an agent named memory, names the child session that holds its transcript,
+  serves that transcript read-only like any child's, and carries nothing else about
+  memory in the messages payload. The notes themselves are read from the session's two
+  roots: the global memory.dir and the project's own .coddy/memory, beside the rest of
+  the project's Coddy files. The project root comes with the checkout, so a link in it
+  never leads out of it: a clone that carries a note linked to a file elsewhere on the
+  disk does not get that file served.
 
-  Scenario: A memory run is an agent task row flagged as a system task
+  Scenario: A memory run is an agent task row named memory
     Given a running coddy serve server with a session
     And that session started a memory run backed by child session "sess_bdd_memory"
     When I GET the background tasks of that session
     Then the response lists a task of kind "agent"
     And that task row names the agent "memory" and the child session "sess_bdd_memory"
-    And that task row is flagged as a system task
+    And that task row is an ordinary agent task
 
   Scenario: The memory child's transcript is readable and the messages payload carries no memory rows
     Given a running coddy serve server with a session

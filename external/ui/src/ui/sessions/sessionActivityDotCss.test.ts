@@ -25,7 +25,7 @@ test("the activity dot is the unread dot, a third darker", () => {
     expect(re.exec(dot)?.[1]).toBe(re.exec(unread)?.[1]);
   }
   expect(dot).toMatch(
-    /background:\s*color-mix\(in srgb,\s*rgba\(167,\s*139,\s*250,\s*0\.95\)\s*67%,\s*#000\)/,
+    /background:\s*color-mix\(in srgb,\s*var\(--accent\)\s*67%,\s*#000\)/,
   );
 });
 

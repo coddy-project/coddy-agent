@@ -4,7 +4,6 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -82,6 +81,13 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.followSessionFolder()
 		a.flushPromptsAfterTurn()
+		// A turn that ended well and left nothing queued may offer the
+		// operator its prediction of the next message (prompt_suggestion.go):
+		// a queued prompt has already started a turn by now, which retires
+		// the attempt on its own.
+		if u.err == nil && u.stop != "cancelled" {
+			a.startSuggestion(u.sessionID)
+		}
 		return
 	case wakeTurn:
 		// A finished background task asks for a turn nobody typed; the
@@ -102,6 +108,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.applyTaskStopped(u)
 		return
 	case configReloaded:
+		a.clearSuggestion()
 		// The process configuration changed for every session, so the header
 		// and footer always re-read it; the option set is per session and is
 		// adopted only when the committing turn belongs to the visible one.
@@ -127,6 +134,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// (providers[].usage_limits_panel): a cache read brings the line up
 		// or takes it down without waiting for the next turn.
 		a.refreshUsage(usageProviderOf(a.modelID), false)
+		return
+	case remote.ConfigReloadedUpdate:
+		a.clearSuggestion()
 		return
 	case gateWithdrawn:
 		a.dropAbandonedGate()
@@ -210,9 +220,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.queue.ApplyControl(u)
 	case remote.ActivityUpdate:
 		if u.Revision >= a.remoteActivityRevision {
+			wasActive := a.remoteTurnActive
 			a.remoteActivityRevision = u.Revision
 			a.remoteTurnActive = u.TurnActive
+			if u.TurnActive && !wasActive {
+				a.clearSuggestion()
+			}
 			a.flushPromptsAfterTurn()
+			if !u.TurnActive && a.suggestionWaiting {
+				a.startSuggestion(a.sessionID)
+			}
 		}
 	case remote.FollowUpdate:
 		a.applyFollow(u)
@@ -269,7 +286,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
-		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		if (u.SessionUsageKnown != nil && !*u.SessionUsageKnown) || (u.UsageKnown != nil && !*u.UsageKnown) {
+			a.foot.tokensUnknown = true
+		} else {
+			a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+		}
 	case acp.TurnProgressUpdate:
 		a.applyTurnProgress(u)
 	case acp.UsageUpdate:
@@ -323,53 +344,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.applyMCPConnect(u)
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
-	case acp.MemoryRunUpdate:
-		a.applyMemoryRun(u)
 	case acp.MessageQueueUpdate:
 		// The queue changes from outside this goroutine - another surface, or
 		// the agent reading a batch - so the widget follows the update rather
 		// than what this console last sent. The version orders the two streams
 		// the same update can arrive down.
 		a.queue.Apply(u.Messages, u.Version)
-	}
-}
-
-// applyMemoryRun renders the memory subagent's run: the status phrase while
-// the turn waits for its report, and one dim line when the run settled or
-// could not start. The report itself is in the child transcript (the Tasks
-// drawer of the web UI opens it; on disk it is the child bundle under the
-// session's subagents folder).
-func (a *App) applyMemoryRun(u acp.MemoryRunUpdate) {
-	switch u.Status {
-	case "started":
-		if a.turnActive {
-			a.setStatus(newWorkingStatus("Working with memory", ""))
-		}
-		return
-	case "finished", "skipped":
-		if a.turnActive {
-			a.setStatus(newWaitingStatus())
-		}
-		a.appendStatus(roleDim, memoryRunLine(u))
-	}
-}
-
-// memoryRunLine is the one line the console prints about a settled memory
-// run, or about one that could not start.
-func memoryRunLine(u acp.MemoryRunUpdate) string {
-	if u.Status == "skipped" {
-		return "memory: skipped - " + strings.TrimSpace(u.Reason)
-	}
-	elapsed := (time.Duration(u.DurationMs) * time.Millisecond).Round(100 * time.Millisecond)
-	switch {
-	case u.Delivered:
-		return fmt.Sprintf("memory: recalled in %s (task %s)", elapsed, u.TaskID)
-	case u.TaskStatus == "succeeded":
-		return fmt.Sprintf("memory: finished in %s, nothing reached this turn (task %s)", elapsed, u.TaskID)
-	case strings.TrimSpace(u.Reason) != "":
-		return fmt.Sprintf("memory: %s after %s (task %s) - %s", u.TaskStatus, elapsed, u.TaskID, strings.TrimSpace(u.Reason))
-	default:
-		return fmt.Sprintf("memory: %s after %s (task %s)", u.TaskStatus, elapsed, u.TaskID)
 	}
 }
 
@@ -486,6 +466,7 @@ func intFromAny(v interface{}) int {
 func (a *App) applyFollow(u remote.FollowUpdate) {
 	a.curAssistant = nil
 	if u.Active {
+		a.clearSuggestion()
 		if !a.turnActive {
 			a.stepStatus = newWaitingStatus()
 			a.stepBlocked = ""
@@ -502,6 +483,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 	}
 	a.dropAbandonedGate()
 	a.refreshTasks()
+	a.startSuggestion(a.sessionID)
 }
 
 // followSessionFolder lists the context of the folder the session works in

@@ -642,6 +642,28 @@ func TestCodexStreamTerminalStates(t *testing.T) {
 			},
 			wantErr: "upstream said 503 Service Unavailable",
 		},
+		// The flat error event is named by its code like a response.failed is:
+		// the code is a field of the event itself (issue #602).
+		"a flat error event is named by its code": {
+			script: func(w io.Writer) {
+				sse(w, "error", map[string]any{"code": "invalid_prompt", "message": "The prompt was refused.", "param": nil})
+			},
+			wantErr: "codex stream: invalid_prompt: The prompt was refused.",
+		},
+		"a failure whose message is empty is named by its code alone": {
+			script: func(w io.Writer) {
+				sse(w, "response.failed", map[string]any{"response": map[string]any{
+					"status": "failed", "error": map[string]any{"code": "server_error", "message": ""},
+				}})
+			},
+			wantErr: "codex stream: server_error",
+		},
+		"a failure that names nothing falls back to its event": {
+			script: func(w io.Writer) {
+				sse(w, "error", map[string]any{"code": "", "message": "", "param": nil})
+			},
+			wantErr: "codex stream error",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -938,6 +960,135 @@ func TestCodexInBandErrorRetry(t *testing.T) {
 			}
 			if got := IsTransientProviderError(err); got != tc.wantTransient {
 				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.wantTransient)
+			}
+		})
+	}
+}
+
+// TestCodexResponseEventOverloadRetry covers the two shapes of an overload the
+// Responses API reports as its own event rather than as the error member the
+// SDK intercepts (issue #602): response.failed, whose error object rides on
+// the response, and the flat error event, whose code is a field of the event.
+// Before any output either one is retried like a 503; after a text delta it
+// is not replayed but stays transient for the agent's provider recovery; any
+// other code is final whatever its message says.
+func TestCodexResponseEventOverloadRetry(t *testing.T) {
+	const overloadMessage = "Our servers are currently overloaded. Please try again later."
+	failed := func(code, message string) func(io.Writer) {
+		return func(w io.Writer) {
+			sse(w, "response.failed", map[string]any{"response": map[string]any{
+				"status": "failed",
+				"error":  map[string]any{"code": code, "message": message},
+			}})
+		}
+	}
+	flat := func(code, message string) func(io.Writer) {
+		return func(w io.Writer) {
+			sse(w, "error", map[string]any{"code": code, "message": message, "param": nil})
+		}
+	}
+	hello := func(w io.Writer) {
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello"})
+		sseCompleted(w)
+	}
+	afterText := func(event func(io.Writer)) func(io.Writer) {
+		return func(w io.Writer) {
+			sse(w, "response.output_text.delta", map[string]any{"delta": "Hel"})
+			event(w)
+		}
+	}
+	cases := []struct {
+		name          string
+		scripts       []func(io.Writer)
+		wantRequests  int32
+		wantErr       bool
+		wantTransient bool
+		wantStreamed  string
+		// wantStatus and wantOutcome pin what the rest of Coddy reads off the
+		// error: the status UpstreamStatus hands the HTTP surface and the
+		// compaction, and the outcome the exporter counts. A 503 reached by a
+		// scan of the message text rather than by the event's fields would
+		// pass the retry assertions above and fail these.
+		wantStatus  int
+		wantOutcome string
+	}{
+		{name: "response.failed overload before any output is retried and succeeds",
+			scripts:      []func(io.Writer){failed("server_is_overloaded", overloadMessage), hello},
+			wantRequests: 2, wantStreamed: "Hello"},
+		{name: "flat error overload before any output is retried and succeeds",
+			scripts:      []func(io.Writer){flat("server_is_overloaded", overloadMessage), hello},
+			wantRequests: 2, wantStreamed: "Hello"},
+		{name: "response.failed overload on every attempt ends with the provider's error after the retries",
+			scripts:      []func(io.Writer){failed("server_is_overloaded", overloadMessage)},
+			wantRequests: 3, wantErr: true, wantTransient: true,
+			wantStatus: 503, wantOutcome: "server_error"},
+		{name: "response.failed overload after a text delta is not replayed",
+			scripts:      []func(io.Writer){afterText(failed("server_is_overloaded", overloadMessage)), hello},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel",
+			wantStatus: 503, wantOutcome: "server_error"},
+		{name: "flat error overload after a text delta is not replayed",
+			scripts:      []func(io.Writer){afterText(flat("server_is_overloaded", overloadMessage)), hello},
+			wantRequests: 1, wantErr: true, wantTransient: true, wantStreamed: "Hel",
+			wantStatus: 503, wantOutcome: "server_error"},
+		{name: "response.failed with another code is final",
+			scripts:      []func(io.Writer){failed("invalid_prompt", "The prompt was refused."), hello},
+			wantRequests: 1, wantErr: true, wantOutcome: "error"},
+		// The words of a message are not a verdict: only the code is.
+		{name: "response.failed with another code that says overloaded is final",
+			scripts:      []func(io.Writer){failed("invalid_prompt", overloadMessage), hello},
+			wantRequests: 1, wantErr: true, wantOutcome: "error"},
+		// A code the message never names reaches the overflow test through the
+		// message both events are now written into, so the request is counted
+		// as the refusal it is rather than as an unexplained failure.
+		{name: "flat error with another code that says overloaded is final",
+			scripts:      []func(io.Writer){flat("context_length_exceeded", overloadMessage), hello},
+			wantRequests: 1, wantErr: true, wantOutcome: "context_overflow"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := int(calls.Add(1)) - 1
+				w.Header().Set("Content-Type", "text/event-stream")
+				tc.scripts[min(n, len(tc.scripts)-1)](w)
+			}))
+			defer srv.Close()
+			provider := applyResilientWrap(newCodexTestProvider(t, srv.URL), ProviderInput{
+				RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+			})
+
+			var streamed strings.Builder
+			resp, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+				func(c StreamChunk) { streamed.WriteString(c.TextDelta) })
+			if got := calls.Load(); got != tc.wantRequests {
+				t.Errorf("requests = %d, want %d", got, tc.wantRequests)
+			}
+			if got := streamed.String(); got != tc.wantStreamed {
+				t.Errorf("streamed text = %q, want %q: a retry must never show text twice", got, tc.wantStreamed)
+			}
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("Stream: %v (after %d requests)", err, calls.Load())
+				}
+				if resp == nil || resp.Content != "Hello" || resp.StopReason != "end_turn" {
+					t.Fatalf("resp = %+v, want the second attempt's whole answer", resp)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Stream succeeded with %+v, want the provider's error", resp)
+			}
+			if !strings.HasPrefix(err.Error(), "codex stream: ") {
+				t.Errorf("error = %q, want the stream's error", err)
+			}
+			if got := IsTransientProviderError(err); got != tc.wantTransient {
+				t.Errorf("IsTransientProviderError = %v, want %v", got, tc.wantTransient)
+			}
+			if got := UpstreamStatus(err); got != tc.wantStatus {
+				t.Errorf("UpstreamStatus = %d, want %d: the status is read off the event's fields", got, tc.wantStatus)
+			}
+			if got := CallOutcome(err); got != tc.wantOutcome {
+				t.Errorf("CallOutcome = %q, want %q", got, tc.wantOutcome)
 			}
 		})
 	}

@@ -775,7 +775,7 @@ func BuildExportDocument(in ExportInput) ExportDocument {
 	}
 	if in.Stats != nil {
 		u := in.Stats.TokenUsageTotal
-		if u.InputTokens > 0 || u.OutputTokens > 0 || u.TotalTokens > 0 {
+		if (u.UsageKnown != nil && *u.UsageKnown) || (u.UsageKnown == nil && (u.InputTokens > 0 || u.OutputTokens > 0 || u.TotalTokens > 0)) {
 			info.TokenUsage = &ExportTokenUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens}
 		}
 	}

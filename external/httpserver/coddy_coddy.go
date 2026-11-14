@@ -234,6 +234,9 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/terminal", s.coddyTerminalGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/terminal", s.coddyTerminalPost)
+	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/terminal", s.coddyTerminalDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}", s.coddySessionAssetGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}", s.coddySessionArtifactGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}/preview", s.coddySessionArtifactPreviewGet)
@@ -243,6 +246,8 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/prompt-suggestion", s.coddySessionPromptSuggestionGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/prompt-suggestion/outcome", s.coddySessionPromptSuggestionOutcomePost)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace", s.coddySessionWorkspacePost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
@@ -606,7 +611,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Text string `json:"text"`
+		Text  string `json:"text"`
+		Model string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -639,7 +645,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	commands := s.describeInvokedCommands(r, text)
 	words := describeFallbackWords(text, commands)
 
-	provider, err := s.providerFactory(s.activeCfg())
+	provider, err := s.describeProvider(r, body.Model, raw)
 	if err != nil {
 		s.log.Error("describe provider", "error", err)
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)
@@ -1378,12 +1384,23 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
 // A bundle with no stats.json yet (a chat that never completed a model call)
 // reports zeroes rather than nothing, so every row of the table has the same
-// shape and sorts numerically.
+// shape and sorts numerically. A stats.json that exists but cannot be read -
+// corrupt JSON, a directory under that name - reports null instead: the usage
+// is unknown, not zero.
 func coddySessionTokenUsage(fs *session.FileStore, id string) map[string]int {
 	usage := map[string]int{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
 	stats, err := session.ReadSessionStats(fs.SessionPath(id))
-	if err != nil || stats == nil {
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return usage
+		}
+		return nil
+	}
+	if stats == nil {
 		return usage
+	}
+	if stats.TokenUsageTotal.UsageKnown != nil && !*stats.TokenUsageTotal.UsageKnown {
+		return nil
 	}
 	usage["inputTokens"] = stats.TokenUsageTotal.InputTokens
 	usage["outputTokens"] = stats.TokenUsageTotal.OutputTokens

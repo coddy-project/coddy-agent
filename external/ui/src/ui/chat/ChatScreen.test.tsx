@@ -1056,21 +1056,28 @@ test("the live line of a running turn names the running tasks and opens the Task
     overdue: false,
     running: true,
   };
-  const memory: BackgroundTask = {
+  const system: BackgroundTask = {
     ...running,
     id: "bg_3",
     kind: "agent",
-    agent: { name: "memory", system: true },
+    agent: { name: "goal-verifier", system: true },
+  };
+  const memory: BackgroundTask = {
+    ...running,
+    id: "bg_4",
+    kind: "agent",
+    agent: { name: "memory" },
   };
   render(
     turnLineScreen({
-      backgroundTasks: [running, memory],
+      backgroundTasks: [running, system, memory],
       onOpenBackgroundTasks: onOpen,
     }),
   );
-  // The memory run of the turn is a system task and is not counted.
+  // A spawned memory child is an ordinary agent task and is counted; only the
+  // runtime's own system tasks are left out.
   expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
-    "1 running task",
+    "2 running tasks",
   );
   fireEvent.click(screen.getByTestId("typing-dots-turn-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);

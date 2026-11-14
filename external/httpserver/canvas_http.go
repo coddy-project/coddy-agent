@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/canvas"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -34,6 +35,8 @@ func (s *Server) registerCanvasRoutes() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/frames/{frame}/rotate", s.canvasRotateFrame)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/frames/{frame}/report", s.canvasReport)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}/canvas/nodes", s.canvasPatchNodes)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/trust", s.canvasTrust)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/untrust", s.canvasUntrust)
 	s.mux.HandleFunc(canvasFilePattern, s.canvasFile)
 }
 
@@ -47,6 +50,16 @@ func (s *Server) canvasSources() []string {
 		return c.Tools.Canvas.Sources()
 	}
 	return nil
+}
+
+// canvasTrustOf is how the routes decide which pages of a board run: the
+// receipts under the home and tools.canvas.project_trust of the live config.
+func (s *Server) canvasTrustOf() *canvas.Trust {
+	c := s.activeCfg()
+	if c == nil {
+		return canvas.NewTrust("", config.ProjectTrustAsk)
+	}
+	return canvas.NewTrust(c.Paths.Home, c.Tools.Canvas.ResolvedProjectTrust())
 }
 
 // canvasKey signs frame addresses: the media key's secret, derived again for
@@ -86,7 +99,7 @@ func (s *Server) canvasRef(w http.ResponseWriter, r *http.Request, need bool) (c
 		writeSubagentsError(w, http.StatusBadRequest, "name the .canvas file with the file query")
 		return canvas.Ref{}, false
 	}
-	return canvas.Ref{Bundle: canvas.BoardBundle(dir), Workspace: st.GetCWD(), File: file}, true
+	return canvas.Ref{Bundle: canvas.BoardBundle(dir), Workspace: st.GetCWD(), File: file, Trust: s.canvasTrustOf()}, true
 }
 
 type canvasReportSummary struct {
@@ -101,21 +114,31 @@ type canvasReportSummary struct {
 }
 
 type canvasFrameJSON struct {
-	ID        string               `json:"id"`
-	Path      string               `json:"path"`
-	Root      string               `json:"root"`
-	Title     string               `json:"title,omitempty"`
-	Device    string               `json:"device,omitempty"`
-	Width     int                  `json:"width"`
-	Height    int                  `json:"height"`
-	X         int                  `json:"x"`
-	Y         int                  `json:"y"`
-	AddedBy   string               `json:"added_by,omitempty"`
-	Gen       int                  `json:"gen"`
-	Stamp     string               `json:"stamp"`
-	URL       string               `json:"url"`
-	ExpiresAt time.Time            `json:"expires_at"`
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Root    string `json:"root"`
+	Title   string `json:"title,omitempty"`
+	Device  string `json:"device,omitempty"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	AddedBy string `json:"added_by,omitempty"`
+	Gen     int    `json:"gen"`
+	Stamp   string `json:"stamp"`
+	// Held is a page that waits for the person: it has no address.
+	Held      bool                 `json:"held,omitempty"`
+	URL       string               `json:"url,omitempty"`
+	ExpiresAt *time.Time           `json:"expires_at,omitempty"`
 	Report    *canvasReportSummary `json:"report,omitempty"`
+}
+
+// canvasTrustJSON is the trust decision a board offers: the policy, the
+// digest of its pages that an approval sends back, and whether every page runs.
+type canvasTrustJSON struct {
+	Policy  string `json:"policy"`
+	Digest  string `json:"digest"`
+	Trusted bool   `json:"trusted"`
 }
 
 type canvasBoardJSON struct {
@@ -130,20 +153,26 @@ type canvasBoardJSON struct {
 	Frames   []canvasFrameJSON `json:"frames"`
 	Items    []canvas.Item     `json:"items"`
 	Edges    []canvas.Edge     `json:"edges"`
+	Trust    *canvasTrustJSON  `json:"trust,omitempty"`
 }
 
 // frameJSON is a frame as the web UI reads it: with its stamp, a fresh
 // address relative to the API base and the newest report's counts.
 func (s *Server) frameJSON(sessionID, file string, f canvas.Frame, now time.Time) canvasFrameJSON {
-	token := canvas.SignCapability(s.canvasKey(), canvas.Claim{
-		Session: sessionID, File: file, Frame: f.ID, Workspace: workspaceIdentity(f.Workspace), Root: f.Root, Gen: f.Gen,
-	}, now)
 	out := canvasFrameJSON{
 		ID: f.ID, Path: f.Path, Root: f.Root, Title: f.Title, Device: f.Device, Width: f.Width, Height: f.Height,
 		X: f.X, Y: f.Y, AddedBy: f.AddedBy, Gen: f.Gen,
-		Stamp:     canvas.Stamp(f.Workspace, f.Root),
-		URL:       canvasFilePrefix + token + "/" + escapeSlashPath(f.PageInRoot()),
-		ExpiresAt: now.Add(canvas.CapabilityTTL).UTC(),
+		Stamp: canvas.Stamp(f.Workspace, f.Root),
+		Held:  f.Held,
+	}
+	if !f.Held {
+		// A page that waits gets no address: there is nothing to load.
+		token := canvas.SignCapability(s.canvasKey(), canvas.Claim{
+			Session: sessionID, File: file, Frame: f.ID, Workspace: workspaceIdentity(f.Workspace), Root: f.Root, Gen: f.Gen,
+		}, now)
+		expires := now.Add(canvas.CapabilityTTL).UTC()
+		out.URL = canvasFilePrefix + token + "/" + escapeSlashPath(f.PageInRoot())
+		out.ExpiresAt = &expires
 	}
 	if rep, ok := canvas.DefaultReports().Get(sessionID, canvas.NodeKey(file, f.ID)); ok {
 		sum := &canvasReportSummary{Stamp: rep.Stamp, Loaded: rep.Loaded, Closed: rep.Closed, Error: rep.Error, Title: rep.Title, At: rep.At}
@@ -186,6 +215,9 @@ func (s *Server) boardJSON(ref canvas.Ref, b canvas.Board) canvasBoardJSON {
 	for _, f := range b.Frames {
 		out.Frames = append(out.Frames, s.frameJSON(sid, b.File, f, now))
 	}
+	if b.File != "" && b.Error == "" {
+		out.Trust = &canvasTrustJSON{Policy: b.Policy(), Digest: canvas.PagesDigest(b.Pages()), Trusted: !b.Held()}
+	}
 	return out
 }
 
@@ -224,8 +256,10 @@ func writeCanvasError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, canvas.ErrFrameNotFound):
 		writeSubagentsError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, canvas.ErrTooManyFrames):
+	case errors.Is(err, canvas.ErrTooManyFrames), errors.Is(err, canvas.ErrPagesMoved):
 		writeSubagentsError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, canvas.ErrTrustDenied):
+		writeSubagentsError(w, http.StatusForbidden, err.Error())
 	default:
 		writeSubagentsError(w, http.StatusBadRequest, err.Error())
 	}
@@ -343,6 +377,44 @@ func (s *Server) canvasPatchNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"revision": b.Revision})
 }
 
+// canvasTrust records the person's approval of the pages a board shows: the
+// digest names the list the dialog showed, so a board whose pages moved since
+// answers 409 and approves nothing.
+func (s *Server) canvasTrust(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.canvasRef(w, r, true)
+	if !ok {
+		return
+	}
+	var req struct {
+		Digest string `json:"digest"`
+	}
+	if json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req) != nil || strings.TrimSpace(req.Digest) == "" {
+		writeSubagentsError(w, http.StatusBadRequest, "send the digest of the pages the person approved")
+		return
+	}
+	b, err := canvas.TrustBoard(ref, req.Digest)
+	if err != nil {
+		writeCanvasError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+}
+
+// canvasUntrust takes back the approvals of a board and the pages Coddy put
+// on it, in every checkout of the project: its pages wait again.
+func (s *Server) canvasUntrust(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.canvasRef(w, r, true)
+	if !ok {
+		return
+	}
+	b, err := canvas.UntrustBoard(ref)
+	if err != nil {
+		writeCanvasError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+}
+
 func (s *Server) canvasReport(w http.ResponseWriter, r *http.Request) {
 	ref, ok := s.canvasRef(w, r, true)
 	if !ok {
@@ -410,7 +482,13 @@ func (s *Server) canvasFile(w http.ResponseWriter, r *http.Request) {
 		stale()
 		return
 	}
-	f, err := canvas.FrameOf(canvas.Ref{Bundle: fs.SessionPath(claim.Session), Workspace: cwd, File: claim.File}, claim.Frame)
+	f, err := canvas.FrameOf(canvas.Ref{Bundle: fs.SessionPath(claim.Session), Workspace: cwd, File: claim.File, Trust: s.canvasTrustOf()}, claim.Frame)
+	if errors.Is(err, canvas.ErrFrameHeld) {
+		// An address handed out before the board was untrusted, or under
+		// another policy: the page waits for the person now.
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if err != nil || f.Gen != claim.Gen || f.Root != claim.Root {
 		stale()
 		return

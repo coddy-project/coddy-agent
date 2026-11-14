@@ -3,12 +3,18 @@
 package memstorage
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -429,5 +435,457 @@ func TestSearchIntermediateQueryThenWalkReachesVault(t *testing.T) {
 	}
 	if !sliceContains(order, "global:topics/services/api-map.md") {
 		t.Fatalf("expected api-map in pathOrder=%v", order)
+	}
+}
+
+// writeNotes saves rel -> body pairs under one scope of the store.
+func writeNotes(t *testing.T, st *Store, scope string, notes map[string]string) {
+	t.Helper()
+	for rel, body := range notes {
+		if _, err := st.WriteFlexible(scope, "n", rel, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// searchPaths is the paths a search returns, best first.
+func searchPaths(t *testing.T, st *Store, query, scope string, maxHits int) []string {
+	t.Helper()
+	hits, err := st.Search(query, scope, maxHits)
+	if err != nil {
+		t.Fatalf("Search(%q, %q): %v", query, scope, err)
+	}
+	paths := make([]string, 0, len(hits))
+	for _, h := range hits {
+		paths = append(paths, h.Path)
+	}
+	return paths
+}
+
+func equalPaths(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// A question's function words count for nothing: the generic how-to note
+// that shares "how to the" with it is not a hit at all, and the note about
+// deploying the relay comes first (issue #698).
+func TestSearchRanksTheNoteTheQuestionIsAbout(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"how-to-write-a-note.md": "How to write a note. Open the file, add a heading and save it to the folder.",
+		"relay-deployment.md":    "Relay deployment: build the image and restart the relay service.",
+		"relay-steps.md":         "relay deploy steps",
+	})
+	got := searchPaths(t, st, "how to deploy the relay", "global", 8)
+	want := []string{"global:relay-deployment.md", "global:relay-steps.md"}
+	if !equalPaths(got, want) {
+		t.Fatalf("hits = %v, want %v", got, want)
+	}
+}
+
+// A plural finds its singular and the other way round; a query word also
+// finds the words it begins.
+func TestSearchStemsAndMatchesPrefixes(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"a.md": "the config file lives next to the binary",
+		"b.md": "tabs and spaces are both fine",
+		"c.md": "deployment happens on friday",
+	})
+	for _, tc := range []struct{ query, want string }{
+		{"configs", "global:a.md"},
+		{"tab", "global:b.md"},
+		{"deploy", "global:c.md"},
+	} {
+		if got := searchPaths(t, st, tc.query, "global", 8); !equalPaths(got, []string{tc.want}) {
+			t.Errorf("Search(%q) = %v, want [%s]", tc.query, got, tc.want)
+		}
+	}
+}
+
+// A Russian query finds a note that has another form of its word.
+func TestSearchMatchesAnInflectedRussianWord(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "project", map[string]string{
+		"relay.md": "Настройки релея хранятся в файле конфигурации узла.",
+		"misc.md":  "Список покупок на неделю.",
+	})
+	if got := searchPaths(t, st, "настройка файл", "project", 8); !equalPaths(got, []string{"project:relay.md"}) {
+		t.Fatalf("hits = %v", got)
+	}
+}
+
+// A word few notes have outweighs one most notes have, even when the common
+// word repeats: counting the words a note shares with the query would tie
+// them and leave the order to the path.
+func TestSearchRareWordOutranksACommonOne(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	notes := map[string]string{
+		"a-common.md": "service service service restarts after every deploy",
+		"z-rare.md":   "zebra restarts after every deploy of anything",
+	}
+	for _, n := range []string{"b", "c", "d", "e"} {
+		notes[n+".md"] = "the service runs on a schedule and restarts nightly"
+	}
+	writeNotes(t, st, "global", notes)
+	got := searchPaths(t, st, "service zebra", "global", 8)
+	if len(got) == 0 || got[0] != "global:z-rare.md" {
+		t.Fatalf("hits = %v, want global:z-rare.md first", got)
+	}
+}
+
+// A word in the file name or a folder weighs more than the same word in the
+// body.
+func TestSearchPathWordsOutweighTheBody(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"misc.md":              "relay mentioned here once among other words",
+		"relay.md":             "nothing mentioned here once among other words",
+		"deploy/checklist.md":  "steps mentioned here once among other words",
+		"unrelated/storage.md": "nothing mentioned here once among other words",
+	})
+	got := searchPaths(t, st, "relay", "global", 8)
+	if len(got) != 2 || got[0] != "global:relay.md" || got[1] != "global:misc.md" {
+		t.Fatalf("file name vs body: hits = %v", got)
+	}
+	got = searchPaths(t, st, "deploy", "global", 8)
+	if len(got) != 1 || got[0] != "global:deploy/checklist.md" {
+		t.Fatalf("folder name: hits = %v", got)
+	}
+}
+
+// The AGENTS.md at the root of a scope is the guide the child already has at
+// the top of its task, so it is never a hit; one in a subfolder is an
+// ordinary note.
+func TestSearchLeavesTheRootGuideOut(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{
+		"AGENTS.md":         "Guide: relay deploy notes live under ops.",
+		"ops/AGENTS.md":     "relay deploy conventions of the ops folder",
+		"ops/deployment.md": "relay deploy: build, push, restart",
+	})
+	writeNotes(t, st, "project", map[string]string{"AGENTS.md": "Guide of the project: relay deploy."})
+	got := searchPaths(t, st, "relay deploy", "both", 8)
+	for _, p := range got {
+		if p == "global:AGENTS.md" || p == "project:AGENTS.md" {
+			t.Fatalf("the root guide is a hit: %v", got)
+		}
+	}
+	if len(got) != 2 || !sliceContains(got, "global:ops/AGENTS.md") || !sliceContains(got, "global:ops/deployment.md") {
+		t.Fatalf("hits = %v, want the two notes of ops", got)
+	}
+	if got := searchPaths(t, st, "guide", "both", 8); len(got) != 0 {
+		t.Fatalf("a word only the guides have found %v", got)
+	}
+}
+
+// The file a search leaves out is the one ReadNote reads as the guide: on a
+// case-insensitive filesystem (macOS, Windows) an Agents.md at the root is the
+// guide and no hit, on a case-sensitive one it is an ordinary note.
+func TestSearchLeavesOutTheFileReadAsTheGuide(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{"Agents.md": "relay deploy notes live under ops"})
+	_, readErr := st.ReadNote("global", GuideName)
+	got := searchPaths(t, st, "relay deploy", "global", 8)
+	if readErr == nil && len(got) != 0 {
+		t.Fatalf("Agents.md is read as the guide and still a hit: %v", got)
+	}
+	if readErr != nil && (len(got) != 1 || got[0] != "global:Agents.md") {
+		t.Fatalf("Agents.md is not the guide here (%v) but hits = %v", readErr, got)
+	}
+}
+
+// Behaviour that does not depend on the ranking: what an empty or empty-
+// handed query returns, which roots a scope reads, how many hits come back
+// and how equal scores are ordered.
+func TestSearchQueriesScopesAndLimits(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), filepath.Join(t.TempDir(), ".coddy", "memory"))
+	writeNotes(t, st, "global", map[string]string{"g.md": "shared topic of the global notes"})
+	writeNotes(t, st, "project", map[string]string{"p.md": "shared topic of the project notes"})
+	for _, q := range []string{"", "   ", "zzzqqq", "?!"} {
+		if got := searchPaths(t, st, q, "both", 8); len(got) != 0 {
+			t.Errorf("Search(%q) = %v, want nothing", q, got)
+		}
+	}
+	for scope, want := range map[string][]string{
+		"global":   {"global:g.md"},
+		"project":  {"project:p.md"},
+		" Global":  {"global:g.md"},
+		"both":     {"global:g.md", "project:p.md"},
+		"":         {"global:g.md", "project:p.md"},
+		"nonsense": {"global:g.md", "project:p.md"},
+	} {
+		if got := searchPaths(t, st, "shared topic", scope, 8); !equalPaths(got, want) {
+			t.Errorf("scope %q: hits = %v, want %v", scope, got, want)
+		}
+	}
+	if got := searchPaths(t, st, "shared topic", "both", 1); len(got) != 1 {
+		t.Errorf("maxHits 1 returned %v", got)
+	}
+	many := map[string]string{}
+	for i := 0; i < 12; i++ {
+		many[fmt.Sprintf("n%02d.md", i)] = "identical words here"
+	}
+	writeNotes(t, st, "global", many)
+	got := searchPaths(t, st, "identical words", "global", 0)
+	if len(got) != 8 {
+		t.Fatalf("the default limit returned %d hits, want 8", len(got))
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1] > got[i] {
+			t.Fatalf("equal scores are not ordered by path: %v", got)
+		}
+	}
+}
+
+// A hit carries its score, best first.
+func TestSearchScoresDescend(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	writeNotes(t, st, "global", map[string]string{
+		"relay.md": "relay deploy",
+		"misc.md":  "some words about a relay and other things entirely",
+	})
+	hits, err := st.Search("relay deploy", "global", 8)
+	if err != nil || len(hits) != 2 {
+		t.Fatalf("hits=%v err=%v", hits, err)
+	}
+	if hits[0].Score <= 0 || hits[0].Score <= hits[1].Score {
+		t.Fatalf("scores %v then %v", hits[0].Score, hits[1].Score)
+	}
+}
+
+// mkfifoOrSkip makes a named pipe, which a read of blocks until somebody
+// writes to it, and releases any reader still stuck on it when the test ends.
+func mkfifoOrSkip(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("no named pipes on Windows")
+	}
+	if err := exec.Command("mkfifo", path).Run(); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+			_ = f.Close()
+		}
+	})
+}
+
+// within runs f and fails the test when it has not returned after two
+// seconds, which is how a read stuck on a named pipe shows.
+func within(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("%s blocked on a named pipe", what)
+	}
+}
+
+// A named pipe is not a note: reading it would block the caller for good, so
+// it is refused, in either root.
+func TestReadNoteRefusesANamedPipe(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	mkfifoOrSkip(t, filepath.Join(g, "AGENTS.md"))
+	mkfifoOrSkip(t, filepath.Join(p, "AGENTS.md"))
+	for _, scope := range []string{"global", "project"} {
+		var err error
+		within(t, "ReadNote "+scope, func() { _, err = st.ReadNote(scope, "AGENTS.md") })
+		if !errors.Is(err, ErrNotNote) {
+			t.Errorf("ReadNote(%s) of a named pipe = %v, want ErrNotNote", scope, err)
+		}
+	}
+}
+
+// The tool read of a note (coddy_memory_read) refuses a named pipe as well,
+// and still reports a missing note and a folder as it did.
+func TestReadRefusesANamedPipe(t *testing.T) {
+	g := t.TempDir()
+	st := NewWithRoots(g, t.TempDir())
+	mkfifoOrSkip(t, filepath.Join(g, "pipe.md"))
+	if err := os.Mkdir(filepath.Join(g, "dir.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	within(t, "Read", func() { _, err = st.Read("global:pipe.md") })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("Read of a named pipe = %v, want ErrNotNote", err)
+	}
+	if _, err := st.Read("global:missing.md"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Read of a missing note = %v, want a not-exist error", err)
+	}
+	if _, err := st.Read("global:dir.md"); err == nil || errors.Is(err, ErrNotNote) {
+		t.Errorf("Read of a folder = %v, want the read error, not ErrNotNote", err)
+	}
+}
+
+// swappedRoot is a root whose checks (Stat, Lstat) of one name answer with the
+// file of another: a regular note when the name is checked, while opening the
+// name reaches what is really there, a named pipe. That is a note swapped for
+// a pipe between the check and the open.
+type swappedRoot struct {
+	rootFS
+	name, checkedAs string
+}
+
+func (r swappedRoot) Stat(name string) (fs.FileInfo, error) {
+	if name == r.name {
+		name = r.checkedAs
+	}
+	return r.rootFS.Stat(name)
+}
+
+func (r swappedRoot) Lstat(name string) (fs.FileInfo, error) {
+	if name == r.name {
+		name = r.checkedAs
+	}
+	return r.rootFS.Lstat(name)
+}
+
+// The type of a note is judged on the file that was opened, not on its name
+// before the open: a pipe swapped in after a check must not block the open.
+func TestReadHeadRefusesAPipeSwappedInAfterTheCheck(t *testing.T) {
+	g := t.TempDir()
+	if err := os.WriteFile(filepath.Join(g, "note.md"), []byte("a regular note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mkfifoOrSkip(t, filepath.Join(g, "AGENTS.md"))
+	root := swappedRoot{rootFS: dirRoot{dir: g}, name: "AGENTS.md", checkedAs: "note.md"}
+	var err error
+	within(t, "readHead", func() { _, _, err = readHead(root, "AGENTS.md", 8192) })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("readHead of a pipe swapped in after the check = %v, want ErrNotNote", err)
+	}
+	// The same for the whole-note read that Read and Search share.
+	within(t, "readNote", func() { _, err = readNote(root, "AGENTS.md") })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("readNote of a pipe swapped in after the check = %v, want ErrNotNote", err)
+	}
+	// And a regular note is still read.
+	head, more, err := readHead(swappedRoot{rootFS: dirRoot{dir: g}}, "note.md", 8192)
+	if err != nil || more || string(head) != "a regular note\n" {
+		t.Errorf("readHead of a regular note = %q, %v, %v", head, more, err)
+	}
+}
+
+// Search lists no named pipe and reads no named pipe, wherever it sits and
+// whatever it is called; a link to a regular note still counts as the note.
+func TestSearchSkipsNamedPipesAndKeepsLinkedNotes(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	writeNotes(t, st, "global", map[string]string{"real.md": "relay deploy notes"})
+	writeNotes(t, st, "project", map[string]string{"real.md": "relay deploy notes"})
+	for _, root := range []string{g, p} {
+		mkfifoOrSkip(t, filepath.Join(root, "AGENTS.md"))
+		mkfifoOrSkip(t, filepath.Join(root, "pipe.md"))
+		if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mkfifoOrSkip(t, filepath.Join(root, "sub", "pipe.txt"))
+		if err := os.Symlink("pipe.md", filepath.Join(root, "alias-of-pipe.md")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if err := os.Symlink("real.md", filepath.Join(root, "alias.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	within(t, "Search", func() { got = searchPaths(t, st, "relay deploy", "both", 8) })
+	want := []string{"global:alias.md", "global:real.md", "project:alias.md", "project:real.md"}
+	sort.Strings(got)
+	if !equalPaths(got, want) {
+		t.Fatalf("hits = %v, want %v", got, want)
+	}
+	var any bool
+	within(t, "HasAnyFiles", func() { any = st.HasAnyFiles() })
+	if !any {
+		t.Fatal("HasAnyFiles = false with notes in the roots")
+	}
+}
+
+// ReadHead reads a note as far as its bound and says whether more followed;
+// the head ends on a character boundary, and the guards are Read's.
+func TestReadHeadReadsOnlyTheBound(t *testing.T) {
+	g := t.TempDir()
+	p := filepath.Join(t.TempDir(), ".coddy", "memory")
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st := NewWithRoots(g, p)
+	files := map[string]string{
+		"short.md": "abc",
+		"exact.md": strings.Repeat("a", 10),
+		"long.md":  strings.Repeat("a", 10) + "b",
+		"wide.md":  strings.Repeat("ж", 10),
+		"empty.md": "",
+	}
+	for root, scope := range map[string]string{g: "global", p: "project"} {
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, tc := range []struct {
+			name, want string
+			more       bool
+		}{
+			{"short.md", "abc", false},
+			{"exact.md", strings.Repeat("a", 10), false},
+			{"long.md", strings.Repeat("a", 10), true},
+			{"wide.md", strings.Repeat("ж", 5), true},
+			{"empty.md", "", false},
+		} {
+			head, more, err := st.ReadHead(scope+":"+tc.name, 10)
+			if err != nil || string(head) != tc.want || more != tc.more {
+				t.Errorf("ReadHead(%s:%s) = %q, %v, %v; want %q, %v", scope, tc.name, head, more, err, tc.want, tc.more)
+			}
+		}
+	}
+}
+
+func TestReadHeadReportsWhatRefusesTheRead(t *testing.T) {
+	g := t.TempDir()
+	st := NewWithRoots(g, filepath.Join(t.TempDir(), ".coddy", "memory"))
+	if _, _, err := st.ReadHead("global:missing.md", 10); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing note = %v, want a not-exist error", err)
+	}
+	if _, _, err := st.ReadHead("project:missing.md", 10); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing project root = %v, want a not-exist error", err)
+	}
+	if _, _, err := st.ReadHead("global:../x.md", 10); !errors.Is(err, ErrInvalidPath) && err == nil {
+		t.Errorf("a path that leaves the root = %v, want an error", err)
+	}
+	mkfifoOrSkip(t, filepath.Join(g, "pipe.md"))
+	var err error
+	within(t, "ReadHead", func() { _, _, err = st.ReadHead("global:pipe.md", 10) })
+	if !errors.Is(err, ErrNotNote) {
+		t.Errorf("a named pipe = %v, want ErrNotNote", err)
+	}
+	if err := os.Symlink("loop.md", filepath.Join(g, "loop.md")); err == nil {
+		if _, _, err := st.ReadHead("global:loop.md", 10); err == nil || errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a link that loops = %v, want a real error", err)
+		}
 	}
 }

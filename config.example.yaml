@@ -16,6 +16,9 @@
 
 # api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
+  # OpenAI/Anthropic-compatible rows: user_agent: coddy identifies this app.
+  # Omit for the provider SDK identity, or select openai / anthropic explicitly.
+  # coddy sends Coddy/<running version> to completions and model listing.
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"
@@ -75,6 +78,22 @@ providers:
   # - name: codex
   #   type: codex
   #   # usage_limits_panel: false
+
+  # Kimi Code subscription. The default region is global (kimi.ai); use
+  # region: china for kimi.com. A provider proxy applies to sign-in, refresh,
+  # model discovery, usage, and inference.
+  # - name: kimi
+  #   type: kimi
+  #   mode: subscription
+  #   region: global
+  #   # proxy: "http://127.0.0.1:8888"
+  #
+  # Kimi Platform uses an API key and separate endpoints, not the subscription.
+  # - name: kimi-platform
+  #   type: kimi
+  #   mode: platform
+  #   region: global
+  #   api_key: "${KIMI_PLATFORM_API_KEY}"
 
   # Devin (Cognition) account. `coddy providers login devin` signs in through
   # the browser (or reuses `devin auth login` with --devin-cli), stores the
@@ -223,6 +242,12 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
+  # Follow-up prompt suggestions: after a turn ends, a hidden side call forks
+  # the turn's provider context to predict what you might type next and shows it
+  # dim in the empty composer; Tab or Right takes it into the input. Tools are
+  # never executed and nothing enters the transcript. Ignored suggestions back
+  # off: after 20 unused in a row only every 10th turn offers one.
+  # prompt_suggestions: true
 
 # Session goal and supervisor: /goal <objective> starts work on a goal, and a
 # second model checks every turn against it, continues unfinished work and
@@ -444,6 +469,8 @@ tools:
   #   enable: true
   #   allow_cdn: true        # jsDelivr, unpkg, cdnjs, the Tailwind CDN, Google Fonts
   #   allowed_sources: []    # further hosts, e.g. https://cdn.example.com
+  #   project_trust: ask     # pages of a board that came with the checkout wait for you:
+  #                          # ask (default), allow (run every page), deny (only pages Coddy put)
 
   # Web search: which engines the websearch tool asks, in what order their results merge,
   # and what it may spend asking them. Every engine reports its own outcome next to the
@@ -544,6 +571,15 @@ tools:
 #   # side effect. Set 0.0.0.0 to accept connections from other machines.
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Largest request body POST /v1/chat/completions and POST /v1/responses accept, in bytes.
+#   # 0 (the default) means the built-in 512 MiB; a larger body is refused with 413 request_too_large.
+#   max_body_bytes: 0
+#   # Most tools a client may offer a direct model on the same two endpoints, and the
+#   # largest parameters schema of one of them. 0 (the default) means OpenAI's 128 and
+#   # 256 KiB; past them the request is refused with 400 too_many_tools or
+#   # tool_parameters_too_large. Raise the first for a client whose MCP servers offer more.
+#   max_client_tools: 0
+#   max_client_tool_schema_bytes: 0
 #   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
 #   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
 #   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
@@ -560,6 +596,17 @@ tools:
 #     enable: true
 #     user: "pasha"
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
+#     # One-time codes from an authenticator app after the password (TOTP). Enrolled in the
+#     # web UI under Settings, Authentication, which shows a QR code and writes the key once
+#     # the app confirms it; removing the key in Settings empties it. Never returned by GET /coddy/config.
+#     totp_secret: "..."
+#     # Backup codes for a lost authenticator, kept as a generation id plus one hash per unused
+#     # code; the plaintext is shown once when the set is issued or regenerated in the same
+#     # Settings fieldset. Written and rotated there too, never by hand; also hidden from
+#     # GET /coddy/config, which reports only backup_codes_configured/count/generation.
+#     backup_codes:
+#       generation: "..."
+#       hashes: ["..."]
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about
@@ -607,11 +654,10 @@ tools:
 #   timeout: "30m"       # per scheduled agent run
 
 # Long-term memory subagent (external/memory; needs the memory build tag). Toggle with memory.enable.
-# Every user turn starts a memory subagent in the background task pool: a child session that searches, reads and
-# saves markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/.coddy/memory (project). Its report reaches
-# the main model in the <turn_context> block after the history, never in the system prompt, so the provider's prompt
-# cache keeps covering the conversation; the main agent never sees the memory_* tools. The run is
-# watched and kept in the Tasks panel like a spawn_agent child (docs/features/memory.md).
+# With the feature on the model sees a bundled "memory" subagent definition and spawns it on demand - a child
+# session that searches, reads and saves markdown under memory.dir (default ${CODDY_HOME}/memory) and
+# <session cwd>/.coddy/memory (project). The main agent never sees the coddy_memory_* tools; the run is an
+# ordinary spawn_agent child and lives in the Tasks panel (docs/features/memory.md).
 # memory.model is the model the memory subagent runs on. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to use the session's model.
 # memory:
@@ -620,9 +666,6 @@ tools:
 #   fallback_models: []  # tried in order when the model above them fails before answering; the session
 #                        # model is the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
-#   wait_seconds: 20     # how long a turn waits for the report before its first model call; 0 never waits
-#   timeout_seconds: 300 # hard limit of one memory run (capped by tools.background.max_timeout_seconds)
-#   keep_runs: 20        # finished memory runs kept per session in the Tasks panel; 0 keeps all
 #   recall_max_turns: 6  # the child's round cap is the larger of the two
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096

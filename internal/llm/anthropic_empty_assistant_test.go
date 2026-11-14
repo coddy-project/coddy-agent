@@ -21,7 +21,7 @@ func TestAnthropicSplitMessagesOmitsUnreplayableAssistant(t *testing.T) {
 		{name: "whitespace only", assist: Message{Role: RoleAssistant, Content: " \n\t"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newAnthropicProvider("test-model", "", "", nil, 8192, 0, "high")
+			p := newAnthropicProvider("test-model", "", "", nil, 8192, 0, "high", "")
 			_, got, err := p.splitMessages([]Message{{Role: RoleUser, Content: "first"}, tc.assist, {Role: RoleUser, Content: "second"}})
 			if err != nil {
 				t.Fatal(err)
@@ -58,7 +58,7 @@ func TestAnthropicRejectsTrailingUnreplayableAssistantBeforeRequest(t *testing.T
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer srv.Close()
-			p := newAnthropicProvider("test-model", "key", srv.URL, nil, 8192, 0, "high")
+			p := newAnthropicProvider("test-model", "key", srv.URL, nil, 8192, 0, "high", "")
 			if _, err := p.Complete(context.Background(), tc.messages, nil); err == nil || !strings.Contains(err.Error(), "no replayable content") {
 				t.Errorf("Complete error = %v, want explicit unreplayable assistant error", err)
 			}
@@ -73,7 +73,7 @@ func TestAnthropicRejectsTrailingUnreplayableAssistantBeforeRequest(t *testing.T
 }
 
 func TestAnthropicSplitMessagesPreservesReplayableBlocksAroundAnOmission(t *testing.T) {
-	p := newAnthropicProvider("test-model", "", "", nil, 8192, 0, "high")
+	p := newAnthropicProvider("test-model", "", "", nil, 8192, 0, "high", "")
 	_, got, err := p.splitMessages([]Message{
 		{Role: RoleUser, Content: "first"},
 		{Role: RoleAssistant, Content: "answer"},

@@ -574,6 +574,25 @@ type ToolCanvas struct {
 	// as CSP sources (https://host, https://*.host, with an optional port
 	// and path).
 	AllowedSources []string `yaml:"allowed_sources"`
+
+	// ProjectTrust decides which pages of a board run: ask (default) runs a
+	// page Coddy put on the board or the person trusted, allow runs every
+	// page, deny only the pages Coddy put. A .canvas file travels with the
+	// checkout, and its pages read every file under their root.
+	ProjectTrust string `yaml:"project_trust"`
+}
+
+// ResolvedProjectTrust is project_trust with its default, ask.
+func (c *ToolCanvas) ResolvedProjectTrust() string {
+	if c == nil {
+		return ProjectTrustAsk
+	}
+	switch v := strings.ToLower(strings.TrimSpace(c.ProjectTrust)); v {
+	case ProjectTrustAllow, ProjectTrustDeny:
+		return v
+	default:
+		return ProjectTrustAsk
+	}
 }
 
 // ResolvedEnabled reports whether the canvas is on, defaulting to true.
@@ -610,6 +629,14 @@ func (c *ToolCanvas) Sources() []string {
 }
 
 func (c *ToolCanvas) validate() error {
+	switch v := strings.ToLower(strings.TrimSpace(c.ProjectTrust)); v {
+	case "":
+	case ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny:
+		c.ProjectTrust = v
+	default:
+		return fmt.Errorf("tools.canvas.project_trust: must be one of %q, %q, %q (got %q)",
+			ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny, c.ProjectTrust)
+	}
 	for i, s := range c.AllowedSources {
 		if err := webfs.ValidateCSPSource(strings.TrimSpace(s)); err != nil {
 			return fmt.Errorf("tools.canvas.allowed_sources[%d]: %w", i, err)

@@ -1,5 +1,73 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "settings.section.httpserver.label": "Аутентификация",
+  "settings.section.httpserver.desc": "Защита входа через браузер",
+  "settings.auth.removeTotp": "Отключить TOTP",
+  "settings.auth.disableConfirm": "Отключить приложение-аутентификатор?",
+  "settings.auth.disable": "Отключить",
+  "settings.auth.regenerateConfirm": "Заменить все резервные коды?",
+  "settings.auth.regenerateConfirmButton": "Создать новые коды",
+  "settings.auth.backupCodes": "Резервные коды",
+  "settings.auth.backupNotice":
+    "Сохраните эти коды в надёжном месте. Позже их нельзя будет посмотреть снова.",
+  "settings.auth.copyAction": "Копировать",
+  "settings.auth.downloadAction": "Скачать",
+  "settings.auth.regenerateAction": "Создать новые коды",
+  "settings.auth.unused.one": "Не использован {count} код",
+  "settings.auth.unused.few": "Не использовано {count} кода",
+  "settings.auth.unused.many": "Не использовано {count} кодов",
+  "settings.auth.unused.other": "Не использовано {count} кода",
+  "settings.auth.downloadError": "Не удалось скачать резервные коды.",
+  "settings.auth.copy": "Копировать",
+  "settings.auth.download": "Скачать",
+  "settings.auth.regenerate": "Создать заново",
+  "settings.auth.editSecret": "Изменить секрет",
+  "settings.auth.copySecret": "Копировать секретный ключ",
+  "settings.auth.refreshSecret": "Обновить секретный ключ",
+  "settings.auth.copyCodes": "Копировать резервные коды",
+  "settings.auth.downloadCodes": "Скачать резервные коды",
+  "settings.auth.regenerateCodes": "Создать новые резервные коды",
+  "settings.auth.disableError":
+    "Не удалось отключить приложение-аутентификатор.",
+  "settings.auth.regenerateError": "Не удалось создать новые резервные коды.",
+  "settings.auth.copyError": "Не удалось скопировать резервные коды.",
+  "settings.auth.authenticator": "Приложение-аутентификатор",
+  "settings.auth.requireCode": "Требовать одноразовый код",
+  "settings.auth.qr": "QR-код для приложения-аутентификатора",
+  "settings.auth.scanHint": "Отсканируйте в приложении-аутентификаторе",
+  "settings.auth.secret": "Секретный ключ",
+  "settings.auth.code": "Код приложения",
+  "settings.auth.seconds": "{count} с",
+  "settings.auth.verify": "Отправить",
+  "settings.auth.setupError":
+    "Не удалось подготовить настройку аутентификатора.",
+  "settings.auth.verifyError": "Не удалось проверить код. Попробуйте ещё раз.",
+  "settings.auth.period.one": "Новый код через {count} с",
+  "settings.auth.period.few": "Новый код через {count} с",
+  "settings.auth.period.many": "Новый код через {count} с",
+  "settings.auth.period.other": "Новый код через {count} с",
+  "settings.auth.enable": "Включено",
+  "settings.auth.account": "Учётная запись",
+  "settings.auth.login": "Логин",
+  "settings.auth.password": "Пароль",
+  "settings.auth.passwordStored": "Хеш пароля хранится на сервере",
+  "settings.auth.userEnv": "Можно задать через CODDY_HTTP_USER",
+  "settings.auth.passwordEnv": "Можно задать через CODDY_HTTP_PASSWORD",
+  "settings.auth.passwordHint":
+    "Оставьте пароль пустым, чтобы сохранить текущий.",
+  "settings.auth.ttl": "Длительность сеанса (часы)",
+  "settings.auth.ttlHint":
+    'С флажком "Не выходить из системы" браузер сохраняет cookie на этот срок. 0 означает cookie до закрытия браузера, а сервер хранит сеанс не дольше 30 дней. Перезапуск Coddy завершает все сеансы входа.',
+  "settings.auth.environment":
+    "Учётные данные из переменных окружения имеют приоритет над этими настройками.",
+  "settings.auth.showPassword": "Показать пароль",
+  "settings.auth.hidePassword": "Скрыть пароль",
+  "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
+  "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
+  "settings.userAgent.coddy": "Coddy/version",
+  "settings.schema.providers.user_agent.label": "User-Agent",
+  "settings.schema.providers.user_agent.desc":
+    "Имя клиента в запросах к OpenAI- и Anthropic-совместимым провайдерам. По умолчанию используется имя SDK (OpenAI/Go или Anthropic/Go); Coddy передаёт версию запущенного приложения.",
   "stats.brandMenu": "Меню Coddy",
   "stats.durationSeconds": "{seconds} с",
   "stats.durationMinutes": "{minutes} мин",
@@ -166,13 +234,14 @@ export const messagesRu: Record<string, string> = {
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",
   "appearance.toggleLabel": "Оформление",
-  "appearance.theme.dark": "Dark",
+  "appearance.theme.dark": "Coddy",
   "appearance.theme.light": "Light",
   "appearance.theme.midnight": "Midnight",
   "appearance.theme.solarizedDark": "Solarized Dark",
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.theme.neuraldeep": "NeuralDeep",
   "appearance.notificationsLabel": "Уведомления",
   "appearance.notifications.toggle": "Системные уведомления",
   "appearance.notifications.hint":
@@ -222,9 +291,28 @@ export const messagesRu: Record<string, string> = {
   "auth.signIn.title": "Вход",
   "auth.signIn.user": "Пользователь",
   "auth.signIn.password": "Пароль",
+  "auth.signIn.remember": "Не выходить из системы",
   "auth.signIn.submit": "Войти",
   "auth.signIn.working": "Вход\u2026",
   "auth.signIn.invalid": "Неверный пользователь или пароль.",
+  "auth.signIn.secondStep": "Шаг 2 из 2",
+  "auth.signIn.verifyTitle": "Двухэтапная проверка",
+  "auth.signIn.verifyCopy":
+    "Введите шестизначный код из приложения-аутентификатора. Пароль уже проверен.",
+  "auth.signIn.code": "Одноразовый код",
+  "auth.signIn.backupCode": "Резервный код",
+  "auth.signIn.backupCopy":
+    "Введите неиспользованный резервный код. Пароль уже проверен.",
+  "auth.signIn.verifySubmit": "Подтвердить и войти",
+  "auth.signIn.back": "Вернуться ко входу",
+  "auth.signIn.useBackup": "Использовать резервный код",
+  "auth.signIn.useAuthenticator": "Использовать код аутентификатора",
+  "auth.signIn.invalidCode":
+    "Код не принят. Введите пароль, чтобы повторить попытку.",
+  "auth.signIn.period.one": "Текущий код истекает через {count} секунду",
+  "auth.signIn.period.few": "Текущий код истекает через {count} секунды",
+  "auth.signIn.period.many": "Текущий код истекает через {count} секунд",
+  "auth.signIn.period.other": "Текущий код истекает через {count} секунды",
   "auth.signIn.unreachable": "Сервер не ответил. Он ещё работает?",
   "auth.signIn.noAccount":
     "Вход включён, но учётная запись не настроена. Выполните `coddy serve set-password` на сервере.",
@@ -456,6 +544,30 @@ export const messagesRu: Record<string, string> = {
   "settings.section.browser.label": "Браузер",
   "settings.section.browser.desc":
     "Coddy for Browser, ключ и кто им пользуется",
+  "browserSetup.step.install": "Установите расширение",
+  "browserSetup.step.key": "Возьмите адрес и ключ",
+  "browserSetup.step.paste": "Откройте настройки расширения и вставьте их туда",
+  "browserSetup.store.chrome": "Chrome Web Store",
+  "browserSetup.store.firefox": "Firefox Add-ons",
+  "browserSetup.addressLabel": "Адрес сервера",
+  "browserSetup.show": "Показать ключ",
+  "browserSetup.hide": "Скрыть ключ",
+  "browserSetup.copy": "Скопировать",
+  "browserSetup.copied": "Скопировано",
+  "browserSetup.generate": "Сгенерировать",
+  "browserSetup.regenerate": "Сгенерировать новый",
+  "browserSetup.keyEmpty": "Ключа пока нет",
+  "browserSetup.keyKept": "Ключ хранится на сервере",
+  "browserSetup.stateOff":
+    "Раздел выключен: включите его, чтобы принять браузер.",
+  "browserSetup.stateNoKey": "Сгенерируйте ключ и сохраните настройки.",
+  "browserSetup.stateUnsaved": "Сохраните настройки, затем вставьте ключ.",
+  "browserSetup.stateWaiting": "Ждём расширение\u2026",
+  "browserSetup.connected.one": "Подключён {count} браузер, всё готово.",
+  "browserSetup.connected.few": "Подключено {count} браузера, всё готово.",
+  "browserSetup.connected.many": "Подключено {count} браузеров, всё готово.",
+  "browserSetup.connected.other": "Подключено {count} браузера, всё готово.",
+  "browserSetup.unnamed": "Браузер без имени",
   "settings.schema.browser.enable.label": "Включено",
   "settings.schema.browser.enable.desc":
     "Давать чатам инструмент browser и принимать расширение, когда задан ключ.",
@@ -463,7 +575,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.browser.token.desc":
     "Не короче 32 символов, вводится в расширении. Оставьте поле пустым, чтобы сохранить текущий ключ.",
   "settings.schema.browser.serve_remote.label":
-    "Отдавать другим процессам Coddy",
+    "Открыть эти браузеры для других процессов Coddy",
   "settings.schema.browser.serve_remote.desc":
     "Разрешить консоли или редактору на этой машине и узлам роя управлять подключёнными сюда браузерами через /coddy/browser/v1 с учётными данными API этого сервера. Перед первым действием каждого такого чата расширение спросит вас.",
   "settings.schema.browser.remotes.label": "Браузеры других серверов",
@@ -479,6 +591,10 @@ export const messagesRu: Record<string, string> = {
   "settings.group.agent.timeouts": "Таймауты потока",
   "settings.group.agent.loop": "Защита от зацикливания",
   "settings.group.agent.limits": "Лимиты использования",
+  "settings.group.browser.shared":
+    "Совместное использование браузеров между процессами Coddy",
+  "settings.group.browser.sharedDesc":
+    "Браузеры, которые этот сервер открывает для других процессов Coddy, и браузеры других серверов, которыми могут пользоваться чаты этого сервера.",
   "settings.group.hooks.main": "Настройки хуков",
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
@@ -632,7 +748,7 @@ export const messagesRu: Record<string, string> = {
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
+    "Показывать использование квоты аккаунта этого провайдера NeuralDeep, Codex, Devin или OpenAI-совместимого API здесь, в футере консоли и в /usage, читая его эндпоинт лимитов (GET {api_base}/limits для OpenAI-совместимых строк). Выключено скрывает панель и прекращает эти запросы для данной строки.",
 
   "settings.schema.providers.acp.label": "ACP-агент",
   "settings.schema.providers.acp.desc":
@@ -788,6 +904,10 @@ export const messagesRu: Record<string, string> = {
     "Циклы повтора в потоке",
   "settings.schema.agent.loop_stream_repeat_cycles.desc":
     "Сколько одинаковых подряд идущих циклов вывода внутри одного потокового ответа допустимо, прежде чем он будет обрезан (0 отключает проверку).",
+  "settings.schema.agent.prompt_suggestions.label":
+    "Подсказки следующего промпта",
+  "settings.schema.agent.prompt_suggestions.desc":
+    "После хода предлагает следующий промпт в пустом поле ввода. Для этого нужен дополнительный вызов модели; Tab или стрелка вправо принимает подсказку. Отключите, чтобы прекратить генерацию подсказок.",
   "settings.schema.agent.loop_nudge_max.label": "Максимум поправок",
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",
@@ -950,15 +1070,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.dir.desc":
     "Файловый корень markdown-файлов памяти; пусто - ${CODDY_HOME}/memory.",
   "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
-  "settings.schema.memory.wait_seconds.label": "Ожидание отчёта (секунды)",
-  "settings.schema.memory.wait_seconds.desc":
-    "Сколько ход ждёт отчёт субагента памяти перед первым вызовом модели; 0 не ждёт (по умолчанию 20).",
-  "settings.schema.memory.timeout_seconds.label": "Таймаут прогона (секунды)",
-  "settings.schema.memory.timeout_seconds.desc":
-    "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
-  "settings.schema.memory.keep_runs.label": "Прогонов на сессию",
-  "settings.schema.memory.keep_runs.desc":
-    "Сколько завершённых прогонов памяти сессия хранит в панели задач, запись задачи и транскрипт ребёнка вместе; 0 хранит все (по умолчанию 20).",
   "settings.schema.memory.recall_max_turns.label": "Максимум раундов выборки",
   "settings.schema.memory.recall_max_turns.desc":
     "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
@@ -1013,11 +1124,11 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "Сколько самых свежих результатов read и grep остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего).",
+    "Наименьшее число самых свежих результатов read и grep, которые остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего). Если значение больше нуля, они уходят из окна по четыре, поэтому пока набирается следующая порция, в нём остаётся до трёх лишних.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
-    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
+    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 - кандидат любой результат).",
   "settings.schema.compaction.fallback_models.label":
     "Резервные модели суммаризации",
   "settings.schema.compaction.fallback_models.desc":
@@ -1206,6 +1317,118 @@ export const messagesRu: Record<string, string> = {
 
   "settings.combobox.toggleAria": "Показать параметры",
 
+  "onboarding.title": "Выберите провайдера",
+  "onboarding.lead":
+    "Подключите провайдера моделей, чтобы начать чат. Позже это можно изменить в настройках.",
+  "onboarding.close": "Закрыть онбординг",
+  "onboarding.provider.openai.description": "Модели GPT через API-ключ",
+  "onboarding.provider.anthropic.description": "Модели Claude через API-ключ",
+  "onboarding.provider.compatible.description":
+    "Llama.cpp, Ollama, LM Studio, DeepSeek, Groq или другой совместимый API-провайдер",
+  "onboarding.provider.acp.description":
+    "Свой агент на этой машине: ClaudeCode, Codex, Gemini, Cursor, Qwen...",
+  "onboarding.provider.kimi.description":
+    "Подписка Kimi Code или ключ API платформы",
+  "onboarding.kimi.existingKey":
+    "У существующего провайдера Kimi задан ключ API или команда его получения. Оставьте Kimi Platform или измените учётные данные в настройках перед выбором Kimi Code. Изменения не сохранены.",
+  "kimiAuth.unsaved":
+    "Вход ещё не сохранён. Сохраните настройки провайдера, чтобы его сохранить.",
+  "kimiAuth.rowChanged":
+    "Провайдер изменился во время входа. Начните вход заново.",
+  "kimiAuth.saveRequired":
+    "Вход подтверждён. Сохраните настройки провайдера, чтобы использовать его.",
+  "kimiAuth.invalidPoll":
+    "Ответ о входе неполный или противоречивый. Начните вход заново.",
+  "kimiAuth.statusAfterSaveFailed":
+    "Провайдер сохранён, но подтвердить вход не удалось.",
+  "kimiAuth.removePlatformCredentials":
+    "Перед сохранением Kimi Code очистите существующий ключ API и команду его получения. Автоматически они не удаляются.",
+  "onboarding.retryConfig": "Повторить загрузку конфигурации",
+  "onboarding.retryKimiStatus": "Повторить проверку входа",
+  "onboarding.savedChangesRemain":
+    "Предыдущий выбор сохранён. Новые изменения ещё не сохранены.",
+  "kimiAuth.signIn": "Войти через Kimi",
+  "kimiAuth.connected": "Вход выполнен через Coddy",
+  "kimiAuth.cli": "Используются учётные данные Kimi CLI",
+  "kimiAuth.cliSignOutHint":
+    "Учётными данными управляет Kimi CLI. Выйдите из аккаунта в нём.",
+  "kimiAuth.open": "Открыть страницу входа",
+  "kimiAuth.cancel": "Отменить",
+  "kimiAuth.signOut": "Выйти",
+  "kimiAuth.failed": "Не удалось войти в Kimi",
+  "kimiAuth.invalidResponse":
+    "В ответе указан недопустимый адрес страницы входа.",
+  "onboarding.kimi.variant": "Сервис Kimi",
+  "onboarding.kimi.loginUnavailable":
+    "Вход по подписке недоступен в этой сборке.",
+  "onboarding.provider.neuraldeep.description": "Ваша подписка или API-ключ",
+  "onboarding.provider.codex.description": "Ваша подписка через OAuth",
+  "onboarding.provider.opencode.description": "Ваша подписка Go или Console",
+  "onboarding.provider.devin.description": "Подписка Devin со входом в аккаунт",
+  "onboarding.apiKey": "Ключ API",
+  "onboarding.showKey": "Показать",
+  "onboarding.hideKey": "Скрыть",
+  "onboarding.apiBase": "Базовый URL API",
+  "onboarding.command": "Команда",
+  "onboarding.commandHint":
+    "Программа на этой машине, которая говорит по ACP, вместе с аргументами. Она входит в аккаунт сама, Coddy не хранит для неё ключ.",
+  "onboarding.commandRequired":
+    "Введите команду, прежде чем проверять или сохранять этого агента.",
+  "onboarding.apiBaseRequired":
+    "Введите базовый URL API, прежде чем проверять или сохранять этого провайдера.",
+  "onboarding.proxy": "URL прокси",
+  "onboarding.proxyHint":
+    "Прокси используется для получения списка моделей, авторизации и запросов к модели.",
+  "onboarding.validationFailed": "Конфигурация недействительна.",
+  "onboarding.saveFailed": "Не удалось сохранить конфигурацию ({status}).",
+  "onboarding.saveFailedGeneric": "Не удалось сохранить конфигурацию.",
+  "onboarding.save": "Сохранить и продолжить",
+  "onboarding.restart": "Пройти онбординг снова",
+  "onboarding.restartHint": "Повторить краткую экскурсию по интерфейсу.",
+
+  "devinAuth.error.signInFailed": "Не удалось войти через Devin.",
+  "devinAuth.error.incompleteResponse":
+    "Devin вернул неполные инструкции входа.",
+  "devinAuth.fieldLabel": "Аккаунт Devin",
+  "devinAuth.description":
+    "Войдите через браузер и вставьте callback-адрес, если браузер не может достучаться до Coddy. Токены остаются на сервере Coddy. Сохраните настройки провайдера, чтобы использовать эту строку в чатах.",
+  "devinAuth.connected": "Выполнен вход в Devin ({account}).",
+  "devinAuth.shadowedByKey":
+    "Явно заданный ключ API имеет приоритет над этим входом.",
+  "devinAuth.openSignInPage": "Открыть страницу входа",
+  "devinAuth.waiting": "Ждём Devin…",
+  "devinAuth.signOut": "Выйти",
+  "devinAuth.signIn": "Войти через Devin",
+  "devinAuth.pasteLabel":
+    "Браузер на другой машине? Вставьте полный callback-адрес",
+  "devinAuth.pasteSubmit": "Завершить вход",
+
+  "tour.stepCounter": "Шаг {current} из {total}",
+  "tour.skip": "Завершить",
+  "tour.back": "Назад",
+  "tour.next": "Далее",
+  "tour.done": "Готово",
+  "tour.step.newChat.title": "Новый чат",
+  "tour.step.newChat.body":
+    "Отсюда начинается диалог. У каждого своя история, своя рабочая папка и своя модель.",
+  "tour.step.settings.title": "Настройки",
+  "tour.step.settings.body":
+    "Здесь настраиваются провайдеры, модели, инструменты и остальные возможности Coddy.",
+  "tour.step.project.title": "Рабочая папка",
+  "tour.step.project.body":
+    "Выберите папку и ветку, с которыми будет работать агент.",
+  "tour.step.history.title": "История",
+  "tour.step.history.body":
+    "Открывайте прошлые разговоры или начинайте новый чат.",
+  "tour.step.model.title": "Модель",
+  "tour.step.model.body": "Выберите настроенную модель для этого чата.",
+  "tour.step.input.title": "Сообщение",
+  "tour.step.input.body":
+    "Напишите запрос здесь. Используйте @ для упоминания файлов и / для команд.",
+  "tour.step.send.title": "Отправка",
+  "tour.step.send.body":
+    "Отправьте сообщение и следите за работой агента в транскрипте.",
+
   "codexAuth.error.signInFailed": "Не удалось войти через ChatGPT.",
   "codexAuth.error.incompleteResponse":
     "Сервер OAuth вернул неполный ответ входа.",
@@ -1228,9 +1451,9 @@ export const messagesRu: Record<string, string> = {
 
   "neuralDeepApiBase.description":
     "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
-  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru - Россия",
   "neuralDeepApiBase.optionTech":
-    "api.neuraldeep.tech — зеркало для остального мира",
+    "api.neuraldeep.tech - зеркало для остального мира",
   "neuralDeepApiBase.unknown":
     "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
 
@@ -1890,7 +2113,10 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
   "composer.contextUsage": "Использование контекста",
-  "composer.contextTipIdle": "Контекст пока не используется",
+  "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
+  "composer.contextTipUnknown":
+    "Использование контекста неизвестно · максимум {max}",
+  "composer.contextTipIdle": "Контекст пуст",
   "composer.contextTipUsed": "Использовано {percent}% контекста",
   "usage.resets": "сброс {time}",
   "usage.resumingAt": "Продолжим автоматически в {time}",
@@ -2233,6 +2459,17 @@ export const messagesRu: Record<string, string> = {
   "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",
   "workspaceBar.editsLabel.other": "Показать правки: изменено {count} файла",
   "files.title": "Файлы",
+  "terminal.title": "Терминал",
+  "terminal.open": "Открыть терминал",
+  "terminal.close": "Закрыть терминал",
+  "terminal.restart": "Перезапустить",
+  "terminal.starting": "запуск…",
+  "terminal.ready": "Терминал готов",
+  "terminal.command": "Команда терминала",
+  "terminal.placeholder": "Введите команду…",
+  "terminal.resize": "Изменить размер окна терминала",
+  "terminal.maximize": "Развернуть окно терминала",
+  "terminal.restore": "Свернуть окно терминала в прежний размер",
   "files.workspace": "Рабочая папка {path}",
   "files.openFiles": "Открытые файлы",
   "files.closeTab": "Закрыть {name}",
@@ -2325,7 +2562,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.orphaned": "Осиротела",
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "агент",
-  "tasks.tag.memory": "память",
   "tasks.tag.server": "сервер",
   "tasks.openServer": "Открыть в новой вкладке",
   "tasks.untitledAgentRun": "Запуск субагента",
@@ -2988,6 +3224,26 @@ export const messagesRu: Record<string, string> = {
   "canvas.frame.remove": "Убрать с холста",
   "canvas.frame.left": "Эта страница ушла с холста.",
   "canvas.frame.back": "Вернуться к странице",
+  "canvas.held.title": "Эта страница пришла вместе с рабочей папкой",
+  "canvas.held.hint":
+    "Её скрипты читали бы файлы в {root} и могли бы отправить их куда угодно, поэтому она ждёт вашего решения.",
+  "canvas.held.hintAll":
+    "Её скрипты читали бы все файлы рабочей папки и могли бы отправить их куда угодно, поэтому она ждёт вашего решения.",
+  "canvas.held.run": "Запустить страницы холста",
+  "canvas.held.deny":
+    "tools.canvas.project_trust равен deny: запускаются только страницы, которые на холст поставил Coddy.",
+  "canvas.trust.title": "Запустить страницы этого холста?",
+  "canvas.trust.intro":
+    "Файл {file} пришёл вместе с рабочей папкой. Каждая страница работает в песочнице, читает все файлы своей папки и может отправить прочитанное куда угодно. Запускайте их, только если доверяете источнику этого чекаута.",
+  "canvas.trust.reads": "читает {root}",
+  "canvas.trust.readsAll": "читает всю рабочую папку",
+  "canvas.trust.confirm": "Запустить",
+  "canvas.trust.moved":
+    "Пока вы читали, страницы холста изменились. Проверьте список ещё раз.",
+  "canvas.trust.failed": "Страницы не запустились: {error}",
+  "canvas.hold": "Остановить страницы",
+  "canvas.holdTitle":
+    "Остановить страницы этого холста, пока вы снова не разрешите их запуск",
   "canvas.device.desktop": "Десктоп 1280×800",
   "canvas.device.tablet": "Планшет 820×1180",
   "canvas.device.phone": "Телефон 390×844",
