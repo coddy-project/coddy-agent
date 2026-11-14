@@ -42,30 +42,42 @@ func TestStatisticsRecordsTheProviderCallAndTurnAcrossSurfaces(t *testing.T) {
 	}
 }
 
-// Every surface names itself for the usage history. The console and the
-// editor's ACP wire used to name none, so both fell into one bucket with
-// whatever else did not, and the page could not tell them apart.
-func TestStatisticsSourceNamesEachSurface(t *testing.T) {
-	for _, c := range []struct{ named, want string }{
-		{"console", "console"},
-		{"acp", "acp"},
-		{"webui", "webui"},
-		{"api", "api"},
-		{"", "local"},
-	} {
-		ctx := context.Background()
-		if c.named != "" {
-			ctx = statistics.WithSource(ctx, c.named)
+// Every surface names itself for the usage history, and a turn that names
+// none still lands somewhere. The console and the editor's ACP wire used to
+// name none, so both fell into one bucket with whatever else did not.
+func TestStatisticsRecordsTheSurfaceThatRanTheTurn(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home}, Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}, Models: []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}}, Agent: config.Agent{Model: "fake/model"}}
+	run := func(id string, ctx context.Context) {
+		t.Helper()
+		st := &session.State{ID: id, CWD: home, Mode: session.ModeAgent}
+		ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+		ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+			return llm.WrapResilient(statisticsProvider{}, llm.ResilientOptions{Name: "fake", Model: "model", RetryDisabled: true}), nil
 		}
-		if got := statistics.Source(ctx); got != c.named {
-			t.Fatalf("source %q travelled as %q", c.named, got)
+		if _, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "answer"}}); err != nil {
+			t.Fatal(err)
 		}
-		source := "local"
-		if v := statistics.Source(ctx); v != "" {
-			source = v
+	}
+	run("sess_console", statistics.WithSource(context.Background(), "console"))
+	run("sess_acp", statistics.WithSource(context.Background(), "acp"))
+	// A turn whose surface said nothing: the bucket that used to hold both.
+	run("sess_quiet", context.Background())
+
+	report, err := statistics.New(home).Query(statistics.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, row := range report.Sources {
+		got[row.Name] = row.Count
+	}
+	for _, name := range []string{"console", "acp", "local"} {
+		if got[name] != 1 {
+			t.Fatalf("source %q recorded %d turns, want 1: %+v", name, got[name], report.Sources)
 		}
-		if source != c.want {
-			t.Fatalf("a turn of %q was recorded as %q", c.named, source)
-		}
+	}
+	if len(report.Sources) != 3 {
+		t.Fatalf("the surfaces did not stay apart: %+v", report.Sources)
 	}
 }
