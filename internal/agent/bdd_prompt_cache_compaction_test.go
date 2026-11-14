@@ -18,6 +18,8 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -138,6 +140,88 @@ func (s *pccState) build(summarizer string, tune func(*config.Config)) error {
 
 func (s *pccState) session() error                { return s.build("", nil) }
 func (s *pccState) sessionOtherSummarizer() error { return s.build("fake/other", nil) }
+
+// pccFirstPromptContext is what the FirstPrompt hook hands over: a one-time
+// enrichment that rides the turn-scoped block of the first turn's requests and
+// is gone from the next turn's.
+const pccFirstPromptContext = "the working tree has unsaved buffers"
+
+// pccTurnContext is what the UserPromptSubmit hook hands over on every turn,
+// which the system prompt carries.
+const pccTurnContext = "the operator is reviewing a pull request"
+
+// sessionWithHooks opens a session whose operator runs lifecycle hooks: the two
+// that hand context to the model, and the observational ones around a tool call
+// and the end of a turn. None of them may move what a fold reads out of the
+// cache, so this is the scenario that holds the two features to each other.
+func (s *pccState) sessionWithHooks() error {
+	if err := s.build("", nil); err != nil {
+		return err
+	}
+	home, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	if err := hooktest.Write(filepath.Join(home, "hooks.json"),
+		hooktest.Entry{Event: hooks.EventFirstPrompt, Handlers: []hooks.Handler{hooktest.Handler("context", pccFirstPromptContext)}},
+		hooktest.Entry{Event: hooks.EventUserPromptSubmit, Handlers: []hooks.Handler{hooktest.Handler("context", pccTurnContext)}},
+		hooktest.Entry{Event: hooks.EventPreToolUse, Matcher: "*", Handlers: []hooks.Handler{hooktest.Handler("silent")}},
+		hooktest.Entry{Event: hooks.EventTurnEnd, Handlers: []hooks.Handler{hooktest.Handler("silent")}},
+	); err != nil {
+		return err
+	}
+	s.ag.cfg.Paths.Home = home
+	s.ag.cfg.Paths.CWD = s.cwd
+	s.ag.cfg.Hooks.ApplyDefaults(s.ag.cfg.Paths)
+	return nil
+}
+
+// turnsCarriedTheHookContext keeps the scenario honest: unless the hooks did
+// reach the requests, the assertions after it hold nothing. The one-time
+// enrichment travels in the trailing turn-context message and the per-turn one
+// in the system message, which is where each is supposed to be.
+func (s *pccState) turnsCarriedTheHookContext() error {
+	var first, every bool
+	for _, req := range s.provider.turns {
+		if len(req) == 0 {
+			continue
+		}
+		if strings.Contains(req[0].Content, pccTurnContext) {
+			every = true
+		}
+		last := req[len(req)-1]
+		if last.Ephemeral && strings.Contains(last.Content, pccFirstPromptContext) {
+			first = true
+		}
+	}
+	switch {
+	case !first:
+		return fmt.Errorf("no request carried the FirstPrompt enrichment %q: the hook never ran", pccFirstPromptContext)
+	case !every:
+		return fmt.Errorf("no system message carried the UserPromptSubmit context %q: the hook never ran", pccTurnContext)
+	}
+	return nil
+}
+
+// noFoldCarriesTheFirstPromptContext holds the fold to the conversation itself.
+// The one-time enrichment is turn-scoped and trails the request the turn sends,
+// so it falls past the compaction boundary; a fold that carried it would be
+// asking with something no cached prefix holds.
+func (s *pccState) noFoldCarriesTheFirstPromptContext() error {
+	for n := 1; n <= len(s.provider.folds); n++ {
+		req, _, err := s.fold(n)
+		if err != nil {
+			return err
+		}
+		for i, m := range req {
+			if strings.Contains(m.Content, pccFirstPromptContext) {
+				return fmt.Errorf("message %d of summarization request %d carries the one-time enrichment: %s %q",
+					i, n, m.Role, truncateForError(m.Content))
+			}
+		}
+	}
+	return nil
+}
 
 // manyFiles opens a session whose workspace holds files large enough to be
 // eviction candidates, with the eviction gate open from the first result.
@@ -493,6 +577,7 @@ func initializePromptCacheCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent session in a workspace$`, s.session)
 	sc.Step(`^an agent session whose summarizer is another model$`, s.sessionOtherSummarizer)
 	sc.Step(`^an agent session in a workspace of many files$`, s.manyFiles)
+	sc.Step(`^an agent session whose hooks enrich the first message and every turn$`, s.sessionWithHooks)
 	sc.Step(`^the model works through a few turns$`, s.worksThroughAFewTurns)
 	sc.Step(`^the operator compacts the conversation$`, s.operatorCompacts)
 	sc.Step(`^the model reads one file per step until results are collapsed twice$`, s.readsUntilCollapsedTwice)
@@ -519,6 +604,8 @@ func initializePromptCacheCompactionScenario(sc *godog.ScenarioContext) {
 		return s.foldCarriesTheFirstSummaryRow(2)
 	})
 	sc.Step(`^no summarization request carries the earlier summaries as a block of text$`, s.noFoldCarriesAnEarlierSummariesBlock)
+	sc.Step(`^the turns carried the context the hooks handed over$`, s.turnsCarriedTheHookContext)
+	sc.Step(`^no summarization request carries the one-time enrichment of the first message$`, s.noFoldCarriesTheFirstPromptContext)
 	sc.Step(`^the summarization request is the flattened transcript under its own system message$`, func() error {
 		return s.foldIsTheFlattenedTranscript(1)
 	})

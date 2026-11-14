@@ -42,6 +42,15 @@ Feature: A compaction reads the conversation out of the provider's prompt cache
     Then the summarization request is the flattened transcript under its own system message
     And the summarization request carries no tool definitions
 
+  Scenario: The context a hook hands over leaves the cached prefix alone
+    Given an agent session whose hooks enrich the first message and every turn
+    When the model works through a few turns
+    And the operator compacts the conversation
+    Then the turns carried the context the hooks handed over
+    And the summarization request repeats, message for message, what the turn had already sent
+    And the summarization instruction is the last message of the summarization request
+    And no summarization request carries the one-time enrichment of the first message
+
   Scenario: Collapsing results in batches leaves the sent history alone between batches
     Given an agent session in a workspace of many files
     When the model reads one file per step until results are collapsed twice
