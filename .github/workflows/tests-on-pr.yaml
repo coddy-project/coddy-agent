@@ -509,9 +509,21 @@ jobs:
         run: |
           set -euo pipefail
           make ui-build
-          out=$(mktemp -d)
-          trap 'rm -rf "$out"' EXIT
-          scripts/build-darwin-archives.sh --out "$out"
+          scripts/build-darwin-archives.sh --out "$RUNNER_TEMP/darwin"
+
+      # The console a Mac actually gets is the one inside those archives: cgo,
+      # DARWIN_TAGS, and the native window's runtime.LockOSThread in init,
+      # which runs for every command of that binary and not only for `coddy
+      # desktop`. The pty run above drives a pure-Go `make build TAGS=cli`,
+      # which is a shape no release ships, so the shipped one is driven here
+      # through the same script. This runner is arm64, so its own archive runs.
+      - name: Drive the shipped console through a real pty
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shipped"
+          tar -xzf "$RUNNER_TEMP"/darwin/coddy_*_darwin_arm64.tar.gz -C "$RUNNER_TEMP/shipped"
+          "$RUNNER_TEMP/shipped/coddy" -v
+          CODDY_BIN="$RUNNER_TEMP/shipped/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
       # A real Cocoa loop and WKWebView, rather than only a cgo cross-build.
       # The whole package runs, not only the native tests: no other job runs a
