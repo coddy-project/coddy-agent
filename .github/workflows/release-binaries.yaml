@@ -37,6 +37,10 @@ jobs:
   macos-archives:
     name: Build macOS release archives
     runs-on: macos-latest
+    # It compiles and hands its archives to the publisher through an artifact
+    # of this run; only the publisher below writes to the release.
+    permissions:
+      contents: read
     outputs:
       tag: ${{ steps.git_tag.outputs.tag }}
       sha: ${{ steps.gate.outputs.sha }}
@@ -145,8 +149,18 @@ jobs:
 
     steps:
       - name: Checkout the resolved release tag
+        if: needs.macos-archives.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
+          # The commit the macOS job resolved and already gated, so the two
+          # halves of one release are built from the same tree rather than
+          # from whatever github.ref happens to name. Same opt-in and same
+          # reason as the macOS job above: under workflow_call from the
+          # pull_request_target release workflow the event context stays
+          # pull_request_target, and the "Ensure tag is on main" gate has
+          # rejected anything that is not already an ancestor of origin/main
+          # before this job starts. Nothing of this checkout is run when the
+          # gate skipped: every step below is behind that output.
           ref: ${{ needs.macos-archives.outputs.sha }}
           allow-unsafe-pr-checkout: true
 

@@ -477,10 +477,14 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      # The archives embed the SPA, so this job builds it the way every other
+      # job here does: the same action, the same Node and the same npm cache.
       - name: Set up Node for the desktop window
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
 
       - name: Build both macOS release archives with the native desktop window
         run: |

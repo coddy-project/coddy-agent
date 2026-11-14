@@ -196,7 +196,15 @@ func nativeStoreID(dir string, log *slog.Logger) (string, error) {
 	if err == nil {
 		value := strings.TrimSpace(string(b))
 		if len(value) == 36 && value[8] == '-' && value[13] == '-' && value[18] == '-' && value[23] == '-' {
-			if decoded, decodeErr := hex.DecodeString(strings.ReplaceAll(value, "-", "")); decodeErr == nil && len(decoded) == 16 {
+			// Only the version 4 identifier this function writes is kept.
+			// +[WKWebsiteDataStore dataStoreForIdentifier:] raises
+			// NSInvalidArgumentException for the all-zero identifier and for
+			// ...0001, which WTF::UUID keeps for its own empty and deleted
+			// values, and an uncaught Objective-C exception ends the process
+			// instead of opening a window. Both fail the version and variant
+			// bits below, so no identifier that reaches WebKit can raise.
+			if decoded, decodeErr := hex.DecodeString(strings.ReplaceAll(value, "-", "")); decodeErr == nil &&
+				len(decoded) == 16 && decoded[6]>>4 == 4 && decoded[8]>>6 == 0b10 {
 				return value, nil
 			}
 		}

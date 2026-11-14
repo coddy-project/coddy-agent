@@ -507,6 +507,13 @@ func TestNativeStoreID(t *testing.T) {
 		{name: "malformed", content: "not-a-uuid", mode: 0o600, exists: true},
 		{name: "invalid hex", content: "zce93143-8f03-4809-b8b7-9e9773ae25ed", mode: 0o600, exists: true},
 		{name: "extra separators", content: "--e93143-8f03-4809-b8b7-9e9773ae25ed", mode: 0o600, exists: true},
+		// WebKit raises NSInvalidArgumentException for these two rather than
+		// returning a store, which would end the process; they must never
+		// reach +[WKWebsiteDataStore dataStoreForIdentifier:].
+		{name: "nil uuid", content: "00000000-0000-0000-0000-000000000000", mode: 0o600, exists: true},
+		{name: "deleted uuid", content: "00000000-0000-0000-0000-000000000001", mode: 0o600, exists: true},
+		{name: "wrong version", content: "cce93143-8f03-1809-b8b7-9e9773ae25ed", mode: 0o600, exists: true},
+		{name: "wrong variant", content: "cce93143-8f03-4809-c8b7-9e9773ae25ed", mode: 0o600, exists: true},
 		{name: "unreadable", content: valid, mode: 0, exists: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

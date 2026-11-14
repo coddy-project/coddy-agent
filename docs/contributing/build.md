@@ -137,7 +137,9 @@ developer command run without it switches the mode on for good.
 
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
 **`darwin`** and **`linux`** archives carry those files beside the binary. It declares
-**`depends_on macos: :monterey`**: Go 1.25 and later build binaries that need macOS 12. A
+**`depends_on macos: :ventura`**: the macOS archives are built with a deployment target of 13
+([`scripts/build-darwin-archives.sh`](../../scripts/build-darwin-archives.sh)), and the loader
+refuses them on anything older. A
 **`postflight_steps`** step removes the quarantine attribute Homebrew sets on the download from the
 binary, which is ad-hoc signed and not notarised, so Gatekeeper does not stop its first run. It
 recommends **`tmux`** in its **`caveats`** rather than declaring it: a cask's **`depends_on`** has no
