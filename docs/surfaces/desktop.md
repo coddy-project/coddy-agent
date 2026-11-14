@@ -54,8 +54,10 @@ The native window needs macOS 14 or later for a persistent WebKit store isolated
 and a GUI session. On older macOS versions, `auto` falls back to a Chromium-family browser.
 Linux, Windows and macOS builds without the native backend need Chrome, Chromium, Edge, Brave,
 Vivaldi or Yandex Browser. Firefox has no application mode.
-Building the native backend from source needs cgo and the Xcode command-line tools.
-Running a release binary on macOS 14 or later needs neither a compiler nor an installed browser. See [Building from source](../contributing/build.md#desktop-window-coddy-desktop).
+The native backend needs no C compiler and no Xcode command-line tools: it reaches Cocoa and WebKit
+through the Objective-C runtime, so `make build` produces it like any other Go code, and the release
+cross-compiles it on Linux. Running a release binary on macOS 14 or later needs neither a compiler
+nor an installed browser. See [Building from source](../contributing/build.md#desktop-window-coddy-desktop).
 
 ![The native macOS window in Dark at 1280 pixels](../assets/desktop/desktop-native-window-dark-1280.png)
 
@@ -88,7 +90,7 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 
 | Flag | What it does |
 | --- | --- |
-| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS release archive carries and a source build gets by building on macOS with cgo; it reports an error if unavailable |
+| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS build carries, release or source; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
 | `--frame` | keep the system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar |
@@ -393,9 +395,11 @@ file inputs and the system browser for HTTP(S) links opened in a new window. The
 `Cmd`+`C`, `Cmd`+`V`, `Cmd`+`X`, `Cmd`+`A` and `Cmd`+`Z`; `Cmd`+`Q` closes the window and ends the
 run. Downloads from an HTML `download` link or an attachment response go to the standard Downloads
 folder. A duplicate name receives a numeric suffix, so an existing file is kept.
-Every macOS release archive carries this backend: it is built on macOS with cgo, and no build tag
-selects it. The native window needs macOS 14 because its isolated persistent data store uses
-`WKWebsiteDataStore.dataStoreForIdentifier`. `auto` uses the browser backend on older macOS versions.
+Every macOS release archive carries this backend, and no build tag selects it: a macOS build
+compiles it. The window needs macOS 14 because its isolated persistent data store uses
+`WKWebsiteDataStore.dataStoreForIdentifier`, which is what `auto` asks the class itself for, so
+macOS 13 opens a browser instead. `--window browser` asks for the browser on a Mac that has the
+native window, and `CODDY_DESKTOP_BROWSER` says which one.
 This build adds no tray icon, signing, notarisation or application bundle.
 
 On Windows, `coddy` remains a console program, so the console window it was started from stays

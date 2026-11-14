@@ -39,14 +39,16 @@ func TestTheReleaseTagSetCarriesTheWindow(t *testing.T) {
 	}
 }
 
-// Darwin releases carry the native window, and no tag of their own says so.
+// Darwin releases are cross-compiled on the Linux runner, like every other
+// target, and carry the native window anyway.
 //
-// The Cocoa/WKWebView window is the default on the platform that has one: a
-// macOS build with cgo takes it, which is what every release archive is. So
-// the shipped tag set is the whole of what the archive builder passes to `go
-// build`, there is no second set to keep in step with it, and the Makefile
-// names no `desktop.native` at all.
-func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
+// The Cocoa/WKWebView window reaches AppKit through the Objective-C runtime
+// rather than through a C bridge, so it needs no compiler, no macOS SDK and no
+// macOS runner: `CGO_ENABLED=0 GOOS=darwin go build` produces it. One job
+// builds and publishes every archive of a release, the two darwin ones
+// included, so there is no second builder to keep in step and no artifact to
+// hand between jobs.
+func TestDarwinReleaseCrossCompilesWithTheRest(t *testing.T) {
 	makefile, err := os.ReadFile("../../Makefile")
 	if err != nil {
 		t.Fatal(err)
@@ -75,21 +77,32 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 	if err := yaml.Unmarshal(b, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	mac := workflow.Jobs["macos-archives"]
-	if mac.RunsOn != "macos-latest" {
-		t.Fatalf("Darwin releases must use a macOS builder: %+v", mac)
+	if _, ok := workflow.Jobs["macos-archives"]; ok {
+		t.Error("the darwin archives are cross-compiled with the rest: the release still runs a macOS builder")
+	}
+	publisher := workflow.Jobs["release-binaries"]
+	if publisher.RunsOn != "ubuntu-latest" {
+		t.Fatalf("the release is built on the Linux runner: %+v", publisher)
+	}
+	if publisher.Needs != "" {
+		t.Errorf("the release job waits for %q, and nothing builds before it", publisher.Needs)
 	}
 	var build string
-	var uploaded bool
-	for _, step := range mac.Steps {
+	for _, step := range publisher.Steps {
 		build += step.Run + "\n"
-		if strings.HasPrefix(step.Uses, "actions/upload-artifact@") && step.With["name"] == "macos-release-archives" {
-			uploaded = true
+		if strings.HasPrefix(step.Uses, "actions/download-artifact@") {
+			t.Errorf("the release downloads %q, and no job hands it an archive", step.With["name"])
 		}
 	}
-	if !strings.Contains(build, "scripts/build-darwin-archives.sh") {
-		t.Error("release must call the shared Darwin archive builder")
+	for _, arch := range []string{"arm64", "amd64"} {
+		if !strings.Contains(build, "build_target darwin "+arch) {
+			t.Errorf("the release does not cross-build darwin %s", arch)
+		}
 	}
+	// The release binary of a Mac is still driven on a Mac: cross-compiling is
+	// not proof that a window opens. This is also the only job that runs a
+	// `desktop` tag there, so it runs the whole package rather than the native
+	// tests alone (issue 748).
 	pr, err := os.ReadFile("../../.github/workflows/tests-on-pr.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -102,44 +115,11 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 	for _, step := range prWorkflow.Jobs["test-macos"].Steps {
 		prBuild += step.Run + "\n"
 	}
-	// The whole package, with no -run filter: the native tests and the BDD
-	// suite both, since this is the only job that runs a `desktop` tag on a Mac.
 	macTest := regexp.MustCompile(`go test -tags desktop \./external/desktop\b([^\n]*)`).FindStringSubmatch(prBuild)
-	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || macTest == nil {
-		t.Error("the macOS PR job must build the release archives and test ./external/desktop with the native tags")
+	if macTest == nil {
+		t.Error("the macOS PR job must drive a real window with `go test -tags desktop ./external/desktop`")
 	} else if strings.Contains(macTest[1], "-run") {
 		t.Errorf("the macOS job must run the whole package, not %q", strings.TrimSpace(macTest[0]))
-	}
-	script, err := os.ReadFile("../../scripts/build-darwin-archives.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, contract := range []string{"make -s print-full-tags", "for arch in arm64 amd64", "clang -arch x86_64", "-tags=\"${TAGS}\"", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=13.0", "-Werror=unguarded-availability-new", "--no-xattrs", "--no-mac-metadata", "COPYFILE_DISABLE=1", "mktemp -d", "trap "} {
-		if !strings.Contains(string(script), contract) {
-			t.Errorf("shared Darwin archive builder lost %q", contract)
-		}
-	}
-	if !uploaded {
-		t.Error("Darwin archive builder no longer uploads its archives")
-	}
-	publisher := workflow.Jobs["release-binaries"]
-	if publisher.Needs != "macos-archives" {
-		t.Error("publisher must wait for the Darwin archive builder")
-	}
-	downloaded := false
-	for _, step := range publisher.Steps {
-		if strings.HasPrefix(step.Uses, "actions/download-artifact@") && step.With["name"] == "macos-release-archives" {
-			downloaded = true
-		}
-		if strings.Contains(step.Run, "build_target linux amd64") && !downloaded {
-			t.Error("publisher must download Darwin archives before packaging and checksumming")
-		}
-		if strings.Contains(step.Run, "build_target darwin") {
-			t.Error("publisher must not cross-build Darwin without cgo")
-		}
-	}
-	if !downloaded {
-		t.Error("publisher no longer downloads the Darwin archives")
 	}
 }
 
@@ -230,23 +210,22 @@ func sameTags(a, b []string) bool {
 	return true
 }
 
-// The native window follows the platform and cgo, and nothing else.
+// The native window follows the platform, and nothing else.
 //
-// There is no tag to remember or to forget: a macOS build with cgo compiles
-// the Cocoa window, and everything that is not one - another platform, or a
-// darwin build without cgo, which is what cross-compiling gives by default -
-// compiles the stub beside it. The two constraints are complements, so for
-// every combination below exactly one of the files is in the package. `go
-// list` is what reads that, because a cgo build for a platform this host
-// cannot link is still a file selection it answers.
-func TestTheNativeWindowFollowsMacOSAndCgo(t *testing.T) {
+// There is no tag to remember or to forget and no compiler to have installed:
+// a macOS build compiles the Cocoa window whether or not cgo is on, and every
+// other platform compiles the stub beside it. The two constraints are
+// complements, so for every combination below exactly one of the files is in
+// the package, and the window's own files are ordinary Go - a darwin build has
+// no CgoFiles at all, which is what lets the release cross-compile it.
+func TestTheNativeWindowFollowsMacOS(t *testing.T) {
 	for _, build := range []struct {
 		goos, arch, cgo string
 		native          bool
 	}{
+		{"darwin", "arm64", "0", true},
+		{"darwin", "amd64", "0", true},
 		{"darwin", "arm64", "1", true},
-		{"darwin", "amd64", "1", true},
-		{"darwin", "arm64", "0", false},
 		{"linux", "amd64", "1", false},
 		{"windows", "amd64", "0", false},
 	} {
@@ -263,19 +242,32 @@ func TestTheNativeWindowFollowsMacOSAndCgo(t *testing.T) {
 			if err := json.Unmarshal(output, &pkg); err != nil {
 				t.Fatal(err)
 			}
-			if got := contains(pkg.CgoFiles, "native_darwin.go"); got != build.native {
-				t.Errorf("%s compiles the Cocoa window: %v, want %v (CgoFiles=%v)", name, got, build.native, pkg.CgoFiles)
+			for _, file := range []string{"native_darwin.go", "native_cocoa_darwin.go"} {
+				if got := contains(pkg.GoFiles, file); got != build.native {
+					t.Errorf("%s compiles %s: %v, want %v (GoFiles=%v)", name, file, got, build.native, pkg.GoFiles)
+				}
+			}
+			if len(pkg.CgoFiles) != 0 {
+				t.Errorf("%s needs a C compiler for the window: %v", name, pkg.CgoFiles)
 			}
 			if got := contains(pkg.GoFiles, "native_stub.go"); got == build.native {
 				t.Errorf("%s compiles the stub: %v (GoFiles=%v)", name, got, pkg.GoFiles)
 			}
 		})
 	}
-	// Selection is not compilation: the stub half of the partition is the one
-	// this host can prove builds, and it is the half every release but macOS
-	// ships.
-	if out, err := goCommand(t, runtime.GOOS, runtime.GOARCH, "0", "build", "-o", os.DevNull, "-tags", "desktop", ".").CombinedOutput(); err != nil {
-		t.Fatalf("the package does not build without cgo: %v\n%s", err, out)
+	// Selection is not compilation. Both halves of the partition are compiled
+	// here, the macOS one for the two architectures the release publishes, so
+	// the host that builds a release proves the window compiles for a Mac
+	// before the release does.
+	for _, build := range []struct{ goos, arch string }{
+		{runtime.GOOS, runtime.GOARCH},
+		{"darwin", "arm64"},
+		{"darwin", "amd64"},
+	} {
+		name := build.goos + "-" + build.arch
+		if out, err := goCommand(t, build.goos, build.arch, "0", "build", "-o", os.DevNull, "-tags", "desktop", ".").CombinedOutput(); err != nil {
+			t.Errorf("the package does not cross-compile for %s without cgo: %v\n%s", name, err, out)
+		}
 	}
 }
 

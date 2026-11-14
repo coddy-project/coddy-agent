@@ -34,10 +34,41 @@ func TestTheNativeWindowSaysWhichBuildCarriesIt(t *testing.T) {
 	if err == nil {
 		t.Fatal("--window native was accepted by a build with no native window")
 	}
-	for _, want := range []string{"macOS", "cgo", WindowBrowser} {
+	for _, want := range []string{"macOS", WindowBrowser} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("--window native answered %q, which does not name %q", err, want)
 		}
+	}
+}
+
+// A Mac can always be told to use the browser.
+//
+// `auto` takes the native window wherever one opens, so the only way back to
+// Chrome on a Mac that has one is to ask for it - which is what an operator
+// whose window misbehaves reaches for (issue 753). Asking must not consult the
+// native backend at all: a build that has one still answers with the browser.
+func TestAskingForTheBrowserNeverTriesTheNativeWindow(t *testing.T) {
+	record := filepath.Join(t.TempDir(), "browser-args")
+	t.Setenv("CODDY_TEST_BROWSER_RECORD", record)
+	t.Setenv("CODDY_TEST_BROWSER_CLOSE", "")
+	tried := false
+	opts := Options{
+		Home: t.TempDir(), Window: WindowBrowser,
+		Browser:    BrowserCommand{Path: os.Args[0], Args: []string{"-test.run=^TestHelperBrowser$", "--", "desktop-browser-helper"}, Name: "test"},
+		nativeOpen: func(context.Context, Options, string) error { tried = true; return nil },
+	}
+	if err := openWindow(context.Background(), opts, "http://127.0.0.1:1/desktop/"); err != nil {
+		t.Fatal(err)
+	}
+	if tried {
+		t.Error("--window browser consulted the native window")
+	}
+	args, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the browser did not start: %v", err)
+	}
+	if !strings.Contains(string(args), "--app=http://127.0.0.1:1/desktop/") {
+		t.Fatalf("browser arguments %q do not open the shell URL", args)
 	}
 }
 

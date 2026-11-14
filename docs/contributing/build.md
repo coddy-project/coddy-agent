@@ -138,8 +138,7 @@ developer command run without it switches the mode on for good.
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
 **`darwin`** and **`linux`** archives carry those files beside the binary. It declares
 **`depends_on macos: :ventura`**: from Go 1.27 a darwin binary records macOS 13 as its minimum,
-cgo or not, and the loader refuses it on anything older;
-[`scripts/build-darwin-archives.sh`](../../scripts/build-darwin-archives.sh) names the same floor.
+cgo or not, and the loader refuses it on anything older.
 The scenario in [`features/homebrew_tap.feature`](../../features/homebrew_tap.feature) holds the
 cask to that number, so the next toolchain bump fails a test rather than the page going stale. A
 **`postflight_steps`** step removes the quarantine attribute Homebrew sets on the download from the
@@ -258,21 +257,24 @@ The command itself needs `http` and `ui` beside `desktop` - it opens on the SPA 
 missing any of the three answers `coddy desktop` with the line that names the tags. What it is and
 how it behaves: [Desktop window](../surfaces/desktop.md).
 
-For a native macOS window, build on macOS with the Xcode command-line tools and cgo. The window
-needs macOS 14 or later for its isolated persistent WebKit store, and a GUI session. It uses handwritten Objective-C bindings to the system
-Cocoa and WebKit frameworks, with no Go module dependency.
+The native macOS window needs no compiler and no Xcode command-line tools. It sends messages to
+the system Cocoa and WebKit frameworks through the Objective-C runtime, which
+[`purego`](https://github.com/ebitengine/purego) reaches without cgo, so it is ordinary Go code and
+any host builds it. At run time the window needs macOS 14 or later for its isolated persistent
+WebKit store, and a GUI session.
 
 ```bash
-CGO_ENABLED=1 make build TAGS="http ui desktop"
+make build TAGS="http ui desktop"
 ./build/coddy desktop --window native
 ```
 
-The window carries no build tag of its own: `desktop` on macOS with cgo is what compiles it, so
-every macOS build has it and the shipped `FULL_TAGS` set is the same on every platform. Other
-platforms, and `CGO_ENABLED=0` builds, compile the stub instead, which is also what a
-`GOOS=darwin` build from another host gets, because cross-compiling turns cgo off. `auto` prefers
-the window where it is compiled in and falls back to a browser when the macOS version or GUI
-session is unavailable. The macOS test job opens and drives a real WKWebView window.
+The window carries no build tag of its own: `desktop` on macOS is what compiles it, so every macOS
+build has it and the shipped `FULL_TAGS` set is the same on every platform. Every other platform
+compiles the stub instead. A `GOOS=darwin` build from another host gets the window too, which is
+how the release publishes both darwin archives from the Linux runner. `auto` prefers the window
+where it is compiled in and falls back to a browser when the macOS version or GUI session is
+unavailable. The macOS test job opens and drives a real WKWebView window, because cross-compiling
+is not proof that one opens.
 
 The browser checks of the shell (`npm run check:desktop` in `external/ui`) drive the real binary:
 tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart. A link out
@@ -436,14 +438,11 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`SHA256SUMS`** | Checksums for every archive and package above |
 | **`SHA256SUMS.minisig`** | The signature of that list ([Signing releases](#signing-releases)) |
 
-Both the release job and the macOS PR job run `scripts/build-darwin-archives.sh`. It builds both
-Darwin architectures with cgo, the system Cocoa and WebKit frameworks, and the shipped `FULL_TAGS`
-from the Makefile. The Intel build uses `clang -arch x86_64`. The script sets
-`MACOSX_DEPLOYMENT_TARGET=13.0` and the matching compiler flag, checks API availability at compile
-time, and excludes macOS metadata from the archives. The native window needs macOS 14;
-`auto` uses a browser on older macOS versions.
-The Ubuntu job downloads the two archives before packaging, rendering the cask, checksumming and
-signing the assets. Archive names, their four members and the signed checksum format stay the same.
+One job on the Ubuntu runner builds every archive, the two Darwin ones included: the desktop
+window reaches Cocoa and WebKit through the Objective-C runtime, so `CGO_ENABLED=0 GOOS=darwin`
+cross-compiles it like any other target, and the release needs no macOS runner and no Xcode
+Command Line Tools. The native window still needs macOS 14 at run time; `auto` uses a browser on
+older macOS versions.
 
 The **`.tar.gz`** archives carry the man page and the shell completions beside the binary; the
 packages wrap the Linux binaries the same job just built rather than compiling their own, so the

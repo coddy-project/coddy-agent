@@ -496,8 +496,9 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
-      # The archives embed the SPA, so this job builds it the way every other
-      # job here does: the same action, the same Node and the same npm cache.
+      # The shipped binary embeds the SPA, so this job builds it the way
+      # every other job here does: the same action, the same Node and the same
+      # npm cache.
       - name: Set up Node for the desktop window
         uses: actions/setup-node@v5
         with:
@@ -505,37 +506,32 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
-      - name: Build both macOS release archives with the native desktop window
+      # The shape a release has: the shipped tag set and no cgo, which is what
+      # the Linux runner cross-compiles for macOS.
+      - name: Build the binary a Mac is shipped
+        env:
+          CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          make ui-build
-          scripts/build-darwin-archives.sh --out "$RUNNER_TEMP/darwin"
+          make build TAGS="$(make -s print-full-tags | tr ',' ' ')"
 
-      # The console a Mac actually gets is the one inside those archives: the
-      # shipped tag set with cgo, and the native window's runtime.LockOSThread
-      # in init, which runs for every command of that binary and not only for
-      # `coddy desktop`. The pty run above drives a pure-Go `make build TAGS=cli`,
-      # which is a shape no release ships, so the shipped one is driven here
-      # through the same script. This runner is arm64, so its own archive runs.
+      # The console a Mac actually gets is that binary, not the pure-Go
+      # `make build TAGS=cli` driven above: the shipped one carries the native
+      # window, whose runtime.LockOSThread in init runs for every command and
+      # not only for `coddy desktop`.
       - name: Drive the shipped console through a real pty
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/shipped"
-          tar -xzf "$RUNNER_TEMP"/darwin/coddy_*_darwin_arm64.tar.gz -C "$RUNNER_TEMP/shipped"
-          "$RUNNER_TEMP/shipped/coddy" -v
-          CODDY_BIN="$RUNNER_TEMP/shipped/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
+          ./build/coddy -v
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
-      # A real Cocoa loop and WKWebView, rather than only a cgo cross-build.
-      # The `desktop` tag is all it takes: on macOS with cgo the window is what
-      # the package compiles. The whole package runs, not only the native
-      # tests: no other job runs a `desktop` tag on a Mac, so the BDD suite had
-      # never met darwin's own autostart path or its missing application entry
-      # (issue 748).
+      # A real Cocoa loop and WKWebView, rather than only a cross-build: the
+      # window is reached through the Objective-C runtime, and nothing but a
+      # Mac can say that the messages it sends are the ones AppKit answers.
+      # The whole package runs, not only the native tests: no other job runs a
+      # `desktop` tag on a Mac, so the BDD suite had never met darwin's own
+      # autostart path or its missing application entry (issue 748).
       - name: Open and drive a real WKWebView window
-        env:
-          CGO_ENABLED: "1"
-          MACOSX_DEPLOYMENT_TARGET: "13.0"
-          CGO_CFLAGS: "-mmacosx-version-min=13.0 -Werror=unguarded-availability-new"
         run: env -u USER go test -tags desktop ./external/desktop -count=1
 
   # The packages are only built on a release tag, so without this job a broken

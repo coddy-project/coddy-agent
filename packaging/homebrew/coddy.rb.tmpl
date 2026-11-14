@@ -22,8 +22,8 @@
 #
 # From Go 1.27 a darwin binary records macOS 13 as its minimum, cgo or not,
 # and the loader refuses it on an older release; hence the minimum below.
-# scripts/build-darwin-archives.sh names the same floor. The native desktop
-# window asks for 14 on top of that and falls back to a browser underneath it,
+# The native desktop window asks for 14 on top of that, which is a run-time
+# check of its own, and falls back to a browser underneath it,
 # which is the binary's own business and not something the cask can decide.
 #
 # The `zap` stanza names ~/.coddy - sessions, skills, credentials and the

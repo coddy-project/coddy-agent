@@ -1,4 +1,4 @@
-//go:build desktop && darwin && cgo
+//go:build desktop && darwin
 
 package desktop
 
