@@ -84,6 +84,12 @@ func Main(args []string) bool {
 		}))
 	case "context":
 		emit(specific(map[string]interface{}{"additionalContext": param(0)}))
+	case "handle":
+		// The handler performed the call itself and answers for it.
+		emit(specific(map[string]interface{}{"handled": true, "toolResult": param(0)}))
+	case "handle-error":
+		// The handler performed the call itself and the call failed.
+		emit(specific(map[string]interface{}{"handled": true, "toolError": param(0)}))
 	case "text":
 		fmt.Print(param(0))
 		os.Exit(0)
