@@ -47,6 +47,8 @@ export type ImportStatus = {
   error?: string;
 };
 export type StatisticsSettings = {
+  /** Absent means the counters are collected, as a fresh home does. */
+  disabled?: boolean;
   timezone: string;
   // A tariff saved over the API may name no cache rate; then the input rate
   // applies, the way the embedded catalog reads a model without one.

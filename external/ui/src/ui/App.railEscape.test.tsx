@@ -427,6 +427,29 @@ test("every screen of the rail closes on Escape and gives the address back to th
   }
 });
 
+// A screen of the rail is a window over the chat: the shell dims what it
+// covers, and a click on that dimming takes the screen down, the way Escape
+// and the close control do. Statistics was drawn over an undimmed chat and
+// outlived a click beside it.
+test("every screen of the rail dims the chat and closes on a click beside it", async () => {
+  for (const id of RAIL_SCREENS) {
+    const page = RAIL_SCREEN_PAGES[id];
+    mountInChat();
+    await screen.findByTestId("nav-settings");
+    history.replaceState(null, "", `/${page.href}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await screen.findByTestId(page.testId);
+    await settle();
+    const backdrop = document.querySelector(".backdrop.is-open");
+    expect(backdrop, id).not.toBeNull();
+    fireEvent.click(backdrop!);
+    await waitFor(() =>
+      expect(screen.queryByTestId(page.testId), id).toBeNull(),
+    );
+    cleanup();
+  }
+});
+
 test("an Escape that folds a row menu of History leaves History open", async () => {
   mountInChat();
   fireEvent.click(await screen.findByTestId("nav-history"));

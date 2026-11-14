@@ -25,8 +25,7 @@
 }
 .statistics-view button:focus-visible,
 .statistics-settings button:focus-visible,
-.statistics-sheet button:focus-visible,
-.statistics-brand-menu button:focus-visible {
+.statistics-sheet button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -325,80 +324,38 @@
 .statistics-warning button {
   margin-left: 12px;
 }
+/* The settings of the statistics are fieldsets like every other tab: the
+   rules that used to separate their sections are the fieldset's own now. */
 .statistics-settings {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 16px;
 }
-.statistics-settings > section {
-  width: 100%;
-  border-top: 1px solid var(--coddy-glass-panel-border);
-  padding-top: 24px;
-}
 .statistics-settings .statistics-danger {
   color: var(--coddy-danger);
-  margin-top: 12px;
+  justify-self: start;
 }
-.statistics-price-overrides summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  list-style: none;
-  cursor: pointer;
-  color: var(--text);
-  font-size: 13px;
-  padding-block: 12px;
+/* The reset is a field of the counters, so it reads as one: its name and the
+   (i) on the left, the button where every other control of the block sits. */
+.statistics-reset-field .settings-btn {
+  width: fit-content;
 }
-.statistics-price-overrides summary::-webkit-details-marker {
-  display: none;
-}
-.statistics-rate {
+.statistics-settings .settings-array-entry {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) 40px;
   gap: 12px;
   align-items: end;
-  padding-block: 16px;
-  border-top: 1px solid var(--coddy-glass-panel-border);
 }
-.statistics-rate .statistics-filter {
-  min-width: 0;
-}
-.statistics-rate .statistics-filter:first-child {
+.statistics-settings .settings-array-entry > .settings-field:first-child {
   grid-column: 1 / -2;
+}
+.statistics-settings .settings-array-entry > .settings-field {
+  min-width: 0;
 }
 .statistics-rate-remove {
   grid-column: 4;
   grid-row: 1;
-}
-.statistics-settings > .settings-btn {
-  align-self: flex-start;
-}
-.statistics-brand-menu {
-  position: fixed;
-  z-index: 300;
-  min-width: 190px;
-  border-radius: 10px;
-  padding: 5px;
-  background: var(--coddy-simple-surface, var(--bg));
-  border: 1px solid var(--coddy-glass-panel-border);
-}
-.statistics-brand-menu button {
-  display: block;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  padding: 11px 14px;
-  text-align: left;
-  font: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-}
-@media (hover: hover) {
-  .statistics-brand-menu button:hover {
-    background: var(--coddy-surface-subtle);
-  }
 }
 
 .statistics-actions-anchor {
@@ -423,12 +380,55 @@
   background: transparent;
   min-height: 44px;
 }
-.statistics-view .statistics-filter-trigger {
-  min-height: 44px;
-  padding-inline: 18px;
+/* The period and the filters ride at the right edge of the tab strip, level
+   with the tabs: they say what the page under them shows, and the strip is
+   where that belongs. */
+/* The filters stand in the same column as the close button of the head: the
+   strip keeps 28px from the edge and the head its own token, so the trail
+   reaches back out by the difference. */
+.statistics-tabs-trail {
+  margin-left: auto;
+  margin-right: calc(var(--coddy-panel-head-inline) - 28px);
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+.statistics-period .appearance-language-select {
+  min-height: 32px;
+  padding-block: 0;
+  font-size: 13px;
+}
+/* The filters wear the close button of the head: the same frame, the same
+   34x30 box, so the two controls of this window read as one family. Only the
+   centring and the badge's anchor are this button's own. */
+.statistics-view .statistics-filter-trigger {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  flex: none;
+}
+.statistics-view .statistics-filter-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
+  border-color: mix-text(18%);
+  color: var(--text);
+}
+/* The count rides on the icon, as the rail's does on History. */
 .statistics-filter-count {
-  margin-left: 8px;
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 .statistics-filter-tags {
@@ -605,7 +605,7 @@
   padding-inline: 28px;
   border-bottom: 1px solid var(--coddy-glass-panel-border);
 }
-.statistics-view .statistics-tabs button {
+.statistics-view .statistics-tabs > button {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -617,7 +617,7 @@
   min-height: 44px;
   color: var(--muted);
 }
-.statistics-view .statistics-tabs button[aria-selected="true"] {
+.statistics-view .statistics-tabs > button[aria-selected="true"] {
   border-bottom-color: var(--accent);
   color: var(--text);
 }

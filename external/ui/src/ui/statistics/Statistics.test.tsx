@@ -9,6 +9,10 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import StatisticsView from "./StatisticsView";
 import StatisticsSettings from "./StatisticsSettings";
+import {
+  flushStatisticsSettings,
+  statisticsSettingsDirty,
+} from "./statisticsSettingsStore";
 import { initLocale } from "../i18n/i18n";
 import type { StatisticsData } from "./api";
 
@@ -18,7 +22,7 @@ afterEach(() => {
   initLocale("en");
 });
 
-test("catalog pricing needs no manual form; custom tariffs expand on demand", async () => {
+test("catalog pricing needs no manual form; a custom tariff is saved with the tab", async () => {
   initLocale("en");
   const data = fixture();
   data.settings!.import.state = "complete";
@@ -30,33 +34,172 @@ test("catalog pricing needs no manual form; custom tariffs expand on demand", as
   );
   vi.stubGlobal("fetch", fetch);
   render(<StatisticsSettings />);
-  const summary = await screen.findByText("Custom prices (0)");
-  expect(summary.closest("details")).not.toHaveAttribute("open");
-  expect(screen.getByText(/bundled models.dev catalog/)).toBeInTheDocument();
-  fireEvent.click(summary);
-  fireEvent.click(screen.getByRole("button", { name: "Add model price" }));
+  // The catalog prices on its own, and the why of it sits behind the (i)
+  // beside the legend, as every other tab writes a description.
+  expect(
+    await screen.findByText("Model prices · USD per million tokens"),
+  ).toBeInTheDocument();
+  expect(statisticsSettingsDirty()).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
     target: { value: "account/model" },
   });
-  for (const name of ["Input", "Output", "Cached input"])
+  for (const name of ["Input", "Output", "Cached"])
     fireEvent.change(screen.getByRole("spinbutton", { name }), {
       target: { value: "0" },
     });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Save statistics settings" }),
+  // The panel has no Save of its own: the drawer's one writes it.
+  expect(screen.queryByRole("button", { name: /Save statistics/ })).toBeNull();
+  await waitFor(() => expect(statisticsSettingsDirty()).toBe(true));
+  await flushStatisticsSettings();
+  expect(fetch).toHaveBeenCalledWith(
+    "/coddy/statistics/settings",
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: true,
+        timezone: "",
+        prices: { "account/model": { input: 0, output: 0, cached: 0 } },
+      }),
+    }),
   );
+});
+
+test("a reset warns that every counter goes and clears the whole history", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(
+    async (_: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        JSON.stringify(init?.method === "DELETE" ? { ok: true } : data),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(<StatisticsSettings />);
+  // Nothing to choose: a reset is everything, which is what the warning says.
+  expect(screen.queryByLabelText("Keep")).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Reset all statistics?",
+  });
+  expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Clear" }));
   await waitFor(() =>
     expect(fetch).toHaveBeenCalledWith(
-      "/coddy/statistics/settings",
-      expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({
-          timezone: "",
-          prices: { "account/model": { input: 0, output: 0, cached: 0 } },
-        }),
-      }),
+      "/coddy/statistics?keep=none",
+      expect.objectContaining({ method: "DELETE" }),
     ),
   );
+});
+
+// The filters live at the right edge of the tab strip: an icon with the
+// number of them set. Taking them off is the sheet's own button.
+test("the filters open from the tab strip, count themselves and clear", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(async () => new Response(JSON.stringify(data)));
+  vi.stubGlobal("fetch", fetch);
+  const onClose = vi.fn();
+  render(
+    <StatisticsView
+      onClose={onClose}
+      onSettings={vi.fn()}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  expect(screen.queryByLabelText("Model")).toBeNull();
+  // Nothing is filtered yet, so there is no count and nothing to clear.
+  expect(screen.queryByTestId("statistics-filter-count")).toBeNull();
+  const trigger = screen.getByTestId("statistics-filter-trigger");
+  expect(trigger).toHaveAccessibleName("Filters");
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog = screen.getByRole("dialog", { name: "Filters" });
+  fireEvent.change(within(dialog).getByLabelText("Model"), {
+    target: { value: "model" },
+  });
+  await waitFor(() =>
+    expect(
+      fetch.mock.calls.some((args: unknown[]) =>
+        String(args[0]).includes("model=model"),
+      ),
+    ).toBe(true),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(trigger).toHaveFocus();
+  expect(screen.getByTestId("statistics-filter-count")).toHaveTextContent("1");
+  fireEvent.click(trigger);
+  expect(screen.getByLabelText("Model")).toHaveValue("model");
+  // The sheet's own button is what takes every filter off.
+  fireEvent.click(screen.getByTestId("statistics-filter-clear"));
+  await waitFor(() =>
+    expect(screen.queryByTestId("statistics-filter-count")).toBeNull(),
+  );
+});
+
+test("export and settings live behind the actions button", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(data))),
+  );
+  const onSettings = vi.fn();
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={onSettings}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Statistics actions" }));
+  expect(
+    screen.getByRole("button", { name: "Export CSV" }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
+  expect(onSettings).toHaveBeenCalledOnce();
+});
+
+test("the settings of the statistics are a tab of the drawer on a phone too", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.settings!.import.state = "complete";
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: true })),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(data))),
+  );
+  const onSettings = vi.fn();
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={onSettings}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+  await screen.findByText("Token activity");
+  fireEvent.click(screen.getByRole("button", { name: "Statistics actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
+  // One surface for the settings, with the drawer's own Save under them.
+  expect(onSettings).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 function fixture(): StatisticsData {
@@ -102,193 +245,3 @@ function fixture(): StatisticsData {
     installedSkills: 3,
   };
 }
-
-test("the first visit offers background import, and a later visit keeps its progress", async () => {
-  initLocale("en");
-  const data = fixture();
-  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input) === "/coddy/statistics/import") {
-      expect(JSON.parse(String(init?.body))).toEqual({ action: "start" });
-      data.settings!.import = {
-        state: "running",
-        done: 7,
-        total: 40,
-        failed: 0,
-      };
-      return new Response(JSON.stringify(data.settings!.import));
-    }
-    return new Response(JSON.stringify(data));
-  });
-  vi.stubGlobal("fetch", fetch);
-  const props = {
-    onClose: vi.fn(),
-    onSettings: vi.fn(),
-    swarm: false,
-    relayHome: false,
-    cwd: "/project",
-  };
-  const view = render(<StatisticsView {...props} />);
-  const dialog = await screen.findByRole("dialog", {
-    name: "Import history from old chats?",
-  });
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Import history" }),
-  );
-  await screen.findByText("Chats processed: 7 / 40");
-  expect(screen.queryByRole("dialog")).toBeNull();
-  view.unmount();
-  render(<StatisticsView {...props} />);
-  await screen.findByText("Chats processed: 7 / 40");
-  expect(screen.queryByRole("dialog")).toBeNull();
-});
-
-test("cleanup confirms the selected period and sends it to the server", async () => {
-  initLocale("en");
-  const data = fixture();
-  data.settings!.import.state = "complete";
-  const fetch = vi.fn(
-    async (_: RequestInfo | URL, init?: RequestInit) =>
-      new Response(
-        JSON.stringify(init?.method === "DELETE" ? { ok: true } : data),
-      ),
-  );
-  vi.stubGlobal("fetch", fetch);
-  render(<StatisticsSettings />);
-  const keep = await screen.findByLabelText("Keep");
-  fireEvent.change(keep, { target: { value: "week" } });
-  fireEvent.click(screen.getByRole("button", { name: "Clear statistics" }));
-  const dialog = await screen.findByRole("dialog", {
-    name: "Clear recorded statistics?",
-  });
-  expect(within(dialog).getByText(/Last week/)).toBeInTheDocument();
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Clear statistics" }),
-  );
-  await waitFor(() =>
-    expect(fetch).toHaveBeenCalledWith(
-      "/coddy/statistics?keep=week",
-      expect.objectContaining({ method: "DELETE" }),
-    ),
-  );
-});
-
-test("filters stay collapsed, preserve selections and return focus when dismissed", async () => {
-  initLocale("en");
-  const data = fixture();
-  data.settings!.import.state = "complete";
-  const fetch = vi.fn(async () => new Response(JSON.stringify(data)));
-  vi.stubGlobal("fetch", fetch);
-  const onClose = vi.fn();
-  render(
-    <StatisticsView
-      onClose={onClose}
-      onSettings={vi.fn()}
-      swarm={false}
-      relayHome={false}
-      cwd="/project"
-    />,
-  );
-  await screen.findByText("Token activity");
-  expect(screen.queryByLabelText("Model")).toBeNull();
-  const trigger = screen.getByRole("button", { name: "Filters" });
-  trigger.focus();
-  fireEvent.click(trigger);
-  const dialog = screen.getByRole("dialog", { name: "Filters" });
-  const modelInput = within(dialog).getByRole("combobox", { name: "Model" });
-  modelInput.focus();
-  fireEvent.focus(modelInput);
-  expect(within(dialog).getByRole("listbox")).toBeInTheDocument();
-  fireEvent.keyDown(modelInput, { key: "Escape" });
-  expect(within(dialog).queryByRole("listbox")).toBeNull();
-  expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
-  fireEvent.change(within(dialog).getByLabelText("Model"), {
-    target: { value: "model" },
-  });
-  await waitFor(() =>
-    expect(
-      fetch.mock.calls.some((args: unknown[]) =>
-        String(args[0]).includes("model=model"),
-      ),
-    ).toBe(true),
-  );
-  fireEvent.keyDown(modelInput, { key: "Escape" });
-  fireEvent.keyDown(window, { key: "Escape" });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(onClose).not.toHaveBeenCalled();
-  expect(trigger).toHaveFocus();
-  expect(
-    screen.getByRole("button", { name: "Model: model" }),
-  ).toBeInTheDocument();
-  fireEvent.click(trigger);
-  expect(screen.getByLabelText("Model")).toHaveValue("model");
-});
-
-test("export and settings live behind the actions button", async () => {
-  initLocale("en");
-  const data = fixture();
-  data.settings!.import.state = "complete";
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(JSON.stringify(data))),
-  );
-  const onSettings = vi.fn();
-  render(
-    <StatisticsView
-      onClose={vi.fn()}
-      onSettings={onSettings}
-      swarm={false}
-      relayHome={false}
-      cwd="/project"
-    />,
-  );
-  await screen.findByText("Token activity");
-  expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Statistics actions" }));
-  expect(
-    screen.getByRole("button", { name: "Export CSV" }),
-  ).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
-  expect(onSettings).toHaveBeenCalledOnce();
-});
-
-test("phone settings keep cleanup confirmation above the sheet", async () => {
-  initLocale("en");
-  const data = fixture();
-  data.settings!.import.state = "complete";
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn(() => ({ matches: true })),
-  );
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(JSON.stringify(data))),
-  );
-  const onSettings = vi.fn();
-  render(
-    <StatisticsView
-      onClose={vi.fn()}
-      onSettings={onSettings}
-      swarm={false}
-      relayHome={false}
-      cwd="/project"
-    />,
-  );
-  await screen.findByText("Token activity");
-  const actions = screen.getByRole("button", { name: "Statistics actions" });
-  fireEvent.click(actions);
-  fireEvent.click(screen.getByRole("button", { name: "Statistics settings" }));
-  const sheet = screen.getByRole("dialog", { name: "Statistics settings" });
-  fireEvent.click(
-    await within(sheet).findByRole("button", { name: "Clear statistics" }),
-  );
-  await screen.findByRole("dialog", { name: "Clear recorded statistics?" });
-  fireEvent.keyDown(window, { key: "Escape" });
-  expect(
-    screen.queryByRole("dialog", { name: "Clear recorded statistics?" }),
-  ).toBeNull();
-  expect(sheet).toBeInTheDocument();
-  fireEvent.keyDown(window, { key: "Escape" });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(actions).toHaveFocus();
-  expect(onSettings).not.toHaveBeenCalled();
-});

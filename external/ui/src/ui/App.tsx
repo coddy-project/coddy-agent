@@ -69,6 +69,7 @@ import {
   isNewerSettings,
   parseSessionSettings,
   permissionModeOfInfo,
+  statisticsOfInfo,
   toolsetsOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
@@ -1761,6 +1762,7 @@ export function App() {
       .then((info: unknown) => {
         if (read === serverPermissionReadRef.current && isAppEnvironment()) {
           setServerToolsets(toolsetsOfInfo(info));
+          setServerCollectsStatistics(statisticsOfInfo(info));
         }
         return permissionModeOfInfo(info);
       })
@@ -1792,6 +1794,10 @@ export function App() {
   // mode picked there, else the configured one.
   const startPermissionMode =
     pendingPermissionMode || shownConfiguredPermissionMode;
+  // Whether this server records usage: with the collection off there is no
+  // page to offer, so the rail does not hold it (GET /coddy/info).
+  const [serverCollectsStatistics, setServerCollectsStatistics] =
+    useState(true);
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler(
@@ -7598,6 +7604,7 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
+    statisticsRoute ||
     swarmRoute ||
     docsRoute !== null;
 
@@ -8138,7 +8145,10 @@ export function App() {
       <EnvHealthBanner />
       <NavRail
         localHost={localHost}
-        onOpenStatistics={openStatistics}
+        {...(serverCollectsStatistics
+          ? { onOpenStatistics: openStatistics }
+          : {})}
+        statisticsOpen={statisticsRoute}
         // A relay has no chat to start: its home is the map, and the brand
         // leads there as it leads an agent's page to a new chat.
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
@@ -8200,6 +8210,9 @@ export function App() {
               // button does.
               const guard = settingsRoute ? railCloseGuard("settings") : null;
               if (guard) guard();
+              // Statistics goes back where it was opened from, as its own
+              // close control and Escape do.
+              else if (statisticsRoute) closeStatistics();
               else closeAllShellDrawers();
             }
           }}

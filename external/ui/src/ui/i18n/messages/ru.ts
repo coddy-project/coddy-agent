@@ -68,9 +68,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.user_agent.label": "User-Agent",
   "settings.schema.providers.user_agent.desc":
     "Имя клиента в запросах к OpenAI- и Anthropic-совместимым провайдерам. По умолчанию используется имя SDK (OpenAI/Go или Anthropic/Go); Coddy передаёт версию запущенного приложения.",
-  "stats.brandMenu": "Меню Coddy",
   "stats.durationSeconds": "{seconds} с",
   "stats.durationMinutes": "{minutes} мин",
+  "stats.source.console": "Консоль",
+  "stats.source.acp": "Редактор (ACP)",
   "stats.source.local": "Консоль и ACP",
   "stats.source.webui": "Веб-интерфейс",
   "stats.source.subagent": "Субагенты",
@@ -119,7 +120,6 @@ export const messagesRu: Record<string, string> = {
   "stats.limitsRefreshPending":
     "Обновление запланировано с учётом интервала опроса провайдера.",
   "stats.title": "Статистика",
-  "stats.settings": "Настройки статистики",
   "stats.settings.description": "История, часовой пояс и тарифы",
   "stats.activity": "Активность токенов",
   "stats.weeks": "По неделям",
@@ -151,7 +151,7 @@ export const messagesRu: Record<string, string> = {
   "stats.tokensPeriod": "Токены за выбранный период",
   "stats.input": "Входящие",
   "stats.output": "Исходящие",
-  "stats.cached": "Входящие из кеша",
+  "stats.cached": "Кеш",
   "stats.maxDaily": "Максимум токенов за день",
   "stats.longest": "Самая долгая задача · время агента",
   "stats.activeTime": "Общее время работы агента",
@@ -181,9 +181,9 @@ export const messagesRu: Record<string, string> = {
   "stats.loading": "Загрузка статистики…",
   "stats.retry": "Повторить",
   "stats.import.title": "Подтянуть данные из старых чатов?",
+  "stats.import.start": "Подтянуть историю",
   "stats.import.message":
     "Импорт пройдёт в фоне и включит архивные чаты и субагентов. Будут восстановлены только записанные данные, остальные значения останутся пустыми. Импорт можно запустить позже в настройках статистики.",
-  "stats.import.start": "Подтянуть историю",
   "stats.import.skip": "Пропустить",
   "stats.import.running": "Идёт импорт истории…",
   "stats.import.progress": "Обработано чатов: {done} / {total}",
@@ -192,36 +192,35 @@ export const messagesRu: Record<string, string> = {
   "stats.import.failed": "Не удалось импортировать чатов: {count}",
   "stats.import.partial":
     "Данные старых чатов неполные: в них не записывались все вызовы, расход кеша и время работы без ожидания ответов пользователя.",
-  "stats.import.heading": "Старые чаты",
+  "stats.enable": "Собирать статистику",
+  "stats.enable.hint":
+    "С выключенным переключателем машина не записывает ни ходов, ни вызовов провайдера, а экран статистики не предлагается. Уже записанное остаётся; его удаляет сброс.",
+  "stats.counters": "Счётчики",
+  "stats.counters.hint":
+    "Счётчики лежат рядом с чатами, в домашней папке этой машины, и переживают удаление чата.",
   "stats.timezone": "Часовой пояс",
   "stats.timezone.browser": "Часовой пояс браузера",
   "stats.timezone.hint":
-    "Оставьте поле пустым, чтобы использовать часовой пояс браузера ({timezone}). Для этого сервера можно указать другой пояс в формате IANA.",
+    "Без него дни раскладываются по часовому поясу браузера. Заданный здесь пояс сервер отдаёт по умолчанию, и его же запрашивает релей.",
   "stats.prices": "Тарифы моделей · USD за миллион токенов",
   "stats.prices.hint":
     "Стоимость рассчитывается автоматически по ценам из встроенного каталога models.dev. Подписки и платные инструменты в расчёт не входят. Своя цена нужна только для другого тарифа или модели, которой нет в каталоге.",
   "stats.prices.custom": "Свои цены ({count})",
-  "stats.prices.add": "Добавить тариф модели",
+  "stats.settings": "Настройки статистики",
+  "stats.prices.add": "Добавить",
   "stats.prices.remove": "Убрать тариф модели",
   "stats.prices.invalid":
     "Укажите уникальное название модели и неотрицательные тарифы во всех полях.",
   "stats.prices.configure": "Указать тарифы",
   "stats.unpriced":
     "Вызовы без тарифа: {count}. Оценка включает только вызовы с тарифом.",
-  "stats.save": "Сохранить настройки статистики",
-  "stats.saved": "Сохранено",
-  "stats.clear.heading": "Очистка статистики",
+  "stats.clear.heading": "Сброс статистики",
   "stats.clear.hint":
-    "Статистика хранится бессрочно и сохраняется после удаления чатов. Очистка удаляет только счётчики, история чатов остаётся. Очищенные записи не вернутся при импорте.",
-  "stats.clear.keep": "Оставить",
-  "stats.clear.none": "Удалить всё",
-  "stats.clear.day": "Последний день",
-  "stats.clear.week": "Последнюю неделю",
-  "stats.clear.month": "Последний месяц",
-  "stats.clear.action": "Очистить статистику",
-  "stats.clear.title": "Очистить накопленную статистику?",
+    "Счётчики хранятся бессрочно и переживают удаление чатов. Сброс удаляет их все и начинает счёт заново, история чатов остаётся.",
+  "stats.clear.action": "Очистить",
+  "stats.clear.title": "Сбросить всю статистику?",
   "stats.clear.message":
-    "Выбрано: {period}. Удалённые счётчики нельзя будет восстановить импортом чатов.",
+    "Все записанные счётчики будут удалены, счёт начнётся с нуля. Чаты останутся на месте. Отменить это нельзя.",
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.simpleLabel": "Упрощённый режим",
@@ -1802,6 +1801,7 @@ export const messagesRu: Record<string, string> = {
   "nav.swarm": "Рой",
   "nav.docs": "Документация",
   "nav.schedulerAriaLabel": "Задачи планировщика",
+  "nav.statistics": "Статистика",
   "nav.settings": "Настройки",
   "nav.more": "Ещё",
 

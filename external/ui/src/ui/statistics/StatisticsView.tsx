@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderLimits } from "./ProviderLimits";
 import { StatisticsSheet } from "./StatisticsSheet";
-import StatisticsSettings from "./StatisticsSettings";
-import { snapshotPhone } from "../shellBreakpoint";
 import { useT } from "../i18n/I18nProvider";
 import { CoddyWorkIndicator } from "../messages/CoddyWorkIndicator";
 import { ActivityCalendar } from "./ActivityCalendar";
-import { Combobox } from "../settings/Combobox";
 import {
   browserTimezone,
   exportStatistics,
@@ -15,6 +12,29 @@ import {
   type Breakdown,
   type StatisticsData,
 } from "./api";
+
+/** Sliders, as the conversation list draws its filters. */
+function IconFilters() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M4 7h10" />
+      <path d="M18 7h2" />
+      <path d="M4 17h4" />
+      <path d="M12 17h8" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="10" cy="17" r="2" />
+    </svg>
+  );
+}
 
 export default function StatisticsView({
   onClose,
@@ -47,14 +67,12 @@ export default function StatisticsView({
   const [working, setWorking] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [importDismissed, setImportDismissed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   const openSettings = () => {
     actionsRef.current?.querySelector("button")?.focus();
     setActionsOpen(false);
-    if (snapshotPhone()) setSettingsOpen(true);
-    else onSettings();
+    onSettings();
   };
   useEffect(() => {
     if (!actionsOpen) return;
@@ -236,6 +254,8 @@ export default function StatisticsView({
     (
       ({
         local: t("stats.source.local"),
+        console: t("stats.source.console"),
+        acp: t("stats.source.acp"),
         webui: t("stats.source.webui"),
         api: "HTTP API",
         subagent: t("stats.source.subagent"),
@@ -248,6 +268,18 @@ export default function StatisticsView({
         "gateway:pachca": "Pachca",
       }) as Record<string, string>
     )[name] ?? name;
+  // A filter is a plain menu of the browser's: the list of a project or a
+  // model is long, and an inline one pushed the sheet's own rows apart.
+  const activeFilters = (
+    tab === "overview" ? [project, provider, model, source, node] : [node]
+  ).filter(Boolean).length;
+  const clearFilters = () => {
+    setProject("");
+    setProvider("");
+    setModel("");
+    setSource("");
+    setNode("");
+  };
   const select = (
     label: string,
     value: string,
@@ -256,20 +288,21 @@ export default function StatisticsView({
   ) => (
     <label className="statistics-filter">
       <span>{t(label)}</span>
-      <Combobox
-        inlineOptions
-        value={value}
-        onChange={change}
-        ariaLabel={t(label)}
-        placeholder={t("stats.all")}
-        options={[
-          { value: "", label: t("stats.all") },
-          ...rows.map((row) => ({
-            value: row.name,
-            label: label === "stats.source" ? sourceName(row.name) : row.name,
-          })),
-        ]}
-      />
+      <span className="appearance-language-select-wrap">
+        <select
+          className="appearance-language-select"
+          aria-label={t(label)}
+          value={value}
+          onChange={(e) => change(e.target.value)}
+        >
+          <option value="">{t("stats.all")}</option>
+          {rows.map((row) => (
+            <option key={row.name} value={row.name}>
+              {label === "stats.source" ? sourceName(row.name) : row.name}
+            </option>
+          ))}
+        </select>
+      </span>
     </label>
   );
   const breakdown = (
@@ -427,15 +460,14 @@ export default function StatisticsView({
               {t(`stats.${value}`)}
             </button>
           ))}
-        </div>
-        <div className="statistics-body">
-          <div className="statistics-filters">
+          <div className="statistics-tabs-trail">
             {tab === "overview" && (
-              <label className="statistics-filter">
-                <span>{t("stats.period")}</span>
+              <label className="statistics-period">
+                <span className="sr-only">{t("stats.period")}</span>
                 <span className="appearance-language-select-wrap">
                   <select
                     className="appearance-language-select"
+                    aria-label={t("stats.period")}
                     value={period}
                     onChange={(e) => setPeriod(e.target.value)}
                   >
@@ -448,6 +480,32 @@ export default function StatisticsView({
                 </span>
               </label>
             )}
+            {(tab === "overview" || swarm) && (
+              <button
+                type="button"
+                className="sessions-close statistics-filter-trigger"
+                aria-label={t("stats.filters")}
+                title={t("stats.filters")}
+                aria-expanded={filtersOpen}
+                data-testid="statistics-filter-trigger"
+                onClick={() => setFiltersOpen(true)}
+              >
+                <IconFilters />
+                {activeFilters > 0 && (
+                  <span
+                    className="statistics-filter-count"
+                    data-testid="statistics-filter-count"
+                    aria-hidden
+                  >
+                    {activeFilters}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="statistics-body">
+          <div className="statistics-filters">
             {tab === "overview" && period === "custom" && (
               <>
                 <label className="statistics-filter">
@@ -470,29 +528,9 @@ export default function StatisticsView({
                 </label>
               </>
             )}
-            {(tab === "overview" || swarm) && (
-              <button
-                className="settings-btn statistics-filter-trigger"
-                aria-expanded={filtersOpen}
-                onClick={() => setFiltersOpen(true)}
-              >
-                {t("stats.filters")}
-                {(tab === "overview"
-                  ? [project, provider, model, source, node]
-                  : [node]
-                ).filter(Boolean).length > 0 && (
-                  <span className="statistics-filter-count">
-                    {
-                      (tab === "overview"
-                        ? [project, provider, model, source, node]
-                        : [node]
-                      ).filter(Boolean).length
-                    }
-                  </span>
-                )}
-              </button>
-            )}
           </div>
+          {/* The filters set are counted on the icon of the strip; naming
+              each one again under the tabs said the same thing twice. */}
           <div className="statistics-filter-tags">
             {scope === "swarm" && (
               <button
@@ -502,33 +540,6 @@ export default function StatisticsView({
                 {t("stats.swarm")}
               </button>
             )}
-            {[
-              ["stats.project", tab === "overview" ? project : ""],
-              ["stats.provider", tab === "overview" ? provider : ""],
-              ["stats.model", tab === "overview" ? model : ""],
-              [
-                "stats.source",
-                tab === "overview" && source ? sourceName(source) : "",
-              ],
-              [
-                "stats.node",
-                node
-                  ? data?.nodes
-                      ?.find((n) => n.dataset === node)
-                      ?.path.join(" / ") || node
-                  : "",
-              ],
-            ]
-              .filter(([, value]) => value)
-              .map(([key, value]) => (
-                <button
-                  className="settings-btn"
-                  key={key}
-                  onClick={() => setFiltersOpen(true)}
-                >
-                  {t(key!)}: {value}
-                </button>
-              ))}
           </div>
           {filtersOpen && (
             <StatisticsSheet
@@ -600,32 +611,11 @@ export default function StatisticsView({
               </div>
               <button
                 className="settings-btn statistics-reset"
-                onClick={() => {
-                  setProject("");
-                  setProvider("");
-                  setModel("");
-                  setSource("");
-                  setNode("");
-                }}
+                data-testid="statistics-filter-clear"
+                onClick={clearFilters}
               >
                 {t("stats.resetFilters")}
               </button>
-            </StatisticsSheet>
-          )}
-          {settingsOpen && (
-            <StatisticsSheet
-              title={t("stats.settings")}
-              onClose={() => {
-                setSettingsOpen(false);
-                void read();
-              }}
-            >
-              <StatisticsSettings
-                onImported={() => {
-                  setSettingsOpen(false);
-                  void read();
-                }}
-              />
             </StatisticsSheet>
           )}
           {error && (

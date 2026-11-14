@@ -328,25 +328,33 @@ describe("NavRail on a relay", () => {
     expect(screen.getByTestId("nav-history")).toBeInTheDocument();
   });
 
-  // The brand led home before it opened a menu. The menu keeps that first,
-  // so the statistics are added to the brand rather than put in its place.
-  it("keeps the home action in the menu the brand opens", () => {
+  // Statistics is a screen of the rail like the documentation and the
+  // settings, and it stands between them; the brand stays a link home.
+  it("offers statistics between the documentation and the settings", () => {
     const onNewChat = vi.fn();
     const onOpenStatistics = vi.fn();
+    const onOpenDocs = vi.fn();
     render(
       <NavRail
         {...base}
         onNewChat={onNewChat}
+        onOpenDocs={onOpenDocs}
         onOpenStatistics={onOpenStatistics}
       />,
     );
-    fireEvent.click(screen.getByTestId("nav-home"));
-    fireEvent.click(screen.getByTestId("nav-home-item"));
-    expect(onNewChat).toHaveBeenCalledTimes(1);
-    expect(onOpenStatistics).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("nav-home"));
-    fireEvent.click(screen.getByTestId("nav-statistics"));
+    const order = Array.from(
+      document.querySelectorAll("[data-testid^='nav-']"),
+    ).map((e) => e.getAttribute("data-testid"));
+    expect(order.indexOf("nav-statistics")).toBe(order.indexOf("nav-docs") + 1);
+    expect(order.indexOf("nav-settings")).toBe(
+      order.indexOf("nav-statistics") + 1,
+    );
+    const item = screen.getByTestId("nav-statistics");
+    expect(item).toHaveAttribute("href", "#/statistics");
+    fireEvent.click(item);
     expect(onOpenStatistics).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("nav-home"));
+    expect(onNewChat).toHaveBeenCalledTimes(1);
   });
 
   // The rail splits at the spacer: what belongs to this session above it,

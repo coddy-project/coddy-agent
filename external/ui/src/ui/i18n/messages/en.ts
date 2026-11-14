@@ -64,9 +64,10 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.user_agent.label": "User-Agent",
   "settings.schema.providers.user_agent.desc":
     "Client identity for OpenAI-compatible and Anthropic-compatible requests. The provider SDK is the default (OpenAI/Go or Anthropic/Go); Coddy uses the running application version.",
-  "stats.brandMenu": "Coddy menu",
   "stats.durationSeconds": "{seconds}s",
   "stats.durationMinutes": "{minutes}m",
+  "stats.source.console": "Console",
+  "stats.source.acp": "Editor (ACP)",
   "stats.source.local": "Console and ACP",
   "stats.source.webui": "Web interface",
   "stats.source.subagent": "Subagents",
@@ -114,7 +115,6 @@ export const messagesEn: Record<string, string> = {
   "stats.limitsRefreshPending":
     "A refresh is scheduled by the provider’s polling interval.",
   "stats.title": "Statistics",
-  "stats.settings": "Statistics settings",
   "stats.settings.description": "History, time zone and prices",
   "stats.activity": "Token activity",
   "stats.weeks": "By week",
@@ -146,7 +146,7 @@ export const messagesEn: Record<string, string> = {
   "stats.tokensPeriod": "Tokens · selected period",
   "stats.input": "Input",
   "stats.output": "Output",
-  "stats.cached": "Cached input",
+  "stats.cached": "Cached",
   "stats.maxDaily": "Most tokens in one day",
   "stats.longest": "Longest task · agent time",
   "stats.activeTime": "Total agent time",
@@ -176,9 +176,9 @@ export const messagesEn: Record<string, string> = {
   "stats.loading": "Loading statistics…",
   "stats.retry": "Retry",
   "stats.import.title": "Import history from old chats?",
+  "stats.import.start": "Import history",
   "stats.import.message":
     "Import runs in the background, including archived chats and subagents. Only recorded values can be recovered; missing values stay empty. You can start it later in Statistics settings.",
-  "stats.import.start": "Import history",
   "stats.import.skip": "Skip",
   "stats.import.running": "Importing history…",
   "stats.import.progress": "Chats processed: {done} / {total}",
@@ -187,36 +187,35 @@ export const messagesEn: Record<string, string> = {
   "stats.import.failed": "Chats that could not be imported: {count}",
   "stats.import.partial":
     "Historical usage is incomplete: old chats did not record every call, cache usage or agent-only duration.",
-  "stats.import.heading": "Historical chats",
+  "stats.enable": "Collect statistics",
+  "stats.enable.hint":
+    "Off, this machine records no turn and no provider call, and the Statistics screen is not offered. What is already recorded stays; a reset removes it.",
+  "stats.counters": "Counters",
+  "stats.counters.hint":
+    "Counters live beside the chats, in the home of this machine, and survive a chat being deleted.",
   "stats.timezone": "Time zone",
   "stats.timezone.browser": "Use browser time zone",
   "stats.timezone.hint":
-    "Leave empty to use the browser time zone ({timezone}). Enter an IANA zone to override it for this server.",
+    "Without one the days are laid out in the zone of the browser. A zone set here is what this server answers with, and what a relay asks it for.",
   "stats.prices": "Model prices · USD per million tokens",
   "stats.prices.hint":
     "Estimates use list prices from the bundled models.dev catalog automatically. Subscriptions and tool charges are not included. Add a custom price only for a different tariff or an unlisted model.",
   "stats.prices.custom": "Custom prices ({count})",
-  "stats.prices.add": "Add model price",
+  "stats.settings": "Statistics settings",
+  "stats.prices.add": "Add",
   "stats.prices.remove": "Remove model price",
   "stats.prices.invalid":
     "Enter a unique model name and non-negative rates in every field.",
   "stats.prices.configure": "Set prices",
   "stats.unpriced":
     "Calls without a price: {count}. The estimate covers priced calls only.",
-  "stats.save": "Save statistics settings",
-  "stats.saved": "Saved",
-  "stats.clear.heading": "Clear statistics",
+  "stats.clear.heading": "Reset statistics",
   "stats.clear.hint":
-    "Statistics are kept indefinitely and survive chat deletion. Clearing removes counters only; chat history stays available. Cleared records will not return during import.",
-  "stats.clear.keep": "Keep",
-  "stats.clear.none": "Clear everything",
-  "stats.clear.day": "Last day",
-  "stats.clear.week": "Last week",
-  "stats.clear.month": "Last month",
-  "stats.clear.action": "Clear statistics",
-  "stats.clear.title": "Clear recorded statistics?",
+    "Counters are kept indefinitely and survive chat deletion. A reset removes all of them and starts counting again; chat history stays.",
+  "stats.clear.action": "Clear",
+  "stats.clear.title": "Reset all statistics?",
   "stats.clear.message":
-    "Selected: {period}. Removed counters cannot be restored by importing chats.",
+    "Every recorded counter is removed and counting starts from nothing. Chats stay as they are. This cannot be undone.",
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.simpleLabel": "Simplified mode",
@@ -1743,6 +1742,7 @@ export const messagesEn: Record<string, string> = {
   "nav.swarm": "Swarm",
   "nav.docs": "Docs",
   "nav.schedulerAriaLabel": "Scheduler jobs",
+  "nav.statistics": "Statistics",
   "nav.settings": "Settings",
   "nav.more": "More",
 

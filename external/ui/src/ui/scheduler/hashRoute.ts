@@ -600,6 +600,10 @@ export function appNavHrefSettings(): string {
   return "#/settings";
 }
 
+export function appNavHrefStatistics(): string {
+  return "#/statistics";
+}
+
 /** The reader, one page of it, or one section of a page. */
 export function appNavHrefDocs(
   slug?: string | null,
