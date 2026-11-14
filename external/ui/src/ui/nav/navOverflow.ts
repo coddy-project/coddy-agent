@@ -6,6 +6,7 @@
  * NAV_MENU_ORDER, sign-out last.
  */
 export type NavItemId =
+  | "statistics"
   | "history"
   | "scheduler"
   | "swarm"

@@ -25,6 +25,8 @@ export function Combobox(props: {
   ariaLabel?: string | undefined;
   testid?: string | undefined;
   disabled?: boolean | undefined;
+  /** Let options take space inside a scrolling panel instead of overlapping it. */
+  inlineOptions?: boolean;
 }) {
   const { value, onChange, options, placeholder, ariaLabel, testid, disabled } =
     props;
@@ -58,9 +60,12 @@ export function Combobox(props: {
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+    // An inline list changes the panel's height. Dismiss after the outside
+    // control receives its click, so it cannot move between down and up.
+    const event = props.inlineOptions ? "click" : "mousedown";
+    document.addEventListener(event, onDoc);
+    return () => document.removeEventListener(event, onDoc);
+  }, [open, props.inlineOptions]);
 
   const pick = (o: ComboOption) => {
     onChange(o.value);
@@ -97,7 +102,10 @@ export function Combobox(props: {
   };
 
   return (
-    <div className="settings-combobox" ref={rootRef}>
+    <div
+      className={`settings-combobox${props.inlineOptions ? " settings-combobox--inline" : ""}`}
+      ref={rootRef}
+    >
       <input
         className="settings-input settings-combobox-input"
         type="text"

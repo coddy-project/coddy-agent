@@ -3,9 +3,12 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
@@ -19,7 +22,45 @@ import (
 // /coddy route, since the answer carries the account's wallet balance.
 
 func (s *Server) registerProviderUsageRoutes() {
+	s.mux.HandleFunc("GET /coddy/providers/usage", s.coddyProviderUsageList)
 	s.mux.HandleFunc("GET /coddy/providers/{name}/usage", s.coddyProviderUsageGet)
+}
+
+// coddyProviderUsageList includes unused, unsupported and disabled rows too.
+// The manager retains each account's pacing, proxy and stale-data policy.
+func (s *Server) coddyProviderUsageList(w http.ResponseWriter, r *http.Request) {
+	c := s.activeCfg()
+	if c == nil || s.mgr == nil {
+		writeCoddyConfigErr(w, http.StatusInternalServerError, "config unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	rows := make([]acp.ProviderUsageUpdate, len(c.Providers))
+	refresh := r.URL.Query().Get("refresh") == "1"
+	jobs := make(chan int, len(rows))
+	for i := range rows {
+		jobs <- i
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	for range min(4, len(rows)) {
+		wg.Go(func() {
+			for i := range jobs {
+				p := c.Providers[i]
+				usage, err := s.mgr.ProviderUsage(ctx, p.Name, refresh)
+				if err != nil || usage == nil {
+					rows[i] = acp.ProviderUsageUpdate{Provider: p.Name, ProviderType: p.Type, Error: "unavailable"}
+				} else {
+					rows[i] = *usage
+				}
+			}
+		})
+	}
+	wg.Wait()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"providers": rows})
 }
 
 // coddyProviderUsageGet answers {"ok":true,"usage":<update>} with the

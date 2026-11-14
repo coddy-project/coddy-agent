@@ -317,6 +317,10 @@ export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
     shown: backupCodesShown,
   }),
+  landmark("statistics", "timezone", "statisticsTimezone", "before"),
+  landmark("statistics", "prices", "statisticsPrices", "before"),
+  landmark("statistics", "import", "statisticsImport", "before"),
+  landmark("statistics", "clear", "statisticsClear", "before"),
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
   landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),

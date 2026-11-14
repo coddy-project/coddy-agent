@@ -106,6 +106,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /swarm/register", s.handleRegister)
 	s.mux.HandleFunc("DELETE /swarm/nodes/{node}", s.handleUnregister)
 	s.registerSessionRoutes()
+	s.mux.HandleFunc("GET /swarm/statistics", s.handleStatistics)
 	s.registerTunnelRoutes()
 	s.registerTopologyRoutes()
 	s.registerMountRoutes()

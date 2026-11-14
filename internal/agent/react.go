@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	fstools "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
@@ -118,7 +119,8 @@ type Agent struct {
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
 	// progress is the running turn's clock and token count (turn_progress.go).
-	progress *turnProgress
+	progress           *turnProgress
+	statisticsRecorder *statistics.Recorder
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
 	// countdown (tests); zero means limitWaitHeartbeat.
 	limitWaitHeartbeat time.Duration
@@ -259,6 +261,8 @@ func (a *Agent) wireWorkspaceTool(env *tools.Env) {
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop string, turnErr error) {
+	ctx, finishStatistics := a.beginStatistics(ctx)
+	defer finishStatistics()
 	mode := a.state.EffectiveMode()
 	// Hook definitions are re-read for every turn.
 	a.resetHooks()
@@ -287,6 +291,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		if !session.BeginQueuedPromptRead(ctx, a.state.GetID()) {
 			return string(acp.StopReasonCancelled), nil
 		}
+		a.statisticsRecorder.ResetRequests()
 		a.appendQueuedMessages(nil, queued)
 	} else {
 		// The built-in /compact, /plugin, /export and /worktree commands are operator input:
@@ -324,6 +329,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		// mentioned paths activate, ride in this message (mentions.go), never in
 		// the system prompt and never added per request.
 		for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
+			statistics.RecordSkill(ctx, inv.name)
 			a.applySkillSettings(ctx, inv.name, inv.skill)
 		}
 		if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills(), a.managedSkillsDir()); len(extra) > 0 {
@@ -355,12 +361,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		// as something the operator typed, after a reload either.
 		wake := a.takeTurnWake()
 		if wake != nil {
+			statistics.Background(ctx)
 			a.markWokeTasks(wake)
 			_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
 		}
 		// A goal turn the supervisor started opens with its marker the same way:
 		// the clients show a one-line row, never the instruction text.
 		goalTurn := a.takeTurnGoal()
+		if goalTurn != nil && goalTurn.Kind != acp.GoalTurnKickoff {
+			statistics.Background(ctx)
+		}
 		if goalTurn != nil {
 			_ = a.server.SendSessionUpdate(a.state.GetID(), session.GoalTurnUpdate(goalTurn))
 		}
@@ -1282,6 +1292,7 @@ func (a *Agent) runReActLoop(
 		}
 		callIDs := newToolCallIDs(messages, callSessionDir)
 		streamCtx = latency.begin(streamCtx, transport.agent)
+		streamCtx = statistics.WithReasoning(streamCtx, a.state.EffectiveReasoning(a.cfg))
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -2566,6 +2577,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 		answered := waitingFor(&pendingPermissions)
 		defer answered()
+		resumeStatistics := statistics.Pause(ctx)
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -2586,6 +2598,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			Forced:                forced,
 		})
 		answered()
+		resumeStatistics()
 
 		if err == nil && safetyRefusal != "" && (permResult == nil || permResult.Outcome == permission.OutcomeCancelled) {
 			// Nobody answered the check's prompt: its verdict is the call's

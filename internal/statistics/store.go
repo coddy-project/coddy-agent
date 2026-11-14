@@ -1,0 +1,503 @@
+// Package statistics keeps usage independently of conversation bundles.
+package statistics
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	_ "time/tzdata" // Statistics accepts IANA zones on hosts without a zone database.
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+)
+
+// Event contains counters and identities only, never prompts or responses.
+// Input includes Cached; reasoning output is already part of Output.
+type Event struct {
+	ID         string    `json:"id"`
+	Dataset    string    `json:"dataset"`
+	Session    string    `json:"session"`
+	Project    string    `json:"project,omitempty"`
+	Source     string    `json:"source,omitempty"`
+	Provider   string    `json:"provider,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Reasoning  string    `json:"reasoning,omitempty"`
+	Kind       string    `json:"kind"`
+	At         time.Time `json:"at"`
+	RecordedAt time.Time `json:"recordedAt"`
+	StartedAt  time.Time `json:"startedAt,omitempty"`
+	Input      *int64    `json:"inputTokens"`
+	Output     *int64    `json:"outputTokens"`
+	Cached     *int64    `json:"cachedTokens"`
+	ActiveMS   *int64    `json:"activeMs"`
+	CostUSD    *float64  `json:"costUsd"`
+	Requests   int64     `json:"requests"`
+	Skills     []string  `json:"skills,omitempty"`
+	Imported   bool      `json:"imported,omitempty"`
+}
+
+// Price is a tariff in USD per million tokens. A tariff that names no cache
+// rate reads the input rate, as the embedded catalog does; an explicit zero is
+// a cache read the account is not billed for.
+type Price struct {
+	Input  float64  `json:"input"`
+	Output float64  `json:"output"`
+	Cached *float64 `json:"cached,omitempty"`
+}
+
+// CachedRate is what a cache read costs under this tariff.
+func (p Price) CachedRate() float64 {
+	if p.Cached == nil {
+		return p.Input
+	}
+	return *p.Cached
+}
+
+type ImportStatus struct {
+	State  string `json:"state"`
+	Done   int    `json:"done"`
+	Total  int    `json:"total"`
+	Failed int    `json:"failed"`
+	Error  string `json:"error,omitempty"`
+}
+
+type Settings struct {
+	Dataset  string           `json:"dataset"`
+	Timezone string           `json:"timezone"`
+	Prices   map[string]Price `json:"prices"`
+	Import   ImportStatus     `json:"import"`
+	Cutoff   time.Time        `json:"cutoff"`
+}
+
+type Store struct{ Dir string }
+
+// guard is one directory's lock and its memory of settings.json. Every append
+// needs the dataset id and the cutoff, and re-reading and re-parsing that file
+// once per provider call was the second cost of a checkpoint after the write
+// itself; a stat says whether the memory still holds.
+type guard struct {
+	mu     sync.Mutex
+	stamp  string
+	cached Settings
+	known  bool
+	// The lifetime summary a screen asks for beside every filtered report,
+	// and the state of the journals and settings it was read from.
+	lifetime    Report
+	lifetimeKey string
+}
+
+var locks sync.Map
+
+func New(home string) *Store { return &Store{Dir: filepath.Join(home, "statistics")} }
+func Int(n int64) *int64     { return &n }
+
+func (s *Store) guard() (*guard, error) {
+	key, err := filepath.Abs(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	g, _ := locks.LoadOrStore(strings.ToLower(key), &guard{})
+	return g.(*guard), nil
+}
+
+// locked also serializes independent Coddy processes using the same home.
+func (s *Store) locked(fn func() error) error {
+	g, err := s.guard()
+	if err != nil {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+		return err
+	}
+	unlock, err := platform.LockFile(filepath.Join(s.Dir, ".lock"))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
+// settingsStamp names the state of settings.json cheaply enough to ask on
+// every append. Another process writes it by rename, so a changed file has a
+// changed modification time or size.
+func settingsStamp(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(info.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(info.Size(), 10)
+}
+
+// settings runs under locked.
+func (s *Store) settings() (Settings, error) {
+	path := filepath.Join(s.Dir, "settings.json")
+	g, err := s.guard()
+	if err != nil {
+		return Settings{}, err
+	}
+	stamp := settingsStamp(path)
+	if g.known && stamp != "" && stamp == g.stamp {
+		return g.cached, nil
+	}
+	var st Settings
+	b, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(b, &st)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return st, err
+	}
+	if st.Dataset == "" {
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return st, err
+		}
+		st.Dataset = hex.EncodeToString(id[:])
+		st.Import.State = "pending"
+		st.Prices = map[string]Price{}
+		if err := s.write("settings.json", st); err != nil {
+			return st, err
+		}
+		stamp = settingsStamp(path)
+	}
+	if st.Prices == nil {
+		st.Prices = map[string]Price{}
+	}
+	g.stamp, g.cached, g.known = stamp, st, stamp != ""
+	return st, nil
+}
+
+func (s *Store) write(name string, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if name == "settings.json" {
+		if g, gerr := s.guard(); gerr == nil {
+			g.known = false
+		}
+	}
+	_, err = platform.WriteFileReplacing(filepath.Join(s.Dir, name), b, 0o600)
+	return err
+}
+
+func (s *Store) Settings() (Settings, error) {
+	var st Settings
+	err := s.locked(func() error {
+		var err error
+		st, err = s.settings()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	return st, err
+}
+
+func (s *Store) UpdateSettings(update func(*Settings) error) error {
+	return s.locked(func() error {
+		st, err := s.settings()
+		if err != nil {
+			return err
+		}
+		if err := update(&st); err != nil {
+			return err
+		}
+		return s.write("settings.json", st)
+	})
+}
+
+// Append journals a checkpoint by stable id. Readers keep its last value.
+// Monthly journals keep a long history from becoming millions of tiny files.
+func (s *Store) Append(e Event) error {
+	if e.ID == "" || e.At.IsZero() {
+		return fmt.Errorf("statistics event needs an id and timestamp")
+	}
+	return s.locked(func() error {
+		st, err := s.settings()
+		if err != nil {
+			return err
+		}
+		if e.At.Before(st.Cutoff) {
+			return nil
+		}
+		e.Dataset = st.Dataset
+		e.RecordedAt = time.Now().UTC()
+		if e.Kind == "call" {
+			// Preserve configured tariffs at recording time. Catalog estimates
+			// are resolved on reads so a later custom tariff can replace them.
+			_, specific := st.Prices[e.Provider+"/"+e.Model]
+			_, general := st.Prices[e.Model]
+			if specific || general {
+				ApplyPrice(&e, st.Prices)
+			}
+		}
+		b, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(s.Dir, e.At.UTC().Format("2006-01")+".jsonl")
+		// journals() reads regular files only, so a journal that is a link
+		// would be written and never read back. Refuse it on both sides.
+		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+			return fmt.Errorf("statistics %s is not a regular file", filepath.Base(path))
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		// A crash can leave an unterminated last record. Drop only that tail
+		// before appending, rather than joining the next event onto it.
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		end := info.Size()
+		if end > 0 {
+			var last [1]byte
+			if _, err := f.ReadAt(last[:], end-1); err != nil {
+				return err
+			}
+			if last[0] != '\n' {
+				pos := end
+				for pos > 0 {
+					start := max(int64(0), pos-8192)
+					chunk := make([]byte, pos-start)
+					if _, err := f.ReadAt(chunk, start); err != nil {
+						return err
+					}
+					if n := bytes.LastIndexByte(chunk, '\n'); n >= 0 {
+						end = start + int64(n) + 1
+						break
+					}
+					pos = start
+					end = start
+				}
+				if err := f.Truncate(end); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := f.Seek(end, io.SeekStart); err != nil {
+			return err
+		}
+		_, err = f.Write(append(b, '\n'))
+		// No fsync: a checkpoint is written on the path of every provider
+		// call, and waiting for the platter cost tens of milliseconds there.
+		// What a crash can lose is the tail of a counter journal, and the
+		// read above already repairs the one torn line it can leave.
+		return err
+	})
+}
+
+func journalEvents(path string, visit func(Event) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	reader := bufio.NewReader(f)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			return nil
+		} // An unfinished checkpoint was never committed.
+		if err != nil {
+			return err
+		}
+		var e Event
+		if err := json.Unmarshal(line, &e); err != nil {
+			// A line nothing can read costs its own checkpoint and no more.
+			// These are counters: losing one is a wrong number somewhere,
+			// while refusing the file leaves every screen and every relay
+			// with no statistics at all until somebody edits it by hand.
+			continue
+		}
+		if err := visit(e); err != nil {
+			return err
+		}
+	}
+}
+
+func (s *Store) journals() ([]string, error) {
+	entries, err := os.ReadDir(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, e := range entries {
+		if e.IsDir() || e.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		if _, err := time.Parse("2006-01.jsonl", e.Name()); err == nil {
+			paths = append(paths, filepath.Join(s.Dir, e.Name()))
+		}
+	}
+	return paths, nil
+}
+
+// journalStamp names the state of every journal, cheaply enough to ask before
+// a read. os.ReadDir answers in order, so the stamp is stable.
+func (s *Store) journalStamp() (string, error) {
+	paths, err := s.journals()
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(filepath.Base(path))
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(info.Size(), 10))
+		b.WriteByte(':')
+		b.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		b.WriteByte(';')
+	}
+	return b.String(), nil
+}
+
+// monthOffset names the journal of a date a number of months away. It counts
+// from the first of the month, so the end of a long month does not slide past
+// a short one.
+func monthOffset(date string, months int) string {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return ""
+	}
+	return time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, months, 0).Format("2006-01")
+}
+
+// window is the journals a period can be answered from, a month wider on each
+// side because a day is bucketed in the reader's zone and a journal in UTC.
+func (f Filter) window() (string, string) {
+	return monthOffset(f.From, -1), monthOffset(f.To, 1)
+}
+
+// events reads the journals of [lower, upper], both inclusive and both
+// optional ("" is unbounded). Every checkpoint of one id is written at the
+// same moment, so no id is split across two journals and this never cuts a
+// record in half.
+func (s *Store) events(cutoff time.Time, lower, upper string) ([]Event, error) {
+	paths, err := s.journals()
+	if err != nil {
+		return nil, err
+	}
+	last := map[string]Event{}
+	for _, path := range paths {
+		month := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		if month < cutoff.UTC().Format("2006-01") {
+			continue
+		}
+		if (lower != "" && month < lower) || (upper != "" && month > upper) {
+			continue
+		}
+		if err := journalEvents(path, func(e Event) error {
+			if !e.At.Before(cutoff) {
+				last[e.Dataset+":"+e.ID] = e
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]Event, 0, len(last))
+	for _, e := range last {
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].At.Equal(out[j].At) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].At.Before(out[j].At)
+	})
+	return out, nil
+}
+
+func (s *Store) Events() ([]Event, error) {
+	var out []Event
+	err := s.locked(func() error {
+		st, err := s.settings()
+		if err != nil {
+			return err
+		}
+		out, err = s.events(st.Cutoff, "", "")
+		return err
+	})
+	return out, err
+}
+
+// Clear commits the cutoff before rewriting journals. An interrupted cleanup
+// or an overlapping historical import cannot resurrect the removed records.
+func (s *Store) Clear(cutoff time.Time) error {
+	return s.locked(func() error {
+		st, err := s.settings()
+		if err != nil {
+			return err
+		}
+		if cutoff.Before(st.Cutoff) {
+			cutoff = st.Cutoff
+		}
+		st.Cutoff = cutoff.UTC()
+		if st.Import.State != "running" {
+			st.Import.State = "skipped"
+		}
+		if err := s.write("settings.json", st); err != nil {
+			return err
+		}
+		paths, err := s.journals()
+		if err != nil {
+			return err
+		}
+		for _, path := range paths {
+			// Last checkpoint wins, so cleanup also compacts the kept tail.
+			kept := map[string]Event{}
+			if err := journalEvents(path, func(e Event) error {
+				if !e.At.Before(cutoff) {
+					kept[e.Dataset+":"+e.ID] = e
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if len(kept) == 0 {
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+				continue
+			}
+			var b bytes.Buffer
+			enc := json.NewEncoder(&b)
+			keys := make([]string, 0, len(kept))
+			for k := range kept {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if err := enc.Encode(kept[k]); err != nil {
+					return err
+				}
+			}
+			if _, err := platform.WriteFileReplacing(path, b.Bytes(), 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

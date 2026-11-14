@@ -33,6 +33,7 @@ export type ParsedAppHash =
     }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
+  | { branch: "statistics" }
   | {
       branch: "scheduler";
       jobId: string | null;
@@ -138,6 +139,7 @@ export function parseAppHash(): ParsedAppHash {
   if (h === "history") {
     return { branch: "history" };
   }
+  if (h === "statistics") return { branch: "statistics" };
   if (h === "settings") {
     return {
       branch: "settings",
