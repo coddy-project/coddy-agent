@@ -997,6 +997,16 @@ The composer card has no chip row: before the chat starts, the folder, the branc
 - **What a new chat lists follows its folder** — the picked folder is the scope of everything the composer lists while you type: the **`/`** menu, **`@`** (files, rules, **`@agent:`** subagents), the mention highlight and the file a line range previews all carry **`cwd=<folder>`** next to the session header (**`chat/workspaceScope.ts`**). The known skill names that chip a **`/name`** in the composer and the transcript belong to the chat's folder and session: another pick or another session drops them at once and asks again, a late answer is discarded, and the first send of a new chat keeps them because its folder does not change.
 - Menus follow the **`Mode`**/**`Model`** conventions: anchored to the pick, **`mode-menu--portal`** (**`opens-down`** on the start screen, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
 
+### Branch creation and Git Graph
+
+The branch menu ends with **Create and switch to new branch…** and **Git Graph**, below a separator. Creation is a centred form, at most 512px wide, with a description, labelled branch-name field, inline error, Cancel and Create and switch. It creates a local branch from the current checkout's HEAD immediately, independently of the worktree preference. The conversation lock still applies.
+
+Both Git dialogs use the shared glass panel border, background, backdrop and shadow, the overlay scrim without fullscreen blur, and the app's inherited font. Their heads follow the Files window: 12px bold capitals in a 72% text tint and 30px icon controls. Buttons reuse the workspace dialog styles. Escape and a backdrop click close the window, Tab stays inside it, and closing returns focus to the branch control. Creation keeps the dialog open while a request runs and shows failures beside the field.
+
+Git Graph is at most 1100px wide and 740px tall, capped to the viewport with 16px margins. Its table has Graph, Description, Date, Author and Commit columns, 42px rows, sticky headings and a scrollport contained inside the window. Branch lines use the theme's syntax palette and accent. HEAD has an outlined label; other refs are muted, truncated with their full names in tooltips. The current row has a light text tint. Load more appends 100 commits; Refresh starts over. Narrow screens scroll the table horizontally while the head and footer remain visible. Simplified mode takes its opaque panel and cleared effects from the shared tokens.
+
+A running chat's branch control opens this read-only graph; it never switches the locked workspace. The browser check is `npm run check:git`, with `CODDY_ENGINE=webkit` for WebKit.
+
 ### Bar over the composer
 
 Before the chat starts the plate offers the workspace as a choice (**Workspace picks on the plate**, above). Once a chat runs, where it works is a fact rather than a choice, so the picks give way to a plate over the docked composer (**`WorkspaceBar.tsx`**, **`.workspace-bar`**, **`data-testid="workspace-bar"`**), the way Claude's app names the repository, the branch and the diff above its composer.

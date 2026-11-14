@@ -2450,6 +2450,51 @@ export function App() {
     };
   }, [sessionId, refreshHomeWorkspace]);
 
+  async function createWorkspaceBranch(branch: string): Promise<void> {
+    const sid = sessionId.trim();
+    const path = workspaceCtx?.path;
+    if (!path) throw new Error(t("git.createFailed"));
+    const pick = ++workspacePickRef.current;
+    workspaceCtxGenRef.current += 1;
+    const url = sid
+      ? `/coddy/sessions/${encodeURIComponent(sid)}/workspace`
+      : `/coddy/workspace/branches?path=${encodeURIComponent(path)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(sid ? { [HDR]: sid } : {}),
+      },
+      body: JSON.stringify({ branch, ...(sid ? { create: true } : {}) }),
+    });
+    if (!response.ok) {
+      let reason = t("git.createFailed");
+      try {
+        reason = (await response.json()).error?.message || reason;
+      } catch {
+        /* Keep the localized fallback. */
+      }
+      throw new Error(reason);
+    }
+    const ctx = (await response.json()) as WorkspaceContext;
+    if (
+      pick !== workspacePickRef.current ||
+      viewedSessionRef.current.trim() !== sid
+    )
+      return;
+    workspaceCtxGenRef.current += 1;
+    if (!sid) {
+      desktopFolderPickRef.current += 1;
+      desktopWorkspaceWaitRef.current?.finish();
+      setPendingWorkspace(
+        { path: ctx.path, branch: ctx.branch || branch, worktree: false },
+        true,
+      );
+      writeLastWorkspaceDir(ctx.path);
+    }
+    setWorkspaceCtx(ctx);
+  }
+
   async function switchWorkspace(payload: {
     path?: string;
     branch?: string;
@@ -8478,6 +8523,7 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
+            onWorkspaceCreateBranch={createWorkspaceBranch}
             onWorkspaceRefreshBranches={refreshWorkspaceBranches}
             onWorktreeToggle={() =>
               setWorktreePref((v) => {

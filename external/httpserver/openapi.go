@@ -1069,6 +1069,8 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/workspace/branches": map[string]interface{}{"post": workspaceBranchesOpenAPI()},
+			"/coddy/workspace/graph":    map[string]interface{}{"get": workspaceGraphOpenAPI()},
 			"/coddy/workspace/folders": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
@@ -2834,6 +2836,7 @@ func openAPISpec() map[string]interface{} {
 										"path":     map[string]string{"type": "string"},
 										"branch":   map[string]string{"type": "string"},
 										"worktree": map[string]string{"type": "boolean"},
+										"create":   map[string]interface{}{"type": "boolean", "description": "Create a new local branch at the current HEAD and switch immediately. Requires branch; cannot be combined with path or worktree:true. Existing branches are refused with 409. The conversation lock applies."},
 									},
 								},
 							},

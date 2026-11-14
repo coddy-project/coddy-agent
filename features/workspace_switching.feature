@@ -34,6 +34,14 @@ Feature: Workspace switching
     Then the context reports a git repository on branch "feature/login"
     And the context reports the session is not in a worktree
 
+  Scenario: Create a branch from the current HEAD and inspect its history
+    Given a workspace git repository "repo" with branches "main, feature/login"
+    And a session rooted at folder "repo"
+    When I create and switch to branch "feature/new"
+    Then the context reports a git repository on branch "feature/new"
+    When I request the git graph
+    Then the git graph shows HEAD on branch "feature/new"
+
   Scenario: Open a branch in a dedicated worktree
     Given a workspace git repository "repo" with branches "main, feature/login"
     And a session rooted at folder "repo"

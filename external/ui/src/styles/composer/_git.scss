@@ -1,0 +1,301 @@
+.workspace-git-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-git-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.git-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.git-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(512px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.git-dialog-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.git-dialog-header h2 {
+  flex: 1;
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.git-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 19px;
+  cursor: pointer;
+}
+
+.git-dialog-icon:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.git-create-form {
+  padding: 0 24px 24px;
+}
+
+.git-dialog-description {
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 12px 0 24px;
+}
+
+.git-create-form label {
+  display: block;
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.git-create-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.git-create-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.git-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 36px;
+}
+
+.git-dialog-actions button {
+  min-height: 38px;
+}
+
+.git-dialog-error {
+  color: var(--coddy-danger);
+  margin: 12px 24px;
+  overflow-wrap: anywhere;
+}
+
+.git-create-form .git-dialog-error {
+  margin-inline: 0;
+}
+
+.git-dialog--graph {
+  width: min(1100px, 100%);
+  height: min(740px, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.git-dialog--graph .git-dialog-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.git-graph-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.git-graph-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  min-width: 800px;
+  font-size: 13px;
+}
+
+.git-graph-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  height: 40px;
+  text-align: left;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--bg) 94%, var(--text));
+  color: var(--muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.git-graph-table th:nth-child(3) {
+  width: 128px;
+}
+.git-graph-table th:nth-child(4) {
+  width: 112px;
+}
+.git-graph-table th:nth-child(5) {
+  width: 84px;
+}
+
+.git-graph-table th,
+.git-graph-table td {
+  box-sizing: border-box;
+  padding: 0 12px;
+  height: 42px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-graph-table td:nth-child(n + 3) {
+  color: var(--muted);
+}
+.git-graph-table .is-head {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.git-graph-table .git-graph-cell {
+  padding: 0;
+  overflow: visible;
+}
+.git-graph-cell svg {
+  display: block;
+  overflow: visible;
+}
+.git-graph-cell path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.git-graph-cell circle {
+  fill: currentColor;
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+
+.git-graph-color-0 {
+  color: var(--syntax-number);
+}
+.git-graph-color-1 {
+  color: var(--accent);
+}
+.git-graph-color-2 {
+  color: var(--syntax-string);
+}
+.git-graph-color-3 {
+  color: var(--syntax-keyword);
+}
+.git-graph-color-4 {
+  color: var(--syntax-title);
+}
+.git-graph-color-5 {
+  color: var(--text);
+}
+
+.git-graph-description {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.git-graph-ref {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 4px;
+  max-width: 155px;
+  min-width: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.git-graph-ref svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.git-graph-ref > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-graph-ref--head {
+  flex: none;
+  border-color: var(--accent);
+  color: var(--text);
+}
+.git-graph-subject {
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-graph-hash {
+  font-family: var(--coddy-md-inline-code-font);
+}
+.git-graph-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px;
+}
+
+.git-graph-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 6px 12px;
+  color: var(--muted);
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}

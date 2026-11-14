@@ -1,0 +1,156 @@
+package gitws
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
+)
+
+// CreateAndSwitch creates a local branch at this checkout's HEAD. It never
+// resets an existing branch or uses the worktree preference's base branch.
+func CreateAndSwitch(dir, name string) error {
+	if name == "" || name != strings.TrimSpace(name) || name == "HEAD" || strings.HasPrefix(name, "-") {
+		return fmt.Errorf("invalid branch name: %q", name)
+	}
+	ref := plumbing.NewBranchReferenceName(name)
+	if err := ref.Validate(); err != nil {
+		return fmt.Errorf("invalid branch name: %q", name)
+	}
+	if !GitAvailable() {
+		repo, err := openRepo(dir)
+		if err != nil {
+			return err
+		}
+		if _, err := repo.Reference(ref, false); !errors.Is(err, plumbing.ErrReferenceNotFound) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("branch already exists: %s", name)
+		}
+		head, err := repo.Head()
+		if err != nil {
+			return err
+		}
+		if err := repo.Storer.SetReference(plumbing.NewHashReference(ref, head.Hash())); err != nil {
+			return err
+		}
+		return repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, ref))
+	}
+	checked, err := runGit(dir, "check-ref-format", "--branch", name)
+	if err != nil || checked != name {
+		return fmt.Errorf("invalid branch name: %q", name)
+	}
+	_, err = runGit(dir, "switch", "--no-guess", "-c", name, "HEAD")
+	return err
+}
+
+// Commit carries the topology and labels needed to draw a history row.
+type Commit struct {
+	Hash    string    `json:"hash"`
+	Parents []string  `json:"parents"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author"`
+	Date    time.Time `json:"date"`
+	Refs    []string  `json:"refs"`
+}
+
+type HistoryPage struct {
+	Commits []Commit `json:"commits"`
+	HasMore bool     `json:"has_more"`
+}
+
+// historyRun runs one git command of a history read. Unlike runGit it keeps
+// stderr out of the output: the NUL record protocol must not see a warning
+// line, and what git printed still reaches the error.
+func historyRun(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runGitRawContext(ctx, dir, args...)
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// History reads a bounded topological page of every local branch, remote
+// branch and tag, plus HEAD when it names a commit - so a detached HEAD is
+// in. refs/stash and refs/notes are left out on purpose: their commits
+// ("WIP on ...", a notes tree) are bookkeeping, and --all would walk them in
+// unlabeled. It never fetches or changes the working copy, and ends when ctx
+// does.
+func History(ctx context.Context, dir string, offset, limit int) (HistoryPage, error) {
+	page := HistoryPage{Commits: []Commit{}}
+	if !IsRepo(dir) {
+		return page, ErrNotRepository
+	}
+	if !GitAvailable() {
+		return page, ErrNeedsGitBinary
+	}
+	if offset < 0 || offset > 100000 || limit < 1 || limit > 500 {
+		return page, fmt.Errorf("invalid history page")
+	}
+	// An unborn repository has no commits, but is still a valid graph.
+	head, _ := historyRun(ctx, dir, "rev-parse", "--verify", "HEAD")
+	args := []string{"log", "--branches", "--remotes", "--tags", "--topo-order", "--date-order", "--no-show-signature", "--format=%H%x00%P%x00%s%x00%an%x00%aI", "--skip=" + strconv.Itoa(offset), "-n", strconv.Itoa(limit + 1)}
+	if head != "" {
+		args = append(args, "HEAD")
+	}
+	out, err := historyRun(ctx, dir, args...)
+	if err != nil {
+		return page, err
+	}
+	labels := map[string][]string{}
+	refs, err := historyRun(ctx, dir, "for-each-ref", "--format=%(objectname)%00%(*objectname)%00%(refname)", "refs/heads", "refs/remotes", "refs/tags")
+	if err != nil {
+		return page, err
+	}
+	for _, line := range strings.Split(refs, "\n") {
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		hash, ref := parts[0], parts[2]
+		label := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(ref, "refs/heads/"), "refs/remotes/"), "refs/tags/")
+		if strings.HasPrefix(ref, "refs/tags/") {
+			label = "tag: " + label
+			if parts[1] != "" {
+				hash = parts[1]
+			}
+		}
+		labels[hash] = append(labels[hash], label)
+	}
+	if head != "" {
+		labels[head] = append([]string{"HEAD"}, labels[head]...)
+	}
+	if out == "" {
+		return page, nil
+	}
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.Split(line, "\x00")
+		if len(parts) != 5 {
+			return page, fmt.Errorf("invalid git history record")
+		}
+		date, e := time.Parse(time.RFC3339, parts[4])
+		if e != nil {
+			return page, e
+		}
+		rowRefs := labels[parts[0]]
+		if rowRefs == nil {
+			rowRefs = []string{}
+		}
+		page.Commits = append(page.Commits, Commit{Hash: parts[0], Parents: strings.Fields(parts[1]), Subject: parts[2], Author: parts[3], Date: date, Refs: rowRefs})
+	}
+	if len(page.Commits) > limit {
+		page.HasMore = true
+		page.Commits = page.Commits[:limit]
+	}
+	return page, nil
+}

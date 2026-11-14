@@ -18,6 +18,8 @@ import {
   type WorkspaceRecent,
 } from "./workspaceRecents";
 import { WorkspaceFolderModal } from "./WorkspaceFolderModal";
+import { CreateBranchDialog } from "./CreateBranchDialog";
+import { GitGraphDialog } from "./GitGraphDialog";
 import { FitMiddleText } from "./FitMiddleText";
 import {
   serverSnapshotShellStack,
@@ -40,6 +42,7 @@ type Props = {
    * shows the context as it is.
    */
   onRefreshBranches?: () => Promise<WorkspaceBranchFetch | null>;
+  onCreateBranch?: ((name: string) => Promise<void>) | undefined;
   // Anchored dropdown direction; the docked composer opens the menu upward.
   opensUp?: boolean;
 };
@@ -60,6 +63,12 @@ type BranchRefresh =
 // workspace is a fact and the plate names it without these.
 export function WorkspaceChips(props: Props) {
   const { t } = useT();
+  const [gitDialog, setGitDialog] = useState<"create" | "graph" | null>(null);
+  const branchTrigger = useRef<HTMLButtonElement>(null);
+  const closeGitDialog = () => {
+    setGitDialog(null);
+    branchTrigger.current?.focus();
+  };
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   const [menuFilter, setMenuFilter] = useState("");
@@ -192,6 +201,7 @@ export function WorkspaceChips(props: Props) {
           type="button"
           className={`workspace-bar-item workspace-bar-branch workspace-bar-pick${menuOpen === "branch" ? " is-open" : ""}`}
           data-testid="composer-branch-chip"
+          ref={branchTrigger}
           title={ctx.branch || t("workspace.detached")}
           aria-haspopup="menu"
           aria-expanded={menuOpen === "branch"}
@@ -417,6 +427,33 @@ export function WorkspaceChips(props: Props) {
                         </div>
                       ) : null}
                     </div>
+                    <div className="workspace-menu-sep" aria-hidden="true" />
+                    {props.onCreateBranch ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mode-item workspace-git-action"
+                        onClick={() => {
+                          closeMenu();
+                          setGitDialog("create");
+                        }}
+                      >
+                        <span aria-hidden="true">＋</span>
+                        {t("git.createMenu")}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="mode-item workspace-git-action"
+                      onClick={() => {
+                        closeMenu();
+                        setGitDialog("graph");
+                      }}
+                    >
+                      <BranchIcon />
+                      {t("git.graph")}
+                    </button>
                   </>
                 ) : null}
               </div>
@@ -425,6 +462,15 @@ export function WorkspaceChips(props: Props) {
           )
         : null}
 
+      {gitDialog === "create" && props.onCreateBranch ? (
+        <CreateBranchDialog
+          onCreate={props.onCreateBranch}
+          onClose={closeGitDialog}
+        />
+      ) : null}
+      {gitDialog === "graph" ? (
+        <GitGraphDialog path={ctx.path} onClose={closeGitDialog} />
+      ) : null}
       <WorkspaceFolderModal
         open={folderModalOpen}
         startPath={pathParent(ctx.path)}

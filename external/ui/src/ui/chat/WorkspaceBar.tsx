@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { GitGraphDialog } from "./GitGraphDialog";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { hasEdits, type WorkingCopy } from "../changes/workingCopy";
@@ -18,6 +19,7 @@ export type WorkspacePick = {
   worktreePref: boolean;
   onPickFolder: (path: string) => void;
   onPickBranch: (branch: string, worktree: boolean) => void;
+  onCreateBranch?: ((name: string) => Promise<void>) | undefined;
   onWorktreeToggle: () => void;
   /** Fetches the remotes while the branch list shows (see WorkspaceChips). */
   onRefreshBranches?: (() => Promise<WorkspaceBranchFetch | null>) | undefined;
@@ -44,6 +46,7 @@ export function WorkspaceBar(props: {
   goal?: ReactNode;
 }) {
   const { t, tp } = useT();
+  const [graphOpen, setGraphOpen] = useState(false);
   const ctx = props.context;
   const number = new Intl.NumberFormat(getLocale());
   const branch = ctx.branch || t("workspace.detached");
@@ -65,6 +68,7 @@ export function WorkspaceBar(props: {
           worktreePref={props.pick.worktreePref}
           onPickFolder={props.pick.onPickFolder}
           onPickBranch={props.pick.onPickBranch}
+          onCreateBranch={props.pick.onCreateBranch}
           onWorktreeToggle={props.pick.onWorktreeToggle}
           {...(props.pick.onRefreshBranches
             ? { onRefreshBranches: props.pick.onRefreshBranches }
@@ -82,8 +86,12 @@ export function WorkspaceBar(props: {
             <span className="workspace-bar-text">{folderChipLabel(ctx)}</span>
           </span>
           {ctx.is_git_repo ? (
-            <span
-              className="workspace-bar-item workspace-bar-branch"
+            <button
+              type="button"
+              className="workspace-bar-item workspace-bar-branch workspace-bar-pick"
+              aria-label={`${t("git.graph")}: ${branch}`}
+              aria-haspopup="dialog"
+              onClick={() => setGraphOpen(true)}
               title={
                 ctx.is_worktree
                   ? t("workspaceBar.worktreeTitle", { path: ctx.path, branch })
@@ -93,11 +101,14 @@ export function WorkspaceBar(props: {
             >
               <BranchIcon worktree={ctx.is_worktree === true} />
               <FitMiddleText className="workspace-bar-text" text={branch} />
-            </span>
+            </button>
           ) : null}
         </>
       )}
       {props.goal}
+      {graphOpen ? (
+        <GitGraphDialog path={ctx.path} onClose={() => setGraphOpen(false)} />
+      ) : null}
       {showEdits && totals ? (
         <button
           type="button"

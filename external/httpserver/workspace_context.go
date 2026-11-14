@@ -365,9 +365,14 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		Path     string `json:"path"`
 		Branch   string `json:"branch"`
 		Worktree bool   `json:"worktree"`
+		Create   bool   `json:"create"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	if body.Create && (body.Path != "" || body.Worktree || body.Branch == "") {
+		http.Error(w, errorJSON("create requires a branch in the current checkout"), http.StatusBadRequest)
 		return
 	}
 	// A folder pick is validated before the session exists, so a fresh bundle is
@@ -423,6 +428,14 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	case strings.TrimSpace(body.Branch) != "":
+		if body.Create {
+			if err := gitws.CreateAndSwitch(st.GetCWD(), body.Branch); err != nil {
+				http.Error(w, errorJSON(err.Error()), http.StatusConflict)
+				return
+			}
+			s.mgr.ReloadSessionWorkspace(r.Context(), st)
+			break
+		}
 		if status, err := s.applyBranchSwitch(r.Context(), st, body.Branch, body.Worktree); err != nil {
 			http.Error(w, errorJSON(err.Error()), status)
 			return

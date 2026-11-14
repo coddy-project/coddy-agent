@@ -1,5 +1,28 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "git.createMenu": "Создать ветку и переключиться…",
+  "git.createTitle": "Создать новую ветку и переключиться",
+  "git.createDescription":
+    "Создайте локальную ветку от текущего HEAD и сразу переключитесь на неё.",
+  "git.branchName": "Имя ветки",
+  "git.branchPlaceholder": "Например, feature/git-branch-switcher",
+  "git.headOnly": "Ветка создаётся только от текущего HEAD.",
+  "git.createAction": "Создать и переключиться",
+  "git.creating": "Создание…",
+  "git.createFailed": "Не удалось создать ветку.",
+  "git.graph": "Git Graph",
+  "git.refresh": "Обновить граф",
+  "git.graphColumn": "Граф",
+  "git.description": "Описание",
+  "git.date": "Дата",
+  "git.author": "Автор",
+  "git.commit": "Коммит",
+  "git.empty": "Коммитов пока нет.",
+  "git.loading": "Загрузка истории…",
+  "git.loadMore": "Загрузить ещё",
+  "git.commitCount": "Показано коммитов: {count}",
+  "git.graphFailed": "Не удалось загрузить историю Git.",
+
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
   "settings.auth.removeTotp": "Отключить TOTP",
