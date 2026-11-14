@@ -137,9 +137,11 @@ developer command run without it switches the mode on for good.
 
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
 **`darwin`** and **`linux`** archives carry those files beside the binary. It declares
-**`depends_on macos: :ventura`**: the macOS archives are built with a deployment target of 13
-([`scripts/build-darwin-archives.sh`](../../scripts/build-darwin-archives.sh)), and the loader
-refuses them on anything older. A
+**`depends_on macos: :ventura`**: from Go 1.27 a darwin binary records macOS 13 as its minimum,
+cgo or not, and the loader refuses it on anything older;
+[`scripts/build-darwin-archives.sh`](../../scripts/build-darwin-archives.sh) names the same floor.
+The scenario in [`features/homebrew_tap.feature`](../../features/homebrew_tap.feature) holds the
+cask to that number, so the next toolchain bump fails a test rather than the page going stale. A
 **`postflight_steps`** step removes the quarantine attribute Homebrew sets on the download from the
 binary, which is ad-hoc signed and not notarised, so Gatekeeper does not stop its first run. It
 recommends **`tmux`** in its **`caveats`** rather than declaring it: a cask's **`depends_on`** has no
@@ -271,7 +273,13 @@ common `FULL_TAGS` set stays the same for other platforms. `DARWIN_TAGS` adds `d
 macOS release archives. The existing macOS test job builds it and opens and drives a real WKWebView window.
 
 The browser checks of the shell (`npm run check:desktop` in `external/ui`) drive the real binary:
-tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart.
+tabs, the chords, links out of Coddy, the menu, and the tab list surviving a restart. A link out
+goes to a stub of this machine's opener, one per name the launcher can call (`xdg-open`, `open`),
+so nothing opens on the operator's desktop and the check reads what the opener was given. CI runs
+it last in the `http,scheduler,ui,memory,cli,swarm` row of the test matrix, after `check:transcript`
+and `check:files`; the step builds its own binary with `http ui swarm scheduler desktop`, because
+the check walks the rail and the lean binary of the checks before it carries neither the scheduler
+nor the window.
 
 The desktop application is a Linux package of its own, and it carries no binary: the menu entry and
 the icon that put Coddy in the application launcher, depending on `coddy` for the program.

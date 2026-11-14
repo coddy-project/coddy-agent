@@ -93,8 +93,13 @@ func TestDarwinReleaseCarriesTheNativeWindow(t *testing.T) {
 	for _, step := range prWorkflow.Jobs["test-macos"].Steps {
 		prBuild += step.Run + "\n"
 	}
-	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || !strings.Contains(prBuild, "-run '^TestNative'") {
-		t.Error("the macOS PR job must build the release archives and run all native tests")
+	// The whole package, with no -run filter: the native tests and the BDD
+	// suite both, since this is the only job that runs a `desktop` tag on a Mac.
+	macTest := regexp.MustCompile(`go test -tags 'desktop desktop\.native' \./external/desktop\b([^\n]*)`).FindStringSubmatch(prBuild)
+	if !strings.Contains(prBuild, "scripts/build-darwin-archives.sh") || macTest == nil {
+		t.Error("the macOS PR job must build the release archives and test ./external/desktop with the native tags")
+	} else if strings.Contains(macTest[1], "-run") {
+		t.Errorf("the macOS job must run the whole package, not %q", strings.TrimSpace(macTest[0]))
 	}
 	script, err := os.ReadFile("../../scripts/build-darwin-archives.sh")
 	if err != nil {

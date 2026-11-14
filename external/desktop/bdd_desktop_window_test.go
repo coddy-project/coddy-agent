@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -299,9 +300,12 @@ func (s *windowState) stripIsToldTo(what string) error {
 // asked, the settings of a home of its own, and the shell over both, which is
 // where the bar's own menu comes from.
 func (s *windowState) trayCarriesAMenu() error {
-	// The autostart entry is a file in the XDG config folder of this session,
-	// so the scenario gives it one of its own rather than the operator's.
+	// "Open at login" writes a file of this session: the XDG config folder on
+	// Linux, a launch agent under the home on darwin. The scenario gives it
+	// both of its own rather than the operator's, since this package is the
+	// external test package and cannot reach isolateAutostart.
 	s.t.Setenv("XDG_CONFIG_HOME", s.t.TempDir())
+	s.t.Setenv("HOME", s.t.TempDir())
 	s.menuWindow = desktop.NewMenuWindow()
 	handle := desktop.NewWindowHandle()
 	handle.Attach(s.menuWindow)
@@ -688,7 +692,46 @@ func (s *windowState) switchWrittenDown() error {
 	if !saved.Autostart {
 		return errors.New("the settings of this home do not have it on")
 	}
+	// The entry the platform writes belongs to the scenario, not to the
+	// operator: on darwin a launch agent under ~/Library/LaunchAgents would
+	// otherwise point launchd at the temporary test binary at the next login,
+	// over whatever the operator had there.
+	entry, within := autostartEntryOfThisPlatform()
+	if entry == "" {
+		return nil
+	}
+	if _, err := os.Stat(entry); err != nil {
+		return fmt.Errorf("the entry of this platform was not written to %s: %w", entry, err)
+	}
+	if !strings.HasPrefix(entry, within) {
+		return fmt.Errorf("the entry went to %s, outside the scenario's own %s", entry, within)
+	}
 	return nil
+}
+
+// linuxOnlyTags leaves out the scenarios only a Linux session can answer.
+func linuxOnlyTags() string {
+	if runtime.GOOS == "linux" {
+		return ""
+	}
+	return "~@linux"
+}
+
+// autostartEntryOfThisPlatform answers where "Open at login" writes on this
+// platform and the folder the scenario gave it, or "" where it writes nothing.
+func autostartEntryOfThisPlatform() (entry, within string) {
+	switch runtime.GOOS {
+	case "linux":
+		config := os.Getenv("XDG_CONFIG_HOME")
+		return filepath.Join(config, "autostart", "coddy-desktop.desktop"), config
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		return filepath.Join(home, "Library", "LaunchAgents", "dev.coddy.desktop.plist"), home
+	}
+	return "", ""
 }
 
 func (s *windowState) barDrawsItTicked() error {
@@ -1214,8 +1257,14 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a drag never puts the bar above the top of the screen$`, st.neverAboveTheTop)
 		},
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/desktop_window.feature"},
+			Format: "pretty",
+			Paths:  []string{"../../features/desktop_window.feature"},
+			// The application entry is a file of the XDG desktop specification
+			// and only menu_entry_linux.go writes one, so its scenario is
+			// Linux's alone; everywhere else writeMenuEntry does nothing and
+			// there is nothing to assert. Same shape as ~@metrics in
+			// cmd/coddy/bdd_dry_run_serve_test.go.
+			Tags:     linuxOnlyTags(),
 			TestingT: t,
 			Output:   os.Stdout,
 			Strict:   true,

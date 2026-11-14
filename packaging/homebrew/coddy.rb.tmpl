@@ -20,11 +20,11 @@
 # the attribute in place Gatekeeper stops its first run; the postflight step
 # takes it off the one file the cask links as an executable.
 #
-# scripts/build-darwin-archives.sh builds both archives with a deployment
-# target of 13, so the loader refuses them on an older release; hence the
-# minimum below. The native desktop window asks for 14 on top of that and
-# falls back to a browser underneath it, which is the binary's own business
-# and not something the cask can decide.
+# From Go 1.27 a darwin binary records macOS 13 as its minimum, cgo or not,
+# and the loader refuses it on an older release; hence the minimum below.
+# scripts/build-darwin-archives.sh names the same floor. The native desktop
+# window asks for 14 on top of that and falls back to a browser underneath it,
+# which is the binary's own business and not something the cask can decide.
 #
 # The `zap` stanza names ~/.coddy - sessions, skills, credentials and the
 # config. Only `brew zap` removes it; `brew uninstall` leaves it alone.

@@ -238,11 +238,15 @@ func tapGit(t *testing.T, env []string, tap string, args ...string) string {
 
 func TestHomebrewCaskLinksOnlyWhatTheArchiveCarries(t *testing.T) {
 	// The cask links files out of the macOS archive by name, so every file it
-	// names has to be a member of the archive the release job packs.
-	workflow := readRepoFile(t, "../../.github/workflows/release-binaries.yaml")
-	m := regexp.MustCompile(`tar -C "\$bindir" -czf "\$DIST/\$\{stem\}\.tar\.gz" ([^\n]+)`).FindStringSubmatch(workflow)
+	// names has to be a member of the archive the release packs. The macOS
+	// archives are packed by scripts/build-darwin-archives.sh on the macOS
+	// runner, not by the Linux job's build_target, so this reads the script:
+	// the Linux and Android archives happen to carry the same four files, and
+	// reading their tar line would keep passing with a member dropped here.
+	script := readRepoFile(t, "../../scripts/build-darwin-archives.sh")
+	m := regexp.MustCompile(`tar [^\n]*-czf "\$out/\$\{stem\}\.tar\.gz" \\\n *([^\n]+)`).FindStringSubmatch(script)
 	if m == nil {
-		t.Fatal("release-binaries.yaml: no `tar -C \"$bindir\" -czf` line packing the macOS archive")
+		t.Fatal("build-darwin-archives.sh: no `tar ... -czf \"$out/${stem}.tar.gz\"` line packing the macOS archive")
 	}
 	members := map[string]bool{}
 	for _, name := range strings.Fields(m[1]) {

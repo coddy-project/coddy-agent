@@ -228,10 +228,11 @@ jobs:
             if [ "$goos" = "windows" ]; then
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
-              # The macOS archives are what the Homebrew cask installs, so the
-              # man page and the completions travel beside the binary. The
-              # install script and `coddy update` take all four out by name,
-              # so a member added here is invisible to them until they ask.
+              # The Linux and Android archives, which the install script and
+              # `coddy update` take all four files out of by name, so a member
+              # added here is invisible to them until they ask. The macOS
+              # archives are packed by scripts/build-darwin-archives.sh on the
+              # macOS runner, and the Homebrew cask links out of those.
               cp packaging/man/coddy.1 "$bindir/coddy.1"
               cp packaging/completions/coddy.bash "$bindir/coddy.bash"
               cp packaging/completions/coddy.zsh "$bindir/coddy.zsh"

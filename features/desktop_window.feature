@@ -100,6 +100,10 @@ Feature: Opening Coddy as a desktop window
     When the application menu asks for a chat in a folder that is not there
     Then the window refuses, and the strip is told nothing
 
+  # The application entry is a file of the XDG desktop specification, which
+  # only Linux writes; elsewhere there is no entry to name. The suite leaves
+  # this scenario out where it cannot hold.
+  @linux
   Scenario: The application menu of this user names Coddy and its recent folders
     Given a machine where Coddy has never opened a desktop window
     And two chats of this home were had in folders of their own
