@@ -1008,7 +1008,10 @@ func (a *App) submitPrompt(text string) {
 		SessionID:  a.sessionID,
 		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
 		ImageParts: a.imagePartsFor(text),
-	}, &session.PromptRunOpts{Lang: docs.TurnLangFromEnv(os.Getenv)}, nil)
+	}, &session.PromptRunOpts{
+		StatisticsSource: "console",
+		Lang:             docs.TurnLangFromEnv(os.Getenv),
+	}, nil)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it

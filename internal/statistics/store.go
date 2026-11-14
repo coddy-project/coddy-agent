@@ -73,7 +73,10 @@ type ImportStatus struct {
 }
 
 type Settings struct {
-	Dataset  string           `json:"dataset"`
+	Dataset string `json:"dataset"`
+	// Disabled stops the collection and takes the page away. Absent means the
+	// counters are kept, so a home that never saw this switch keeps recording.
+	Disabled bool             `json:"disabled,omitempty"`
 	Timezone string           `json:"timezone"`
 	Prices   map[string]Price `json:"prices"`
 	Import   ImportStatus     `json:"import"`
@@ -220,6 +223,13 @@ func (s *Store) UpdateSettings(update func(*Settings) error) error {
 	})
 }
 
+// Collecting says whether this home records anything at all. A read of the
+// settings is a stat while they have not moved, so a turn may ask.
+func (s *Store) Collecting() bool {
+	st, err := s.Settings()
+	return err == nil && !st.Disabled
+}
+
 // Append journals a checkpoint by stable id. Readers keep its last value.
 // Monthly journals keep a long history from becoming millions of tiny files.
 func (s *Store) Append(e Event) error {
@@ -231,7 +241,7 @@ func (s *Store) Append(e Event) error {
 		if err != nil {
 			return err
 		}
-		if e.At.Before(st.Cutoff) {
+		if st.Disabled || e.At.Before(st.Cutoff) {
 			return nil
 		}
 		e.Dataset = st.Dataset

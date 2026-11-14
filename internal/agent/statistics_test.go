@@ -41,3 +41,31 @@ func TestStatisticsRecordsTheProviderCallAndTurnAcrossSurfaces(t *testing.T) {
 		t.Fatalf("persisted agent usage: %+v %v", report, err)
 	}
 }
+
+// Every surface names itself for the usage history. The console and the
+// editor's ACP wire used to name none, so both fell into one bucket with
+// whatever else did not, and the page could not tell them apart.
+func TestStatisticsSourceNamesEachSurface(t *testing.T) {
+	for _, c := range []struct{ named, want string }{
+		{"console", "console"},
+		{"acp", "acp"},
+		{"webui", "webui"},
+		{"api", "api"},
+		{"", "local"},
+	} {
+		ctx := context.Background()
+		if c.named != "" {
+			ctx = statistics.WithSource(ctx, c.named)
+		}
+		if got := statistics.Source(ctx); got != c.named {
+			t.Fatalf("source %q travelled as %q", c.named, got)
+		}
+		source := "local"
+		if v := statistics.Source(ctx); v != "" {
+			source = v
+		}
+		if source != c.want {
+			t.Fatalf("a turn of %q was recorded as %q", c.named, source)
+		}
+	}
+}

@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -173,5 +174,50 @@ func TestStatisticsHTTPRejectsInvalidSettingsAndDates(t *testing.T) {
 	}
 	if w := statisticsDo(s, http.MethodDelete, "/coddy/statistics?keep=invalid", ""); w.Code != 400 {
 		t.Fatal("invalid retention accepted")
+	}
+}
+
+// The switch stops the collection and says so on the route the rail reads,
+// so a page nobody records for is not offered.
+func TestStatisticsCollectionSwitchStopsRecordingAndHidesThePage(t *testing.T) {
+	s, m := statisticsTestServer(t)
+	info := func() bool {
+		w := statisticsDo(s, http.MethodGet, "/coddy/info", "")
+		var out struct {
+			Statistics *bool `json:"statistics"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.Statistics == nil {
+			t.Fatalf("info: %s", w.Body.String())
+		}
+		return *out.Statistics
+	}
+	if !info() {
+		t.Fatal("a fresh home records by default")
+	}
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"enabled":false}`); w.Code != 200 {
+		t.Fatalf("switch off: %d %s", w.Code, w.Body.String())
+	}
+	if info() {
+		t.Fatal("the page is still offered with the collection off")
+	}
+	store := m.Statistics()
+	if _, rec := statistics.Begin(context.Background(), store, statistics.Event{Session: "chat"}, nil); rec != nil {
+		t.Fatal("a turn still took a recorder")
+	}
+	if err := store.Append(statistics.Event{ID: "x", Kind: "call", At: time.Now(), Input: statistics.Int(10), Output: statistics.Int(2)}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Query(statistics.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Totals.Total != nil {
+		t.Fatalf("a switched-off home wrote a checkpoint: %+v", report.Totals)
+	}
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"enabled":true}`); w.Code != 200 {
+		t.Fatalf("switch on: %d %s", w.Code, w.Body.String())
+	}
+	if !info() {
+		t.Fatal("the page did not come back")
 	}
 }

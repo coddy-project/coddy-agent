@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"io"
 	"log/slog"
 	"os"
@@ -384,7 +385,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := unmarshalParams(params, &p); err != nil {
 			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
 		}
-		result, err := s.handler.HandleSessionPrompt(ctx, p)
+		// The editor's wire names itself for the usage history, as every
+		// other surface does; without it a turn fell into the bucket of a
+		// surface that named none, together with the console's.
+		result, err := s.handler.HandleSessionPrompt(statistics.WithSource(ctx, "acp"), p)
 		if err != nil {
 			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
 		}

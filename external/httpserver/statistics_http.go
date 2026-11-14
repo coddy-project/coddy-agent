@@ -91,6 +91,7 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 	// A field the body does not name keeps its value: the route is public, and
 	// a client saving only the time zone used to drop every custom tariff.
 	var body struct {
+		Enabled  *bool                        `json:"enabled"`
 		Timezone *string                      `json:"timezone"`
 		Prices   *map[string]statistics.Price `json:"prices"`
 	}
@@ -125,6 +126,9 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := store.UpdateSettings(func(st *statistics.Settings) error {
+		if body.Enabled != nil {
+			st.Disabled = !*body.Enabled
+		}
 		if body.Timezone != nil {
 			st.Timezone = *body.Timezone
 		}

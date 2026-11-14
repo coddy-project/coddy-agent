@@ -47,6 +47,11 @@ type Recorder struct {
 }
 
 func Begin(ctx context.Context, store *Store, base Event, onError func(error)) (context.Context, *Recorder) {
+	// A home with the collection switched off records nothing: no recorder
+	// reaches the context, so every RecordCall and Pause below is a no-op.
+	if store == nil || !store.Collecting() {
+		return ctx, nil
+	}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		if onError != nil {
