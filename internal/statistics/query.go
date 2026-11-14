@@ -93,16 +93,13 @@ func ApplyPrice(e *Event, prices map[string]Price) {
 		if !found {
 			return
 		}
-		p = Price{Input: catalog.Input, Output: catalog.Output, Cached: catalog.Input}
-		if catalog.Cached != nil {
-			p.Cached = *catalog.Cached
-		}
+		p = Price{Input: catalog.Input, Output: catalog.Output, Cached: catalog.Cached}
 	}
 	cached := int64(0)
 	if e.Cached != nil {
 		cached = min(*e.Cached, *e.Input)
 	}
-	v := (float64(*e.Input-cached)*p.Input + float64(cached)*p.Cached + float64(*e.Output)*p.Output) / 1e6
+	v := (float64(*e.Input-cached)*p.Input + float64(cached)*p.CachedRate() + float64(*e.Output)*p.Output) / 1e6
 	e.CostUSD = &v
 }
 
@@ -131,20 +128,45 @@ func (f Filter) Validate() error {
 }
 
 func (s *Store) Query(f Filter) (Report, error) {
-	st, err := s.Settings()
+	out, err := s.Reports(f)
 	if err != nil {
 		return Report{}, err
 	}
-	if st.Timezone != "" {
-		f.Timezone = st.Timezone
-	}
-	events, err := s.Events()
+	return out[0], nil
+}
+
+// Reports answers several filters from one read of the journals. A screen asks
+// for the filtered report and the lifetime one together, and reading the whole
+// history twice for them held the store's lock away from running turns for as
+// long again.
+func (s *Store) Reports(filters ...Filter) ([]Report, error) {
+	var st Settings
+	var events []Event
+	err := s.locked(func() error {
+		var err error
+		if st, err = s.settings(); err != nil {
+			return err
+		}
+		events, err = s.events(st.Cutoff)
+		return err
+	})
 	if err != nil {
-		return Report{}, err
+		return nil, err
 	}
-	r, err := Summarize(events, f, st.Prices, time.Now())
-	r.Dataset = st.Dataset
-	return r, err
+	now := time.Now()
+	out := make([]Report, 0, len(filters))
+	for _, f := range filters {
+		if st.Timezone != "" {
+			f.Timezone = st.Timezone
+		}
+		r, err := Summarize(events, f, st.Prices, now)
+		if err != nil {
+			return nil, err
+		}
+		r.Dataset = st.Dataset
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // Summarize is also used by a relay, which merges leaf datasets before
@@ -191,7 +213,7 @@ func Summarize(events []Event, f Filter, prices map[string]Price, now time.Time)
 		}
 		r.Totals.Requests += e.Requests
 		d.Requests += e.Requests
-		if e.Requests > 0 && e.Source != "subagent" && e.Source != "memory" && e.Source != "scheduler" && e.Source != "background" {
+		if e.Requests > 0 && !NonInteractive(e.Source) {
 			d.Manual = true
 		}
 		if e.Imported && e.Kind == "turn" {

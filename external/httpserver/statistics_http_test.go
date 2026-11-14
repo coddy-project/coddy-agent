@@ -93,6 +93,62 @@ func TestStatisticsDirectWebUICompletionKeepsItsSurface(t *testing.T) {
 	}
 }
 
+// A PUT names what it changes. The screen sends both fields, but the route is
+// public: a client saving one of them used to wipe the other without a word.
+func TestStatisticsSettingsKeepsWhatAPutDoesNotName(t *testing.T) {
+	s, _ := statisticsTestServer(t)
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"Europe/Moscow","prices":{"test":{"input":2,"output":10,"cached":0.5}}}`); w.Code != 200 {
+		t.Fatalf("settings: %d %s", w.Code, w.Body.String())
+	}
+	w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"UTC"}`)
+	var kept statistics.Settings
+	if err := json.Unmarshal(w.Body.Bytes(), &kept); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || kept.Timezone != "UTC" {
+		t.Fatalf("timezone: %d %s", w.Code, w.Body.String())
+	}
+	if _, ok := kept.Prices["test"]; !ok {
+		t.Fatalf("saving the time zone wiped the tariffs: %s", w.Body.String())
+	}
+	w = statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"prices":{"test":{"input":2,"output":10}}}`)
+	if err := json.Unmarshal(w.Body.Bytes(), &kept); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || kept.Timezone != "UTC" {
+		t.Fatalf("saving the tariffs wiped the time zone: %d %s", w.Code, w.Body.String())
+	}
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"prices":{}}`); w.Code != 200 {
+		t.Fatalf("an empty tariff list is how they are dropped: %d %s", w.Code, w.Body.String())
+	}
+	st, err := s.mgr.Statistics().Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Prices) != 0 {
+		t.Fatalf("an empty tariff list left %d of them", len(st.Prices))
+	}
+}
+
+// A tariff without a cache rate reads the input rate, as the embedded catalog
+// does; an explicit zero is a free cache read.
+func TestStatisticsTariffWithoutACacheRateReadsTheInputRate(t *testing.T) {
+	s, m := statisticsTestServer(t)
+	if err := m.Statistics().Append(statistics.Event{ID: "c", Session: "chat", Kind: "call", At: time.Now(), Model: "test", Input: statistics.Int(1_000_000), Output: statistics.Int(0), Cached: statistics.Int(1_000_000)}); err != nil {
+		t.Fatal(err)
+	}
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"prices":{"test":{"input":2,"output":10}}}`); w.Code != 200 {
+		t.Fatalf("settings: %d %s", w.Code, w.Body.String())
+	}
+	report, err := m.Statistics().Query(statistics.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Totals.CostUSD == nil || *report.Totals.CostUSD != 2 {
+		t.Fatalf("cached input was priced free: %+v", report.Totals.CostUSD)
+	}
+}
+
 func TestStatisticsHTTPRejectsInvalidSettingsAndDates(t *testing.T) {
 	s, _ := statisticsTestServer(t)
 	for _, body := range []string{`{"timezone":"No/Such_Zone"}`, `{"prices":{"x":{"input":-1}}}`, `{"dataset":"overwrite"}`} {

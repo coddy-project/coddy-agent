@@ -161,7 +161,7 @@ func (m *Manager) importStatisticsSession(s *statistics.Store, id string, before
 		if msg.BackgroundWake != nil || (msg.GoalTurn != nil && msg.GoalTurn.Kind != acp.GoalTurnKickoff) {
 			e.Source = "background"
 		}
-		if e.Source == "subagent" || e.Source == "memory" || e.Source == "scheduler" || e.Source == "background" {
+		if statistics.NonInteractive(e.Source) {
 			e.Requests = 0
 		}
 		// Only the assistant message itself identifies the model that actually

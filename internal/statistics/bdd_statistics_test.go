@@ -54,7 +54,9 @@ func TestStatisticsFeatures(t *testing.T) {
 		})
 		sc.Step(`^I merge their statistics$`, func() error { var err error; report, err = Summarize(events, Filter{}, nil, time.Now()); return err })
 	}
-	suite := godog.TestSuite{Name: "statistics", ScenarioInitializer: setup, Options: &godog.Options{Format: "progress", Paths: []string{"../../features/statistics.feature"}, TestingT: t}}
+	// The @http scenarios of the same feature are the REST surface; they run
+	// in external/httpserver, which has a server to ask.
+	suite := godog.TestSuite{Name: "statistics", ScenarioInitializer: setup, Options: &godog.Options{Format: "progress", Tags: "~@http", Paths: []string{"../../features/statistics.feature"}, TestingT: t}}
 	if suite.Run() != 0 {
 		t.Fatal("statistics specifications failed")
 	}

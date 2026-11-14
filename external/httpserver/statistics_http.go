@@ -64,22 +64,26 @@ func (s *Server) statisticsGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	// The skills of the chat's workspace, resolved the way every other
+	// cwd-scoped listing resolves one: a caller must not point the count at
+	// any folder of the machine.
+	cwd, ok := s.resolveListingCWD(w, r)
+	if !ok {
+		return
+	}
 	settings, err := s.mgr.StatisticsImportStatus()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	report, err := store.Query(f)
+	// One read of the journals answers both the filtered report and the
+	// lifetime one the screen shows beside it.
+	out, err := store.Reports(f, statistics.Filter{Timezone: f.Timezone})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	all, err := store.Query(statistics.Filter{Timezone: f.Timezone})
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	statisticsJSON(w, 200, map[string]any{"report": report, "allTime": all, "settings": settings, "installedSkills": s.mgr.StatisticsSkillCount(r.URL.Query().Get("cwd"))})
+	statisticsJSON(w, 200, map[string]any{"report": out[0], "allTime": out[1], "settings": settings, "installedSkills": s.mgr.StatisticsSkillCount(cwd)})
 }
 
 // The relay consumes counters with identities, not pre-summed reports, so a
@@ -115,9 +119,11 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
+	// A field the body does not name keeps its value: the route is public, and
+	// a client saving only the time zone used to drop every custom tariff.
 	var body struct {
-		Timezone string                      `json:"timezone"`
-		Prices   map[string]statistics.Price `json:"prices"`
+		Timezone *string                      `json:"timezone"`
+		Prices   *map[string]statistics.Price `json:"prices"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
 	dec.DisallowUnknownFields()
@@ -125,25 +131,39 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if body.Timezone != "" {
-		if _, err := time.LoadLocation(body.Timezone); err != nil {
+	if body.Timezone != nil && *body.Timezone != "" {
+		if _, err := time.LoadLocation(*body.Timezone); err != nil {
 			http.Error(w, "invalid timezone", 400)
 			return
 		}
 	}
-	for name, p := range body.Prices {
-		if strings.TrimSpace(name) == "" || len(name) > 512 {
-			http.Error(w, "invalid model name", 400)
-			return
-		}
-		for _, n := range []float64{p.Input, p.Output, p.Cached} {
-			if n < 0 || math.IsInf(n, 0) || math.IsNaN(n) {
-				http.Error(w, "prices must be finite and non-negative", 400)
+	if body.Prices != nil {
+		for name, p := range *body.Prices {
+			if strings.TrimSpace(name) == "" || len(name) > 512 {
+				http.Error(w, "invalid model name", 400)
 				return
+			}
+			rates := []float64{p.Input, p.Output}
+			if p.Cached != nil {
+				rates = append(rates, *p.Cached)
+			}
+			for _, n := range rates {
+				if n < 0 || math.IsInf(n, 0) || math.IsNaN(n) {
+					http.Error(w, "prices must be finite and non-negative", 400)
+					return
+				}
 			}
 		}
 	}
-	if err := store.UpdateSettings(func(st *statistics.Settings) error { st.Timezone = body.Timezone; st.Prices = body.Prices; return nil }); err != nil {
+	if err := store.UpdateSettings(func(st *statistics.Settings) error {
+		if body.Timezone != nil {
+			st.Timezone = *body.Timezone
+		}
+		if body.Prices != nil {
+			st.Prices = *body.Prices
+		}
+		return nil
+	}); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}

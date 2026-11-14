@@ -60,8 +60,8 @@ Coddy автоматически оценивает стоимость по це
 
 `GET /coddy/statistics` возвращает отчёт по фильтрам, сводку за всё сохранённое время, настройки и число установленных навыков. Параметры запроса - `timezone`, `from`, `to`, `project`, `provider`, `model`, `source` и `cwd`. Даты задаются в формате `YYYY-MM-DD`, обе границы включены. Сохранённый часовой пояс сервера имеет приоритет над параметром запроса.
 
-`GET /coddy/statistics/events` возвращает счётчики с идентификаторами наборов данных для объединения на релее. `GET /coddy/statistics/export?format=csv|json` выгружает тот же отчёт по фильтрам. `PUT /coddy/statistics/settings` принимает `timezone` и карту `prices`, значения которой содержат тарифы `input`, `output` и `cached`. `POST /coddy/statistics/import` принимает `{"action":"start"}` или `{"action":"skip"}` и возвращает прогресс импорта со статусом 202. `DELETE /coddy/statistics?keep=none|day|week|month` очищает счётчики. Для этих маршрутов действуют обычные учётные данные HTTP.
+`GET /coddy/statistics/events` возвращает счётчики с идентификаторами наборов данных для объединения на релее. `GET /coddy/statistics/export?format=csv|json` выгружает тот же отчёт по фильтрам. `PUT /coddy/statistics/settings` принимает `timezone` и карту `prices`, значения которой содержат тарифы `input`, `output` и `cached`; поле, которого нет в теле запроса, сохраняет прежнее значение, пустой объект `prices` удаляет все свои тарифы, а тариф без `cached` считает кешированный ввод по ставке `input`, как это делает каталог. `POST /coddy/statistics/import` принимает `{"action":"start"}` или `{"action":"skip"}` и возвращает прогресс импорта со статусом 202. `DELETE /coddy/statistics?keep=none|day|week|month` очищает счётчики. Для этих маршрутов действуют обычные учётные данные HTTP.
 
 `GET /swarm/statistics` возвращает объединённый отчёт на релее с теми же фильтрами и необязательным идентификатором набора данных `node`. Параметр `raw=1` добавляет события без дубликатов для следующего релея. Недоступные узлы перечислены в `warnings`.
 
-<!-- docsgen:source sha256=a3d04fc2c9b43660 -->
+<!-- docsgen:source sha256=ec9428fee5f14059 -->

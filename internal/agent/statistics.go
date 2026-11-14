@@ -33,7 +33,7 @@ func (a *Agent) beginStatistics(ctx context.Context) (context.Context, func()) {
 	model := a.state.EffectiveModelID(a.cfg)
 	provider, apiModel, _ := strings.Cut(model, "/")
 	base := statistics.Event{Session: a.state.GetID(), Project: a.state.GetCWD(), Source: source, Model: apiModel, Provider: provider, Reasoning: a.state.EffectiveReasoning(a.cfg), Requests: 1}
-	if source == "subagent" || source == "memory" || source == "scheduler" || source == "background" || source == "goal-verifier" {
+	if statistics.NonInteractive(source) {
 		base.Requests = 0
 	}
 	ctx, recorder := statistics.Begin(ctx, statistics.New(a.cfg.Paths.Home), base, func(err error) { a.log.Warn("statistics could not be saved", "error", err) })

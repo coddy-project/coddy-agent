@@ -21,6 +21,18 @@ func WithReasoning(ctx context.Context, reasoning string) context.Context {
 	return context.WithValue(ctx, reasoningKey{}, reasoning)
 }
 
+// NonInteractive says whether a source is work the agent started for itself.
+// Its tokens are counted, but it is nobody's request and never marks a day as
+// one the person worked. The live path and the import of old chats decide it
+// here, together.
+func NonInteractive(source string) bool {
+	switch source {
+	case "subagent", "memory", "scheduler", "background", "goal-verifier":
+		return true
+	}
+	return false
+}
+
 // Recorder belongs to one agent invocation. Children get their own recorder.
 type Recorder struct {
 	mu       sync.Mutex

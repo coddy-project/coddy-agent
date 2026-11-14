@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,10 +47,21 @@ type Event struct {
 	Imported   bool      `json:"imported,omitempty"`
 }
 
+// Price is a tariff in USD per million tokens. A tariff that names no cache
+// rate reads the input rate, as the embedded catalog does; an explicit zero is
+// a cache read the account is not billed for.
 type Price struct {
-	Input  float64 `json:"input"`
-	Output float64 `json:"output"`
-	Cached float64 `json:"cached"`
+	Input  float64  `json:"input"`
+	Output float64  `json:"output"`
+	Cached *float64 `json:"cached,omitempty"`
+}
+
+// CachedRate is what a cache read costs under this tariff.
+func (p Price) CachedRate() float64 {
+	if p.Cached == nil {
+		return p.Input
+	}
+	return *p.Cached
 }
 
 type ImportStatus struct {
@@ -70,21 +82,39 @@ type Settings struct {
 
 type Store struct{ Dir string }
 
+// guard is one directory's lock and its memory of settings.json. Every append
+// needs the dataset id and the cutoff, and re-reading and re-parsing that file
+// once per provider call was the second cost of a checkpoint after the write
+// itself; a stat says whether the memory still holds.
+type guard struct {
+	mu     sync.Mutex
+	stamp  string
+	cached Settings
+	known  bool
+}
+
 var locks sync.Map
 
 func New(home string) *Store { return &Store{Dir: filepath.Join(home, "statistics")} }
 func Int(n int64) *int64     { return &n }
 
+func (s *Store) guard() (*guard, error) {
+	key, err := filepath.Abs(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	g, _ := locks.LoadOrStore(strings.ToLower(key), &guard{})
+	return g.(*guard), nil
+}
+
 // locked also serializes independent Coddy processes using the same home.
 func (s *Store) locked(fn func() error) error {
-	key, err := filepath.Abs(s.Dir)
+	g, err := s.guard()
 	if err != nil {
 		return err
 	}
-	key = strings.ToLower(key)
-	mu, _ := locks.LoadOrStore(key, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
@@ -96,9 +126,30 @@ func (s *Store) locked(fn func() error) error {
 	return fn()
 }
 
+// settingsStamp names the state of settings.json cheaply enough to ask on
+// every append. Another process writes it by rename, so a changed file has a
+// changed modification time or size.
+func settingsStamp(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(info.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(info.Size(), 10)
+}
+
+// settings runs under locked.
 func (s *Store) settings() (Settings, error) {
+	path := filepath.Join(s.Dir, "settings.json")
+	g, err := s.guard()
+	if err != nil {
+		return Settings{}, err
+	}
+	stamp := settingsStamp(path)
+	if g.known && stamp != "" && stamp == g.stamp {
+		return g.cached, nil
+	}
 	var st Settings
-	b, err := os.ReadFile(filepath.Join(s.Dir, "settings.json"))
+	b, err := os.ReadFile(path)
 	if err == nil {
 		err = json.Unmarshal(b, &st)
 	}
@@ -116,10 +167,12 @@ func (s *Store) settings() (Settings, error) {
 		if err := s.write("settings.json", st); err != nil {
 			return st, err
 		}
+		stamp = settingsStamp(path)
 	}
 	if st.Prices == nil {
 		st.Prices = map[string]Price{}
 	}
+	g.stamp, g.cached, g.known = stamp, st, stamp != ""
 	return st, nil
 }
 
@@ -127,6 +180,11 @@ func (s *Store) write(name string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
+	}
+	if name == "settings.json" {
+		if g, gerr := s.guard(); gerr == nil {
+			g.known = false
+		}
 	}
 	_, err = platform.WriteFileReplacing(filepath.Join(s.Dir, name), b, 0o600)
 	return err
@@ -188,6 +246,11 @@ func (s *Store) Append(e Event) error {
 			return err
 		}
 		path := filepath.Join(s.Dir, e.At.UTC().Format("2006-01")+".jsonl")
+		// journals() reads regular files only, so a journal that is a link
+		// would be written and never read back. Refuse it on both sides.
+		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+			return fmt.Errorf("statistics %s is not a regular file", filepath.Base(path))
+		}
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return err
@@ -228,10 +291,12 @@ func (s *Store) Append(e Event) error {
 		if _, err := f.Seek(end, io.SeekStart); err != nil {
 			return err
 		}
-		if _, err := f.Write(append(b, '\n')); err != nil {
-			return err
-		}
-		return f.Sync()
+		_, err = f.Write(append(b, '\n'))
+		// No fsync: a checkpoint is written on the path of every provider
+		// call, and waiting for the platter cost tens of milliseconds there.
+		// What a crash can lose is the tail of a counter journal, and the
+		// read above already repairs the one torn line it can leave.
+		return err
 	})
 }
 
