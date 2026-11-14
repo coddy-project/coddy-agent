@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
@@ -34,14 +33,14 @@ func CreateAndSwitch(dir, name string) error {
 			}
 			return fmt.Errorf("branch already exists: %s", name)
 		}
-		wt, err := repo.Worktree()
+		head, err := repo.Head()
 		if err != nil {
 			return err
 		}
-		if err := refuseUncommitted(wt); err != nil {
+		if err := repo.Storer.SetReference(plumbing.NewHashReference(ref, head.Hash())); err != nil {
 			return err
 		}
-		return wt.Checkout(&git.CheckoutOptions{Branch: ref, Create: true})
+		return repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, ref))
 	}
 	checked, err := runGit(dir, "check-ref-format", "--branch", name)
 	if err != nil || checked != name {

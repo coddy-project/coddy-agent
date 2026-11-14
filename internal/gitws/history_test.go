@@ -30,6 +30,37 @@ func TestCreateAndSwitchWithoutGit(t *testing.T) {
 	}
 }
 
+func TestCreateAndSwitchWithoutGitKeepsTrackedEdits(t *testing.T) {
+	dir := initRepo(t)
+	path := filepath.Join(dir, "tracked.txt")
+	if err := os.WriteFile(path, []byte("original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "add", "tracked.txt")
+	mustGit(t, dir, "-c", "user.email=coddy@test", "-c", "user.name=Coddy", "commit", "-m", "track file")
+	head := mustGit(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(path, []byte("edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hideGitBinary(t)
+	if err := CreateAndSwitch(dir, "feature/with-edit"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "edited\n" {
+		t.Fatalf("tracked edit = %q", content)
+	}
+	if got := mustGit(t, dir, "branch", "--show-current"); got != "feature/with-edit" {
+		t.Fatalf("branch = %q", got)
+	}
+	if got := mustGit(t, dir, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("HEAD = %s, want %s", got, head)
+	}
+}
+
 func TestHistoryEmptyAndDetachedHEAD(t *testing.T) {
 	empty := t.TempDir()
 	mustGit(t, empty, "init", "-b", "main")
