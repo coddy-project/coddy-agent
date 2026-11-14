@@ -56,6 +56,8 @@ const (
 	// 'aevt' and 'quit', the Apple event the Dock and ⌘Q send.
 	kCoreEventClass    = 0x61657674
 	kAEQuitApplication = 0x71756974
+
+	kCFStringEncodingUTF8 = 0x08000100
 )
 
 // The geometry structures of AppKit, laid out as C sees them. purego passes a
@@ -130,7 +132,7 @@ var (
 	cfDictionaryGetValue           func(dictionary, key uintptr) uintptr
 	cfBooleanGetValue              func(boolean uintptr) uint8
 	cfRelease                      func(ref uintptr)
-	onConsoleKey                   uintptr
+	cfStringCreateWithCString      func(allocator uintptr, text string, encoding uint32) uintptr
 
 	autoreleasePoolPush func() uintptr
 	autoreleasePoolPop  func(pool uintptr)
@@ -182,6 +184,7 @@ func openCocoa() (err error) {
 	purego.RegisterLibFunc(&cfDictionaryGetValue, coreFoundation, "CFDictionaryGetValue")
 	purego.RegisterLibFunc(&cfBooleanGetValue, coreFoundation, "CFBooleanGetValue")
 	purego.RegisterLibFunc(&cfRelease, coreFoundation, "CFRelease")
+	purego.RegisterLibFunc(&cfStringCreateWithCString, coreFoundation, "CFStringCreateWithCString")
 
 	// dispatch_get_main_queue() is a C inline that takes the address of this
 	// object, so the symbol's own address is the queue.
@@ -190,26 +193,8 @@ func openCocoa() (err error) {
 		return fmt.Errorf("desktop: the main dispatch queue is missing: %w", err)
 	}
 	mainQueue = queue
-	// A CFStringRef constant, so the symbol holds the pointer rather than being it.
-	key, err := purego.Dlsym(coreGraphics, "kCGSessionOnConsoleKey")
-	if err != nil || key == 0 {
-		return fmt.Errorf("desktop: the window-server session key is missing: %w", err)
-	}
-	onConsoleKey = symbolValue(key)
 	mainTrampoline = purego.NewCallback(runOnMain)
 	return registerControllerClass()
-}
-
-// symbolValue reads the pointer a data symbol holds, which is how a framework
-// publishes a constant object such as a CFStringRef key.
-//
-// The address is dereferenced through a local variable rather than converted
-// straight from a uintptr, because `go vet` reads the direct conversion as a
-// reference the collector may already have moved. Nothing here was ever Go's:
-// dyld owns this address for the life of the process.
-func symbolValue(address uintptr) uintptr {
-	held := address
-	return **(**uintptr)(unsafe.Pointer(&held))
 }
 
 var (
@@ -334,14 +319,35 @@ func onMainThread(what string, fn func()) {
 // guiSessionAvailable answers whether this login session owns the console, so
 // that a headless launch falls back to the browser instead of Cocoa ending the
 // process when it cannot reach the window server.
+//
+// A missing dictionary is the headless case: CGSessionCopyCurrentDictionary
+// answers nothing over a plain ssh login. The console flag refines that to the
+// session a person is actually looking at.
+//
+// Its key cannot be read from the framework: CGSession.h defines these keys as
+// CFSTR(...) macros rather than exported symbols, which a compiler expands and
+// dlsym cannot find. The string the macro expands to is built here instead,
+// under both spellings the header has used, and a dictionary whose key is
+// neither answers for the session it is - there is one, or there would be no
+// dictionary.
 func guiSessionAvailable() bool {
 	session := cgSessionCopyCurrentDictionary()
 	if session == 0 {
 		return false
 	}
 	defer cfRelease(session)
-	onConsole := cfDictionaryGetValue(session, onConsoleKey)
-	return onConsole != 0 && cfBooleanGetValue(onConsole) != 0
+	for _, name := range []string{"kCGSSessionOnConsoleKey", "kCGSessionOnConsoleKey"} {
+		key := cfStringCreateWithCString(0, name, kCFStringEncodingUTF8)
+		if key == 0 {
+			continue
+		}
+		onConsole := cfDictionaryGetValue(session, key)
+		cfRelease(key)
+		if onConsole != 0 {
+			return cfBooleanGetValue(onConsole) != 0
+		}
+	}
+	return true
 }
 
 // isolatedStoresAvailable answers whether WebKit can keep this agent home's
