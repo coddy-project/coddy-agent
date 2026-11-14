@@ -328,6 +328,27 @@ describe("NavRail on a relay", () => {
     expect(screen.getByTestId("nav-history")).toBeInTheDocument();
   });
 
+  // The brand led home before it opened a menu. The menu keeps that first,
+  // so the statistics are added to the brand rather than put in its place.
+  it("keeps the home action in the menu the brand opens", () => {
+    const onNewChat = vi.fn();
+    const onOpenStatistics = vi.fn();
+    render(
+      <NavRail
+        {...base}
+        onNewChat={onNewChat}
+        onOpenStatistics={onOpenStatistics}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("nav-home"));
+    fireEvent.click(screen.getByTestId("nav-home-item"));
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+    expect(onOpenStatistics).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("nav-home"));
+    fireEvent.click(screen.getByTestId("nav-statistics"));
+    expect(onOpenStatistics).toHaveBeenCalledTimes(1);
+  });
+
   // The rail splits at the spacer: what belongs to this session above it,
   // what belongs to the installation below. Swarm is the fleet, so it sits
   // with Settings.

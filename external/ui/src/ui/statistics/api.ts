@@ -48,7 +48,12 @@ export type ImportStatus = {
 };
 export type StatisticsSettings = {
   timezone: string;
-  prices: Record<string, { input: number; output: number; cached: number }>;
+  // A tariff saved over the API may name no cache rate; then the input rate
+  // applies, the way the embedded catalog reads a model without one.
+  prices: Record<
+    string,
+    { input: number; output: number; cached?: number | null }
+  >;
   import: ImportStatus;
 };
 export type StatisticsData = {

@@ -39,7 +39,9 @@ export default function StatisticsSettings({
         name,
         input: String(p.input),
         output: String(p.output),
-        cached: String(p.cached),
+        // A tariff saved over the API without a cache rate reads the input
+        // rate; the form shows that rate rather than an empty field.
+        cached: String(p.cached ?? p.input),
       })),
     );
     setModels(data.allTime.models.map((m) => m.name));

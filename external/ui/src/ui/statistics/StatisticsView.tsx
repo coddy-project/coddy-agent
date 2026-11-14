@@ -46,6 +46,7 @@ export default function StatisticsView({
   const [mode, setMode] = useState<"days" | "weeks" | "cumulative">("days");
   const [working, setWorking] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [importDismissed, setImportDismissed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -133,17 +134,25 @@ export default function StatisticsView({
     aggregate,
     node,
   ]);
+  // A report is a read of the whole journal on the server, so the screen asks
+  // again often only while an import is moving; otherwise it keeps the last
+  // answer on screen and refreshes on the slow beat.
+  const importRunning =
+    data?.settings?.import?.state === "running" ||
+    (data?.nodes ?? []).some((n) => n.import.state === "running");
   useEffect(() => {
-    setData(null);
     void read();
-    const timer = setInterval(() => {
-      if (!document.hidden) void read();
-    }, 5000);
+    const timer = setInterval(
+      () => {
+        if (!document.hidden) void read();
+      },
+      importRunning ? 5000 : 30000,
+    );
     return () => {
       request.current++;
       clearInterval(timer);
     };
-  }, [read]);
+  }, [read, importRunning]);
   const importHistory = async (action: "start" | "skip") => {
     setWorking(true);
     try {
@@ -256,7 +265,12 @@ export default function StatisticsView({
       />
     </label>
   );
-  const breakdown = (title: string, rows: Breakdown[] = [], counts = true) => (
+  const breakdown = (
+    title: string,
+    rows: Breakdown[] = [],
+    counts = true,
+    name: (value: string) => string = (value) => value,
+  ) => (
     <section className="statistics-breakdown">
       <h3>{t(title)}</h3>
       {rows.length ? (
@@ -272,7 +286,7 @@ export default function StatisticsView({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.name}>
-                  <td title={row.name}>{row.name}</td>
+                  <td title={name(row.name)}>{name(row.name)}</td>
                   <td>{number(row.count)}</td>
                   <td>{number(row.tokens)}</td>
                 </tr>
@@ -852,7 +866,12 @@ export default function StatisticsView({
                   {breakdown("stats.models", data.report.models, false)}
                   {breakdown("stats.providers", data.report.providers, false)}
                   {breakdown("stats.projects", data.report.projects)}
-                  {breakdown("stats.sources", data.report.sources)}
+                  {breakdown(
+                    "stats.sources",
+                    data.report.sources,
+                    true,
+                    sourceName,
+                  )}
                   {breakdown("stats.reasoning", data.report.reasoning, false)}
                   {breakdown("stats.skills", data.report.skills)}
                 </div>
@@ -860,10 +879,12 @@ export default function StatisticsView({
             )}
           </div>
         </div>
-        {imp?.state === "pending" && tab === "overview" && (
+        {imp?.state === "pending" && tab === "overview" && !importDismissed && (
           <StatisticsSheet
             title={t("stats.import.title")}
-            onClose={() => void importHistory("skip")}
+            // Escape and the backdrop put the offer away for this visit;
+            // only the Skip button records that answer on the server.
+            onClose={() => setImportDismissed(true)}
             busy={working}
           >
             <p className="statistics-muted">{t("stats.import.message")}</p>

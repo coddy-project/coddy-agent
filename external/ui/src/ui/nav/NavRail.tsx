@@ -923,6 +923,18 @@ export function NavRail(props: {
             role="menu"
             style={brandMenu}
           >
+            {/* The brand led home before it opened a menu; the menu keeps
+                that first, so the action is moved rather than lost. */}
+            <button
+              role="menuitem"
+              data-testid="nav-home-item"
+              onClick={() => {
+                setBrandMenu(null);
+                props.onNewChat();
+              }}
+            >
+              {t("nav.homeAriaLabel")}
+            </button>
             <button
               role="menuitem"
               data-testid="nav-statistics"
