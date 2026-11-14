@@ -274,12 +274,13 @@ export function ProviderLimits({
                               t("stats.limitRemaining"),
                               number(usage.rate.remaining),
                             )}
-                            {detail(
-                              t("stats.limitReset"),
-                              t("stats.durationSeconds", {
-                                seconds: usage.rate.resetInSec,
-                              }),
-                            )}
+                            {usage.rate.resetInSec != null &&
+                              detail(
+                                t("stats.limitReset"),
+                                t("stats.durationSeconds", {
+                                  seconds: usage.rate.resetInSec,
+                                }),
+                              )}
                           </>
                         )}
                         {usage.cooldownSec != null &&
