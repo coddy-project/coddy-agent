@@ -236,6 +236,12 @@
   font-size: 12px;
   line-height: 1.5;
 }
+.statistics-cost-rate {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
 .statistics-muted {
   color: var(--muted);
   font-size: 12px;
@@ -352,6 +358,9 @@
 }
 .statistics-settings .settings-array-entry > .settings-field {
   min-width: 0;
+}
+.statistics-rate-currency {
+  grid-column: 1 / 3;
 }
 .statistics-rate-remove {
   grid-column: 4;
@@ -535,6 +544,9 @@
   .statistics-body {
     padding: 8px 16px 24px;
   }
+  .statistics-rate-currency {
+    grid-column: 1 / -1;
+  }
   .statistics-actions {
     gap: 6px;
     flex-wrap: nowrap;
@@ -586,7 +598,6 @@
     grid-template-columns: 1fr;
     gap: 20px;
   }
-
   .statistics-import {
     grid-template-columns: 1fr;
     text-align: center;

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,13 +48,14 @@ type Event struct {
 	Imported   bool      `json:"imported,omitempty"`
 }
 
-// Price is a tariff in USD per million tokens. A tariff that names no cache
-// rate reads the input rate, as the embedded catalog does; an explicit zero is
-// a cache read the account is not billed for.
+// Price is a custom tariff per million tokens in Currency, which defaults to
+// USD for older settings. A missing cache rate reads the input rate; zero is
+// an explicit free cache read.
 type Price struct {
-	Input  float64  `json:"input"`
-	Output float64  `json:"output"`
-	Cached *float64 `json:"cached,omitempty"`
+	Input    float64  `json:"input"`
+	Output   float64  `json:"output"`
+	Cached   *float64 `json:"cached,omitempty"`
+	Currency string   `json:"currency"`
 }
 
 // CachedRate is what a cache read costs under this tariff.
@@ -63,6 +65,13 @@ func (p Price) CachedRate() float64 {
 	}
 	return *p.Cached
 }
+
+const (
+	CurrencyUSD         = "USD"
+	CurrencyRUB         = "RUB"
+	DefaultCurrency     = CurrencyUSD
+	DefaultUSDToRubRate = 90.0
+)
 
 type ImportStatus struct {
 	State  string `json:"state"`
@@ -78,6 +87,8 @@ type Settings struct {
 	// counters are kept, so a home that never saw this switch keeps recording.
 	Disabled bool             `json:"disabled,omitempty"`
 	Timezone string           `json:"timezone"`
+	Currency string           `json:"currency"`
+	USDToRub float64          `json:"usdToRub"`
 	Prices   map[string]Price `json:"prices"`
 	Import   ImportStatus     `json:"import"`
 	Cutoff   time.Time        `json:"cutoff"`
@@ -170,6 +181,8 @@ func (s *Store) settings() (Settings, error) {
 		}
 		st.Dataset = hex.EncodeToString(id[:])
 		st.Import.State = "pending"
+		st.Currency = DefaultCurrency
+		st.USDToRub = DefaultUSDToRubRate
 		st.Prices = map[string]Price{}
 		if err := s.write("settings.json", st); err != nil {
 			return st, err
@@ -178,6 +191,18 @@ func (s *Store) settings() (Settings, error) {
 	}
 	if st.Prices == nil {
 		st.Prices = map[string]Price{}
+	}
+	for model, price := range st.Prices {
+		if price.Currency != CurrencyUSD && price.Currency != CurrencyRUB {
+			price.Currency = CurrencyUSD
+		}
+		st.Prices[model] = price
+	}
+	if st.Currency != CurrencyUSD && st.Currency != CurrencyRUB {
+		st.Currency = DefaultCurrency
+	}
+	if st.USDToRub <= 0 || math.IsNaN(st.USDToRub) || math.IsInf(st.USDToRub, 0) {
+		st.USDToRub = DefaultUSDToRubRate
 	}
 	g.stamp, g.cached, g.known = stamp, st, stamp != ""
 	return st, nil
@@ -252,7 +277,7 @@ func (s *Store) Append(e Event) error {
 			_, specific := st.Prices[e.Provider+"/"+e.Model]
 			_, general := st.Prices[e.Model]
 			if specific || general {
-				ApplyPrice(&e, st.Prices)
+				ApplyPriceWithRate(&e, st.Prices, st.USDToRub)
 			}
 		}
 		b, err := json.Marshal(e)

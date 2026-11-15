@@ -107,7 +107,7 @@ func TestStatisticsDirectWebUICompletionKeepsItsSurface(t *testing.T) {
 // public: a client saving one of them used to wipe the other without a word.
 func TestStatisticsSettingsKeepsWhatAPutDoesNotName(t *testing.T) {
 	s, _ := statisticsTestServer(t)
-	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"Europe/Moscow","prices":{"test":{"input":2,"output":10,"cached":0.5}}}`); w.Code != 200 {
+	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"Europe/Moscow","currency":"RUB","usdToRub":90,"prices":{"test":{"input":2,"output":10,"cached":0.5}}}`); w.Code != 200 {
 		t.Fatalf("settings: %d %s", w.Code, w.Body.String())
 	}
 	w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"UTC"}`)
@@ -115,8 +115,8 @@ func TestStatisticsSettingsKeepsWhatAPutDoesNotName(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &kept); err != nil {
 		t.Fatal(err)
 	}
-	if w.Code != 200 || kept.Timezone != "UTC" {
-		t.Fatalf("timezone: %d %s", w.Code, w.Body.String())
+	if w.Code != 200 || kept.Timezone != "UTC" || kept.Currency != "RUB" || kept.USDToRub != 90 {
+		t.Fatalf("partial settings update: %d %+v", w.Code, kept)
 	}
 	if _, ok := kept.Prices["test"]; !ok {
 		t.Fatalf("saving the time zone wiped the tariffs: %s", w.Body.String())
@@ -125,7 +125,7 @@ func TestStatisticsSettingsKeepsWhatAPutDoesNotName(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &kept); err != nil {
 		t.Fatal(err)
 	}
-	if w.Code != 200 || kept.Timezone != "UTC" {
+	if w.Code != 200 || kept.Timezone != "UTC" || kept.Currency != "RUB" || kept.USDToRub != 90 {
 		t.Fatalf("saving the tariffs wiped the time zone: %d %s", w.Code, w.Body.String())
 	}
 	if w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", `{"prices":{}}`); w.Code != 200 {
@@ -161,7 +161,14 @@ func TestStatisticsTariffWithoutACacheRateReadsTheInputRate(t *testing.T) {
 
 func TestStatisticsHTTPRejectsInvalidSettingsAndDates(t *testing.T) {
 	s, _ := statisticsTestServer(t)
-	for _, body := range []string{`{"timezone":"No/Such_Zone"}`, `{"prices":{"x":{"input":-1}}}`, `{"dataset":"overwrite"}`} {
+	for _, body := range []string{
+		`{"timezone":"No/Such_Zone"}`,
+		`{"prices":{"x":{"input":-1}}}`,
+		`{"currency":"EUR"}`,
+		`{"usdToRub":0}`,
+		`{"usdToRub":-1}`,
+		`{"dataset":"overwrite"}`,
+	} {
 		w := statisticsDo(s, http.MethodPut, "/coddy/statistics/settings", body)
 		if w.Code != 400 {
 			t.Fatalf("accepted %s: %d", body, w.Code)
@@ -174,6 +181,41 @@ func TestStatisticsHTTPRejectsInvalidSettingsAndDates(t *testing.T) {
 	}
 	if w := statisticsDo(s, http.MethodDelete, "/coddy/statistics?keep=invalid", ""); w.Code != 400 {
 		t.Fatal("invalid retention accepted")
+	}
+}
+
+func TestStatisticsCurrencyOpenAPI(t *testing.T) {
+	spec := openAPISpec()
+	paths := spec["paths"].(map[string]interface{})
+	put := paths["/coddy/statistics/settings"].(map[string]interface{})["put"].(map[string]interface{})
+	body := put["requestBody"].(map[string]interface{})
+	content := body["content"].(map[string]interface{})
+	requestSchema := content["application/json"].(map[string]interface{})["schema"].(map[string]interface{})
+	requestProps := requestSchema["properties"].(map[string]interface{})
+	currency := requestProps["currency"].(map[string]interface{})
+	if currency["type"] != "string" {
+		t.Fatalf("currency schema = %+v", currency)
+	}
+	allowed, ok := currency["enum"].([]string)
+	if !ok || len(allowed) != 2 || allowed[0] != statistics.CurrencyUSD || allowed[1] != statistics.CurrencyRUB {
+		t.Fatalf("currency enum = %#v", currency["enum"])
+	}
+	rate := requestProps["usdToRub"].(map[string]interface{})
+	if rate["type"] != "number" || rate["minimum"] != 0 || rate["exclusiveMinimum"] != true {
+		t.Fatalf("usdToRub schema = %+v", rate)
+	}
+	schemas := spec["components"].(map[string]interface{})["schemas"].(map[string]interface{})
+	settings := schemas["StatisticsSettings"].(map[string]interface{})["properties"].(map[string]interface{})
+	if settings["currency"] == nil || settings["usdToRub"] == nil {
+		t.Fatalf("settings response schema is missing currency fields: %+v", settings)
+	}
+	if settings["currency"].(map[string]interface{})["default"] != statistics.CurrencyUSD || settings["usdToRub"].(map[string]interface{})["default"] != statistics.DefaultUSDToRubRate {
+		t.Fatalf("statistics currency defaults = %+v / %+v", settings["currency"], settings["usdToRub"])
+	}
+	priceCurrency := schemas["StatisticsPrice"].(map[string]interface{})["properties"].(map[string]interface{})["currency"].(map[string]interface{})
+	priceCurrencyValues, ok := priceCurrency["enum"].([]string)
+	if !ok || len(priceCurrencyValues) != 2 || priceCurrencyValues[0] != statistics.CurrencyUSD || priceCurrencyValues[1] != statistics.CurrencyRUB || priceCurrency["default"] != statistics.CurrencyUSD {
+		t.Fatalf("model price currency schema = %+v", priceCurrency)
 	}
 }
 

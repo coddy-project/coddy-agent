@@ -10,7 +10,9 @@ import {
   statisticsRelay,
   statisticsRequest,
   type Breakdown,
+  type StatisticsCurrency,
   type StatisticsData,
+  type StatisticsSettings,
 } from "./api";
 
 /** Sliders, as the conversation list draws its filters. */
@@ -65,6 +67,7 @@ export default function StatisticsView({
   const [node, setNode] = useState("");
   const [mode, setMode] = useState<"days" | "weeks" | "cumulative">("days");
   const [working, setWorking] = useState(false);
+  const [currencySaving, setCurrencySaving] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [importDismissed, setImportDismissed] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -217,6 +220,24 @@ export default function StatisticsView({
   });
   const number = (v: number | null | undefined) =>
     v == null ? "—" : nf.format(v);
+  const displayCurrency = data?.settings?.currency ?? "USD";
+  const usdToRub =
+    data?.settings?.usdToRub != null &&
+    Number.isFinite(data.settings.usdToRub) &&
+    data.settings.usdToRub > 0
+      ? data.settings.usdToRub
+      : 90;
+  const cost = (value: number | null | undefined) =>
+    value == null
+      ? "—"
+      : new Intl.NumberFormat(locale, {
+          style: "currency",
+          currency: displayCurrency,
+          maximumFractionDigits: 2,
+        }).format(displayCurrency === "RUB" ? value * usdToRub : value);
+  const exchangeRate = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 2,
+  }).format(usdToRub);
   const duration = (v: number | null | undefined) =>
     v == null
       ? "—"
@@ -279,6 +300,33 @@ export default function StatisticsView({
     setModel("");
     setSource("");
     setNode("");
+  };
+  const chooseDisplayCurrency = async (currency: StatisticsCurrency) => {
+    if (!data || currencySaving || currency === displayCurrency) return;
+    setCurrencySaving(true);
+    setError("");
+    try {
+      const saved = await statisticsRequest<StatisticsSettings>(
+        "/coddy/statistics/settings",
+        { method: "PUT", body: JSON.stringify({ currency }) },
+      );
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              settings: {
+                ...(current.settings ?? {}),
+                ...saved,
+                currency: saved.currency ?? currency,
+              },
+            }
+          : current,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCurrencySaving(false);
+    }
   };
   const select = (
     label: string,
@@ -547,6 +595,29 @@ export default function StatisticsView({
               onClose={() => setFiltersOpen(false)}
             >
               <div className="statistics-filters statistics-filter-fields">
+                {tab === "overview" && (
+                  <label className="statistics-filter statistics-currency-filter">
+                    <span>{t("stats.currency.field")}</span>
+                    <span className="appearance-language-select-wrap">
+                      <select
+                        className="appearance-language-select"
+                        value={displayCurrency}
+                        aria-label={t("stats.currency.field")}
+                        data-testid="statistics-display-currency"
+                        disabled={currencySaving}
+                        onChange={(event) => {
+                          const currency = event.currentTarget.value;
+                          if (currency === "USD" || currency === "RUB") {
+                            void chooseDisplayCurrency(currency);
+                          }
+                        }}
+                      >
+                        <option value="USD">{t("stats.currency.usd")}</option>
+                        <option value="RUB">{t("stats.currency.rub")}</option>
+                      </select>
+                    </span>
+                  </label>
+                )}
                 {swarm && (
                   <label className="statistics-filter">
                     <span>{t("stats.scope")}</span>
@@ -707,21 +778,32 @@ export default function StatisticsView({
                   {[
                     ["stats.tokensPeriod", number(totals.totalTokens)],
                     ["stats.activeTime", duration(totals.activeMs)],
-                    [
-                      "stats.cost",
-                      totals.costUsd == null
-                        ? "—"
-                        : new Intl.NumberFormat(locale, {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 2,
-                          }).format(totals.costUsd),
-                    ],
+                    ["stats.cost", cost(totals.costUsd)],
                     ["stats.currentStreak", number(totals.currentStreak)],
                   ].map(([key, value]) => (
                     <div className="statistics-card" key={key}>
-                      <span>{t(key!)}</span>
-                      <strong>{value}</strong>
+                      <span>
+                        {key === "stats.cost"
+                          ? t(key, { currency: displayCurrency })
+                          : t(key!)}
+                      </span>
+                      <strong
+                        data-testid={
+                          key === "stats.cost"
+                            ? "statistics-cost-value"
+                            : undefined
+                        }
+                      >
+                        {value}
+                      </strong>
+                      {key === "stats.cost" && (
+                        <small
+                          className="statistics-cost-rate"
+                          data-testid="statistics-cost-rate"
+                        >
+                          {t("stats.cost.rate", { rate: exchangeRate })}
+                        </small>
+                      )}
                     </div>
                   ))}
                 </div>

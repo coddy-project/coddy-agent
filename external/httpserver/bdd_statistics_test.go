@@ -49,6 +49,12 @@ func TestStatisticsHTTPFeatures(t *testing.T) {
 			}
 			return nil
 		})
+		sc.Step(`^the statistics settings default to USD and the USD/RUB rate of 90$`, func() error {
+			if last == nil || last.Settings.Currency != statistics.CurrencyUSD || last.Settings.USDToRub != 90 {
+				return fmt.Errorf("default display settings = %+v", last)
+			}
+			return nil
+		})
 		sc.Step(`^I save the statistics time zone over REST$`, func() error {
 			w := statisticsDo(srv, http.MethodPut, "/coddy/statistics/settings", `{"timezone":"Europe/Moscow"}`)
 			if w.Code != 200 {
@@ -56,10 +62,73 @@ func TestStatisticsHTTPFeatures(t *testing.T) {
 			}
 			return nil
 		})
+		sc.Step(`^I save the RUB display currency with a USD/RUB rate of 90$`, func() error {
+			w := statisticsDo(srv, http.MethodPut, "/coddy/statistics/settings", `{"currency":"RUB","usdToRub":90}`)
+			if w.Code != 200 {
+				return fmt.Errorf("currency settings: %d %s", w.Code, w.Body.String())
+			}
+			return nil
+		})
+		sc.Step(`^the statistics settings keep RUB and the USD/RUB rate of 90$`, func() error {
+			w := statisticsDo(srv, http.MethodGet, "/coddy/statistics", "")
+			if w.Code != 200 {
+				return fmt.Errorf("read settings: %d %s", w.Code, w.Body.String())
+			}
+			var out struct {
+				Settings struct {
+					Currency string  `json:"currency"`
+					USDToRub float64 `json:"usdToRub"`
+				} `json:"settings"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+				return err
+			}
+			if out.Settings.Currency != "RUB" || out.Settings.USDToRub != 90 {
+				return fmt.Errorf("currency settings = %q / %g", out.Settings.Currency, out.Settings.USDToRub)
+			}
+			return nil
+		})
 		sc.Step(`^I save a custom tariff over REST$`, func() error {
 			w := statisticsDo(srv, http.MethodPut, "/coddy/statistics/settings", `{"prices":{"test":{"input":2,"output":10,"cached":0.5}}}`)
 			if w.Code != 200 {
 				return fmt.Errorf("tariff: %d %s", w.Code, w.Body.String())
+			}
+			return nil
+		})
+		sc.Step(`^I save a RUB tariff for the model "([^"]+)"$`, func(model string) error {
+			body, err := json.Marshal(map[string]interface{}{
+				"prices": map[string]interface{}{
+					model: map[string]interface{}{"input": 180, "output": 0, "currency": "RUB"},
+				},
+			})
+			if err != nil {
+				return err
+			}
+			w := statisticsDo(srv, http.MethodPut, "/coddy/statistics/settings", string(body))
+			if w.Code != 200 {
+				return fmt.Errorf("RUB tariff: %d %s", w.Code, w.Body.String())
+			}
+			return nil
+		})
+		sc.Step(`^the custom tariff for "([^"]+)" is stored in RUB$`, func(model string) error {
+			w := statisticsDo(srv, http.MethodGet, "/coddy/statistics", "")
+			if w.Code != 200 {
+				return fmt.Errorf("read tariff: %d %s", w.Code, w.Body.String())
+			}
+			var out struct {
+				Settings struct {
+					Prices map[string]map[string]json.RawMessage `json:"prices"`
+				} `json:"settings"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+				return err
+			}
+			var currency string
+			if err := json.Unmarshal(out.Settings.Prices[model]["currency"], &currency); err != nil {
+				return fmt.Errorf("tariff currency is missing: %w", err)
+			}
+			if currency != "RUB" {
+				return fmt.Errorf("tariff currency = %q, want RUB", currency)
 			}
 			return nil
 		})
@@ -73,6 +142,9 @@ func TestStatisticsHTTPFeatures(t *testing.T) {
 			}
 			if _, ok := st.Prices["test"]; !ok {
 				return fmt.Errorf("tariffs: %+v", st.Prices)
+			}
+			if st.Prices["test"].Currency != statistics.CurrencyUSD {
+				return fmt.Errorf("default tariff currency = %q, want USD", st.Prices["test"].Currency)
 			}
 			return nil
 		})

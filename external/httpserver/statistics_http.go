@@ -93,6 +93,8 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled  *bool                        `json:"enabled"`
 		Timezone *string                      `json:"timezone"`
+		Currency *string                      `json:"currency"`
+		USDToRub *float64                     `json:"usdToRub"`
 		Prices   *map[string]statistics.Price `json:"prices"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
@@ -107,12 +109,28 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if body.Currency != nil && *body.Currency != statistics.CurrencyUSD && *body.Currency != statistics.CurrencyRUB {
+		http.Error(w, "currency must be USD or RUB", 400)
+		return
+	}
+	if body.USDToRub != nil && (*body.USDToRub <= 0 || math.IsInf(*body.USDToRub, 0) || math.IsNaN(*body.USDToRub)) {
+		http.Error(w, "usdToRub must be finite and positive", 400)
+		return
+	}
 	if body.Prices != nil {
 		for name, p := range *body.Prices {
 			if strings.TrimSpace(name) == "" || len(name) > 512 {
 				http.Error(w, "invalid model name", 400)
 				return
 			}
+			if p.Currency == "" {
+				p.Currency = statistics.CurrencyUSD
+			}
+			if p.Currency != statistics.CurrencyUSD && p.Currency != statistics.CurrencyRUB {
+				http.Error(w, "price currency must be USD or RUB", 400)
+				return
+			}
+			(*body.Prices)[name] = p
 			rates := []float64{p.Input, p.Output}
 			if p.Cached != nil {
 				rates = append(rates, *p.Cached)
@@ -131,6 +149,12 @@ func (s *Server) statisticsSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Timezone != nil {
 			st.Timezone = *body.Timezone
+		}
+		if body.Currency != nil {
+			st.Currency = *body.Currency
+		}
+		if body.USDToRub != nil {
+			st.USDToRub = *body.USDToRub
 		}
 		if body.Prices != nil {
 			st.Prices = *body.Prices

@@ -37,7 +37,7 @@ test("catalog pricing needs no manual form; a custom tariff is saved with the ta
   // The catalog prices on its own, and the why of it sits behind the (i)
   // beside the legend, as every other tab writes a description.
   expect(
-    await screen.findByText("Model prices · USD per million tokens"),
+    await screen.findByText("Model prices per million tokens"),
   ).toBeInTheDocument();
   expect(statisticsSettingsDirty()).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -59,8 +59,137 @@ test("catalog pricing needs no manual form; a custom tariff is saved with the ta
       body: JSON.stringify({
         enabled: true,
         timezone: "",
-        prices: { "account/model": { input: 0, output: 0, cached: 0 } },
+        usdToRub: 90,
+        prices: {
+          "account/model": {
+            input: 0,
+            output: 0,
+            cached: 0,
+            currency: "USD",
+          },
+        },
       }),
+    }),
+  );
+});
+
+test("each custom model tariff defaults to USD and can be saved in RUB", async () => {
+  initLocale("en");
+  const data = fixture();
+  Object.assign(data.settings!, { currency: "USD", usdToRub: 90 });
+  data.settings!.prices["neuraldeep/kimi-k2.6"] = {
+    input: 1,
+    output: 4,
+    cached: 0.5,
+  };
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(
+    async (_: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        JSON.stringify(init?.method === "PUT" ? data.settings : data),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(<StatisticsSettings />);
+
+  const currency = await screen.findByTestId("statistics-price-currency-0");
+  const rate = screen.getByRole("spinbutton", { name: "RUB per USD" });
+  expect(currency).toHaveValue("USD");
+  expect(rate).toHaveValue(90);
+  fireEvent.change(currency, { target: { value: "RUB" } });
+  await waitFor(() => expect(statisticsSettingsDirty()).toBe(true));
+  await flushStatisticsSettings();
+
+  expect(fetch).toHaveBeenCalledWith(
+    "/coddy/statistics/settings",
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: true,
+        timezone: "",
+        usdToRub: 90,
+        prices: {
+          "neuraldeep/kimi-k2.6": {
+            input: 1,
+            output: 4,
+            cached: 0.5,
+            currency: "RUB",
+          },
+        },
+      }),
+    }),
+  );
+});
+
+test("the Filters currency select converts the estimated cost and shows the rate", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.report.totals.costUsd = 1.25;
+  Object.assign(data.settings!, { currency: "USD", usdToRub: 90 });
+  data.settings!.import.state = "complete";
+  const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (
+      String(url).startsWith("/coddy/statistics/settings") &&
+      init?.method === "PUT"
+    ) {
+      Object.assign(data.settings!, JSON.parse(String(init.body)));
+      return new Response(JSON.stringify(data.settings));
+    }
+    return new Response(JSON.stringify(data));
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={vi.fn()}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+
+  await screen.findByText("Token activity");
+  expect(
+    screen
+      .getByTestId("statistics-cost-value")
+      .textContent?.replace(/\s+/g, " "),
+  ).toContain(
+    new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    })
+      .format(1.25)
+      .replace(/\s+/g, " "),
+  );
+  expect(screen.getByTestId("statistics-cost-rate")).toHaveTextContent(
+    "1 USD = 90 RUB",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  const currency = await screen.findByRole("combobox", { name: "Currency" });
+  expect(currency.tagName).toBe("SELECT");
+  expect(currency).toHaveValue("USD");
+  fireEvent.change(currency, { target: { value: "RUB" } });
+  await waitFor(() =>
+    expect(
+      screen
+        .getByTestId("statistics-cost-value")
+        .textContent?.replace(/\s+/g, " "),
+    ).toContain(
+      new Intl.NumberFormat("en", {
+        style: "currency",
+        currency: "RUB",
+        maximumFractionDigits: 2,
+      })
+        .format(112.5)
+        .replace(/\s+/g, " "),
+    ),
+  );
+  expect(fetch).toHaveBeenCalledWith(
+    "/coddy/statistics/settings",
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ currency: "RUB" }),
     }),
   );
 });

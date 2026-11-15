@@ -158,7 +158,8 @@ export const messagesEn: Record<string, string> = {
   "stats.uniqueSkills": "Skills used",
   "stats.skillCalls": "Skill invocations",
   "stats.installedSkills": "Installed skills",
-  "stats.cost": "Estimated cost · USD",
+  "stats.cost": "Estimated cost · {currency}",
+  "stats.cost.rate": "1 USD = {rate} RUB",
   "stats.duration": "{hours}h {minutes}m",
   "stats.unknown": "No recorded data",
   "stats.unknownHint":
@@ -197,9 +198,19 @@ export const messagesEn: Record<string, string> = {
   "stats.timezone.browser": "Use browser time zone",
   "stats.timezone.hint":
     "Without one the days are laid out in the zone of the browser. A zone set here is what this server answers with, and what a relay asks it for.",
-  "stats.prices": "Model prices · USD per million tokens",
+  "stats.currency.field": "Currency",
+  "stats.currency.rub": "Russian ruble (RUB)",
+  "stats.currency.usd": "US dollar (USD)",
+  "stats.exchange.heading": "Currency conversion",
+  "stats.exchange.hint":
+    "Set the manual rate used for RUB model tariffs and display conversion. No automatic rate is fetched.",
+  "stats.usdToRub": "RUB per USD",
+  "stats.usdToRub.hint":
+    "Enter how many rubles 1 USD is worth. The default is 90.",
+  "stats.usdToRub.invalid": "Enter a positive finite exchange rate.",
+  "stats.prices": "Model prices per million tokens",
   "stats.prices.hint":
-    "Estimates use list prices from the bundled models.dev catalog automatically. Subscriptions and tool charges are not included. Add a custom price only for a different tariff or an unlisted model.",
+    "Catalog prices use USD. Each custom model tariff can use USD or RUB; RUB tariffs are converted with the Statistics exchange rate. Subscriptions and tool charges are not included.",
   "stats.prices.custom": "Custom prices ({count})",
   "stats.settings": "Statistics settings",
   "stats.prices.add": "Add",
@@ -207,6 +218,10 @@ export const messagesEn: Record<string, string> = {
   "stats.prices.invalid":
     "Enter a unique model name and non-negative rates in every field.",
   "stats.prices.configure": "Set prices",
+  "stats.prices.currency": "Currency",
+  "stats.prices.currency.hint":
+    "Currency for this model's rates. New tariffs default to USD. RUB rates are converted to USD using the exchange rate.",
+  "stats.prices.currencyFor": "Currency for {model}",
   "stats.unpriced":
     "Calls without a price: {count}. The estimate covers priced calls only.",
   "stats.clear.heading": "Reset statistics",

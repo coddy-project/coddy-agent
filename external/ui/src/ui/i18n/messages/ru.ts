@@ -163,7 +163,8 @@ export const messagesRu: Record<string, string> = {
   "stats.uniqueSkills": "Использованные навыки",
   "stats.skillCalls": "Вызовы навыков",
   "stats.installedSkills": "Установленные навыки",
-  "stats.cost": "Оценочная стоимость · USD",
+  "stats.cost": "Оценочная стоимость · {currency}",
+  "stats.cost.rate": "1 USD = {rate} RUB",
   "stats.duration": "{hours} ч {minutes} мин",
   "stats.unknown": "Нет записанных данных",
   "stats.unknownHint":
@@ -202,9 +203,19 @@ export const messagesRu: Record<string, string> = {
   "stats.timezone.browser": "Часовой пояс браузера",
   "stats.timezone.hint":
     "Без него дни раскладываются по часовому поясу браузера. Заданный здесь пояс сервер отдаёт по умолчанию, и его же запрашивает релей.",
-  "stats.prices": "Тарифы моделей · USD за миллион токенов",
+  "stats.currency.field": "Валюта",
+  "stats.currency.rub": "Российский рубль (RUB)",
+  "stats.currency.usd": "Доллар США (USD)",
+  "stats.exchange.heading": "Пересчёт валюты",
+  "stats.exchange.hint":
+    "Укажите ручной курс для пересчёта RUB-тарифов в USD и отображения стоимости. Автоматический курс не запрашивается.",
+  "stats.usdToRub": "RUB за USD",
+  "stats.usdToRub.hint":
+    "Укажите, сколько рублей стоит 1 USD. По умолчанию используется 90.",
+  "stats.usdToRub.invalid": "Укажите положительный конечный курс.",
+  "stats.prices": "Тарифы моделей за миллион токенов",
   "stats.prices.hint":
-    "Стоимость рассчитывается автоматически по ценам из встроенного каталога models.dev. Подписки и платные инструменты в расчёт не входят. Своя цена нужна только для другого тарифа или модели, которой нет в каталоге.",
+    "Цены каталога указаны в USD. Для каждого пользовательского тарифа можно выбрать USD или RUB; тарифы в RUB пересчитываются по курсу из настроек статистики. Плата за подписки и инструменты не входит в оценку.",
   "stats.prices.custom": "Свои цены ({count})",
   "stats.settings": "Настройки статистики",
   "stats.prices.add": "Добавить",
@@ -212,6 +223,10 @@ export const messagesRu: Record<string, string> = {
   "stats.prices.invalid":
     "Укажите уникальное название модели и неотрицательные тарифы во всех полях.",
   "stats.prices.configure": "Указать тарифы",
+  "stats.prices.currency": "Валюта тарифа",
+  "stats.prices.currency.hint":
+    "Валюта тарифов этой модели. Для новых тарифов по умолчанию используется USD. Тарифы в RUB пересчитываются в USD по курсу из настроек статистики.",
+  "stats.prices.currencyFor": "Валюта тарифа для {model}",
   "stats.unpriced":
     "Вызовы без тарифа: {count}. Оценка включает только вызовы с тарифом.",
   "stats.clear.heading": "Сброс статистики",

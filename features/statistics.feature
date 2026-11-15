@@ -25,3 +25,21 @@ Feature: Persistent usage statistics
     Given two routes to the same statistics dataset
     When I merge their statistics
     Then the recorded usage is 120 tokens in one chat
+
+  @http
+  Scenario: The display currency defaults to USD at the manual rate
+    Given a coddy HTTP server with recorded usage
+    When I read the statistics over REST
+    Then the statistics settings default to USD and the USD/RUB rate of 90
+
+  @http
+  Scenario: The display currency and USD/RUB rate are saved
+    Given a coddy HTTP server with recorded usage
+    When I save the RUB display currency with a USD/RUB rate of 90
+    Then the statistics settings keep RUB and the USD/RUB rate of 90
+
+  @http
+  Scenario: Custom model tariffs can be denominated in RUB
+    Given a coddy HTTP server with recorded usage
+    When I save a RUB tariff for the model "test"
+    Then the custom tariff for "test" is stored in RUB

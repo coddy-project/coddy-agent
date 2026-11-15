@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { landmarkAnchor } from "../settings/settingsSections";
+import { landmarkAnchor, SETTINGS_TEXTS } from "../settings/settingsSections";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useT } from "../i18n/I18nProvider";
 import { FieldLabel, LegendWithHint } from "../settings/FieldHint";
@@ -12,7 +12,13 @@ import {
   type StatisticsSettings,
 } from "./api";
 
-type Rate = { name: string; input: string; output: string; cached: string };
+type Rate = {
+  name: string;
+  currency: "USD" | "RUB";
+  input: string;
+  output: string;
+  cached: string;
+};
 
 /** Every IANA zone the browser knows, else the few a server is usually set to. */
 function zoneOptions(): string[] {
@@ -36,6 +42,7 @@ function zoneOptions(): string[] {
 function ratesOf(settings: StatisticsSettings): Rate[] {
   return Object.entries(settings.prices).map(([name, p]) => ({
     name,
+    currency: p.currency ?? "USD",
     input: String(p.input),
     output: String(p.output),
     // A tariff saved over the API without a cache rate reads the input rate;
@@ -49,6 +56,7 @@ export default function StatisticsSettings() {
   const [settings, setSettings] = useState<StatisticsSettings | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [timezone, setTimezone] = useState("");
+  const [usdToRub, setUsdToRub] = useState("90");
   const [rates, setRates] = useState<Rate[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [confirm, setConfirm] = useState(false);
@@ -65,6 +73,7 @@ export default function StatisticsSettings() {
     setSettings(next);
     setEnabled(!next.disabled);
     setTimezone(next.timezone);
+    setUsdToRub(String(next.usdToRub ?? 90));
     setRates(ratesOf(next));
     setModels(data.allTime.models.map((m) => m.name));
   };
@@ -74,6 +83,13 @@ export default function StatisticsSettings() {
 
   // What the drawer's Save writes, and whether it has anything to write.
   const save = async () => {
+    const exchangeRate = Number(usdToRub);
+    if (
+      usdToRub.trim() === "" ||
+      !Number.isFinite(exchangeRate) ||
+      exchangeRate <= 0
+    )
+      throw new Error(t("stats.usdToRub.invalid"));
     const prices: StatisticsSettings["prices"] = {};
     for (const r of rates) {
       if (
@@ -89,20 +105,31 @@ export default function StatisticsSettings() {
         input: Number(r.input),
         output: Number(r.output),
         cached: Number(r.cached),
+        currency: r.currency,
       };
     }
     const next = await statisticsRequest<StatisticsSettings>(
       "/coddy/statistics/settings",
-      { method: "PUT", body: JSON.stringify({ enabled, timezone, prices }) },
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled,
+          timezone,
+          usdToRub: exchangeRate,
+          prices,
+        }),
+      },
     );
     setSettings(next);
     setEnabled(!next.disabled);
+    setUsdToRub(String(next.usdToRub ?? exchangeRate));
     setRates(ratesOf(next));
   };
   const dirty =
     settings !== null &&
     (enabled === (settings.disabled ?? false) ||
       timezone !== settings.timezone ||
+      usdToRub !== String(settings.usdToRub ?? 90) ||
       JSON.stringify(rates) !== JSON.stringify(ratesOf(settings)));
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -209,6 +236,35 @@ export default function StatisticsSettings() {
           <fieldset
             className="settings-fieldset"
             disabled={!enabled}
+            data-settings-anchor={landmarkAnchor("statistics", "exchange_rate")}
+          >
+            <LegendWithHint
+              label={t(SETTINGS_TEXTS.statisticsExchangeRate.label)}
+              description={t(SETTINGS_TEXTS.statisticsExchangeRate.desc!)}
+            />
+            <div className="settings-form-group-body">
+              <label className="settings-field">
+                <FieldLabel
+                  label={t("stats.usdToRub")}
+                  description={t("stats.usdToRub.hint")}
+                />
+                <input
+                  aria-label={t("stats.usdToRub")}
+                  className="settings-input"
+                  data-testid="statistics-usd-to-rub"
+                  type="number"
+                  min="0.01"
+                  step="any"
+                  value={usdToRub}
+                  onChange={(e) => setUsdToRub(e.target.value)}
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset
+            className="settings-fieldset"
+            disabled={!enabled}
             data-settings-anchor={landmarkAnchor("statistics", "prices")}
           >
             <LegendWithHint
@@ -243,6 +299,28 @@ export default function StatisticsSettings() {
                       />
                     </label>
                   ))}
+                  <label className="settings-field statistics-rate-currency">
+                    <FieldLabel
+                      label={t("stats.prices.currency")}
+                      description={t("stats.prices.currency.hint")}
+                    />
+                    <span className="appearance-language-select-wrap">
+                      <select
+                        aria-label={t("stats.prices.currencyFor", {
+                          model: r.name || String(i + 1),
+                        })}
+                        className="appearance-language-select"
+                        data-testid={`statistics-price-currency-${i}`}
+                        value={r.currency}
+                        onChange={(e) =>
+                          changeRate(i, "currency", e.target.value)
+                        }
+                      >
+                        <option value="USD">USD</option>
+                        <option value="RUB">RUB</option>
+                      </select>
+                    </span>
+                  </label>
                   <button
                     className="settings-btn settings-btn-icon statistics-rate-remove"
                     aria-label={t("stats.prices.remove")}
@@ -277,7 +355,13 @@ export default function StatisticsSettings() {
               onClick={() =>
                 setRates((old) => [
                   ...old,
-                  { name: "", input: "", output: "", cached: "" },
+                  {
+                    name: "",
+                    currency: "USD",
+                    input: "",
+                    output: "",
+                    cached: "",
+                  },
                 ])
               }
             >

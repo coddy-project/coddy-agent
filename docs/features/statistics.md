@@ -6,13 +6,21 @@ Open **Statistics** in the sidebar, between the documentation and the settings. 
 
 *The activity calendar and usage counters on the statistics page.*
 
+![USD and RUB cost selection in Statistics filters](../assets/statistics/statistics-filters-dark-1280.png)
+
+*The Filters sheet switches the estimated cost display currency.*
+
+![Statistics currency filter on a phone](../assets/statistics/statistics-filters-dark-390.png)
+
+*On a phone, Filters opens as a bottom sheet.*
+
 ## Recorded usage
 
 Coddy records model calls from its agent turns across the console, the editor's ACP wire, the HTTP API, the web UI, messengers, subagents, memory and the scheduler. Each surface names itself, so the source filter tells them apart. Turns an older build recorded before the console and the ACP wire named themselves stay together under **Console and ACP**; nothing new is added to it. Direct model completions through the HTTP API are recorded too. Input, output and cached-input tokens come from provider usage. Cached input is part of input; reasoning output is part of output. Neither is added to the total a second time. A provider that reports no usage leaves that reading unavailable.
 
 The page shows token totals, the busiest day, chats, manual requests, model calls, reasoning levels, installed and used skills, skill invocations, task duration and activity streaks. A task is one agent invocation. Its duration excludes time waiting for answers to questions or permission prompts and the agent's explicit wait for a quota reset. Total agent time sums the recorded durations, including parallel child runs; it is not elapsed calendar time. A streak counts consecutive dates with a manual request. A dash means that a value was not recorded.
 
-Choose the last 7 days, 30 days, year, all time or a custom date range. Project, provider, model and source filters apply to the selected period. Open **Filters** to choose a project, provider, model or source; selected filters remain visible as chips. Four counters above the calendar show period tokens, active agent time, estimated cost and the current streak. The lists below the calendar group the remaining counters under Tokens, Activity and Skills. The lifetime token row covers the server's retained history. The calendar shows the final year of the selected period, by day, by week or cumulatively. Daily boundaries use the browser's time zone unless **Settings → Statistics** sets an IANA zone for the server, which the page then asks for.
+Choose the last 7 days, 30 days, year, all time or a custom date range. Project, provider, model and source filters apply to the selected period. Open **Filters** to choose a project, provider, model or source; selected filters remain visible as chips. The sheet also switches the displayed cost currency. Four counters above the calendar show period tokens, active agent time, estimated cost and the current streak. The lists below the calendar group the remaining counters under Tokens, Activity and Skills. The lifetime token row covers the server's retained history. The calendar shows the final year of the selected period, by day, by week or cumulatively. Daily boundaries use the browser's time zone unless **Settings → Statistics** sets an IANA zone for the server, which the page then asks for.
 
 ## Switching the collection off
 
@@ -22,13 +30,17 @@ offering the page, since there would be nothing to draw. What is already
 recorded stays on disk; the reset below is what removes it. Switching the
 collection back on starts recording again from that moment.
 
-![The statistics settings](../assets/statistics/statistics-settings-dark-1280.png)
+![Statistics settings with USD/RUB rate and per-model tariff currency](../assets/statistics/statistics-settings-dark-1280.png)
 
-*The switch, the time zone, the reset and the custom tariffs, saved by the Save of the drawer.*
+*The manual USD/RUB rate and a custom model price with its own currency.*
+
+![Statistics settings and model currency on a phone](../assets/statistics/statistics-settings-dark-390.png)
+
+*On a phone, the three rates share one row and the currency selector has its own row.*
 
 ## Storage and cleanup
 
-The counters live under `<home>/statistics/`, apart from session bundles. Monthly `.jsonl` journals keep call records and turn checkpoints; `settings.json` keeps the dataset identity, time zone, prices, import progress and cleanup cutoff. Writes are serialized across Coddy processes sharing the same home. The last complete checkpoint wins; an unfinished final journal record is dropped before the next append. No prompt, answer, tool arguments or credential is copied into this store.
+The counters live under `<home>/statistics/`, apart from session bundles. Monthly `.jsonl` journals keep call records and turn checkpoints; `settings.json` keeps the dataset identity, time zone, display currency, USD/RUB rate, prices, import progress and cleanup cutoff. Writes are serialized across Coddy processes sharing the same home. The last complete checkpoint wins; an unfinished final journal record is dropped before the next append. No prompt, answer, tool arguments or credential is copied into this store.
 
 Statistics survive a restart and deletion of a chat. Coddy keeps them indefinitely. **Settings → Statistics → Reset statistics** removes every counter and starts the count again. It asks first, and says that the chats stay as they are and that the reset cannot be undone. The saved cutoff also excludes those records from later historical imports. A backup of the statistics directory is required to restore cleared counters.
 
@@ -44,7 +56,8 @@ Import restores dated user requests and the most recently saved usage sample fro
 
 ## Estimated cost and export
 
-Coddy estimates cost automatically from the models.dev list prices embedded in the binary. No catalog request runs when Statistics opens. In **Settings → Statistics**, expand **Custom prices** only to override a tariff or price an unlisted model. Enter USD rates per million input, output and cached-input tokens for a model id or `provider/model`; a provider-specific override takes priority. Zero represents a free model. Catalog estimates are calculated when counters are read, so a later custom tariff can replace them. A custom estimate saved with a call stays unchanged. Calls without a known price are counted beside the partial estimate. Subscription payments, cache-write premiums and separately billed tools are outside this estimate.
+Coddy estimates cost automatically from the models.dev list prices embedded in the binary. No catalog request runs when Statistics opens. In **Overview**, use **Filters** to switch the displayed estimate between USD and RUB; the view defaults to USD. **Settings → Statistics** stores a manual USD/RUB rate, default 90, which appears below the cost counter. Each custom model tariff selects USD or RUB and defaults to USD. RUB tariffs convert to canonical USD for accounting; stored costs and exports remain in USD. Expand **Custom prices** only to override a tariff or price an unlisted model. Enter input, output and cached-input rates per million tokens in each model's selected currency for a model id or `provider/model`; a provider-specific override takes priority. Zero represents a free model. Catalog estimates are calculated when counters are read, so a later custom tariff can replace them. A custom estimate saved with a call stays unchanged. Calls without a known price are counted beside the partial estimate. Subscription payments, cache-write premiums and separately billed tools are outside this estimate.
+
 
 The **⋯** menu contains export and statistics settings. On a phone, filters, statistics settings opened from this menu and the first-import prompt open in bottom sheets. **Export CSV** exports daily counters for the current filters and time zone. **Export JSON** exports the filtered report, retained lifetime summary and warnings. An unavailable reading is an empty CSV cell or JSON `null`.
 
