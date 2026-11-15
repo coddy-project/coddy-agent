@@ -436,7 +436,7 @@ jobs:
           # and this job proves the platform, not the assets.
           tags="$(make -s print-lint-tags-no-ui)"
           go build -tags "$tags" -o dist/freebsd/coddy ./cmd/coddy/
-          for pkg in internal/platform internal/localipc internal/llm internal/bgtask internal/tools/shell internal/rules; do
+          for pkg in internal/platform internal/localipc internal/llm internal/bgtask internal/tools/shell internal/rules external/desktop; do
             go test -c -tags "$tags" -o "dist/freebsd/$(basename "$pkg").test" "./$pkg"
           done
 
@@ -464,6 +464,20 @@ jobs:
             # per-platform implementation: owner checks, flock and the
             # directory flush that makes a refresh survive a crash.
             ( cd internal/llm && "$bin/llm.test" -test.timeout=20m -test.run '^Test(Kimi|EnsureKimiIdentity|ContextWindowKimi|GoalJudgeKimi)' )
+            # The kern.proc.pid sysctl the desktop window reads a process's
+            # parent from is decoded at offsets written down by hand, so it is
+            # the one thing here that only a real kernel can confirm. The rest
+            # of the package drives `go list` and `go build`, which this VM
+            # has no Go for, hence the filter. A filter that matches nothing
+            # still exits 0, so the run is held to the test that must pass.
+            (
+              cd external/desktop || exit 1
+              "$bin/desktop.test" -test.v -test.timeout=5m -test.run '^TestParentOf' > /tmp/parent.log 2>&1
+              status=$?
+              cat /tmp/parent.log
+              [ "$status" -eq 0 ] || exit 1
+              grep -q 'PASS: TestParentOfAnswersTheRealParent' /tmp/parent.log
+            )
 
   # Run the shipped suite natively as well: cross-building cannot exercise
   # Windows process groups, paths, file handles or the console shell.
@@ -827,6 +841,14 @@ jobs:
         with:
           version: v2.15.0
           args: ./...
+
+      - name: Run golangci-lint with every tag but ui against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
+        with:
+          version: v2.15.0
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
 
       - name: Run golangci-lint with the shipped tag set against the FreeBSD build
         uses: golangci/golangci-lint-action@v9

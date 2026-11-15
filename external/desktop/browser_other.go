@@ -2,9 +2,10 @@
 
 package desktop
 
-// Every platform without a browser list of its own: the BSDs, Plan 9, and
-// Android, which satisfies the linux constraint but has no browser to start
-// this way under Termux.
+// Every platform without a browser list of its own: the BSDs other than
+// FreeBSD, which takes the XDG list beside this file, Plan 9, and Android,
+// which satisfies the linux constraint but has no browser to start this way
+// under Termux.
 //
 // The launcher, the shell and the port are plain Go and run anywhere, so a run
 // here is not an error: findBrowser finds no candidate, `auto` reports that it
