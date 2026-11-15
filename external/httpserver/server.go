@@ -404,8 +404,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		return nil, err
 	}
 	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
+	if maxTok <= 0 || maxTok > describeMaxTokens {
+		maxTok = describeMaxTokens
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:              rm.ProviderName,
