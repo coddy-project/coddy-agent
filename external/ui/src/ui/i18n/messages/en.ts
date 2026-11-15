@@ -2,6 +2,7 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "messages.openGeneratedImage": "Open generated image {fileName}",
   "settings.section.httpserver.label": "Authentication",
   "settings.section.httpserver.desc": "Web sign-in protection",
   "settings.auth.removeTotp": "Remove TOTP",
@@ -184,7 +185,8 @@ export const messagesEn: Record<string, string> = {
   "stats.uniqueSkills": "Skills used",
   "stats.skillCalls": "Skill invocations",
   "stats.installedSkills": "Installed skills",
-  "stats.cost": "Estimated cost · USD",
+  "stats.cost": "Estimated cost · {currency}",
+  "stats.cost.rate": "1 USD = {rate} RUB",
   "stats.duration": "{hours}h {minutes}m",
   "stats.unknown": "No recorded data",
   "stats.unknownHint":
@@ -223,9 +225,19 @@ export const messagesEn: Record<string, string> = {
   "stats.timezone.browser": "Use browser time zone",
   "stats.timezone.hint":
     "Without one the days are laid out in the zone of the browser. A zone set here is what this server answers with, and what a relay asks it for.",
-  "stats.prices": "Model prices · USD per million tokens",
+  "stats.currency.field": "Currency",
+  "stats.currency.rub": "Russian ruble (RUB)",
+  "stats.currency.usd": "US dollar (USD)",
+  "stats.exchange.heading": "Currency conversion",
+  "stats.exchange.hint":
+    "Set the manual rate used for RUB model tariffs and display conversion. No automatic rate is fetched.",
+  "stats.usdToRub": "RUB per USD",
+  "stats.usdToRub.hint":
+    "Enter how many rubles 1 USD is worth. The default is 90.",
+  "stats.usdToRub.invalid": "Enter a positive finite exchange rate.",
+  "stats.prices": "Model prices per million tokens",
   "stats.prices.hint":
-    "Estimates use list prices from the bundled models.dev catalog automatically. Subscriptions and tool charges are not included. Add a custom price only for a different tariff or an unlisted model.",
+    "Catalog prices use USD. Each custom model tariff can use USD or RUB; RUB tariffs are converted with the Statistics exchange rate. Subscriptions and tool charges are not included.",
   "stats.prices.custom": "Custom prices ({count})",
   "stats.settings": "Statistics settings",
   "stats.prices.add": "Add",
@@ -233,6 +245,10 @@ export const messagesEn: Record<string, string> = {
   "stats.prices.invalid":
     "Enter a unique model name and non-negative rates in every field.",
   "stats.prices.configure": "Set prices",
+  "stats.prices.currency": "Currency",
+  "stats.prices.currency.hint":
+    "Currency for this model's rates. New tariffs default to USD. RUB rates are converted to USD using the exchange rate.",
+  "stats.prices.currencyFor": "Currency for {model}",
   "stats.unpriced":
     "Calls without a price: {count}. The estimate covers priced calls only.",
   "stats.clear.heading": "Reset statistics",
@@ -814,6 +830,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.multimodal.label": "Multimodal",
   "settings.schema.models.multimodal.desc":
     "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
+  "settings.schema.models.image_generation.label": "Image generation",
+  "settings.schema.models.image_generation.desc":
+    "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
     "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
@@ -2100,6 +2119,11 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoning": "Reasoning",
   "composer.reasoningLevel": "Reasoning level",
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
+  "composer.imageGenerationQueueUnavailable":
+    "Turn off Images to queue a message, or wait for the current turn to finish.",
+  "composer.imageGeneration": "Images",
+  "composer.imageGenerationTitle":
+    "Ask the model for native image output on send (metadata.image_generation)",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",

@@ -479,6 +479,11 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Whether the currently selected model opted in to native image generation (models[].image_generation). */
+  llmModelImageGen?: boolean;
+  /** Per-turn image control: while on, sends ask the model for native image output (metadata.image_generation). */
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
   /** Optional shared attachment state for composer layout transitions. */
   attachedFiles?: File[];
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
@@ -861,6 +866,10 @@ export function Composer(props: {
     }
     const txt = props.value.trim();
     if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
+      return;
+    }
+    if (props.imageGenOn) {
+      showAttachHint(t("composer.imageGenerationQueueUnavailable"));
       return;
     }
     const chosen = mode ?? props.queueMode;
@@ -3109,6 +3118,16 @@ export function Composer(props: {
           },
         ]
       : []),
+    ...(props.llmModelImageGen && props.onImageGenToggle
+      ? [
+          {
+            id: "image-generation",
+            key: "host/image-generation",
+            placement: "tabs" as const,
+            title: t("composer.imageGenerationTitle"),
+          },
+        ]
+      : []),
     ...(overrideLines.length > 0
       ? [
           {
@@ -3266,6 +3285,22 @@ export function Composer(props: {
               {props.toolsetControl
                 ? displayToolset(props.toolsetControl.value)
                 : ""}
+            </button>
+          </div>
+        );
+      case "host/image-generation":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              className={`composer-tab mode-btn mode-imagegen${props.imageGenOn ? " is-on" : ""}`}
+              aria-label={t("composer.imageGeneration")}
+              title={descriptor.title}
+              aria-pressed={props.imageGenOn === true}
+              data-testid="composer-imagegen"
+              onClick={props.onImageGenToggle}
+            >
+              {t("composer.imageGeneration")}
             </button>
           </div>
         );

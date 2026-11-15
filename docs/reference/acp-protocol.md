@@ -656,7 +656,8 @@ A context compaction is not one of them: it is an ordinary message row of the se
   (the Codex backend's usage endpoint), `devin` (the seat-management
   status RPC) and `openai` (`GET {api_base}/limits` of the row's own
   `api_base`, in NeuralDeep schema-1 form or with the `coddy` member another
-  Coddy adds). The snapshot is account-wide
+  Coddy adds). NeuralDeep's `kimi` member contributes its subscription windows
+  to the same list. The snapshot is account-wide
   and cached by the manager (20 s, a 15 s floor between reads); relative
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential
@@ -925,7 +926,7 @@ A form cannot offer a picker and an escape from it on one field, so a question t
 
 ### `session/request_question` - the fallback
 
-Coddy's own question request, kept for a client that does not implement elicitation. The payload is the questions as the tool asked them and the answer is one array of choices per question, where an entry that matches no option label is the text the user typed.
+Coddy's own question request, kept for a client that does not implement elicitation. The payload is the questions as the tool asked them and the answer is one array of choices per question, where an entry that matches no option label is the text the user typed. A JSON-RPC error, an unreadable result, or a result without `answers` reaches the model as a tool error rather than an empty answer.
 
 ```json
 {

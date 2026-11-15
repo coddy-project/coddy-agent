@@ -587,6 +587,64 @@ export async function consumeComposerSseReader(
       ),
     );
   };
+  const applyAssistantImages = (data: string) => {
+    let raw: { messageId?: unknown; images?: unknown };
+    try {
+      raw = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (
+      !raw ||
+      typeof raw.messageId !== "string" ||
+      !/^msg_\d+$/.test(raw.messageId)
+    )
+      return;
+    const images = sessionMessageFiles(raw.images, "").filter(
+      (f) =>
+        f.mimeType.toLowerCase().startsWith("image/") &&
+        (f.url || f.previewUrl),
+    );
+    if (!images.length) return;
+    flushToolQueue();
+    finishThinking();
+    if (assistantSegmentDirty) {
+      currentAssistantId = newId("a");
+      assistantSegmentDirty = false;
+      currentSegmentHasText = false;
+    }
+    const id = currentAssistantId;
+    const messageId = raw.messageId;
+    assistantIds.add(id);
+    applyStreamItems((prev) => {
+      const existing = prev.findIndex(
+        (it) => it.type === "assistant_message" && it.messageId === messageId,
+      );
+      const current = prev.findIndex(
+        (it) => it.type === "assistant_message" && it.id === id,
+      );
+      const idx = existing >= 0 ? existing : current;
+      if (idx < 0)
+        return [
+          ...prev,
+          {
+            id,
+            type: "assistant_message",
+            content: "",
+            streaming: true,
+            messageId,
+            files: images,
+          },
+        ];
+      const row = prev[idx] as Extract<
+        TranscriptItem,
+        { type: "assistant_message" }
+      >;
+      const next = [...prev];
+      next[idx] = { ...row, messageId, files: images };
+      return next;
+    });
+  };
   const applyChoiceDelta = (
     delta: { content?: unknown; reasoning_content?: unknown } | undefined,
   ) => {
@@ -806,6 +864,11 @@ export async function consumeComposerSseReader(
         } catch {
           // ignore
         }
+        continue;
+      }
+
+      if (ev.event === "assistant_images") {
+        applyAssistantImages(ev.data);
         continue;
       }
 
@@ -1114,6 +1177,11 @@ export async function consumeComposerSseReader(
         }
         continue;
       }
+      if (ev.event === "assistant_images") {
+        applyAssistantImages(ev.data);
+        continue;
+      }
+
       if (ev.event === "plan") {
         deliverTodoPlan(ev.data);
         continue;

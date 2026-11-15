@@ -1,5 +1,6 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
   "settings.auth.removeTotp": "Отключить TOTP",
@@ -189,7 +190,8 @@ export const messagesRu: Record<string, string> = {
   "stats.uniqueSkills": "Использованные навыки",
   "stats.skillCalls": "Вызовы навыков",
   "stats.installedSkills": "Установленные навыки",
-  "stats.cost": "Оценочная стоимость · USD",
+  "stats.cost": "Оценочная стоимость · {currency}",
+  "stats.cost.rate": "1 USD = {rate} RUB",
   "stats.duration": "{hours} ч {minutes} мин",
   "stats.unknown": "Нет записанных данных",
   "stats.unknownHint":
@@ -228,9 +230,19 @@ export const messagesRu: Record<string, string> = {
   "stats.timezone.browser": "Часовой пояс браузера",
   "stats.timezone.hint":
     "Без него дни раскладываются по часовому поясу браузера. Заданный здесь пояс сервер отдаёт по умолчанию, и его же запрашивает релей.",
-  "stats.prices": "Тарифы моделей · USD за миллион токенов",
+  "stats.currency.field": "Валюта",
+  "stats.currency.rub": "Российский рубль (RUB)",
+  "stats.currency.usd": "Доллар США (USD)",
+  "stats.exchange.heading": "Пересчёт валюты",
+  "stats.exchange.hint":
+    "Укажите ручной курс для пересчёта RUB-тарифов в USD и отображения стоимости. Автоматический курс не запрашивается.",
+  "stats.usdToRub": "RUB за USD",
+  "stats.usdToRub.hint":
+    "Укажите, сколько рублей стоит 1 USD. По умолчанию используется 90.",
+  "stats.usdToRub.invalid": "Укажите положительный конечный курс.",
+  "stats.prices": "Тарифы моделей за миллион токенов",
   "stats.prices.hint":
-    "Стоимость рассчитывается автоматически по ценам из встроенного каталога models.dev. Подписки и платные инструменты в расчёт не входят. Своя цена нужна только для другого тарифа или модели, которой нет в каталоге.",
+    "Цены каталога указаны в USD. Для каждого пользовательского тарифа можно выбрать USD или RUB; тарифы в RUB пересчитываются по курсу из настроек статистики. Плата за подписки и инструменты не входит в оценку.",
   "stats.prices.custom": "Свои цены ({count})",
   "stats.settings": "Настройки статистики",
   "stats.prices.add": "Добавить",
@@ -238,6 +250,10 @@ export const messagesRu: Record<string, string> = {
   "stats.prices.invalid":
     "Укажите уникальное название модели и неотрицательные тарифы во всех полях.",
   "stats.prices.configure": "Указать тарифы",
+  "stats.prices.currency": "Валюта тарифа",
+  "stats.prices.currency.hint":
+    "Валюта тарифов этой модели. Для новых тарифов по умолчанию используется USD. Тарифы в RUB пересчитываются в USD по курсу из настроек статистики.",
+  "stats.prices.currencyFor": "Валюта тарифа для {model}",
   "stats.unpriced":
     "Вызовы без тарифа: {count}. Оценка включает только вызовы с тарифом.",
   "stats.clear.heading": "Сброс статистики",
@@ -834,6 +850,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.multimodal.label": "Мультимодальная",
   "settings.schema.models.multimodal.desc":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. UI предложит прикрепление файлов для сообщений, отправляемых с этой моделью, а read покажет ей картинку из файла PNG, JPEG, GIF или WebP.",
+  "settings.schema.models.image_generation.label": "Генерация изображений",
+  "settings.schema.models.image_generation.desc":
+    "Если включено, модель может создавать изображения через нативный инструмент генерации изображений провайдера, а в поле ввода появляется переключатель генерации для каждого хода этой модели.",
   "settings.schema.models.reasoning_levels.label": "Уровни рассуждения",
   "settings.schema.models.reasoning_levels.desc":
     "Необязательное переопределение уровней рассуждения для этой модели (например, low, medium, high). Пусто — автоопределение по идентификатору модели; явный пустой список скрывает селектор уровней.",
@@ -878,7 +897,7 @@ export const messagesRu: Record<string, string> = {
     "Сколько автоматических ходов может занять одна цель, после них идёт завершающий ход и остановка.",
   "settings.schema.supervisor.token_budget.label": "Бюджет токенов",
   "settings.schema.supervisor.token_budget.desc":
-    "Некэшированные входные и выходные токены на одну цель. 0 снимает ограничение.",
+    "Некешированные входные и выходные токены на одну цель. 0 снимает ограничение.",
   "settings.schema.supervisor.max_chain_sessions.label": "Сессий в цепочке",
   "settings.schema.supervisor.max_chain_sessions.desc":
     "Сколько сессий одна цепочка целей (/goal --then-file) может открыть одну за другой. 0 отключает цепочки.",
@@ -1188,7 +1207,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.start_percent.label":
     "Начинать с (%)",
   "settings.schema.compaction.result_eviction.start_percent.desc":
-    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кэш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
+    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кеш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
 
   "settings.schema.scheduler.label": "Планировщик",
   "settings.schema.scheduler.enable.label": "Включено",
@@ -2168,6 +2187,11 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoning": "Рассуждение",
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
+  "composer.imageGenerationQueueUnavailable":
+    'Отключите переключатель "Изображения", чтобы добавить сообщение в очередь, или дождитесь завершения текущего хода.',
+  "composer.imageGeneration": "Изображения",
+  "composer.imageGenerationTitle":
+    "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":

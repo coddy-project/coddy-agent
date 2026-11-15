@@ -121,7 +121,9 @@ export function MessageList(props: {
     const item = props.items[lastVisibleIndex]!;
     if (
       item.type !== "background_wake" &&
-      (item.type !== "assistant_message" || item.content.trim() !== "")
+      (item.type !== "assistant_message" ||
+        item.content.trim() !== "" ||
+        (item.files?.length ?? 0) > 0)
     )
       break;
     lastVisibleIndex--;
@@ -275,7 +277,7 @@ export function MessageList(props: {
         if (it.type === "assistant_message") {
           // Whitespace alone is a zero-height row that still takes the column's
           // gap, a hole between the rows around it; there is nothing in it to copy.
-          if (!it.content.trim()) {
+          if (!it.content.trim() && !it.files?.length) {
             return null;
           }
           return (
@@ -283,6 +285,7 @@ export function MessageList(props: {
               key={it.id}
               rowId={it.id}
               content={it.content}
+              {...(it.files ? { files: it.files } : {})}
               artifacts={artifactMarkersForAssistant(props.items, idx)}
               {...(props.onMentionArtifact
                 ? { onMentionArtifact: props.onMentionArtifact }

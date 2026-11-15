@@ -3,7 +3,7 @@
  * everything the Settings drawer draws. The index walks the served schema with
  * SchemaForm's own layout (layoutSchemaForm), the tabs' form groups and the
  * texts the overrides draw (overrideTexts), so a name is searched as it is
- * shown. The document is read only for the row names of the two lists.
+ * shown. The document is read for list row names and provider-specific fields.
  */
 import {
   buildSettingsRowPlan,
@@ -357,6 +357,7 @@ type Walk = {
   row: string | null;
   rowAlters: readonly SettingsRowAlter[];
   rowPlan?: SettingsRowPlan | null;
+  doc: PlainObject;
 };
 
 type FieldFrame = {
@@ -374,7 +375,7 @@ type FieldFrame = {
 function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
-  const box = overrideTexts(form.domain, path, parent, schema);
+  const box = overrideTexts(form.domain, path, parent, schema, walk.doc);
   if (box === false || !settingsRowVisible(walk.rowPlan, path)) {
     return;
   }
@@ -765,6 +766,7 @@ export function buildSettingsSearchIndex(input: {
           form,
           row: null,
           rowAlters: alters,
+          doc: input.doc,
         },
         value,
         tab,
@@ -791,6 +793,7 @@ export function buildSettingsSearchIndex(input: {
           form: generated.rows!,
           row: label,
           rowAlters: alters,
+          doc: input.doc,
         },
         row,
         [...tab, label],

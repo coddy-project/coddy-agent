@@ -294,6 +294,9 @@ func (s *cliTUIState) shutdown() {
 	}
 	if s.app != nil {
 		closeConsole(s.app, s.appDone != nil)
+		// App workers may still request provider usage after the UI loop exits.
+		// Join them before shutting down the manager's usage wait group.
+		s.app.JoinWorkers(3 * time.Second)
 	}
 	// The stand-in is selected through a process-wide variable: no usage
 	// fetch may outlive the scenario, or it lands on the next one's server.
@@ -327,11 +330,7 @@ func (s *cliTUIState) shutdown() {
 	}
 	// The scenario's homes and outside folder live in the system temp dir. Left
 	// behind, a home per scenario piles up there, and the "@" scenario that
-	// browses an absolute path lists that dir on every key it types. The app's
-	// workers go first: a turn may still be persisting into its home.
-	if s.app != nil {
-		s.app.JoinWorkers(3 * time.Second)
-	}
+	// browses an absolute path lists that dir on every key it types.
 	for _, home := range s.homes {
 		_ = os.RemoveAll(home)
 	}

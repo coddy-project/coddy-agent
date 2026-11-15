@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,8 +40,9 @@ func watchFixture(t *testing.T, body string) (*FileWatcher, *string, func() *Con
 	live := cfg
 	installed := ""
 	w := &FileWatcher{
-		Paths: cfg.Paths,
-		Live:  func() *Config { return live },
+		Paths:       cfg.Paths,
+		Live:        func() *Config { return live },
+		stablePolls: 1,
 		Install: func(next *Config) {
 			live = next
 			installed = next.Agent.Model
@@ -108,6 +110,167 @@ func TestFileWatcherKeepsTheLiveConfigWhenTheFileIsBroken(t *testing.T) {
 	}
 	if live() != before {
 		t.Fatal("the live configuration was replaced by an unparsable file")
+	}
+	data, err := os.ReadFile(w.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "providers: [ this is not yaml\n" {
+		t.Fatalf("watcher overwrote the invalid edit: %q", data)
+	}
+	rewriteWatched(t, w, strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`))
+	if !w.Poll() || live().Agent.Model != "openai/gpt-4o-mini" {
+		t.Fatal("the corrected edit was not installed")
+	}
+	data, err = os.ReadFile(BackupPath(w.Paths.ConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "openai/gpt-4o-mini") {
+		t.Fatalf("backup did not follow the corrected edit: %q", data)
+	}
+}
+
+func TestFileWatcherDoesNotInstallEmptyManualEdit(t *testing.T) {
+	w, _, live := watchFixture(t, watchBaseYAML)
+	w.Poll()
+	before := live()
+	rewriteWatched(t, w, "# editor has truncated the file\n")
+	if w.Poll() {
+		t.Fatal("watcher installed an empty configuration")
+	}
+	if live() != before {
+		t.Fatal("empty manual edit replaced the running configuration")
+	}
+}
+
+func TestFileWatcherRetriesTransientAdjustmentFailure(t *testing.T) {
+	w, installed, _ := watchFixture(t, watchBaseYAML)
+	w.Poll()
+	rewriteWatched(t, w, strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`))
+	attempts := 0
+	w.Adjust = func(*Config) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("temporary failure")
+		}
+		return nil
+	}
+	if w.Poll() {
+		t.Fatal("adjustment failure installed the configuration")
+	}
+	if !w.Poll() || *installed != "openai/gpt-4o-mini" {
+		t.Fatal("watcher did not retry the unchanged configuration")
+	}
+}
+
+func TestFileWatcherRejectsLegacyKeysWithoutRewriting(t *testing.T) {
+	for _, legacy := range []string{
+		"mcp_servers: []\n", "skills:\n  sources: []\n",
+		"tools:\n  permission_mode: ask\n", "scheduler:\n  dir: old\n",
+	} {
+		t.Run(strings.Fields(legacy)[0], func(t *testing.T) {
+			w, _, live := watchFixture(t, watchBaseYAML)
+			w.Poll()
+			before := live()
+			edited := strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`) + legacy
+			rewriteWatched(t, w, edited)
+			if w.Poll() || live() != before {
+				t.Fatal("watcher installed an unmigrated configuration")
+			}
+			data, err := os.ReadFile(w.Paths.ConfigPath)
+			if err != nil || string(data) != edited {
+				t.Fatalf("watcher changed the edit: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestFileWatcherRejectsLegacyKeysThroughYAMLMerge(t *testing.T) {
+	for _, body := range []string{
+		"defaults: &defaults\n  permission_mode: ask\ntools:\n  <<: *defaults\n",
+		"defaults: &defaults\n  dir: old\nscheduler:\n  <<: *defaults\n",
+		"defaults: &defaults\n  permission_mode: ask\ntools: *defaults\n",
+	} {
+		if err := watchedLegacyKeys([]byte(body)); err == nil {
+			t.Fatalf("legacy key in YAML merge was accepted:\n%s", body)
+		}
+	}
+}
+
+func TestFileWatcherWaitsForAStableFileStamp(t *testing.T) {
+	w, installed, _ := watchFixture(t, watchBaseYAML)
+	w.stablePolls = 2
+	w.Poll()
+	rewriteWatched(t, w, strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`))
+	if w.Poll() {
+		t.Fatal("watcher installed a file on its first observation")
+	}
+	if *installed != "" {
+		t.Fatal("watcher applied a candidate before confirming stability")
+	}
+	if !w.Poll() || *installed != "openai/gpt-4o-mini" {
+		t.Fatal("watcher did not install a stable file")
+	}
+}
+
+func TestFileWatcherDoesNotInstallAStaleReadAfterConcurrentSave(t *testing.T) {
+	w, _, _ := watchFixture(t, watchBaseYAML)
+	liveConfig, err := Load(w.Paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Live = func() *Config { return liveConfig }
+	w.Install = func(next *Config) { liveConfig = next }
+	w.Poll()
+	rewriteWatched(t, w, strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`))
+	entered, release := make(chan struct{}), make(chan struct{})
+	w.Adjust = func(*Config) error {
+		close(entered)
+		<-release
+		return nil
+	}
+	done := make(chan bool, 1)
+	go func() { done <- w.Poll() }()
+	<-entered
+	newBody := strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4.1"`)
+	if err := WithConfigFileLock(func() error {
+		if err := os.WriteFile(w.Paths.ConfigPath, []byte(newBody), 0o600); err != nil {
+			return err
+		}
+		cfg, err := ParseConfigYAML([]byte(newBody), w.Paths)
+		if err != nil {
+			return err
+		}
+		liveConfig = cfg
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if <-done {
+		t.Fatal("watcher installed a stale config after a concurrent save")
+	}
+	if liveConfig.Agent.Model != "openai/gpt-4.1" {
+		t.Fatalf("live model = %q, want concurrent save", liveConfig.Agent.Model)
+	}
+}
+
+func TestFileWatcherRejectedAdjustmentPreservesBackup(t *testing.T) {
+	w, _, _ := watchFixture(t, watchBaseYAML)
+	w.Poll()
+	before, err := os.ReadFile(BackupPath(w.Paths.ConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Adjust = func(*Config) error { return errors.New("rejected") }
+	rewriteWatched(t, w, strings.ReplaceAll(watchBaseYAML, `"openai/gpt-4o"`, `"openai/gpt-4o-mini"`))
+	if w.Poll() {
+		t.Fatal("rejected configuration installed")
+	}
+	after, err := os.ReadFile(BackupPath(w.Paths.ConfigPath))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("backup changed after rejected adjustment: %q, %v", after, err)
 	}
 }
 

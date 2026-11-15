@@ -3,9 +3,13 @@ package config
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // defaultWatchInterval is how often the config file is stat'ed. Two seconds is
@@ -53,7 +57,9 @@ type FileWatcher struct {
 
 	// stamp is the file as it looked when it was last examined. It is the cheap
 	// gate that keeps the common case to one stat.
-	stamp fileStamp
+	stamp       fileStamp
+	stablePolls int
+	stableCount int
 }
 
 // fileStamp is what a stat tells us about the watched file.
@@ -71,6 +77,8 @@ func (w *FileWatcher) Run(ctx context.Context) error {
 	if interval <= 0 {
 		interval = defaultWatchInterval
 	}
+	// Examine the current file before waiting for the first tick.
+	w.Poll()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -84,28 +92,52 @@ func (w *FileWatcher) Run(ctx context.Context) error {
 }
 
 // Poll examines the file once and reports whether a new configuration was
-// installed.
-//
-// It is exported because a single deterministic pass is what a test can assert
-// on, and because the first call establishes the baseline: the file as it is
-// right now is what the process is already running, so it installs nothing.
+// installed. A changed file must retain the same stamp for the configured
+// number of polls before it is read.
 func (w *FileWatcher) Poll() bool {
 	stamp := statConfig(w.Paths.ConfigPath)
-	if stamp == w.stamp {
+	stablePolls := w.stablePolls
+	if stablePolls <= 0 {
+		stablePolls = 2
+	}
+	if stamp != w.stamp {
+		w.stamp, w.stableCount = stamp, 1
+		if stablePolls > 1 {
+			return false
+		}
+	}
+	if w.stableCount == 0 {
 		return false
 	}
-	// The stamp is recorded whatever comes of the read. A file that cannot be
-	// parsed is not worth re-reading and re-reporting every couple of seconds;
-	// the next edit moves the stamp again and gets a fresh attempt.
-	w.stamp = stamp
+	w.stableCount++
+	if w.stableCount < stablePolls {
+		return false
+	}
 	if !stamp.exists {
+		w.stableCount = 0
 		return false
 	}
 
-	next, err := LoadWithPaths(w.Paths)
+	// A watcher must not recover or migrate the file while an editor is writing it.
+	data, err := os.ReadFile(w.Paths.ConfigPath)
+	if err != nil {
+		w.stableCount = stablePolls - 1
+		w.logger().Warn("config file changed but could not be loaded, keeping the running configuration",
+			"path", w.Paths.ConfigPath, "error", err)
+		return false
+	}
+	next, err := ParseConfigYAML(data, w.Paths)
 	if err != nil {
 		w.logger().Warn("config file changed but could not be loaded, keeping the running configuration",
 			"path", w.Paths.ConfigPath, "error", err)
+		return false
+	}
+	if afterRead := statConfig(w.Paths.ConfigPath); afterRead != stamp {
+		w.stamp, w.stableCount = afterRead, 1
+		return false
+	}
+	if err := watchedLegacyKeys(data); err != nil {
+		w.logger().Warn("config file changed but could not be loaded, keeping the running configuration", "path", w.Paths.ConfigPath, "error", err)
 		return false
 	}
 	if w.Adjust != nil {
@@ -115,14 +147,92 @@ func (w *FileWatcher) Poll() bool {
 			return false
 		}
 	}
-	if !w.differsFromLive(next) {
+	installed := false
+	if err := WithConfigFileLock(func() error {
+		current, err := os.ReadFile(w.Paths.ConfigPath)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(current, data) {
+			return fmt.Errorf("config file changed while being read")
+		}
+		if !w.differsFromLive(next) {
+			return nil
+		}
+		if err := WriteBackup(w.Paths.ConfigPath, data); err != nil {
+			w.logger().Warn("config backup could not be updated", "path", w.Paths.ConfigPath, "error", err)
+		}
+		w.logger().Info("configuration changed on disk, reloading", "path", w.Paths.ConfigPath)
+		if w.Install != nil {
+			w.Install(next)
+		}
+		installed = true
+		return nil
+	}); err != nil {
+		w.stableCount = stablePolls - 1
+		w.logger().Warn("config file changed while being reloaded, keeping the running configuration", "path", w.Paths.ConfigPath, "error", err)
 		return false
 	}
-	w.logger().Info("configuration changed on disk, reloading", "path", w.Paths.ConfigPath)
-	if w.Install != nil {
-		w.Install(next)
+	w.stableCount = 0
+	return installed
+}
+
+// watchedLegacyKeys refuses keys that require a destructive migration on load.
+func watchedLegacyKeys(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
 	}
-	return true
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode || len(doc.Content[0].Content) == 0 {
+		return fmt.Errorf("configuration document is empty")
+	}
+	root := doc.Content[0]
+	for _, path := range [][]string{{"mcp_servers"}, {"skills", "sources"}, {"tools", "permission_mode"}, {"scheduler", "dir"}} {
+		node := root
+		for _, part := range path {
+			if node != nil && node.Kind == yaml.AliasNode {
+				node = node.Alias
+			}
+			if node == nil || node.Kind != yaml.MappingNode {
+				node = nil
+				break
+			}
+			_, node = mappingEntryWithMerges(node, part, make(map[*yaml.Node]bool))
+		}
+		if node != nil {
+			return fmt.Errorf("legacy key %s requires migration at startup", strings.Join(path, "."))
+		}
+	}
+	return nil
+}
+
+func mappingEntryWithMerges(m *yaml.Node, key string, seen map[*yaml.Node]bool) (*yaml.Node, *yaml.Node) {
+	if m != nil && m.Kind == yaml.AliasNode {
+		m = m.Alias
+	}
+	if m == nil || m.Kind != yaml.MappingNode || seen[m] {
+		return nil, nil
+	}
+	seen[m] = true
+	if k, v := mappingEntry(m, key); k != nil {
+		return k, v
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value != "<<" {
+			continue
+		}
+		merge := m.Content[i+1]
+		if merge.Kind == yaml.SequenceNode {
+			for _, candidate := range merge.Content {
+				if k, v := mappingEntryWithMerges(candidate, key, seen); k != nil {
+					return k, v
+				}
+			}
+		} else if k, v := mappingEntryWithMerges(merge, key, seen); k != nil {
+			return k, v
+		}
+	}
+	return nil, nil
 }
 
 // differsFromLive answers whether next says anything the running configuration
@@ -184,7 +294,7 @@ func statConfig(path string) fileStamp {
 type StampWatcher struct {
 	// Path is the watched file.
 	Path string
-	// Interval is how often it is stat'ed. Zero means defaultWatchInterval.
+	// Interval is how often the file is stat'ed. Zero means defaultWatchInterval.
 	Interval time.Duration
 	// Changed runs on the watcher's goroutine after every move of the stamp.
 	Changed func()

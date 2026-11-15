@@ -50,6 +50,9 @@ func (c *fallbackChain) Complete(ctx context.Context, messages []Message, tools 
 		lastErr = err
 		// A cancelled caller is not a failed model, and the last candidate has
 		// nobody behind it.
+		if ImageGenerationEnabled(ctx) || (resp != nil && len(resp.GeneratedImages) > 0) {
+			return resp, err
+		}
 		if ctx.Err() != nil || i+1 == len(c.candidates) {
 			return nil, err
 		}
@@ -75,7 +78,7 @@ func (c *fallbackChain) Stream(ctx context.Context, messages []Message, tools []
 			return resp, nil
 		}
 		lastErr = err
-		if produced || ctx.Err() != nil || i+1 == len(c.candidates) {
+		if ImageGenerationEnabled(ctx) || produced || ctx.Err() != nil || i+1 == len(c.candidates) {
 			// The partial response travels with the error, as the provider
 			// gave it: the loop keeps what was streamed.
 			return resp, err
@@ -94,5 +97,5 @@ func (c *fallbackChain) moved(from, to string, err error) {
 // chunkHasOutput reports whether a chunk carried anything the caller can
 // have acted on: text, reasoning, or a tool call, named or complete.
 func chunkHasOutput(ch StreamChunk) bool {
-	return ch.TextDelta != "" || ch.ReasoningDelta != "" || ch.ToolCall != nil || ch.ToolCallNamed != nil || ch.ToolCallDelta != nil
+	return ch.GeneratedImage != nil || ch.ImageGenerationStarted || ch.TextDelta != "" || ch.ReasoningDelta != "" || ch.ToolCall != nil || ch.ToolCallNamed != nil || ch.ToolCallDelta != nil
 }

@@ -44,3 +44,19 @@ func TestCatalogEstimateAndCustomTariffs(t *testing.T) {
 		t.Fatal("unknown tariff became free")
 	}
 }
+
+func TestRUBCustomTariffIsConvertedToUSDCost(t *testing.T) {
+	event := Event{
+		Provider: "neuraldeep",
+		Model:    "kimi-k2.6",
+		Input:    Int(1000000),
+		Output:   Int(0),
+	}
+	prices := map[string]Price{
+		"neuraldeep/kimi-k2.6": {Currency: CurrencyRUB, Input: 180, Output: 0},
+	}
+	ApplyPriceWithRate(&event, prices, 90)
+	if event.CostUSD == nil || *event.CostUSD != 2 {
+		t.Fatalf("RUB tariff cost = %v USD, want 2", event.CostUSD)
+	}
+}

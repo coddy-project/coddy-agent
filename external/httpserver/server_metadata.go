@@ -203,10 +203,34 @@ func reasoningLevelOffered(cfg *config.Config, ent *config.ModelEntry, level str
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
 // coerceMetadataJSON returns an error when metadata is non-empty invalid JSON.
 func coerceMetadataJSON(raw json.RawMessage) error {
-	if len(raw) == 0 || json.Valid(raw) {
+	if len(raw) == 0 {
 		return nil
 	}
-	return errors.New("metadata is not valid JSON")
+	if !json.Valid(raw) {
+		return errors.New("metadata is not valid JSON")
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) == nil {
+		if v, ok := fields["image_generation"]; ok && string(v) != "true" && string(v) != "false" {
+			return errors.New("metadata.image_generation must be a boolean")
+		}
+	}
+	return nil
+}
+
+func imageGenerationFromHTTP(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	return string(fields["image_generation"]) == "true"
+}
+
+func nativeImageProviderError(cfg *config.Config, st *session.State, raw json.RawMessage) error {
+	if !imageGenerationFromHTTP(raw) {
+		return nil
+	}
+	return session.NativeImageGenerationError(cfg, effectiveYAMLModel(cfg, st))
 }
 
 func completionMetadataForbidden(raw json.RawMessage) bool {

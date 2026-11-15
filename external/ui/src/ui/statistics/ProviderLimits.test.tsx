@@ -95,6 +95,43 @@ test("all windows, unused providers, unavailable and disabled rows stay visible"
   );
 });
 
+test("NeuralDeep Kimi windows appear in Statistics limits", async () => {
+  initLocale("en");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            providers: [
+              {
+                provider: "neuraldeep",
+                providerType: "neuraldeep",
+                windows: [
+                  { id: "5h", label: "5h", usedPercent: 25 },
+                  { id: "7d", label: "7d", usedPercent: 50 },
+                ],
+              },
+            ],
+          }),
+        ),
+    ),
+  );
+  render(
+    <ProviderLimits
+      aggregate={false}
+      nodes={undefined}
+      node=""
+      timezone="UTC"
+    />,
+  );
+
+  await screen.findByRole("heading", { name: "neuraldeep" });
+  expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+  expect(screen.getByText("25% used")).toBeInTheDocument();
+  expect(screen.getByText("50% used")).toBeInTheDocument();
+});
+
 test("swarm keeps equal provider names on separate nodes and reports failed nodes", async () => {
   initLocale("en");
   vi.stubGlobal(

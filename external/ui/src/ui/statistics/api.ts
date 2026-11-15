@@ -46,15 +46,23 @@ export type ImportStatus = {
   failed: number;
   error?: string;
 };
+export type StatisticsCurrency = "RUB" | "USD";
 export type StatisticsSettings = {
   /** Absent means the counters are collected, as a fresh home does. */
   disabled?: boolean;
   timezone: string;
+  currency?: StatisticsCurrency;
+  usdToRub?: number;
   // A tariff saved over the API may name no cache rate; then the input rate
   // applies, the way the embedded catalog reads a model without one.
   prices: Record<
     string,
-    { input: number; output: number; cached?: number | null }
+    {
+      input: number;
+      output: number;
+      cached?: number | null;
+      currency?: StatisticsCurrency;
+    }
   >;
   import: ImportStatus;
 };

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Native image generation in chat</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .flow { grid-template-columns: repeat(4, 1fr); gap: 36px; }
+      .box { min-height: 180px; display: flex; flex-direction: column; justify-content: center; }
+    </style>
+  </head>
+  <body style="--width: 1200px">
+    <h1>Native image generation in chat</h1>
+    <p class="lead">A model and a chat turn must both opt in before Coddy requests the provider's native image tool.</p>
+    <div class="cols flow">
+      <section>
+        <h2>1. Opt in</h2>
+        <div class="box amber" id="optin"><code>models[].image_generation</code><span class="sub">Enable the model in settings, then turn on Images in the composer. The enabled send carries <code>metadata.image_generation</code>.</span></div>
+      </section>
+      <section>
+        <h2>2. Request</h2>
+        <div class="box core" id="request">OpenAI / Codex Responses<span class="sub">Admission checks the effective model and provider. OpenAI API-key and Codex chat providers may receive the native <code>image_generation</code> tool; image generation on direct model requests is refused.</span></div>
+      </section>
+      <section>
+        <h2>3. Validate and save</h2>
+        <div class="box green" id="assets">Session assets<span class="sub">Coddy validates the image bytes, format and dimensions. It saves the image as a session asset, with a thumbnail when available, and links it to the assistant message.</span></div>
+      </section>
+      <section>
+        <h2>4. Show in chat</h2>
+        <div class="box blue" id="chat">Live and after reload<span class="sub"><code>assistant_images</code> delivers the live update over SSE. Reload reads the assistant message and its asset URLs from the session.</span></div>
+      </section>
+    </div>
+    <p class="footer">Generated images are not automatically replayed as visual context in later prompts. For an edit, download and reattach the image with a multimodal model. Live Codex entitlement remains unverified.</p>
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#optin", to: "#request", color: "amber" },
+        { from: "#request", to: "#assets", color: "green" },
+        { from: "#assets", to: "#chat", color: "blue" }
+      ]);
+    </script>
+  </body>
+</html>

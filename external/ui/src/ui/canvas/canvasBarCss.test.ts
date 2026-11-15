@@ -107,3 +107,9 @@ test("the board clips without being a scroll container", () => {
   const body = ruleBody(".canvas-board {");
   expect(body).toMatch(/overflow: hidden;\s*overflow: clip;/);
 });
+
+test("a send refusal stays in the prompt bar's flow", () => {
+  const body = ruleBody(".canvas-send-error {");
+  expect(body).not.toMatch(/position:\s*(absolute|fixed)/);
+  expect(body).toContain("overflow-wrap: anywhere");
+});

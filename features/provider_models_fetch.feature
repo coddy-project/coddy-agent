@@ -50,7 +50,7 @@ Feature: The settings form fetches the model list a provider advertises
     Then the gateway answers with the window, max_tokens and image support the models catalog has for "gpt-4o"
     And the gateway answers with context window 0 for "gpt-4o"
     And the gateway answers with context window 1000000 for "claude-sonnet-4-5"
-    And the gateway answers with nothing from the models catalog for "claude-sonnet-4-5"
+    And the gateway answers with catalog modalities but no catalog limits for "claude-sonnet-4-5"
     And the gateway answers with nothing from the models catalog for "m2"
 
   Scenario: A codex provider lists the models only recent Codex releases are offered

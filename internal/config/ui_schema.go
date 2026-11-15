@@ -326,6 +326,8 @@ func UISchemaMap() map[string]interface{} {
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
+		"image_generation": boolProp("Image generation",
+			"When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
@@ -496,7 +498,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "kimi_metadata", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
+				[]string{"model", "kimi_metadata", "max_tokens", "temperature", "max_context_tokens", "multimodal", "image_generation", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
 				[]string{"model"}),
 		},
 		"toolsets": map[string]interface{}{

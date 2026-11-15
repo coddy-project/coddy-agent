@@ -254,6 +254,21 @@ function rowText(row: Record<string, unknown> | undefined, key: string) {
   return v === undefined || v === null ? "" : String(v);
 }
 
+function modelProviderType(
+  modelId: string,
+  doc: Record<string, unknown> | undefined,
+): string | undefined {
+  const slash = modelId.indexOf("/");
+  if (doc === undefined || slash <= 0) {
+    return undefined;
+  }
+  const name = modelId.slice(0, slash);
+  const provider = asArray(doc.providers)
+    .map(asObject)
+    .find((row) => rowText(row, "name").trim() === name);
+  return rowText(provider, "type").trim() || undefined;
+}
+
 // The row's unsaved proxy, so a sign-in block dials the route the form shows.
 function rowProxy(row: Record<string, unknown> | undefined) {
   return Object.prototype.hasOwnProperty.call(row ?? {}, "proxy")
@@ -357,6 +372,7 @@ export function overrideTexts(
   path: string,
   parent: Record<string, unknown> | undefined,
   schema: JsonSchema,
+  doc?: Record<string, unknown>,
 ): false | null | OverrideTexts {
   if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
     return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
@@ -454,6 +470,11 @@ export function overrideTexts(
     return null;
   }
   if (domain === "models") {
+    if (path === "kimi_metadata") {
+      return modelProviderType(rowText(parent, "model"), doc) === "kimi"
+        ? null
+        : false;
+    }
     return path === "model"
       ? {
           primary: label(),
@@ -479,8 +500,12 @@ export function overrideTexts(
 }
 
 // A field override's answer: false draws nothing, null leaves it to the schema.
-function boxFor(domain: string, ctx: FieldOverrideContext) {
-  return overrideTexts(domain, ctx.path, ctx.parentObj, ctx.schema);
+function boxFor(
+  domain: string,
+  ctx: FieldOverrideContext,
+  doc?: Record<string, unknown>,
+) {
+  return overrideTexts(domain, ctx.path, ctx.parentObj, ctx.schema, doc);
 }
 
 // A bot's proxy reads like a provider's, so it gets the same switch and URL
@@ -787,18 +812,7 @@ function BuiltinSettingsSection(props: {
   // The provider row the model id points at, as it stands in the (unsaved)
   // form: its type decides the Codex reasoning remap server-side, so it must
   // come from the document being edited rather than from the config on disk.
-  const providerTypeFor = (modelId: string): string | undefined => {
-    const slash = modelId.indexOf("/");
-    if (slash <= 0) {
-      return undefined;
-    }
-    const name = modelId.slice(0, slash);
-    const row = asArray(doc["providers"]).find(
-      (p) => asObject(p)["name"] === name,
-    );
-    const type = row === undefined ? "" : String(asObject(row)["type"] ?? "");
-    return type.trim() || undefined;
-  };
+  const providerTypeFor = (modelId: string) => modelProviderType(modelId, doc);
   const modelIds = stringList(doc.models, "model");
   const toolsetNames = stringList(doc.toolsets, "name");
 
@@ -992,6 +1006,10 @@ function BuiltinSettingsSection(props: {
                   </select>
                 </div>
               );
+            }
+            if (ctx.path === "kimi_metadata") {
+              const box = boxFor(key, ctx, doc);
+              return box === false ? false : null;
             }
             if (ctx.path === "model") {
               const box = boxFor(key, ctx);

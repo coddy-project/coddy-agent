@@ -44,9 +44,9 @@ type ImagePart struct {
 type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content"`
-	// ImageParts, when non-empty, make this a multimodal user message. Only
-	// supported for RoleUser; ignored on other roles and by providers that do
-	// not support vision.
+	// ImageParts holds prompt attachments, tool-returned pictures and native
+	// assistant image output. Provider projections decide which input pictures
+	// a model reads; generated output keeps assistant ownership in storage.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
 	// Artifacts are downloadable session-owned files published by a completed
 	// share_file call. They are metadata only and never provider prompt content.
@@ -220,6 +220,8 @@ type ToolDefinition struct {
 
 // Response is the LLM's reply to a completion request.
 type Response struct {
+	GeneratedImages []GeneratedImage
+
 	Content   string
 	ToolCalls []ToolCall
 	// Reasoning is the exact (unmodified) reasoning text, when the provider returns one.
@@ -251,6 +253,9 @@ type Response struct {
 
 // StreamChunk is a single chunk streamed from the LLM.
 type StreamChunk struct {
+	GeneratedImage         *GeneratedImage
+	ImageGenerationStarted bool
+
 	TextDelta      string
 	ReasoningDelta string
 	// AgentTool is the state of a tool call the agent behind the provider

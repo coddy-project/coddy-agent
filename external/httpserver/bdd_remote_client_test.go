@@ -30,10 +30,11 @@ import (
 // recordingClientSender captures what the remote client forwards to its
 // surface and answers permission prompts with a scripted option.
 type recordingClientSender struct {
-	mu          sync.Mutex
-	updates     []interface{}
-	permAnswer  string
-	permissions []acp.PermissionRequestParams
+	mu            sync.Mutex
+	updates       []interface{}
+	questionError bool
+	permAnswer    string
+	permissions   []acp.PermissionRequestParams
 }
 
 func (r *recordingClientSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -59,6 +60,11 @@ func (r *recordingClientSender) RequestPermission(_ context.Context, p acp.Permi
 }
 
 func (r *recordingClientSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.questionError {
+		return nil, fmt.Errorf("question refused by client")
+	}
 	return &acp.QuestionResult{}, nil
 }
 
@@ -97,6 +103,7 @@ type remoteClientState struct {
 	subagentPermission bool
 	// runner script for the next turns
 	replyText      string
+	askQuestion    bool
 	askPermission  bool
 	recordToolCall bool
 	stopReason     string
@@ -126,6 +133,7 @@ func (s *remoteClientState) reset() error {
 	s.sessRoot = filepath.Join(root, "sessions")
 	s.replyText = ""
 	s.askPermission = false
+	s.askQuestion = false
 	s.subagentPermission = false
 	s.recordToolCall = false
 	s.stopReason = ""
@@ -212,6 +220,15 @@ func (s *remoteClientState) startServer(token string) error {
 			}
 			if res == nil || res.OptionID != "allow" {
 				return string(acp.StopReasonCancelled), nil
+			}
+		}
+		if s.askQuestion {
+			result, err := snd.RequestQuestion(ctx, acp.QuestionRequestParams{
+				SessionID: st.ID, RequestID: "q-refused",
+				Questions: []acp.QuestionPrompt{{Question: "Pick one"}},
+			})
+			if err == nil || err.Error() != "question refused by client" || result != nil {
+				return "", fmt.Errorf("question refusal lost: result=%+v error=%v", result, err)
 			}
 		}
 		if s.askPermission {
@@ -632,6 +649,13 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a remote client connected with the token "([^"]*)"$`, s.connectClient)
 	sc.Step(`^the remote agent replies with "([^"]*)"$`, s.agentReplies)
 	sc.Step(`^the remote agent asks permission before replying "([^"]*)"$`, s.agentAsksPermission)
+	sc.Step(`^the client refuses the remote question before the agent replies "([^"]*)"$`, func(reply string) {
+		s.askQuestion = true
+		s.replyText = reply
+		s.sender.mu.Lock()
+		s.sender.questionError = true
+		s.sender.mu.Unlock()
+	})
 	sc.Step(`^the remote agent reports (\d+) generated tokens (\d+) s into the turn before replying "([^"]*)"$`, s.agentReportsProgress)
 	sc.Step(`^the client receives a turn progress update with (\d+) tokens and (\d+) s elapsed$`, s.clientReceivedProgress)
 	sc.Step(`^the remote agent relays a subagent permission prompt before replying "([^"]*)"$`, s.agentRelaysSubagentPermission)

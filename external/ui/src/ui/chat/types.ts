@@ -141,6 +141,9 @@ export type TranscriptItem =
       id: string;
       type: "assistant_message";
       content: string;
+      /** Persisted message identity used to match image events on replay. */
+      messageId?: string;
+      files?: TranscriptFile[];
       streaming?: boolean;
       /** RFC3339 UTC when the assistant reply was finalized (persisted). */
       createdAtUtc?: string;

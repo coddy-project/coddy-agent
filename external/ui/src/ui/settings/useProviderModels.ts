@@ -17,10 +17,14 @@ export interface FetchedModel {
   name?: string;
   /** Context window the listing reports, absent when it reports none. */
   context_window?: number;
-  /** What the server's models catalog knows of an id the provider reports no
-   * window for, or the catalog's window: a model added from the list is
-   * filled from it. */
-  catalog?: { context_window: number; max_tokens?: number; multimodal?: true };
+  /** Catalog modalities, plus the context and max-token pair when compatible
+   * with the provider window. */
+  catalog?: {
+    context_window?: number;
+    max_tokens?: number;
+    multimodal?: true;
+    image_output?: boolean;
+  };
 }
 
 /** A providers[] row as the settings form holds it. */
@@ -129,6 +133,7 @@ type ModelsResponse = {
       context_window?: number;
       max_tokens?: number;
       multimodal?: boolean;
+      image_output?: boolean;
     };
   }[];
 };
@@ -174,11 +179,19 @@ function normalize(
       item.context_window = contextWindow;
     }
     const catalogWindow = tokens(m.catalog?.context_window);
-    if (catalogWindow) {
-      item.catalog = { context_window: catalogWindow };
+    if (
+      catalogWindow ||
+      m.catalog?.multimodal === true ||
+      typeof m.catalog?.image_output === "boolean"
+    ) {
+      item.catalog = {};
+      if (catalogWindow) item.catalog.context_window = catalogWindow;
       const maxTokens = tokens(m.catalog?.max_tokens);
-      if (maxTokens) {
+      if (catalogWindow && maxTokens) {
         item.catalog.max_tokens = maxTokens;
+      }
+      if (typeof m.catalog?.image_output === "boolean") {
+        item.catalog.image_output = m.catalog.image_output;
       }
       if (m.catalog?.multimodal === true) {
         item.catalog.multimodal = true;
