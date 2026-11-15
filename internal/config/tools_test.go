@@ -272,7 +272,9 @@ func TestPreviewPublishValidateRefusesWhatCouldNotServe(t *testing.T) {
 	}
 	ok := ToolPreviewPublish{
 		Enable: true, Host: "127.0.0.1", Port: 8081,
-		Root:      filepath.Join(string(filepath.Separator), "var", "lib", "coddy", "previews"),
+		// An absolute root on every platform: joining from the separator gives
+		// "\var\..." on Windows, which carries no volume and is not absolute.
+		Root:      t.TempDir(),
 		PublicURL: "https://coddy.example/preview/", TTLSeconds: 3600, MaxBytes: 1 << 20,
 	}
 	if err := ok.validate(); err != nil {
