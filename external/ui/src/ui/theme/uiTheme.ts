@@ -1,6 +1,6 @@
 import {
+  isUiThemeId,
   LIGHT_THEMES,
-  UI_THEME_IDS,
   readUiThemeCookie,
   type UiThemeMode,
   writeUiThemeCookie,
@@ -9,18 +9,16 @@ import {
 export const UI_THEME_DEFAULT: UiThemeMode = "dark";
 
 export function resolveUiThemeMode(stored: UiThemeMode | null): UiThemeMode {
-  if (stored !== null && (UI_THEME_IDS as string[]).includes(stored)) {
-    return stored;
-  }
-  return UI_THEME_DEFAULT;
+  return stored !== null && isUiThemeId(stored) ? stored : UI_THEME_DEFAULT;
 }
 
 export function applyUiTheme(mode: UiThemeMode): void {
   if (typeof document === "undefined") {
     return;
   }
-  document.documentElement.dataset.theme = mode;
-  document.documentElement.style.colorScheme = LIGHT_THEMES.has(mode)
+  const resolved = resolveUiThemeMode(mode);
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.style.colorScheme = LIGHT_THEMES.has(resolved)
     ? "light"
     : "dark";
 }
@@ -29,11 +27,8 @@ export function readAppliedUiTheme(): UiThemeMode {
   if (typeof document === "undefined") {
     return UI_THEME_DEFAULT;
   }
-  const t = document.documentElement.dataset.theme as string | undefined;
-  if (t && (UI_THEME_IDS as string[]).includes(t)) {
-    return t as UiThemeMode;
-  }
-  return UI_THEME_DEFAULT;
+  const theme = document.documentElement.dataset.theme;
+  return theme && isUiThemeId(theme) ? theme : UI_THEME_DEFAULT;
 }
 
 export function bootstrapUiThemeFromCookie(): UiThemeMode {
@@ -43,8 +38,9 @@ export function bootstrapUiThemeFromCookie(): UiThemeMode {
 }
 
 export function setUiTheme(mode: UiThemeMode): void {
-  writeUiThemeCookie(mode);
-  applyUiTheme(mode);
+  const resolved = resolveUiThemeMode(mode);
+  writeUiThemeCookie(resolved);
+  applyUiTheme(resolved);
 }
 
 /** One observer of <html> for every subscriber, however many diagrams a page shows. */

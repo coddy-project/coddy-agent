@@ -27,6 +27,7 @@ import { resetServerVersionForTests } from "../chat/HeroFooter";
 import { installRemoteFetchShim, setEnv } from "../env/remoteEnv";
 import { initLocale } from "../i18n/i18n";
 import { stylesSource } from "../../stylesSource";
+import { SettingsRowAlterContext } from "../extensions/settingsRowAlter";
 
 type Reply = { status?: number; body?: unknown } | Error;
 
@@ -188,6 +189,38 @@ describe("the summary", () => {
     fireEvent.click(restart);
     expect(document.activeElement).toBe(heading("Subsystems"));
     expect(summary().getAttribute("data-state")).toBe("problems");
+  });
+
+  test("a hidden landmark leaves no dead summary button and keeps its retitle in the plan", async () => {
+    serve([doc({ attention: [{ code: "disk_low" }] })]);
+    render(
+      <SettingsRowAlterContext.Provider
+        value={{
+          alters: [
+            {
+              id: "hide-disk",
+              run: (rows) =>
+                rows
+                  .filter((row) => row.id !== "disk")
+                  .map((row) =>
+                    row.id === "subsystems"
+                      ? { ...row, label: "Renamed subsystems" }
+                      : row,
+                  ),
+            },
+          ],
+        }}
+      >
+        <SystemSection />
+      </SettingsRowAlterContext.Provider>,
+    );
+    await settled();
+
+    expect(screen.queryByTestId("system-disk")).toBeNull();
+    expect(
+      within(summary()).queryByRole("button", { name: "Disk low" }),
+    ).toBeNull();
+    expect(heading("Renamed subsystems")).toBeInTheDocument();
   });
 
   test("words a full disk as full, a stopped subsystem and a failing provider by name", async () => {

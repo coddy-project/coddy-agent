@@ -301,7 +301,8 @@ func (s *deliveryState) cataloguePublishes(plugin, version string) error {
 func (s *deliveryState) git(args ...string) error {
 	cmd := exec.Command("git", append([]string{"-c", "user.email=c@t", "-c", "user.name=c"}, args...)...)
 	cmd.Dir = s.catalogue
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	// Git interprets these paths itself and accepts /dev/null on Windows too.
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %v: %w\n%s", args, err, out)
 	}

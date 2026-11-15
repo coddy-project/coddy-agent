@@ -1,5 +1,9 @@
 import { afterEach, expect, test } from "vitest";
-import { CODDY_UI_THEME_COOKIE, UI_THEME_IDS } from "./themeCookie";
+import {
+  CODDY_UI_THEME_COOKIE,
+  LIGHT_THEMES,
+  UI_THEME_IDS,
+} from "./themeCookie";
 import {
   applyUiTheme,
   bootstrapUiThemeFromCookie,
@@ -12,6 +16,9 @@ afterEach(() => {
   document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.style.removeProperty("color-scheme");
+  for (const id of [...LIGHT_THEMES]) {
+    if (id.startsWith("ext:")) LIGHT_THEMES.delete(id);
+  }
 });
 
 test("resolveUiThemeMode defaults to dark for null/unknown", () => {
@@ -81,4 +88,21 @@ test("setUiTheme light sets color-scheme=light", () => {
   expect(document.documentElement.style.colorScheme).toBe("light");
   bootstrapUiThemeFromCookie();
   expect(readAppliedUiTheme()).toBe("light");
+});
+
+test("extension ids are accepted without accepting arbitrary strings", () => {
+  expect(resolveUiThemeMode("ext:demo/ocean")).toBe("ext:demo/ocean");
+  expect(resolveUiThemeMode("ext:demo/Ocean" as never)).toBe("dark");
+  applyUiTheme("ext:demo/ocean");
+  expect(readAppliedUiTheme()).toBe("ext:demo/ocean");
+  document.documentElement.dataset.theme = "ext:any arbitrary text";
+  expect(readAppliedUiTheme()).toBe("dark");
+});
+
+test("a manifest light theme drives color-scheme and built-ins stay unchanged", () => {
+  LIGHT_THEMES.add("ext:demo/daylight");
+  applyUiTheme("ext:demo/daylight");
+  expect(document.documentElement.style.colorScheme).toBe("light");
+  applyUiTheme("dark");
+  expect(document.documentElement.style.colorScheme).toBe("dark");
 });

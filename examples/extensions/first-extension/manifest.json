@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "id": "first-extension",
+  "name": "My first extension",
+  "version": "1.0.0",
+  "required_features": ["ui.pages"],
+  "ui": { "entry": "main.js" }
+}

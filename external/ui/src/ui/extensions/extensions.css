@@ -1,0 +1,252 @@
+.extensions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.extensions-section p {
+  margin: 0;
+}
+.extensions-risk {
+  padding: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--coddy-surface-subtle);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.extensions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.extension-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.extension-card code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.extension-card details {
+  font-size: 12px;
+}
+.extension-card summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.extension-card summary::-webkit-details-marker {
+  display: none;
+}
+.extension-card details[open] > summary .coddy-chevron {
+  transform: rotate(90deg);
+}
+.extension-window {
+  width: min(850px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 14px;
+  padding: 20px;
+}
+.extension-window::backdrop {
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+}
+.extension-window > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.extension-window-body {
+  min-height: 120px;
+  overflow-wrap: anywhere;
+}
+.extension-menu-host {
+  min-width: 0;
+  position: relative;
+}
+.extension-menu-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.extension-menu-host:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.extension-menu-select option {
+  background: var(--bg);
+  color: var(--text);
+}
+.extension-tool-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.extension-tool-original {
+  margin-top: 8px;
+}
+.extension-tool-original > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.coddy-tool-call-row.extension-tool-call {
+  display: block;
+}
+
+.extension-tool-original > summary::-webkit-details-marker {
+  display: none;
+}
+.extension-tool-original[open] > summary .coddy-chevron {
+  transform: rotate(90deg);
+}
+
+/* Panels: slide-over beside the chat, a full overlay, or a drawer under the
+   rail's screens. One panel of a kind is open at a time. */
+.extension-panel {
+  position: fixed;
+  inset: 0;
+  /* Above the composer's docked card and the app's highest layers (1000):
+     a panel is a surface opened over the chat, never under it. */
+  z-index: 1300;
+  display: flex;
+}
+.extension-panel-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.extension-panel-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  /* Solid: the glass token is translucent, and a panel over the chat would
+     let the composer read through its own body. */
+  background: var(--bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: var(--text);
+}
+.extension-panel-box > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.extension-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.extension-panel--slide-over {
+  justify-content: flex-end;
+}
+.extension-panel--slide-over .extension-panel-box {
+  width: min(420px, 100vw);
+  height: 100%;
+}
+.extension-panel--full {
+  align-items: stretch;
+  justify-content: stretch;
+}
+.extension-panel--full .extension-panel-box {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 24px;
+  border-radius: 12px;
+}
+.extension-panel--drawer {
+  align-items: flex-end;
+}
+.extension-panel--drawer .extension-panel-box {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 12px 12px 0 0;
+}
+
+/* Anchor boxes: empty until an extension draws into them. */
+.extension-anchor:empty {
+  display: none;
+}
+.extension-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Rows and previews an extension draws. */
+.extension-message-row {
+  min-width: 0;
+}
+.extension-message-view,
+.extension-permission-preview-view,
+.extension-settings-field-view,
+.extension-settings-section-view,
+.extension-session-filter {
+  min-width: 0;
+}
+.extension-permission-preview {
+  margin-top: 6px;
+}
+.extension-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+.extension-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.extension-session-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Free-floating overlays: only their own box takes pointer events. */
+.extension-overlay {
+  position: fixed;
+  z-index: 1250;
+  max-width: min(420px, 100vw);
+  pointer-events: none;
+}
+.extension-overlay > * {
+  pointer-events: auto;
+}
+/* The shell takeover: the host draws nothing of its own. */
+.extension-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+}

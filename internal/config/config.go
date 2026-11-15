@@ -108,6 +108,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 }
 
 func validateSubconfigs(cfg *Config) error {
+	if err := validateExtensionValues(cfg.ExtensionValues); err != nil {
+		return err
+	}
 	if err := cfg.Browser.Validate(); err != nil {
 		return err
 	}
