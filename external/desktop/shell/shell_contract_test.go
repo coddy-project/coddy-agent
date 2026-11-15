@@ -48,7 +48,7 @@ func TestPendingAndFailedFramesStillReachTheChat(t *testing.T) {
 		`frame.addEventListener("error", () => retryFrame(tab.uid, frame));`,
 		`if (frame.contentWindow.location.href === "about:blank") return;`,
 		`if (location.href === "about:blank") return null;`,
-		`if (!hash || hash === "#") return null;`,
+		`if (!hash || hash === "#") return "#/";`,
 	)
 }
 

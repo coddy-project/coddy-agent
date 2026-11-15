@@ -984,6 +984,35 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
+  "settings.schema.tools.preview_publish.label": "Опубликованные предпросмотры",
+  "settings.schema.tools.preview_publish.desc":
+    "Статический сервер только на чтение по неизменному адресу над одним корнем артефактов и инструмент preview_publish, который копирует туда готовую работу. Для Coddy за HTTPS-прокси с аутентификацией: ваш обратный прокси аутентифицирует посетителя и направляет неизменный префикс на этот сервер.",
+  "settings.schema.tools.preview_publish.enable.label": "Включено",
+  "settings.schema.tools.preview_publish.enable.desc":
+    "Запускать сервер опубликованных предпросмотров и предлагать инструменты preview_publish и preview_unpublish (по умолчанию выключено).",
+  "settings.schema.tools.preview_publish.host.label": "Адрес привязки",
+  "settings.schema.tools.preview_publish.host.desc":
+    "Адрес, на котором слушает сервер (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, отдаёт все опубликованные предпросмотры всем, кто до него достучится.",
+  "settings.schema.tools.preview_publish.host.ph": "127.0.0.1",
+  "settings.schema.tools.preview_publish.port.label": "Порт",
+  "settings.schema.tools.preview_publish.port.desc":
+    "Неизменный порт, на котором слушает сервер, чтобы у обратного прокси был апстрим, который не переезжает (по умолчанию 8081).",
+  "settings.schema.tools.preview_publish.root.label": "Корень артефактов",
+  "settings.schema.tools.preview_publish.root.desc":
+    "Единственный каталог, который отдаёт сервер и в который пишет публикация, абсолютный путь. Пусто - используется <home>/previews.",
+  "settings.schema.tools.preview_publish.root.ph": "<home>/previews",
+  "settings.schema.tools.preview_publish.public_url.label": "Публичный адрес",
+  "settings.schema.tools.preview_publish.public_url.desc":
+    "Адрес, по которому корень отдаёт ваш прокси; он подставляется в выдаваемую агентом ссылку. Пусто - используется собственный адрес сервера.",
+  "settings.schema.tools.preview_publish.public_url.ph":
+    "https://coddy.example/preview/",
+  "settings.schema.tools.preview_publish.ttl_seconds.label": "Время жизни (с)",
+  "settings.schema.tools.preview_publish.ttl_seconds.desc":
+    "Сколько опубликованный предпросмотр держится, прежде чем его удалят (по умолчанию 86400). Вызов может попросить своё время жизни или не ограничивать его.",
+  "settings.schema.tools.preview_publish.max_bytes.label":
+    "Предел размера (байты)",
+  "settings.schema.tools.preview_publish.max_bytes.desc":
+    "Наибольший размер одного опубликованного предпросмотра (по умолчанию 104857600). Публикация сверх него отклоняется целиком.",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
   "settings.schema.tools.websearch.deepseek_api_key.label":
@@ -2645,6 +2674,8 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
   "tool.name.preview_server": "запускаю сервер предпросмотра",
+  "tool.name.preview_publish": "публикую предпросмотр",
+  "tool.name.preview_unpublish": "снимаю опубликованный предпросмотр",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.coddy_docs_search": "ищу в документации",
   "tool.name.coddy_docs_read": "читаю документацию",
@@ -3073,6 +3104,8 @@ export const messagesRu: Record<string, string> = {
   "status.webFetch": "Загружаю страницу",
   "status.httpRequest": "Отправляю запрос",
   "status.previewServer": "Запускаю сервер предпросмотра",
+  "status.previewPublish": "Публикую предпросмотр",
+  "status.previewUnpublish": "Снимаю опубликованный предпросмотр",
   "status.plan": "Обновляю план",
   "status.planRead": "Читаю план",
   "status.skill": "Загружаю скил",

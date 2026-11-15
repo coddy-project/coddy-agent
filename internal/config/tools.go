@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/webfs"
@@ -45,6 +47,11 @@ type Tools struct {
 	// PreviewServer is where the preview_server tool listens when the agent
 	// serves project files for the operator to open in a browser.
 	PreviewServer ToolPreviewServer `yaml:"preview_server"`
+
+	// PreviewPublish is the published-preview channel: one static origin on a
+	// fixed address over one artifact root, which a reverse proxy can keep
+	// private and serve under a stable prefix.
+	PreviewPublish ToolPreviewPublish `yaml:"preview_publish"`
 
 	// Canvas governs the canvas of the web UI: the canvas_show and
 	// canvas_inspect tools and what a frame's page may load.
@@ -458,6 +465,9 @@ func (c *Tools) Validate() error {
 	if err := c.PreviewServer.validate(); err != nil {
 		return err
 	}
+	if err := c.PreviewPublish.validate(); err != nil {
+		return err
+	}
 	if err := c.Canvas.validate(); err != nil {
 		return err
 	}
@@ -720,6 +730,219 @@ func (p *ToolPreviewServer) validate() error {
 		if _, _, err := net.SplitHostPort(v); err == nil {
 			return fmt.Errorf("tools.preview_server.%s: %q must not carry a port, the server always takes a free one", name, v)
 		}
+	}
+	return nil
+}
+
+// Defaults of tools.preview_publish, the published-preview channel. The bind
+// is loopback for the same reason the preview server's is: the artifact root
+// holds finished work an operator chose to publish, and who may read it is the
+// edge's decision, not this listener's.
+const (
+	// PreviewPublishDefaultHost is where the published-preview origin listens
+	// unless the operator says otherwise.
+	PreviewPublishDefaultHost = "127.0.0.1"
+	// PreviewPublishDefaultPort is the fixed port of that origin. A reverse
+	// proxy needs an upstream that does not move, so unlike the preview
+	// server's free port this one is written down.
+	PreviewPublishDefaultPort = 8081
+	// PreviewPublishDefaultTTLSeconds is how long a published artifact lives
+	// when neither the call nor the configuration says otherwise.
+	PreviewPublishDefaultTTLSeconds = 24 * 60 * 60
+	// PreviewPublishDefaultMaxBytes bounds one artifact. A preview is a built
+	// site, not a disk image, and the root fills up with whatever is published
+	// into it.
+	PreviewPublishDefaultMaxBytes = 100 << 20
+)
+
+// ToolPreviewPublish is the YAML tools.preview_publish section: the static
+// origin that serves published previews and the preview_publish /
+// preview_unpublish tools that put artifacts under its root.
+//
+// It is a channel of its own, not a setting of tools.preview_server. The
+// preview server is local iteration - a free port on loopback, the project's
+// own files read on every request - and it stays that way. This one is for a
+// deployment that already authenticates its visitors at an HTTPS edge: the
+// origin binds one address that never moves, so a reverse proxy has something
+// stable to route to, and it serves copies below one artifact root rather than
+// any directory of any project.
+type ToolPreviewPublish struct {
+	// Enable runs the origin and offers the publishing tools. Off by default:
+	// it is a deployment decision, and nothing about a local session needs it.
+	Enable bool `yaml:"enable"`
+
+	// Host is the address the origin binds. Empty means 127.0.0.1. A reverse
+	// proxy on another machine needs an address it can reach, and anything
+	// that is not loopback serves every published artifact to whoever reaches
+	// it: protect it with network policy or an authenticated tunnel.
+	Host string `yaml:"host"`
+
+	// Port is the fixed port the origin binds. Empty means 8081.
+	Port int `yaml:"port"`
+
+	// Root is the artifact root: the only directory the origin serves, and the
+	// only one a publish writes into. Empty means <home>/previews.
+	Root string `yaml:"root"`
+
+	// PublicURL is the address the edge serves the root under, written into
+	// the URL the publishing tool hands out - "https://coddy.example/preview/".
+	// Empty means http://<host>:<port>/, which is right only where the browser
+	// reaches the origin itself.
+	PublicURL string `yaml:"public_url"`
+
+	// TTLSeconds is how long a published artifact lives before the origin
+	// removes it. 0 means PreviewPublishDefaultTTLSeconds; a call may ask for
+	// its own lifetime, or for none at all.
+	TTLSeconds int `yaml:"ttl_seconds"`
+
+	// MaxBytes bounds one published artifact. 0 means
+	// PreviewPublishDefaultMaxBytes. A publish that would pass it is refused
+	// whole, so nothing half-copied is ever served.
+	MaxBytes int64 `yaml:"max_bytes"`
+}
+
+// ResolvedPort is the port the origin binds, the default filled in.
+func (p *ToolPreviewPublish) ResolvedPort() int {
+	if p == nil || p.Port == 0 {
+		return PreviewPublishDefaultPort
+	}
+	return p.Port
+}
+
+// ResolvedHost is the address the origin binds, the default filled in.
+func (p *ToolPreviewPublish) ResolvedHost() string {
+	if p == nil {
+		return PreviewPublishDefaultHost
+	}
+	if h := strings.TrimSpace(p.Host); h != "" {
+		return h
+	}
+	return PreviewPublishDefaultHost
+}
+
+// ListenAddr is the host:port the origin binds.
+func (p *ToolPreviewPublish) ListenAddr() string {
+	return net.JoinHostPort(p.ResolvedHost(), strconv.Itoa(p.ResolvedPort()))
+}
+
+// ToolSettings materializes the section for the tool execution layer, with the
+// artifact root resolved against home and every default filled in. The field
+// order matches tooling.PreviewPublishSettings.
+func (p *ToolPreviewPublish) ToolSettings(home string) ToolPreviewPublishSettings {
+	out := ToolPreviewPublishSettings{
+		Root:       PreviewPublishRoot("", home),
+		PublicURL:  "",
+		TTLSeconds: PreviewPublishDefaultTTLSeconds,
+		MaxBytes:   PreviewPublishDefaultMaxBytes,
+	}
+	if p == nil {
+		return out
+	}
+	out.Enabled = p.Enable
+	out.Root = PreviewPublishRoot(p.Root, home)
+	out.PublicURL = PreviewPublicURL(strings.TrimSpace(p.PublicURL), p.ResolvedHost(), p.ResolvedPort())
+	if p.TTLSeconds > 0 {
+		out.TTLSeconds = p.TTLSeconds
+	}
+	if p.MaxBytes > 0 {
+		out.MaxBytes = p.MaxBytes
+	}
+	return out
+}
+
+// ToolPreviewPublishSettings is the resolved section handed to the tool layer.
+// It mirrors tooling.PreviewPublishSettings field for field; config does not
+// import tooling, so the two are kept in step by
+// TestPreviewPublishSettingsMirrorTooling.
+type ToolPreviewPublishSettings struct {
+	Enabled    bool
+	Root       string
+	PublicURL  string
+	TTLSeconds int
+	MaxBytes   int64
+}
+
+// PreviewPublishRoot is the artifact root: the configured one, or <home>/previews.
+func PreviewPublishRoot(configured, home string) string {
+	if r := strings.TrimSpace(configured); r != "" {
+		return filepath.Clean(expandHome(r))
+	}
+	if strings.TrimSpace(home) != "" {
+		return filepath.Join(home, "previews")
+	}
+	return ""
+}
+
+// PreviewPublicURL is the address an artifact is addressed under, always
+// ending in a slash so a relative asset of the published page resolves inside
+// its own artifact. Without a configured one the origin's own address stands
+// in, which is right where the browser reaches it directly.
+func PreviewPublicURL(configured, host string, port int) string {
+	u := strings.TrimSpace(configured)
+	if u == "" {
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			host = "localhost"
+		}
+		u = "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/"
+	}
+	if !strings.HasSuffix(u, "/") {
+		u += "/"
+	}
+	return u
+}
+
+// validate refuses a section that could not serve what it promises: an address
+// that is not one, a port out of range, a relative artifact root (the origin
+// outlives whatever directory a process happened to start in) and a public URL
+// that is not an http address.
+func (p *ToolPreviewPublish) validate() error {
+	host := strings.TrimSpace(p.Host)
+	if host != "" {
+		if strings.ContainsAny(host, "/ \t") || strings.Contains(host, "://") {
+			return fmt.Errorf("tools.preview_publish.host: %q must be a bare host name or IP address", host)
+		}
+		if strings.ContainsAny(host, "[]") {
+			return fmt.Errorf("tools.preview_publish.host: %q must be a bare host name or IP address, without brackets", host)
+		}
+		if _, _, err := net.SplitHostPort(host); err == nil {
+			return fmt.Errorf("tools.preview_publish.host: %q must not carry a port; the port is tools.preview_publish.port", host)
+		}
+	}
+	if p.Port < 0 || p.Port > 65535 {
+		return fmt.Errorf("tools.preview_publish.port: %d is not a port number", p.Port)
+	}
+	if root := strings.TrimSpace(p.Root); root != "" {
+		expanded := expandHome(root)
+		if !filepath.IsAbs(expanded) {
+			return fmt.Errorf("tools.preview_publish.root: %q must be an absolute path", root)
+		}
+	}
+	if raw := strings.TrimSpace(p.PublicURL); raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("tools.preview_publish.public_url: %q is not an address: %w", raw, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("tools.preview_publish.public_url: %q must be an http:// or https:// address", raw)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("tools.preview_publish.public_url: %q names no host", raw)
+		}
+		if u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("tools.preview_publish.public_url: %q must be an address without a query or a fragment", raw)
+		}
+		if u.User != nil {
+			// This address is written into the link the agent hands out, so it
+			// travels into the transcript, the model's context and the startup
+			// banner. The refusal does not repeat what it found.
+			return fmt.Errorf("tools.preview_publish.public_url: the address must not carry a user name or a password")
+		}
+	}
+	if p.TTLSeconds < 0 {
+		return fmt.Errorf("tools.preview_publish.ttl_seconds: %d must not be negative", p.TTLSeconds)
+	}
+	if p.MaxBytes < 0 {
+		return fmt.Errorf("tools.preview_publish.max_bytes: %d must not be negative", p.MaxBytes)
 	}
 	return nil
 }

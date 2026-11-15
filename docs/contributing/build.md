@@ -342,6 +342,31 @@ each is position-independent, names the Android linker and needs no library Andr
 and uploads them as the **`coddy-android-arm64`** and **`coddy-android-amd64`** artifacts to try on
 a device before the release.
 
+## FreeBSD
+
+```bash
+make check-freebsd   # go build and go vet with GOOS=freebsd for amd64 and arm64, test files included
+make lint-freebsd    # golangci-lint over the same build
+```
+
+FreeBSD is the same sources with **`GOOS=freebsd`** and no cgo, so a host of any platform
+cross-compiles the release archives and the two commands above type-check and lint them. What that
+host never compiles is the BSD half of the per-OS files, which is why both commands exist: the
+**`xucred`** peer check of **`internal/localipc`**, the **`statfs`** of **`internal/platform`**,
+the Kimi credential store of **`internal/llm`** and the **`kern.proc.pid`** sysctl that
+**`external/desktop`** reads a process's parent from, because FreeBSD mounts no **`procfs`**.
+Everything above those files is the Linux code: the desktop window is the same X11 and D-Bus
+client, and the autostart entry is the same XDG file.
+
+Cross-compiling is not proof that the binary runs, so the **FreeBSD build and native tests** job of
+the pull request checks does both. It runs **`make check-freebsd`** on the Linux runner, then
+cross-compiles the binary and the test binaries of the platform packages and runs them inside a
+FreeBSD virtual machine (**`vmactions/freebsd-vm`**). The test binaries are built here rather than
+in the machine because FreeBSD's ports carry whichever Go their branch pinned, and the toolchain
+this repository builds with is the one in **`go.mod`**.
+
+What users see is on [FreeBSD](../getting-started/freebsd.md).
+
 ## Version string (`LDFLAGS`, `print-version`)
 
 The Makefile sets:
@@ -429,6 +454,7 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`coddy_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
 | **`coddy_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
 | **`coddy_X.Y.Z_android_arm64.tar.gz`**, **`coddy_X.Y.Z_android_amd64.tar.gz`** | Android arm64 and x86_64, under Termux (see [above](#android-termux)) |
+| **`coddy_X.Y.Z_freebsd_amd64.tar.gz`**, **`coddy_X.Y.Z_freebsd_arm64.tar.gz`** | FreeBSD x86_64 and arm64 (see [above](#freebsd)) |
 | **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
 | **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |

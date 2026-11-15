@@ -19,12 +19,14 @@ irm https://coddy.dev/install.ps1 | iex
 **Android (Termux)**: the same **`install.sh`** fetches the Android build; see
 [Android (Termux)](#android-termux).
 
+**FreeBSD**: the same **`install.sh`** fetches the FreeBSD build; see [FreeBSD](#freebsd).
+
 Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing.
 
-On Linux and macOS the script installs more than the binary. The release archive carries the man
-page and the bash and zsh completions beside **`coddy`**, so they land in the **`share`** directory
-of the same prefix (**`~/.local/bin`** -> **`~/.local/share`**), and a user-level install then writes
-one guarded block to the rc file of your login shell:
+On Linux, FreeBSD and macOS the script installs more than the binary. The release archive carries
+the man page and the bash and zsh completions beside **`coddy`**, so they land in the **`share`**
+directory of the same prefix (**`~/.local/bin`** -> **`~/.local/share`**), and a user-level install
+then writes one guarded block to the rc file of your login shell:
 
 | What the block does | Why |
 |---|---|
@@ -225,6 +227,23 @@ program through Android's linker, which turns a static executable away with
 man page and the completions in **`~/.local/share`**, and the block in **`~/.bashrc`**. What differs
 on the device (the programs Coddy starts, certificates, running **`coddy serve`** in the background)
 is on its own page: [Android (Termux)](android.md).
+
+## FreeBSD
+
+```sh
+pkg install -y bash curl
+curl -fsSL https://coddy.dev/install.sh | bash
+```
+
+The script fetches **`coddy_X.Y.Z_freebsd_amd64.tar.gz`** or **`coddy_X.Y.Z_freebsd_arm64.tar.gz`**
+and installs it the way it does on Linux: **`~/.local/bin`**, the man page and the completions in
+**`~/.local/share`**, and the block in the rc file of your login shell, **`~/.profile`** for
+FreeBSD's default **`sh`**. The binary is static and needs no port beside it; **`bash`** and
+**`curl`** are what the script itself runs on.
+
+FreeBSD has no systemd, so **`coddy serve install`** is not available there. What to use instead,
+the **`rc.d`** route included, and where the BSD kernel interfaces differ from Linux are on the
+page of their own: [FreeBSD](freebsd.md).
 
 ## After install
 

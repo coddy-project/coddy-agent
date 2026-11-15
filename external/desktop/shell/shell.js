@@ -668,7 +668,7 @@
       const location = frame.contentWindow.location;
       if (location.href === "about:blank") return null;
       const hash = location.hash || "";
-      if (!hash || hash === "#") return null;
+      if (!hash || hash === "#") return "#/";
       return hash.startsWith("#/") ? hash : "#/";
     } catch {
       return null;
@@ -734,17 +734,18 @@
   // the session into the hash as soon as a new conversation has one.
   //
   // Three answers, not two. An id is the chat behind the tab. The empty string
-  // is the new-chat route, where there is no chat yet and the tab has to say
-  // so - a tab that kept the name of the chat somebody has just navigated away
-  // from is the bug this distinction exists for. And null is every address
-  // that says nothing about a chat at all - Settings, the scheduler, the
-  // documentation - where the tab keeps the name it had.
+  // is the new-chat route, written as #/ or by removing the hash, where there
+  // is no chat yet and the tab has to say so - a tab that kept the name of the
+  // chat somebody has just navigated away from is the bug this distinction
+  // exists for. And null is every address that says nothing about a chat at
+  // all - Settings, the scheduler, the documentation - where the tab keeps the
+  // name it had.
   function sessionOfFrame(frame) {
     try {
       const location = frame.contentWindow.location;
       if (location.href === "about:blank") return null;
       const hash = location.hash || "";
-      if (!hash || hash === "#") return null;
+      if (!hash || hash === "#") return "";
       const m = hash.match(/^#\/s\/([A-Za-z0-9_-]+)/);
       if (m) return m[1];
       if (hash === "#/" || hash.startsWith("#/draft/")) {

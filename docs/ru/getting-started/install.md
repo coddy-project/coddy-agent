@@ -19,9 +19,11 @@ irm https://coddy.dev/install.ps1 | iex
 **Android (Termux)** - тот же **`install.sh`** скачивает сборку для Android; см.
 [Android (Termux)](#android-termux).
 
+**FreeBSD** - тот же **`install.sh`** скачивает сборку для FreeBSD; см. [FreeBSD](#freebsd).
+
 Если **`~/.coddy/config.yaml`** нет, скрипт создаёт его из **`config.example.yaml`** релиза.
 
-В Linux и macOS скрипт ставит не только бинарник. В архиве релиза рядом с **`coddy`** лежат
+В Linux, FreeBSD и macOS скрипт ставит не только бинарник. В архиве релиза рядом с **`coddy`** лежат
 man-страница и автодополнения для bash и zsh, поэтому они попадают в каталог **`share`** того же
 префикса (**`~/.local/bin`** → **`~/.local/share`**), а установка на уровне пользователя затем
 записывает один защищённый блок в rc-файл вашей login-оболочки.
@@ -230,6 +232,23 @@ man-страница и автодополнения в **`~/.local/share`** и 
 устройстве отличается (программы, которые запускает Coddy, сертификаты, работа **`coddy serve`** в
 фоне), описано на отдельной странице [Android (Termux)](android.md).
 
+## FreeBSD
+
+```sh
+pkg install -y bash curl
+curl -fsSL https://coddy.dev/install.sh | bash
+```
+
+Скрипт скачивает **`coddy_X.Y.Z_freebsd_amd64.tar.gz`** или
+**`coddy_X.Y.Z_freebsd_arm64.tar.gz`** и ставит его так же, как в Linux: в **`~/.local/bin`**,
+man-страницу и автодополнения в **`~/.local/share`**, а блок - в rc-файл вашей login-оболочки, для
+стандартного **`sh`** во FreeBSD это **`~/.profile`**. Бинарник слинкован статически, рядом с ним
+порты не нужны, а **`bash`** и **`curl`** нужны самому скрипту.
+
+Systemd во FreeBSD нет, поэтому **`coddy serve install`** там недоступен. Чем его заменить, включая
+путь через **`rc.d`**, и чем интерфейсы ядра BSD отличаются от Linux, описано на отдельной
+странице [FreeBSD](freebsd.md).
+
 ## После установки
 
 ```bash
@@ -302,4 +321,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=eca9d42f1fa1df7a -->
+<!-- docsgen:source sha256=4abe073e87edd20f -->

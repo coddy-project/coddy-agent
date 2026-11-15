@@ -1,4 +1,8 @@
-//go:build darwin
+//go:build darwin || freebsd
+
+// macOS and FreeBSD answer LOCAL_PEERCRED with a struct xucred, where Linux
+// answers SO_PEERCRED with a struct ucred; the two sockets are otherwise the
+// same, so one file serves both.
 
 package localipc
 
@@ -27,7 +31,10 @@ func sameUserPeer(conn net.Conn) error {
 			checkErr = err
 			return
 		}
-		if cred.Uid != uint32(os.Getuid()) {
+		// Widened rather than narrowed: a uid is unsigned on the wire and
+		// signed in the standard library, and the comparison must not depend
+		// on which of the two the conversion goes through.
+		if int64(cred.Uid) != int64(os.Getuid()) {
 			checkErr = fmt.Errorf("peer uid %d does not match %d", cred.Uid, os.Getuid())
 		}
 	}); err != nil {

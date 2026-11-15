@@ -52,6 +52,13 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 			preview.RegisterBuiltins(r.Register)
 		}
 	}
+	// Publishing a preview is not a background task and does not need the
+	// pool: it copies a directory into the artifact root a `coddy serve`
+	// somewhere serves. It is offered only where the operator turned that
+	// channel on, since there is nowhere to publish to otherwise.
+	if cfg != nil && cfg.Tools.PreviewPublish.Enable {
+		preview.RegisterPublishTools(r.Register)
+	}
 	// The canvas of the web UI: pages of the workspace as live frames.
 	if cfg == nil || cfg.Tools.Canvas.ResolvedEnabled() {
 		toolcanvas.RegisterBuiltins(r.Register)

@@ -31,8 +31,9 @@ func endpointAddress(home string) (string, string, error) {
 		// The peer-credential check and per-start token still protect them.
 		return "unix", fmt.Sprintf("@coddy-local-ipc-%d-%s", os.Getuid(), hex.EncodeToString(digest[:16])), nil
 	}
-	// macOS has no abstract namespace. /tmp is a fixed, shared system path,
-	// unlike TMPDIR, which may differ between the service and the window.
+	// macOS and the BSDs have no abstract namespace. /tmp is a fixed, shared
+	// system path, unlike TMPDIR, which may differ between the service and
+	// the window.
 	dir := filepath.Join("/tmp", fmt.Sprintf("coddy-local-ipc-%d", os.Getuid()))
 	return "unix", filepath.Join(dir, hex.EncodeToString(digest[:16])+".sock"), nil
 }

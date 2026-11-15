@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -720,8 +721,48 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				return nil
 			},
 		},
+		{
+			// The published-preview origin: a read-only static server over the
+			// artifact root, on an address that does not move, so a reverse
+			// proxy has a stable upstream to send an authenticated visitor to.
+			// It is auxiliary - it serves copies of finished work and runs no
+			// turn, so it is never a reason to keep a process up on its own -
+			// and it is in every build, since it carries no build tag.
+			Kind:      serve.KindPreviewPublish,
+			ConfigKey: "tools.preview_publish.enable",
+			Available: true,
+			Auxiliary: true,
+			Enabled:   func(c *config.Config) bool { return c.Tools.PreviewPublish.Enable },
+			// Its listener is what a proxy is talking through, so a new
+			// address takes a fresh process; everything else about it - the
+			// root, the public address, the lifetime - is read when it starts.
+			RestartKey:  func(c *config.Config) string { return c.Tools.PreviewPublish.ListenAddr() },
+			Fingerprint: previewPublishFingerprint,
+			Run: func(ctx context.Context, cfg *config.Config) error {
+				s := cfg.Tools.PreviewPublish.ToolSettings(cfg.Paths.Home)
+				return preview.ServePublished(ctx, preview.PublishOptions{
+					Root:       s.Root,
+					ListenAddr: cfg.Tools.PreviewPublish.ListenAddr(),
+					PublicURL:  s.PublicURL,
+					Log:        logger.Component(rt.Log, "preview.publish"),
+				})
+			},
+		},
 		metrics,
 	}
+}
+
+// previewPublishFingerprint is everything a rebuilt origin would read
+// differently, apart from its listen address, which RestartKey answers. The
+// lifetime and the size bound are not in it: they are read by the publishing
+// tool, not by the origin, and rebinding the port because somebody edited a
+// number the listener never looks at is a blip for nothing.
+func previewPublishFingerprint(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	s := c.Tools.PreviewPublish.ToolSettings(c.Paths.Home)
+	return s.Root + "\x00" + s.PublicURL
 }
 
 // swarmFingerprint is everything a rebuilt relay would read differently, apart
@@ -836,6 +877,13 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 				auth = "bearer token"
 			}
 			_, _ = fmt.Fprintf(w, "  metrics     http://%s/metrics  (%s)\n", cfg.Metrics.ListenAddr(), auth)
+		case serve.KindPreviewPublish:
+			// Where the bytes are served from and where a visitor reads them,
+			// which are the same address only when nothing fronts the origin.
+			_, _ = fmt.Fprintf(w, "  previews    http://%s  (published at %s)\n",
+				cfg.Tools.PreviewPublish.ListenAddr(),
+				config.PreviewPublicURL(cfg.Tools.PreviewPublish.PublicURL,
+					cfg.Tools.PreviewPublish.ResolvedHost(), cfg.Tools.PreviewPublish.ResolvedPort()))
 		}
 	}
 }

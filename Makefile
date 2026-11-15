@@ -1,4 +1,4 @@
-.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp desktop android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows check-freebsd lint lint-windows lint-freebsd clean install print-version print-revision hooks deb rpm deb-desktop rpm-desktop print-desktop-tags brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check models-catalog models-catalog-check docs docs-check diagrams docs-stamp docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -514,6 +514,24 @@ check-windows:
 	GOOS=windows go vet -tags=http,desktop ./...
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics,browser,desktop ./...
 
+# Type-check the FreeBSD build without a FreeBSD machine, test files included.
+#
+# FreeBSD takes the BSD half of every per-OS file - the xucred peer check of
+# internal/localipc, the statfs of internal/platform, the kern.proc sysctl the
+# desktop window reads a parent from - and the host gate compiles none of them.
+# Both 64-bit architectures the release publishes are checked, because the
+# kinfo_proc offset the sysctl reader computes follows the pointer width.
+#
+# One vet of the shipped tag set is enough here, unlike check-windows: nothing
+# in this tree has a FreeBSD-only stub that a single tag turns on, so the tag
+# combinations differ from Linux's in no file. The ui tag is left out for the
+# same reason as there - it embeds assets that only exist after ui-build.
+check-freebsd:
+	GOOS=freebsd GOARCH=amd64 go build ./...
+	GOOS=freebsd GOARCH=amd64 go vet ./...
+	GOOS=freebsd GOARCH=amd64 go vet -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=freebsd GOARCH=arm64 go vet -tags=$(LINT_TAGS_NO_UI_CSV) ./...
+
 # Type-check the Android build without a device, test files included.
 #
 # internal/platform has files only GOOS=android compiles - android_init.go and
@@ -585,6 +603,12 @@ lint-windows: ui-build
 	GOOS=windows golangci-lint run ./...
 	GOOS=windows golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
 	GOOS=windows golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
+
+# The same for the FreeBSD half, which the host linter never compiles either.
+lint-freebsd: ui-build
+	GOOS=freebsd golangci-lint run ./...
+	GOOS=freebsd golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=freebsd golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

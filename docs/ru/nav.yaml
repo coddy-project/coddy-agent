@@ -100,6 +100,12 @@ pages:
     en:
       title: "Android (Termux)"
       summary: "The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device."
+  getting-started/freebsd.md:
+    title: "FreeBSD"
+    summary: "Архивы для FreeBSD, запуск сервера без systemd, окно рабочего стола и места, где интерфейсы ядра BSD отличаются от Linux."
+    en:
+      title: "FreeBSD"
+      summary: "The FreeBSD archives, running the server without systemd, the desktop window, and where the BSD kernel interfaces differ from Linux."
   getting-started/troubleshooting.md:
     title: "Устранение неполадок"
     summary: "Что проверить, если бинарника нет в PATH, конфигурация не загружается, провайдер отвергает ключ, порт занят или нужного интерфейса нет в сборке."
@@ -316,6 +322,12 @@ pages:
     en:
       title: "Preview server"
       summary: "Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host."
+  features/published-previews.md:
+    title: "Опубликованные предпросмотры"
+    summary: "Как передать человеку готовую сборку через ваш собственный прокси с аутентификацией: один статический сервер по неизменному адресу над одним корнем артефактов, инструменты preview_publish и preview_unpublish, что остаётся за пределами копии и как настроить Caddy, Nginx и Traefik."
+    en:
+      title: "Published previews"
+      summary: "Handing somebody a finished build through your own authenticated edge - one static origin on a fixed address over one artifact root, preview_publish and preview_unpublish, what the copy leaves behind, and a reverse-proxy configuration for Caddy, Nginx and Traefik."
   features/canvas.md:
     title: "Холст"
     summary: "Живые страницы на доске файла .canvas в окне \"Файлы\" веб-интерфейса: canvas_show и canvas_inspect, указание на элемент, чтобы попросить правку, песочница, в которой работает фрейм, и доски как файлы .canvas рабочей папки в формате Obsidian, которые Coddy читает и записывает так же, как сам Obsidian."

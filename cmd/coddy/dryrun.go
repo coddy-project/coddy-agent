@@ -36,6 +36,9 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "swarm", Addr: swarmListenAddr(prep.Cfg)})
 			case serve.KindMetrics:
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "metrics", Addr: prep.Cfg.Metrics.ListenAddr()})
+			case serve.KindPreviewPublish:
+				req.Listeners = append(req.Listeners, dryrun.Listener{
+					Path: "tools.preview_publish", Addr: prep.Cfg.Tools.PreviewPublish.ListenAddr()})
 			}
 		}
 		return req, nil

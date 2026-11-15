@@ -2,7 +2,7 @@
 
 `coddy desktop` opens Coddy as an application on your own machine: a window with a strip of tabs,
 one chat per tab, over the same web interface `coddy serve` serves. It is a verb of the ordinary
-binary, which the release builds carry, and it runs on Linux, macOS and Windows.
+binary, which the release builds carry, and it runs on Linux, FreeBSD, macOS and Windows.
 
 ![The desktop window with two tabs, a chat in front](../assets/desktop/desktop-tabs-dark-1280.png)
 
@@ -52,8 +52,8 @@ has it - the release archives, the packages, the Homebrew formula and the contai
 macOS release archives include the Cocoa/WKWebView backend.
 The native window needs macOS 14 or later for a persistent WebKit store isolated to the agent home,
 and a GUI session. On older macOS versions, `auto` falls back to a Chromium-family browser.
-Linux, Windows and macOS builds without the native backend need Chrome, Chromium, Edge, Brave,
-Vivaldi or Yandex Browser. Firefox has no application mode.
+Linux, FreeBSD, Windows and macOS builds without the native backend need Chrome, Chromium, Edge,
+Brave, Vivaldi or Yandex Browser. Firefox has no application mode.
 The native backend needs no C compiler and no Xcode command-line tools: it reaches Cocoa and WebKit
 through the Objective-C runtime, so `make build` produces it like any other Go code, and the release
 cross-compiles it on Linux. Running a release binary on macOS 14 or later needs neither a compiler
@@ -222,7 +222,7 @@ bundle or custom Dock icon.
 
 ### Recent folders in the application menu
 
-On Linux every launch writes this user's own application entry,
+On Linux and FreeBSD every launch writes this user's own application entry,
 `~/.local/share/applications/coddy-desktop.desktop`, naming the binary that
 wrote it. That is what puts Coddy in the launcher and in the task bar's menu
 without a package installed, and it carries the folders of this home's recent
@@ -257,7 +257,7 @@ take another port.
 | Entry | What it does |
 | --- | --- |
 | **New chat** | the same as `+` |
-| **Open at login** | Linux: writes `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
+| **Open at login** | Linux and FreeBSD: write `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
 | **Show the tray icon** | publishes Coddy's mark in the system tray as a StatusNotifierItem on the session bus. A click on it brings the window back from behind another window or from the taskbar |
 | **Start minimised** | the next launch opens the window minimised, which is usually what a window opened at login wants |
 | **Show the system frame** | gives the window back the title bar and borders your desktop draws. The strip then stops drawing minimise, maximise and close, since the frame carries them. On X11 and native macOS; other browser windows always keep their frame |
@@ -364,11 +364,13 @@ For a swarm relay, configure `swarm.cors` on the relay instead. The alternative
 only when that broader trust is intended, and protect the remote API with a credential. Starting
 the desktop does not change a remote server's CORS policy.
 
-## Linux, macOS and Windows
+## Linux, FreeBSD, macOS and Windows
 
-The window opens on all three. What differs is how much of it the system lets Coddy drive:
+The window opens on all four. What differs is how much of it the system lets Coddy drive. FreeBSD
+runs the same freedesktop stack as Linux and is driven through the same code, so the two share a
+column:
 
-| | Linux (X11) | Linux (Wayland) | macOS | Windows |
+| | Linux, FreeBSD (X11) | Linux, FreeBSD (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
 | The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on older macOS | yes |
 | No system frame, the strip as the title bar | yes | no | native only | no |
@@ -382,7 +384,7 @@ Where a chord cannot be taken from the browser, `Alt`+`T`, `Alt`+`W`, `Alt`+`R` 
 chords do the same thing. The strip also accepts `Cmd` when the macOS backend delivers it to the page. `Alt`+`Tab` and `Cmd`+`Tab` stay
 with the window manager.
 
-The browser is looked for where each system keeps one: on `PATH` on Linux, in `/Applications` and
+The browser is looked for where each system keeps one: on `PATH` on Linux and FreeBSD, in `/Applications` and
 `~/Applications` on macOS, under Program Files and the user's local application data on Windows.
 `CODDY_DESKTOP_BROWSER` names one by path for a machine that keeps its browser somewhere else:
 

@@ -240,6 +240,31 @@ make check-android                                              # go vet with GO
 
 Решения принимают обычные функции в **`internal/platform/android.go`**, и на любом Unix-хосте их проверяют **`features/android_termux.feature`** и **`internal/platform/android_test.go`**. Файлы за **`//go:build android`** компилируют только **`make check-android`** и задание **Android cross-build** в проверках пул-реквеста. Это задание ещё и собирает оба релизных бинарника, проверяет, что каждый из них позиционно-независимый, указывает линкер Android и не требует библиотек, которых нет в Android, и выкладывает их как артефакты **`coddy-android-arm64`** и **`coddy-android-amd64`**, чтобы их можно было попробовать на устройстве до релиза.
 
+## FreeBSD
+
+```bash
+make check-freebsd   # go build и go vet с GOOS=freebsd для amd64 и arm64, вместе с файлами тестов
+make lint-freebsd    # golangci-lint по той же сборке
+```
+
+FreeBSD - те же исходники с **`GOOS=freebsd`** и без cgo, поэтому релизные архивы кросс-компилирует
+хост любой платформы, а две команды выше проверяют типы и прогоняют по ним линтер. Чего такой хост
+не компилирует никогда, так это BSD-половины файлов, разделённых по операционным системам, - ради
+неё обе команды и существуют: проверка **`xucred`** в **`internal/localipc`**, **`statfs`** в
+**`internal/platform`**, хранилище учётных данных Kimi в **`internal/llm`** и sysctl
+**`kern.proc.pid`**, из которого **`external/desktop`** узнаёт родителя процесса, потому что
+**`procfs`** во FreeBSD не смонтирована. Всё, что лежит над этими файлами, - код Linux. Окно
+рабочего стола остаётся тем же клиентом X11 и D-Bus, а запись автозапуска - тем же файлом XDG.
+
+Кросс-компиляция не доказывает, что бинарник работает, поэтому задание **FreeBSD build and native
+tests** в проверках пул-реквеста делает и то, и другое. Оно запускает **`make check-freebsd`** на
+раннере Linux, а затем кросс-компилирует бинарник и тестовые бинарники пакетов платформы и
+запускает их внутри виртуальной машины FreeBSD (**`vmactions/freebsd-vm`**). Тестовые бинарники
+собираются здесь, а не в машине, потому что в портах FreeBSD лежит тот Go, который закрепила их
+ветка, а этот репозиторий собирается тем, который указан в **`go.mod`**.
+
+Что видят пользователи, описано на странице [FreeBSD](../getting-started/freebsd.md).
+
 ## Строка версии (`LDFLAGS`, `print-version`)
 
 Makefile задаёт следующее.
@@ -314,6 +339,7 @@ go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser ...
 | **`coddy_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
 | **`coddy_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
 | **`coddy_X.Y.Z_android_arm64.tar.gz`**, **`coddy_X.Y.Z_android_amd64.tar.gz`** | Android arm64 и x86_64, под Termux (см. [выше](#android-termux)) |
+| **`coddy_X.Y.Z_freebsd_amd64.tar.gz`**, **`coddy_X.Y.Z_freebsd_arm64.tar.gz`** | FreeBSD x86_64 и arm64 (см. [выше](#freebsd)) |
 | **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
 | **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
@@ -366,4 +392,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=68ad61d91de160a0 -->
+<!-- docsgen:source sha256=bb4cf6539ecbd2fa -->

@@ -90,6 +90,10 @@ python3 "$HTTP_DIR/http_e2e_mentions.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
 # "Run it on a web server for me": preview_server, the server task, the page over http, stop.
 python3 "$HTTP_DIR/http_e2e_preview_server.py"
+# Self-boots the scripted model of tgfake and its own coddy serve with the
+# published-preview origin: publishing asks, the fixed origin answers, the copy
+# is taken without dot-files, republishing keeps the address, unpublishing ends it.
+python3 "$HTTP_DIR/http_e2e_preview_publish.py"
 # Self-boots the scripted model of tgfake and its own coddy serve: no key.
 python3 "$HTTP_DIR/http_e2e_background_wake.py"
 python3 "$HTTP_DIR/http_e2e_subagents.py"

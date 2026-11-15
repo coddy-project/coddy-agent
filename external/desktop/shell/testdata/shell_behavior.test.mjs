@@ -311,6 +311,7 @@ function makeShell({ storedTabs, windowFetch } = {}) {
     globalThis.__shellTest = {
       openNewChatTab,
       resizeWindowFrom,
+      syncFrameSessions,
       refreshSessions,
       labelOf,
       stateOf,
@@ -547,6 +548,26 @@ function mountSessionFetch(frame, fetch, scope) {
   const initial = scope || `frame-scope-${nextFrameScope++}`;
   frame.contentWindow.__coddySessionScope = typeof initial === "function" ? initial : () => initial;
 }
+
+test("leaving a chat for a route without a hash clears its old title", async () => {
+  const shell = makeShell({
+    storedTabs: [{ uid: "tab", session: "sess_old", route: "#/s/sess_old", workspace: "" }],
+    windowFetch: desktopFetchWithSessions([]),
+  });
+  await shell.settle();
+  const tab = shell.api.tabs()[0];
+  const frame = shell.api.frameOf.get(tab.uid);
+  mountSessionFetch(frame, async () => response({ sessions: [{ id: "sess_old", title: "Old chat" }] }));
+  await shell.api.refreshSessions();
+  assert.equal(shell.api.labelOf(tab), "Old chat");
+
+  // The SPA's new-chat action removes the hash with history.replaceState.
+  frame.contentWindow.location.hash = "";
+  assert.equal(shell.api.syncFrameSessions(), true);
+  assert.equal(tab.session, "");
+  assert.equal(tab.route, "#/");
+  assert.equal(shell.api.labelOf(tab), "New chat");
+});
 
 test("tabs with the same session id read their own iframe environment", async () => {
   const localRow = { id: "sess_same", title: "Local chat", turnActive: true };
