@@ -20,6 +20,40 @@ Feature: Operator hooks around tool calls
     Then the tool result contains "allowed-by-hook"
     And the client received no permission request
 
+  Scenario: A ToolExecute hook executes the call itself and answers for it
+    Given the operator's hooks.json has a PreToolUse hook for "run_command" that allows every call
+    And the operator's hooks.json has a ToolExecute hook for "run_command" that handles the call with the result "done in the sandbox"
+    And an agent session in permission mode "ask"
+    When the model runs the command "echo never-run"
+    Then the tool result contains "done in the sandbox"
+    And the tool result does not contain "never-run"
+    And the client received no permission request
+
+  Scenario: A deny decision prevents external execution
+    Given the operator's hooks.json has a PreToolUse hook for "run_command" that denies commands containing "never-run"
+    And the operator's hooks.json has a ToolExecute hook for "run_command" that handles the call with the result "done in the sandbox"
+    And an agent session
+    When the model runs the command "echo never-run"
+    Then the tool result says the call was blocked by a hook with the reason "destructive command"
+    And the tool result does not contain "done in the sandbox"
+
+  Scenario: A hook ask is honoured before external execution
+    Given the operator's hooks.json has a PreToolUse hook for "run_command" that asks for permission
+    And the operator's hooks.json has a ToolExecute hook for "run_command" that handles the call with the result "done in the sandbox"
+    And an agent session in permission mode "ask"
+    And the client answers permission requests with "allow"
+    When the model runs the command "echo never-run"
+    Then the client received a permission request for "run_command"
+    And the tool result contains "done in the sandbox"
+
+  Scenario: Only the first external executor answers for the call
+    Given the operator's hooks.json has a ToolExecute hook for "run_command" that handles the call with the result "first result"
+    And the operator's hooks.json has a ToolExecute hook for "run_command" that handles the call with the result "second result"
+    And an agent session
+    When the model runs the command "echo never-run"
+    Then the tool result contains "first result"
+    And the tool result does not contain "second result"
+
   Scenario: A silent hook leaves the ordinary permission flow in place
     Given the operator's hooks.json has a PreToolUse hook for "run_command" that exits without a decision
     And an agent session in permission mode "ask"
@@ -34,6 +68,19 @@ Feature: Operator hooks around tool calls
     When the model runs the command "echo original"
     Then the tool result contains "rewritten-by-hook"
     And the tool result does not contain "original"
+
+  Scenario: A Question hook carries the questions and their options
+    Given the operator's hooks.json has a Question hook for "question" that records its stdin
+    And an agent session
+    When the model asks the question "Pick a stack" with the options "Go" and "Rust"
+    Then the recorded payload is a "Question" event carrying "Pick a stack" with the option "Go"
+    And the recorded payload carries the session id and the workspace path
+
+  Scenario: A TurnEnd hook fires when the turn is over
+    Given the operator's hooks.json has a TurnEnd hook for "*" that records its stdin
+    And an agent session
+    When the model runs the command "echo done"
+    Then the recorded payload is a "TurnEnd" event with "stop_reason" "end_turn"
 
   Scenario: A PostToolUse hook adds feedback to the tool result
     Given the operator's hooks.json has a PostToolUse hook for "run_command" that adds the context "remember to run the tests"

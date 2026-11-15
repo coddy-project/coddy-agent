@@ -399,6 +399,7 @@ const RAIL_SCREEN_PAGES: Record<
   RailScreenId,
   { href: string; testId: string }
 > = {
+  statistics: { href: "#/statistics", testId: "statistics-view" },
   history: { href: appNavHrefHistory(), testId: "sessions" },
   scheduler: { href: appNavHrefScheduler(), testId: "scheduler-drawer" },
   swarm: { href: appNavHrefSwarm(), testId: "swarm-view" },
@@ -422,6 +423,29 @@ test("every screen of the rail closes on Escape and gives the address back to th
       expect(screen.queryByTestId(page.testId), id).toBeNull(),
     );
     await waitFor(() => expect(window.location.hash, id).toBe(`#/s/${SID}`));
+    cleanup();
+  }
+});
+
+// A screen of the rail is a window over the chat: the shell dims what it
+// covers, and a click on that dimming takes the screen down, the way Escape
+// and the close control do. Statistics was drawn over an undimmed chat and
+// outlived a click beside it.
+test("every screen of the rail dims the chat and closes on a click beside it", async () => {
+  for (const id of RAIL_SCREENS) {
+    const page = RAIL_SCREEN_PAGES[id];
+    mountInChat();
+    await screen.findByTestId("nav-settings");
+    history.replaceState(null, "", `/${page.href}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await screen.findByTestId(page.testId);
+    await settle();
+    const backdrop = document.querySelector(".backdrop.is-open");
+    expect(backdrop, id).not.toBeNull();
+    fireEvent.click(backdrop!);
+    await waitFor(() =>
+      expect(screen.queryByTestId(page.testId), id).toBeNull(),
+    );
     cleanup();
   }
 });
@@ -472,7 +496,7 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
 // On a relay the map is home: its entry in the rail stays lit while the map is
 // on screen, and the brand, which starts a new chat on an agent, leads there
 // too - a relay has no chat to start (issue #401).
-test("on a relay the Swarm entry stays lit, and the brand leads to the map", async () => {
+test("on a relay the Swarm entry stays lit, and the plus leads to the map", async () => {
   relay = true;
   history.replaceState(null, "", "/");
   render(
@@ -497,7 +521,7 @@ test("on a relay the Swarm entry stays lit, and the brand leads to the map", asy
       "false",
     ),
   );
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
     expect(screen.getByTestId("nav-swarm")).toHaveAttribute(

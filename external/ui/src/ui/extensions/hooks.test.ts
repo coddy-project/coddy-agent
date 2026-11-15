@@ -210,6 +210,21 @@ describe("hooks in interface elements", () => {
     expect(box.textContent).toBe("hello");
   });
 
+  test("invoke calls the slot owner instead of reaching into its DOM", () => {
+    const { host } = setup();
+    const box = document.createElement("div");
+    host.attach(
+      "demo/tricks",
+      box,
+      new AbortController().signal,
+      (payload) => ({ trick: (payload as { name: string }).name }),
+    );
+    expect(host.invoke("demo/tricks", { name: "disco" })).toEqual({
+      trick: "disco",
+    });
+    expect(() => host.invoke("demo/missing", {})).toThrow(/hook handler/);
+  });
+
   test("the lifetime signal removes the slot", () => {
     const { host } = setup();
     const controller = new AbortController();

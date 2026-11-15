@@ -27,6 +27,14 @@ Feature: Web UI sign-in
     And the answer says sign-in is required
     And the answer says the browser is not signed in
 
+  Scenario: A browser-session-only sign-in does not offer persistent login
+    Given the login uses browser-session cookies only
+    When the browser asks whether sign-in is required
+    Then the answer says persistent sign-in is unavailable
+    When the browser signs in as "operator" with password "correct-horse"
+    Then the request succeeds
+    And the browser holds a session cookie
+
   Scenario: Signing in opens the API to that browser
     When the browser signs in as "operator" with password "correct-horse"
     Then the request succeeds

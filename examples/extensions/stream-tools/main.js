@@ -4,20 +4,13 @@ export function activate(coddy) {
   let last = "No turn data received yet.";
   const views = new Set();
   const refresh = () => views.forEach((render) => render());
-  const processor = coddy.stream.registerIncoming({
+  const processor = coddy.stream.transformText({
     id: "uppercase",
-    transform(data, context) {
+    transform(text, context) {
       count += 1;
-      last = JSON.stringify({ ...context, data }, null, 2);
+      last = JSON.stringify({ ...context, text }, null, 2);
       refresh();
-      if (context.event || !uppercase) return;
-      const payload = JSON.parse(data);
-      for (const choice of payload.choices ?? []) {
-        if (typeof choice.delta?.content === "string") {
-          choice.delta.content = choice.delta.content.toUpperCase();
-        }
-      }
-      return JSON.stringify(payload);
+      return uppercase ? text.toUpperCase() : text;
     },
   });
   const page = coddy.ui.registerPage({
@@ -25,23 +18,38 @@ export function activate(coddy) {
     title: "Stream processor",
     mount(element) {
       const description = document.createElement("p");
-      description.textContent = "This example changes incoming text in this browser. The server keeps the original history.";
+      description.textContent =
+        "This example changes incoming text in this browser. The server keeps the original history.";
       const toggle = document.createElement("button");
       toggle.className = "settings-btn";
       const status = document.createElement("p");
       const preview = document.createElement("pre");
-      preview.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto";
+      preview.style.cssText =
+        "white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto";
       const render = () => {
         toggle.textContent = `Uppercase streamed text: ${uppercase ? "on" : "off"}`;
         status.textContent = `Frames processed: ${count}`;
         preview.textContent = last;
       };
-      toggle.addEventListener("click", () => { uppercase = !uppercase; refresh(); }, { signal: coddy.signal });
+      toggle.addEventListener(
+        "click",
+        () => {
+          uppercase = !uppercase;
+          refresh();
+        },
+        { signal: coddy.signal },
+      );
       views.add(render);
       element.append(description, toggle, status, preview);
       render();
-      return () => { views.delete(render); element.replaceChildren(); };
+      return () => {
+        views.delete(render);
+        element.replaceChildren();
+      };
     },
   });
-  return () => { processor.remove(); page.remove(); };
+  return () => {
+    processor.remove();
+    page.remove();
+  };
 }

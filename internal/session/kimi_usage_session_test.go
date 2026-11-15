@@ -23,7 +23,7 @@ func TestKimiUsageSubscriptionOnly(t *testing.T) {
 		want bool
 	}{{"", true}, {"subscription", true}, {"platform", false}} {
 		p := config.ProviderConfig{Name: "kimi", Type: "kimi", Mode: tc.mode}
-		if got := providerUsageEnabled(&p); got != tc.want {
+		if got := ProviderUsageEnabled(&p); got != tc.want {
 			t.Errorf("mode %q: enabled = %v, want %v", tc.mode, got, tc.want)
 		}
 	}

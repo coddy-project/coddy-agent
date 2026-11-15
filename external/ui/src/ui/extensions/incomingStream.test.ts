@@ -35,6 +35,27 @@ test("incoming processors transform and enrich data in stable extension order", 
   expect(frame.data).toBe('{"text":"hello"}');
 });
 
+test("semantic text transforms cover both supported protocols and ignore every other frame", () => {
+  const stream = new IncomingStream(vi.fn());
+  const signal = new AbortController().signal;
+  stream.registerText("demo", "upper", signal, (text) => text.toUpperCase());
+  const chat = {
+    ...frame,
+    event: "",
+    data: '{"choices":[{"delta":{"content":"hello","reasoning_content":"keep"}}]}',
+  };
+  expect(JSON.parse(stream.process(chat))).toEqual({
+    choices: [{ delta: { content: "HELLO", reasoning_content: "keep" } }],
+  });
+  const responses = {
+    ...frame,
+    event: "response.output_text.delta",
+    data: '{"delta":"world"}',
+  };
+  expect(JSON.parse(stream.process(responses))).toEqual({ delta: "WORLD" });
+  expect(stream.process(frame)).toBe(frame.data);
+});
+
 test("removed and aborted registrations stop immediately and ids can be reused", () => {
   const stream = new IncomingStream(vi.fn());
   const ctl = new AbortController();

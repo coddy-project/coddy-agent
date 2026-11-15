@@ -2,6 +2,7 @@ import { readAppliedUiTheme, subscribeAppliedUiTheme } from "../theme/uiTheme";
 import { LIGHT_THEMES, type UiThemeMode } from "../theme/themeCookie";
 import type { EventHandle } from "./events";
 import { engineInfo } from "./compat";
+import { formatThemeColor, parseThemeColor, type ThemeHSL } from "./themeColor";
 import {
   EXTENSION_THEME_TOKENS,
   isExtensionThemeToken,
@@ -59,6 +60,10 @@ export type ExtensionThemeAPI = {
   tokens: () => Readonly<Record<ExtensionThemeToken, string>>;
   /** The version of the token-name contract tokens() and override() share. */
   readonly tokenContractVersion: typeof THEME_TOKEN_CONTRACT_VERSION;
+  /** Parses a CSS or computed browser colour into HSL for colour transforms. */
+  parseColor: (value: string) => ThemeHSL | null;
+  /** Formats an HSL transform as a colour accepted by override(). */
+  formatColor: (color: ThemeHSL) => string;
   /** Overrides theme tokens while the handle lives. A later registration of
    * another extension wins the shared tokens. */
   override: (colors: ExtensionThemeOverride) => ThemeOverrideHandle;
@@ -243,6 +248,14 @@ export class ExtensionThemes {
   api(owner: string, signal: AbortSignal): ExtensionThemeAPI {
     return {
       tokenContractVersion: THEME_TOKEN_CONTRACT_VERSION,
+      parseColor: (value) => {
+        if (signal.aborted) throw new Error("Extension disposed");
+        return parseThemeColor(value);
+      },
+      formatColor: (color) => {
+        if (signal.aborted) throw new Error("Extension disposed");
+        return formatThemeColor(color);
+      },
       get: () => {
         if (signal.aborted) throw new Error("Extension disposed");
         return this.read();

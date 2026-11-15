@@ -384,6 +384,123 @@ func (b *Backend) ApplyPath(path string, value json.RawMessage) error {
 	})
 }
 
+type NamedProvider struct {
+	Name             string `json:"name"`
+	Type             string `json:"type,omitempty"`
+	APIKey           string `json:"api_key,omitempty"`
+	APIBase          string `json:"api_base,omitempty"`
+	Proxy            string `json:"proxy,omitempty"`
+	TimeoutMS        *int   `json:"timeout_ms,omitempty"`
+	UsageLimitsPanel *bool  `json:"usage_limits_panel,omitempty"`
+}
+
+type NamedModel struct {
+	Model      string `json:"model"`
+	MaxTokens  *int   `json:"max_tokens,omitempty"`
+	Multimodal *bool  `json:"multimodal,omitempty"`
+	Stream     *bool  `json:"stream,omitempty"`
+}
+
+// UpsertProvider updates a provider and its models by their stable names in
+// one save. Existing fields that the request omits stay as they were.
+func (b *Backend) UpsertProvider(provider NamedProvider, models []NamedModel) error {
+	if len(b.Sections) > 0 && (!containsString(b.Sections, "providers") || !containsString(b.Sections, "models")) {
+		return fmt.Errorf("%w: providers and models are not served here", errParse)
+	}
+	return config.WithConfigFileLock(func() error {
+		c := b.Live()
+		if c == nil {
+			return errUnavailable
+		}
+		raw, err := json.Marshal(config.ConfigToJSONDTO(c))
+		if err != nil {
+			return errSerialize
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return errParse
+		}
+		providerValue, err := namedRow(provider)
+		if err != nil {
+			return errSerialize
+		}
+		doc["providers"], err = upsertNamedRow(doc["providers"], "name", providerValue)
+		if err != nil {
+			return fmt.Errorf("%w: %s", errParse, err.Error())
+		}
+		rows := doc["models"]
+		for _, model := range models {
+			var value map[string]any
+			value, err = namedRow(model)
+			if err != nil {
+				return errSerialize
+			}
+			rows, err = upsertNamedRow(rows, "model", value)
+			if err != nil {
+				return fmt.Errorf("%w: %s", errParse, err.Error())
+			}
+		}
+		doc["models"] = rows
+		body, err := json.Marshal(doc)
+		if err != nil {
+			return errSerialize
+		}
+		_, err = b.saveLocked(body)
+		return err
+	})
+}
+
+func namedRow(value any) (map[string]any, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+func upsertNamedRow(node any, key string, value map[string]any) ([]any, error) {
+	name, _ := value[key].(string)
+	if name == "" {
+		return nil, fmt.Errorf("%s must be non-empty", key)
+	}
+	var rows []any
+	if node != nil {
+		var ok bool
+		rows, ok = node.([]any)
+		if !ok {
+			return nil, fmt.Errorf("%s must be a list", key)
+		}
+	}
+	found := -1
+	for i, item := range rows {
+		row, _ := item.(map[string]any)
+		if existing, _ := row[key].(string); existing == name {
+			if found >= 0 {
+				return nil, fmt.Errorf("duplicate %s %q", key, name)
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		if key == "name" {
+			if providerType, _ := value["type"].(string); providerType == "" {
+				return nil, errors.New("a new provider needs a type")
+			}
+		}
+		return append(rows, value), nil
+	}
+	current, _ := rows[found].(map[string]any)
+	for field, fieldValue := range value {
+		current[field] = fieldValue
+	}
+	rows[found] = current
+	return rows, nil
+}
+
 // setPath writes value at a dot path of a JSON document and returns the
 // (possibly reallocated) node it addressed. A missing intermediate key
 // becomes an object; `+` appends to an array; an index past the end extends

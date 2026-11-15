@@ -15,12 +15,17 @@ import {
   type ContributionHandle,
 } from "./contributions";
 import { ExtensionEvents, type ExtensionEventAPI } from "./events";
-import { extensionSettings, type ExtensionSettingsAPI } from "./settings";
+import {
+  extensionSettings,
+  type ExtensionExperimentalSettingsAPI,
+  type ExtensionSettingsAPI,
+} from "./settings";
 import { ExtensionThemes, type ExtensionThemeAPI } from "./theme";
 import { knownSectionLabel } from "../settings/settingsSections";
 import {
   IncomingStream,
   type IncomingRegistration,
+  type IncomingTextRegistration,
   type IncomingHandle,
 } from "./incomingStream";
 import {
@@ -48,7 +53,7 @@ import { extensionTasks, type ExtensionTasksAPI } from "./tasks";
 import { extensionModels, type ExtensionModelsAPI } from "./models";
 import { extensionProviders, type ExtensionProvidersAPI } from "./providers";
 import type { SettingsSectionAlter } from "./settings";
-import type { SettingsRowAlter } from "./settingsRowAlter";
+import { renameSettingsRow, type SettingsRowAlter } from "./settingsRowAlter";
 import { submitPermissionChoice } from "../chat/permissionSubmit";
 import { extensionNav, type ExtensionNavAPI, type NavScreen } from "./nav";
 import { chatBridge, type ChatStatus } from "./chatBridge";
@@ -84,6 +89,11 @@ import {
 import { engineInfo } from "./compat";
 import { ExtensionStylePreloader } from "./stylePreloader";
 import { readAppliedUiLocale } from "../i18n/uiLocale";
+import {
+  fetchExtensionHostInfo,
+  validateExtensionCompatibility,
+  type ExtensionHostInfo,
+} from "./hostCompatibility";
 
 export type ExtensionEntry = {
   api: number;
@@ -97,6 +107,8 @@ export type ExtensionEntry = {
   /** Manifest permissions this package declares. Enablement remains the gate;
    * the declaration is the vocabulary a later phase enforces. */
   permissions?: readonly string[];
+  required_features?: readonly string[];
+  engines?: { coddy?: string };
   ui: { entry: string; styles?: string[]; compat_styles?: string[] };
 };
 
@@ -177,13 +189,22 @@ export type ExtensionAPI = {
     register: (
       contribution: HookContribution,
     ) => ContributionHandle<HookContribution>;
-    /** Renders the contributions of this element's hook into `element`;
-     * an empty slot draws nothing. */
-    slot: (name: string, element: HTMLElement) => HookSlotHandle;
+    /** Renders contributions and optionally handles targeted commands. */
+    slot: (
+      name: string,
+      element: HTMLElement,
+      handler?: (payload: unknown) => unknown,
+    ) => HookSlotHandle;
+    /** Calls a slot owner's handler without reading its DOM. */
+    invoke: (ref: string, payload: unknown) => unknown;
     /** Every hook the running registrations declare. */
     list: () => readonly HookRef[];
   };
   stream: {
+    /** Transforms only assistant text deltas of the supported chat protocols;
+     * unknown frames and all non-text payloads pass through unchanged. */
+    transformText: (registration: IncomingTextRegistration) => IncomingHandle;
+    /** Raw transport middleware for extensions that explicitly need it. */
     registerIncoming: (registration: IncomingRegistration) => IncomingHandle;
     /** Observes every frame of the live stream, including kinds the host does
      * not parse. Read-only: a listener cannot rewrite or stop a frame. */
@@ -218,9 +239,9 @@ export type ExtensionAPI = {
     registerComposerControl: (
       control: ComposerControl,
     ) => ContributionHandle<ComposerControl>;
-    /** Rewrites the assembled control list before it renders - the
-     * declare-then-alter pipeline. Needs the `ui.alter` scope. */
-    alterControls: ComposerControlsAPI["alter"];
+    /** Takes over every composer control until the handle is removed. Host and
+     * other extensions' controls are hidden; only this extension's are drawn. */
+    resetComposerControls: () => { remove: () => void };
     /** One modal at a time; Escape and the handle close it. */
     openModal: (modal: Modal) => { close: () => void; remove: () => void };
     /** A free-floating box the app never dims - a pet, a toast. Several may
@@ -246,6 +267,15 @@ export type ExtensionAPI = {
      * (Chromium 110 and below, the JCEF panels of older IDEs). */
     addCompatStyles: (css: string) => { remove: () => void };
     engine: () => ReturnType<typeof engineInfo>;
+  };
+  /** Unstable whole-list transforms. Targeted stable operations belong in ui
+   * and settings; these passes may change their contract without notice. */
+  experimental: {
+    ui: { alterControls: ComposerControlsAPI["alter"] };
+    settings: {
+      alterRows: ExtensionExperimentalSettingsAPI["alterRows"];
+      alterSections: ExtensionExperimentalSettingsAPI["alterSections"];
+    };
   };
 };
 export type RuntimePage = ExtensionPage & {
@@ -384,6 +414,7 @@ export class ExtensionRuntime {
   private evaluatedDigests = new Map<string, string>();
   private failed = new Map<string, string>();
   private compatStyles = new Map<string, HTMLStyleElement[]>();
+  private hostInfo: Promise<ExtensionHostInfo> | null = null;
   readonly incoming = new IncomingStream((owner, message) => {
     this.publish({ errors: { ...this.state.errors, [owner]: message } });
   });
@@ -395,7 +426,12 @@ export class ExtensionRuntime {
       import(/* @vite-ignore */ url),
     private reload = () => window.location.reload(),
     private openPanel: (panel: RuntimePanel) => void = () => {},
+    private readHostInfo: () => Promise<ExtensionHostInfo> = fetchExtensionHostInfo,
   ) {}
+  private hostInformation() {
+    this.hostInfo ??= this.readHostInfo();
+    return this.hostInfo;
+  }
   snapshot = () => this.state;
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -449,6 +485,24 @@ export class ExtensionRuntime {
     for (const id of this.lifetimes.keys()) this.dispose(id);
     this.stylePreloader.clear();
   }
+  /** Checks declarations before any package CSS or JavaScript is loaded. */
+  async preflight(entries: ExtensionEntry[]) {
+    for (const entry of entries) {
+      if (!entry.enabled || this.failed.get(entry.id) === entry.sha256)
+        continue;
+      if (!entry.required_features?.length && !entry.engines?.coddy) continue;
+      try {
+        validateExtensionCompatibility(entry, await this.hostInformation());
+      } catch (error) {
+        this.failed.set(entry.id, entry.sha256);
+        this.reportError(entry.id, String(error));
+      }
+    }
+  }
+  canActivate(entry: ExtensionEntry) {
+    return this.failed.get(entry.id) !== entry.sha256;
+  }
+
   /** Reconciles what is installed with what is running. retryFailed asks again
    * for the ones a previous attempt failed, which only an explicit user action
    * does - the list poll leaves a failed digest alone instead of hammering it. */
@@ -502,6 +556,15 @@ export class ExtensionRuntime {
       const errors = { ...this.state.errors };
       delete errors[entry.id];
       this.publish({ errors });
+    }
+    if (entry.required_features?.length || entry.engines?.coddy) {
+      try {
+        validateExtensionCompatibility(entry, await this.hostInformation());
+      } catch (error) {
+        this.failed.set(entry.id, entry.sha256);
+        this.reportError(entry.id, String(error));
+        return;
+      }
     }
     const controller = new AbortController();
     const life = {
@@ -671,6 +734,15 @@ export class ExtensionRuntime {
             () => {},
           );
         },
+        (section, id, label) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.settingsRowAlters.register(
+            entry.id,
+            api,
+            renameSettingsRow(section, id, label),
+            () => {},
+          );
+        },
         () => this.fields.rows.filter((row) => row.owner === entry.id),
       ),
       i18n: this.i18n.api(entry.id, controller.signal),
@@ -692,7 +764,10 @@ export class ExtensionRuntime {
       },
       tasks: extensionTasks(controller.signal),
       models: extensionModels(controller.signal),
-      providers: extensionProviders(controller.signal),
+      providers: extensionProviders(controller.signal, {
+        owner: entry.id,
+        sha256: entry.sha256,
+      }),
       composer: {
         getText: () => composerBridge.text(),
         setText: (text) => {
@@ -735,8 +810,18 @@ export class ExtensionRuntime {
         entry.sha256,
         controller.signal,
         (type, data) => this.events.emitCustom(entry.id, type, data),
+        () => this.hostInformation(),
       ),
       stream: {
+        transformText: ({ id, transform }) => {
+          if (!active()) throw new Error("Extension disposed");
+          return this.incoming.registerText(
+            entry.id,
+            id,
+            controller.signal,
+            transform,
+          );
+        },
         registerIncoming: ({ id, transform }) => {
           if (!active()) throw new Error("Extension disposed");
           return this.incoming.register(
@@ -766,14 +851,20 @@ export class ExtensionRuntime {
             validateHookContribution,
           );
         },
-        slot: (name, element) => {
+        slot: (name, element, handler) => {
           if (!active()) throw new Error("Extension disposed");
           if (!isHookName(name)) throw new Error("Unknown hook name");
           return this.hookSlots.attach(
             `${entry.id}/${name}`,
             element,
             controller.signal,
+            handler,
           );
+        },
+        invoke: (ref, payload) => {
+          if (!active()) throw new Error("Extension disposed");
+          if (!parseHookRef(ref)) throw new Error("Unknown hook reference");
+          return this.hookSlots.invoke(ref, payload);
         },
         // What the running registrations declared: the slots a contribution
         // can fill, as `<owner>/<name>`.
@@ -879,24 +970,17 @@ export class ExtensionRuntime {
           };
           return { release: remove, remove };
         },
-        alterControls: (pass) => {
+        resetComposerControls: () => {
           if (!active()) throw new Error("Extension disposed");
-          // The courtesy of the configuration API: a manifest that declares
-          // permissions must name `ui.alter` to rewrite the control list.
           if (
             entry.permissions &&
             entry.permissions.length > 0 &&
             !entry.permissions.includes("ui.alter")
           )
-            throw new Error("alterControls needs the ui.alter scope");
-          validateComposerAlter(pass);
-          this.alterSeq += 1;
-          return this.composerAlters.register(
-            entry.id,
-            api,
-            { id: `alter-${this.alterSeq}`, run: pass },
-            () => {},
-          );
+            throw new Error("resetComposerControls needs the ui.alter scope");
+          const remove = this.composerHost.reset(entry.id);
+          controller.signal.addEventListener("abort", remove, { once: true });
+          return { remove };
         },
         registerPage: (page) =>
           register("pages", page, (row) => {
@@ -983,6 +1067,31 @@ export class ExtensionRuntime {
           return { remove };
         },
         engine: () => engineInfo(),
+      },
+      experimental: {
+        ui: {
+          alterControls: (pass) => {
+            if (!active()) throw new Error("Extension disposed");
+            if (
+              entry.permissions &&
+              entry.permissions.length > 0 &&
+              !entry.permissions.includes("ui.alter")
+            )
+              throw new Error("alterControls needs the ui.alter scope");
+            validateComposerAlter(pass);
+            this.alterSeq += 1;
+            return this.composerAlters.register(
+              entry.id,
+              api,
+              { id: `alter-${this.alterSeq}`, run: pass },
+              () => {},
+            );
+          },
+        },
+        get settings() {
+          return api.settings as ExtensionSettingsAPI &
+            ExtensionExperimentalSettingsAPI;
+        },
       },
     };
     const timer = window.setTimeout(() => {

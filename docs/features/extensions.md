@@ -54,6 +54,10 @@ Before the first app render, the browser fetches the enabled packages' `ui.style
 
 The optional top-level `permissions` lists the scopes the package declares: `ui.page`, `ui.alter`, `sessions.read`, `sessions.assets.write`, `sessions.title`, `sessions.prompt`, `workspace.switch`, `events.publish`, `ide.actions`, `kv`, `config.read`, `config.write` and `llm.complete`. The vocabulary is closed - at most 32 dotted lowercase names, and an unknown one is refused at install. Enablement stays the authority gate: the declaration is the vocabulary a later phase enforces, and nothing checks the code against it today.
 
+`required_features` names the API capabilities the package needs, such as `composer.controls`, `stream.text`, `providers.upsert` or `theme.color`. `engines.coddy` holds space-separated semver comparisons, for example `>=1.4.23 <2.0.0`. Coddy checks both before it reads or imports the module. A missing feature or an incompatible host leaves an actionable error in Settings and runs no package code.
+
+`coddy.host.info()` returns `{sdk_version, coddy_version, features}` so an extension can make its own capability decision. The public TypeScript declarations live in `external/ui/src/ui/extensions/sdk.d.ts`; the manifest schema is `examples/extensions/manifest.schema.json`.
+
 The optional `ui.compat_styles` lists CSS files of the ZIP that load only on a legacy engine, layered over the ordinary styles. A modern engine never applies them; both are covered under the engine tier below.
 
 The optional top-level `themes` array adds appearance themes without JavaScript registrations:
@@ -106,7 +110,7 @@ export function activate(coddy) {
 | --- | --- |
 | `coddy.api`, `coddy.id` | SDK version `1` and the owning extension id. |
 | `coddy.signal` | Aborted when the extension's lifetime ends. Pass it to listeners and requests. |
-| `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.capabilities()` names the manifest permissions this build honours, `await host.fireEvent({type, data})` publishes one host event - `extension_event` on the shared server stream so hook handlers and an IDE bridge can answer, and `ext.<id>.<type>` to this page's listeners - and `await host.request({type, data, timeoutMs})` sends one `extension_request` and resolves with the data whoever handles it answers, or `null` at the timeout. An event type matches `^[a-z][a-z0-9-]{0,63}$`, and `data` is one JSON value. |
+| `coddy.host` | The reserved host channel: `host.api` is `1`, `await host.info()` returns `{sdk_version, coddy_version, features}`, `await host.capabilities()` names honoured manifest permissions, `await host.fireEvent({type, data})` publishes `extension_event` plus `ext.<id>.<type>` locally, and `await host.request({type, data, timeoutMs})` resolves with the answer or `null`. Event types match `^[a-z][a-z0-9-]{0,63}$`; `data` is one JSON value. |
 | `coddy.assets.text(path)` | Fetch a UTF-8 asset from the exact enabled package through the authenticated API. |
 | `coddy.net.fetch(url, options?)` | Send an HTTP(S) request from the Coddy server and receive a buffered `Response`. |
 | `coddy.net.browserFetch(input, init?)`, `coddy.net.webSocket(url, protocols?, options?)` | Talk directly from the browser: a native streaming `Response`, or a WebSocket that closes with the extension. Browser CORS, cookie and WebSocket-header rules apply. |
@@ -115,6 +119,7 @@ export function activate(coddy) {
 | `coddy.theme.onChange(listener)` | Observe every theme switch; the listener gets the new frozen snapshot. Returns a `remove()` handle. |
 | `coddy.theme.getEffects()`, `coddy.theme.onEffectsChange(listener)` | Reduced motion and the engine tier. The listener hears changes only; its first read is the baseline. |
 | `coddy.theme.tokens()`, `coddy.theme.tokenContractVersion` | Every token of the versioned host contract - name to computed value, empty values included. Contract version `1` pins the shape; styles an extension injects cannot add keys. |
+| `coddy.theme.parseColor(value)`, `coddy.theme.formatColor(hsl)` | Parse hex, rgb(a), hsl(a), `color(srgb)`, `oklch` and computed browser colours into HSL, then format a transform for `override()`. |
 | `coddy.theme.override(colors)` | Override theme tokens with CSS values until the handle removes them - the eight colour names, or any contract `--token` of `tokens()`. Unknown tokens are refused. Returns an `update`/`remove` handle. |
 | `coddy.ui.registerToolRenderer({id, server?, tool?, mount})` | Replace the presentation of matching MCP and built-in tool calls; original details remain available. |
 | `coddy.ui.registerMessageRenderer({id, match, mount})` | Draw transcript rows: matched host item types and `ext_frame` rows of frames the host has no row for. |
@@ -122,8 +127,8 @@ export function activate(coddy) {
 | `coddy.settings.registerField(field)` | Add a scalar or component field to a Settings section - the host's or this extension's own. Returns an update/remove handle. |
 | `coddy.settings.registerSection({id, title, weight?, mount?})` | Add a Settings section of this extension's own. Fields of the same extension may name it in `section`. |
 | `coddy.settings.registerBlock({id, section, title, description?, match?, mount})` | Adds a declarative hand-drawn block to a host or extension section. `match(context)` may restrict it to one opened row; `mount(element, api, context)` receives the same frozen row metadata, with secret fields stripped. |
-| `coddy.settings.alterSections(fn)` | The declare-then-alter pipeline of Settings: `fn(sections)` rewrites the tab list - hide, retitle or reorder any tab, the host's included - before the nav draws it. Needs the `ui.alter` scope. |
-| `coddy.settings.alterRows(fn)` | Rewrites schema-driven Settings rows before the form and its search index draw them: `fn(rows, {section})` receives frozen `{section, id, path, label, kind, type, description?}` descriptors and may hide, retitle or reorder them. Hand-drawn special controls stay outside the pass. Needs the `ui.alter` scope. |
+| `coddy.settings.renameRow(section, id, label)` | Retitles exactly one row without moving it or affecting any other row. |
+| `coddy.experimental.settings.alterSections(fn)`, `alterRows(fn)` | Experimental whole-list transforms for section tabs and schema rows. They require `ui.alter`; built-in examples use targeted operations instead. |
 | `coddy.settings.get(id)`, `coddy.settings.set(id, value)` | Read or save an extension-owned configuration value. Both are asynchronous; `set(id, null)` removes the stored value. |
 | `coddy.ui.registerPage({id, title, mount})` | Add a page to the Extensions menu. `mount(element, api)` may return a cleanup function. |
 | `coddy.ui.registerMenuItem({id, title, onSelect})` | Add a menu action. |
@@ -134,7 +139,8 @@ export function activate(coddy) {
 | `coddy.ui.addCompatStyles(css)` | Layer a stylesheet over the host's, on a legacy engine only. Returns a `remove()` handle. |
 | `handle.update(patch)`, `handle.remove()` | Update a registered page, action, panel or contribution, or remove it. Ids stay fixed and are namespaced by extension. A patch is validated like the registration and throws on a blank title or a missing callback. |
 | `coddy.ui.openPage(id)` | Open a page owned by this extension in a dialog. |
-| `coddy.stream.registerIncoming({id, transform})` | Process incoming turn payloads before the browser applies them. Returns a `remove()` handle. |
+| `coddy.stream.transformText({id, transform})` | Transform only assistant text deltas of supported chat protocols. Other frames pass through unchanged. |
+| `coddy.stream.registerIncoming({id, transform})` | Raw transport middleware for extensions that explicitly need it. Process incoming turn payloads before the browser applies them. Returns a `remove()` handle. |
 | `coddy.stream.onFrame({id, listener})` | Observe every frame of the live turn stream, including kinds the host does not parse. Read-only. Returns a `remove()` handle. |
 | `coddy.i18n.locale()`, `coddy.i18n.t(key, vars?)` | The active host locale, and a lookup of this extension's own strings under `ext.<id>.`. |
 | `coddy.i18n.registerMessages(locale, dict)`, `coddy.i18n.onChange(fn)` | Register one locale's strings and observe host locale changes. Both return a `remove()` handle. |
@@ -149,12 +155,14 @@ export function activate(coddy) {
 | `coddy.composer.getText()`, `setText(text)`, `insertText(text)`, `attachFiles(files)` | The composer's draft and attachments: read and write the draft, insert around the caret, push files into the attachment row. |
 | `coddy.composer.getMode()`, `setMode(mode)`, `getModel()`, `setModel(id)`, `getReasoning()`, `setReasoning(level)`, `getPermissionMode()` | The composer's picks - the mode (`agent`/`plan`/`ask`), the model, the reasoning level and the permission mode - read and set. |
 | `coddy.composer.onDraftChange(fn)`, `onPaste(fn)`, `onDrop(fn)` | Draft changes; a paste or drop listener that returns `true` takes the event before the host's own attachment and mention handling. |
-| `coddy.ui.registerComposerControl({id, placement, title?, order?, visible?, mount})` | Mounts a control into the composer - `actions` (its action row) or `tabs` (the strip of picks). Returns an `update`/`remove` handle. |
-| `coddy.ui.alterControls(fn)` | The declare-then-alter pipeline: `fn(controls, {surface: "composer"})` rewrites the assembled host and extension control list - retitle, reorder, hide or drop any entry - before it renders. A descriptor's `key` is `host/<control>` or `<extension>/<control>`; the local `id` remains for older passes. Needs the `ui.alter` scope. |
+| `coddy.ui.registerComposerControl({id, placement, after?, before?, title?, order?, visible?, mount})` | Mounts a control into the composer. `after: "host/model"` or `before` targets one stable key; every unknown control keeps the host's own order. Returns an `update`/`remove` handle. |
+| `coddy.ui.resetComposerControls()` | An explicit full takeover: hides host and other extensions' controls until the handle is removed. Requires `ui.alter`. |
+| `coddy.experimental.ui.alterControls(fn)` | Experimental whole-list retitle, reorder, hide and drop. Built-in examples use targeted placement instead. |
 | `coddy.nav.currentRoute()`, `openSession(id)`, `openScreen(screen)` | Where the app is, and where an extension may take it: a conversation, or the `home`, `history`, `settings` and `scheduler` screens the rail opens. |
 | `coddy.chat.status()`, `onStatusChange(fn)` | What the chat is doing - the session, whether a turn runs, parsed `activity` and generation `progress` (start, output tokens, estimate flag, tokens per second), token usage, a pending permission or question - what a status line and badges draw from. |
 | `coddy.models.list()` | The server's model catalog - the same rows Settings and the composer pickers fill themselves from - as frozen entries with `id` and what `/v1/models` reports beside it. |
 | `coddy.providers.list()`, `coddy.providers.models(name)` | The configured provider catalog without credentials, and the models a saved provider advertises through its server-side credentials. Frozen rows; an upstream listing failure rejects. |
+| `coddy.providers.upsert(provider)` | Creates or updates a provider by `name` and models by `model`, preserving omitted fields and installing both in one transaction. No numeric array indices. |
 | `coddy.ui.openModal({id, title, mount})` | One modal at a time over the chat; Escape and the handle close it. |
 | `coddy.ui.openOverlay({id, mount, position?})` | A free-floating box the app never dims - a pet, a toast; several may be open. |
 | `coddy.ui.takeOverShell({id, mount})` | Takes the window: the host draws nothing of its own until `release()` or the extension goes away. |
@@ -162,7 +170,8 @@ export function activate(coddy) {
 | `coddy.chat.answerPermission(sessionId, toolCallId, optionId)` | Answers a pending permission prompt exactly as the host's card does: the allow and the deny halves of a say in tool execution; running the call itself stays the host's. |
 | `coddy.sessions.rename(id, title)`, `setTags(id, tags)`, `pin(id, pinned)`, `archive(id, archived)`, `remove(id)` | The listing's own writes: title, tags, pin, archive and removal. |
 | `coddy.hooks.register({id, into, mount})` | Fills a hook an interface element declared - `into` is `<owner>/<name>` - with your own block. Returns an `update`/`remove` handle. |
-| `coddy.hooks.slot(name, element)` | Renders the contributions of this element's hook `<this id>/<name>` into `element`; an empty slot draws nothing, and contributions mount and leave live. |
+| `coddy.hooks.slot(name, element, handler?)` | Renders contributions and optionally handles targeted commands from other extensions. |
+| `coddy.hooks.invoke(ref, payload)` | Calls a slot owner's handler without reading its DOM. |
 | `coddy.hooks.list()` | The hooks the running registrations declared, as `{owner, hook}` - where a contribution can go. |
 | `coddy.React` | The host's React instance for authors who need it. The page mount contract also works with plain DOM code. |
 
@@ -318,7 +327,9 @@ const watched = coddy.theme.onChange(paint);
 
 `coddy.theme.override(colors)` overrides theme tokens live and returns a handle with `update(colors)` and `remove()`. `colors` maps a token name - the eight colour names (`bg`, `text`, `muted`, `accent`, `danger`, `link`, `border` and `surface`) or any `--token` of `coddy.theme.tokens()` - to a CSS value. A value carrying `;`, `{`, `}` or `url(` is refused, and a value for one of the eight colour names must parse as a CSS colour. The override holds until the handle removes it, disposal removes it too, and a later registration of another extension wins the shared tokens. `coddy.theme.tokens()` returns the whole active token layer, name to computed value: the app paints from it, so overriding every colour token recolours the whole app.
 
-The [Theme Lab example](../../examples/extensions/theme-lab/main.js) opens a slide-over panel with hue, saturation and lightness sliders that shift every colour token of the theme at once and a colour input per token, repainting the app in real time; its manifest declares `"permissions": ["ui.page"]`. The [NeuralDeep Setup example](../../examples/extensions/neuraldeep-onboarding/main.js) is an onboarding dialog of the same shape: it asks for a key, shows where to get one, and writes the `neuraldeep` provider and its `neuraldeep/qwen3.6-35b-a3b` model through `coddy.config.set`. From `examples/extensions/theme-lab`, package it with the following command.
+`coddy.theme.parseColor(value)` turns hex, rgb(a), hsl(a), `color(srgb)`, `oklch` and computed browser colours into `{h, s, l}`, including tokens written with `var()` or `color-mix()`. `coddy.theme.formatColor(hsl)` returns a CSS colour accepted by `override()`, so an extension does not need its own colour parser.
+
+The [Theme Lab example](../../examples/extensions/theme-lab/main.js) opens a slide-over panel with hue, saturation and lightness sliders that shift every colour token of the theme at once and a colour input per token, repainting the app in real time; its manifest declares `"permissions": ["ui.page"]`. The [NeuralDeep Setup example](../../examples/extensions/neuraldeep-onboarding/main.js) is an onboarding dialog of the same shape: it asks for a key, shows where to get one, and writes the `neuraldeep` provider and its `neuraldeep/qwen3.6-35b-a3b` model through `coddy.providers.upsert`, preserving every other provider field and using one transaction. From `examples/extensions/theme-lab`, package it with the following command.
 
 ```sh
 python -m zipfile -c theme-lab.zip manifest.json main.js style.css
@@ -389,11 +400,11 @@ Registered fields appear below the existing section controls, grouped under the 
 
 An extension can own a section of its own: `coddy.settings.registerSection({id, title, weight?, mount?})` returns an update/remove handle. The id follows the field-id pattern and the title is required. The section renders after the host's sections, and `weight` orders it among the extension sections. `mount(element, api)` draws free content above the section's fields. A field of the same extension may name the section in `section`; a field of another extension may not.
 
-The tab list itself can be rewritten before it draws: `coddy.settings.alterSections(fn)` registers a pass that receives the frozen descriptors of every tab - the host's and the extensions', `{id, label, kind}` - and returns the new list. Dropping a tab hides it, returning a different `label` retitles it, and the order of the list is the order of the nav. Passes run in registration order, and a pass that throws loses only its own say. A manifest that declares permissions must name `ui.alter` in `permissions` to register a pass; the same handle removes it.
+Targeted operations keep unrelated host rows stable. `coddy.settings.renameRow(section, id, label)` changes only the named row's title: it does not reorder the section, and a row added by a later Coddy release keeps the host's chosen position. The form and its search index apply the same rename.
 
-Rows inside a schema-driven section follow the same pipeline through `coddy.settings.alterRows(fn)`. Each pass receives the section id and frozen row descriptors. Omitting a row or returning `visible: false` hides its whole subtree, a new `label` retitles it, and array order reorders siblings without changing their configuration paths. The form and the search index consume one ordered plan, so hidden rows are not searchable and retitles agree in both places. Nested objects, list-item fields and group membership are preserved, as are values and unsaved edits. Hand-drawn landmark blocks join the same plan within their declared `before` or `after` slot; a pass never moves one across the generated form. Arbitrary DOM mounted by an extension-owned section stays outside, while declarative blocks registered through `registerBlock` participate.
+Whole-list transforms live under `coddy.experimental.settings.alterSections(fn)` and `alterRows(fn)`. They can hide, retitle and reorder sections and rows and require `ui.alter`. Built-in examples do not use them. `coddy.ui.resetComposerControls()` is the separate explicit takeover for an interface that wants to replace every composer button; it hides host and other extensions' controls until its handle is removed.
 
-A special block is declared with `coddy.settings.registerBlock({id, section, title, description?, match?, mount})`. Its `match(context)` receives the section id, the open row's name (or `null` outside a row form) and sanitized row metadata; credential and environment fields are stripped. The same context reaches `mount(element, api, context)`, so one registration can appear only for a provider of a chosen type. Mount is synchronous: start asynchronous work inside it and return a cleanup function. The block joins the host's landmark plan and `alterRows`, including search, retitling, hiding and slot-local reorder.
+A special block is declared with `coddy.settings.registerBlock({id, section, title, description?, match?, mount})`. Its `match(context)` receives the section id, the open row's name (or `null` outside a row form) and sanitized row metadata; credential and environment fields are stripped. The same context reaches `mount(element, api, context)`, so one registration can appear only for a provider of a chosen type. Mount is synchronous: start asynchronous work inside it and return a cleanup function. Declarative blocks join the host's landmark plan and experimental row alters, including search.
 
 A field may draw itself: `type: "component"` takes `mount(element, api, state)` instead of a scalar type, where `state` is a frozen `{value, setValue}` of the ordinary scalar value. A component field edits the same configuration draft and persists like any other field - its values are ordinary scalars in `extension_values` - and `default` is optional.
 
@@ -497,7 +508,9 @@ python -m zipfile -c local-api.zip manifest.json main.js
 
 *Package approval, browser activation, the incoming payload chain and server-side HTTP requests.*
 
-Register a processor to inspect, rewrite or enrich incoming SSE payloads. The chain runs for fresh responses and for the composer relay when you follow or resume a turn. It also processes the last payload if the connection ends without a blank line.
+Use `coddy.stream.transformText({id, transform})` for assistant text. It receives only text deltas of supported chat protocols, including unnamed Chat Completions chunks and `response.output_text.delta`, and leaves every other frame and payload field untouched. The Stream tools example uses this semantic API rather than parsing SSE.
+
+Register a raw processor with `coddy.stream.registerIncoming({id, transform})` only when you need the transport payload itself. The chain runs for fresh responses and for the composer relay when you follow or resume a turn. It also processes the last payload if the connection ends without a blank line.
 
 Before reading a turn stream, the browser waits for its initial extension load for up to 11 seconds. If loading fails or exceeds that bound, the reader continues with the processors registered so far. Frames already consumed are not replayed to extensions that activate later.
 
@@ -569,13 +582,13 @@ These seven ship as `coddy.sessions` in this build; the entries below name what 
 
 ### Composer
 
-These ship as `coddy.composer`, `registerComposerControl`, `alterControls` over host and extension entries, and the fine `composer` / `composer.model` / `composer.send` anchors.
+These ship as `coddy.composer`, targeted `registerComposerControl` placement, `resetComposerControls`, experimental `alterControls`, and the fine `composer` / `composer.model` / `composer.send` anchors.
 
 - **`registerComposerControl` and chips** - buttons and selects in the composer's action rows (section 11 of the specification) - frontend;
 - **Fine anchors** - `composer`, `composer.model`, `composer.send` beside the one `composer.actions` - frontend;
 - **Draft control** - insert text and files, intercept paste and drop - frontend;
 - **The composer's model, reasoning and mode** - read and set - frontend;
-- **`coddy.ui.alterControls`** - retitle, reorder, hide or replace host controls; the `ui.alter` scope is declared for it - frontend.
+- **Targeted placement and full takeover** - `after`/`before` keeps unrelated controls in place, while `resetComposerControls()` is explicit; freeform `coddy.experimental.ui.alterControls` remains experimental - frontend.
 
 ### Navigation and surfaces
 
@@ -607,9 +620,9 @@ Surface openings and closings, window focus, unloading and the configuration swa
 
 ### Settings and configuration
 
-The tab-list and row alters, both catalogs and the configuration subscription ship as `coddy.settings.alterSections`, `coddy.settings.alterRows`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; arbitrary extension-mounted section DOM remains outside row alteration, while declarative `registerBlock` contributions join it.
+Targeted row renames, experimental tab-list and row alters, both catalogs and the configuration subscription ship as `coddy.settings.renameRow`, `coddy.experimental.settings.alterSections`, `alterRows`, `coddy.models.list()`, `coddy.providers` and the `configReloaded` event; declarative `registerBlock` contributions join the same plan.
 
-- **Settings alter** - hide, retitle or reorder sections and rows (`ui.alter`): tabs, schema-driven rows and declared landmark blocks ship; arbitrary extension-mounted section DOM remains - frontend;
+- **Settings changes** - targeted `renameRow` preserves the host's order; whole-list section and row transforms are experimental (`ui.alter`) - frontend;
 - **Complex field types** - lists and objects in the settings form - frontend, plus host persistence for non-scalar values;
 - **Secrets** - a write-only store for keys; the configuration is ordinary readable configuration today - host;
 - **The model and provider catalog** - both ship as `coddy.models.list()` and `coddy.providers` - frontend;
@@ -648,7 +661,7 @@ Each of these lands with the phase of the specification that owns it. The fronte
 ## Known limitations
 
 - `ext_frame` rows are live only. They are never persisted, and a later history read replaces them with the original data.
-- The host channel answers `host.capabilities()` with the manifest permissions this build honours, and today that is `ui.page` alone. The sessions and messages host API lands on the same object later.
+- `host.capabilities()` names honoured manifest permissions, while `host.info()` reports the SDK and Coddy versions and the feature contract. Compatibility checks run before module import.
 - A declared `permissions` list is vocabulary, not enforcement: every scope, `ui.alter` included, is declared but not yet checked, and enablement stays the authority gate. `ide.actions` is reserved for an IDE action bridge that no build honours yet.
 - One panel is open at a time, whatever extension owns it.
 - An anchor box is an empty div the host keeps at a named place, and the host mounts it only while its surface is open: `ui.anchor(name)` is `null` otherwise, and `ui.onAnchor` is how an extension waits for one.

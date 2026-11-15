@@ -58,6 +58,10 @@ type WindowControl interface {
 	BeginMove(x, y int) error
 	// MoveBy puts the window that far from where BeginMove found it.
 	MoveBy(dx, dy int) error
+	// BeginResize remembers the geometry an edge drag is measured from.
+	BeginResize() error
+	// ResizeBy resizes from that geometry in an edge or corner direction.
+	ResizeBy(direction string, dx, dy int) error
 	// WaitForWindow blocks until the window is on the display, or the bound
 	// passes. A window that never appears is not an error.
 	WaitForWindow(bound time.Duration) bool
@@ -401,8 +405,12 @@ func TabFolder(raw string) (string, error) {
 // with no gesture behind it is refused, and the page waits for the start to be
 // answered before it sends one.
 type dragGesture struct {
-	mu   sync.Mutex
-	open bool
+	// operation keeps an accepted resize or move ordered with the requests
+	// behind it, including move-end. HTTP handlers run concurrently even when
+	// the page sends its requests in order.
+	operation sync.Mutex
+	mu        sync.Mutex
+	open      bool
 }
 
 func (g *dragGesture) begin() {
@@ -446,13 +454,19 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 		return
 	}
 	var body struct {
-		Action string `json:"action"`
-		X      int    `json:"x"`
-		Y      int    `json:"y"`
+		Action    string `json:"action"`
+		Direction string `json:"direction"`
+		X         int    `json:"x"`
+		Y         int    `json:"y"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
 		http.Error(w, "a window action is a small JSON object", http.StatusBadRequest)
 		return
+	}
+	switch body.Action {
+	case "move-begin", "move-by", "resize-begin", "resize-by", "move-end":
+		drag.operation.Lock()
+		defer drag.operation.Unlock()
 	}
 	var err error
 	switch body.Action {
@@ -478,6 +492,16 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 			return
 		}
 		err = ctl.MoveBy(body.X, body.Y)
+	case "resize-begin":
+		if err = ctl.BeginResize(); err == nil {
+			drag.begin()
+		}
+	case "resize-by":
+		if !drag.under() {
+			http.Error(w, "no drag of the bar has begun", http.StatusConflict)
+			return
+		}
+		err = ctl.ResizeBy(body.Direction, body.X, body.Y)
 	case "move-end":
 		drag.end()
 	case "decorate":

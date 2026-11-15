@@ -37,7 +37,8 @@ export function activate(coddy) {
     failed: "Could not write the configuration: ",
     proxyTitle: "Corporate proxy (optional)",
     proxy: "Proxy address",
-    proxyHint: "host:port or a full URL - written to the provider's proxy setting.",
+    proxyHint:
+      "host:port or a full URL - written to the provider's proxy setting.",
     proxyUser: "Proxy login",
     proxyPass: "Proxy password",
   });
@@ -58,7 +59,8 @@ export function activate(coddy) {
     failed: "Не удалось записать конфигурацию: ",
     proxyTitle: "Корпоративный прокси (необязательно)",
     proxy: "Адрес прокси",
-    proxyHint: "host:port или полный URL - запишется в настройку proxy провайдера.",
+    proxyHint:
+      "host:port или полный URL - запишется в настройку proxy провайдера.",
     proxyUser: "Логин прокси",
     proxyPass: "Пароль прокси",
   });
@@ -145,32 +147,18 @@ export function activate(coddy) {
             }
             create.disabled = true;
             status.textContent = coddy.i18n.t("working");
-            coddy.config
-              .get("providers")
-              .then((providers) => {
-                const rows = Array.isArray(providers) ? providers : [];
-                const existing = rows.findIndex(
-                  (row) => row && (row.name === PROVIDER || row.type === TYPE),
-                );
-                const row = { name: PROVIDER, type: TYPE, api_key: key };
-                const proxy = composeProxy(
-                  proxyInput.value,
-                  proxyUser.value,
-                  proxyPass.value,
-                );
-                if (proxy) row.proxy = proxy;
-                return coddy.config.set(
-                  existing >= 0 ? "providers." + existing : "providers.+",
-                  row,
-                );
-              })
-              .then(() => coddy.config.get("models"))
-              .then((models) => {
-                const rows = Array.isArray(models) ? models : [];
-                const has = rows.some((row) => row && row.model === MODEL);
-                return has
-                  ? null
-                  : coddy.config.set("models.+", { model: MODEL });
+            const proxy = composeProxy(
+              proxyInput.value,
+              proxyUser.value,
+              proxyPass.value,
+            );
+            coddy.providers
+              .upsert({
+                name: PROVIDER,
+                type: TYPE,
+                api_key: key,
+                ...(proxy ? { proxy } : {}),
+                models: [{ model: MODEL }],
               })
               .then(() => {
                 status.textContent = coddy.i18n.t("ready");
@@ -222,14 +210,11 @@ export function activate(coddy) {
   };
 
   const ready = () =>
-    coddy.config
-      .get("providers")
-      .then((providers) => {
-        const rows = Array.isArray(providers) ? providers : [];
-        return rows.some(
-          (row) => row && (row.name === PROVIDER || row.type === TYPE),
-        );
-      })
+    coddy.providers
+      .list()
+      .then((rows) =>
+        rows.some((row) => row.name === PROVIDER || row.type === TYPE),
+      )
       .catch(() => true);
 
   ready().then((hasProvider) => {

@@ -117,8 +117,12 @@ func TestConfigureCoddyNamesOnlyRealKeys(t *testing.T) {
 		}
 	}
 	collect(schema)
-	for _, def := range tools.NewRegistryFor(nil).AllToolDefinitions() {
-		known[def.Name] = true
+	// Every built-in name this build can offer, the ones a switch leaves out
+	// of a default registry included (the scheduler's, the browser's, the
+	// publishing tools): the skill describes the whole surface, not the
+	// tools one configuration happens to register.
+	for _, name := range tools.KnownToolNames() {
+		known[name] = true
 	}
 	// Names that are real but not config keys: the permission modes (a
 	// session's, chosen on a surface, not in config.yaml) and the

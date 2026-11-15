@@ -17,7 +17,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/providerpreset"
 )
@@ -568,5 +570,80 @@ func TestKimiCatalogCanonicalDefaultsAndUnknownCapabilities(t *testing.T) {
 	cmds, _ = providerSetupCommands(&config.Config{}, run, "kimi/selected", listed)
 	if len(cmds) != 0 {
 		t.Fatalf("invalid region accepted: %v", cmds)
+	}
+}
+
+func TestProviderSetupPasteStaysInTheValuePrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefill, body, want, submittedWant string
+	}{
+		{"API key", "", "sk-pasted", "sk-pasted", "sk-pasted"},
+		{"API key with newline", "", "sk-pasted\r\n", "sk-pasted\n", "sk-pasted"},
+		{"API base URL", "https://", "example.test/v1", "https://example.test/v1", "https://example.test/v1"},
+		{"command", "", "provider --acp", "provider --acp", "provider --acp"},
+		{"model", "", "deepseek/model", "deepseek/model", "deepseek/model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newValuePromptModal(newTheme("dark"), tc.name, "", tc.prefill, func() {})
+			a := &App{modal: m, editor: tui.NewEditor(nil, tui.EditorTheme{}, 0)}
+			a.editor.SetText("unsent prompt")
+			submitted := false
+			m.OnDone = func(text string, ok bool) {
+				submitted = true
+				if !ok || text != tc.submittedWant {
+					t.Fatalf("answer = %q, confirmed = %v; want %q", text, ok, tc.submittedWant)
+				}
+			}
+			a.handlePaste([]byte(tc.body))
+			if got := m.editor.Text(); got != tc.want {
+				t.Fatalf("value prompt = %q, want %q", got, tc.want)
+			}
+			if submitted {
+				t.Fatal("paste submitted the value before confirmation")
+			}
+			if got := a.editor.Text(); got != "unsent prompt" {
+				t.Fatalf("paste changed the hidden prompt: %q", got)
+			}
+			m.HandleInput([]byte("\r"))
+			if !submitted {
+				t.Fatal("enter did not submit the pasted value")
+			}
+		})
+	}
+}
+
+// TestPasteReachesOnlyAModalThatTakesText holds the routing itself: the modals
+// with a text field take a paste because they implement pasteTarget, and one
+// without a field drops it rather than letting it reach the editor behind the
+// modal.
+func TestPasteReachesOnlyAModalThatTakesText(t *testing.T) {
+	th := newTheme("dark")
+	lib, err := docs.Default()
+	if err != nil {
+		t.Fatalf("docs library: %v", err)
+	}
+	takesText := map[string]tui.Component{
+		"value prompt": newValuePromptModal(th, "API key", "", "", func() {}),
+		"question": newQuestionModal(th, acp.QuestionRequestParams{
+			SessionID: "sess_paste",
+			RequestID: "q_paste",
+			Questions: []acp.QuestionPrompt{{Question: "which?"}},
+		}, nil),
+		"docs": newDocsModal(lib, th, tui.MarkdownTheme{}, func() int { return 24 }, func() {}),
+	}
+	for name, m := range takesText {
+		if _, ok := m.(pasteTarget); !ok {
+			t.Errorf("the %s modal takes text but no paste: it does not implement pasteTarget", name)
+		}
+	}
+	selector := newSelectorModal(th, "providers", []tui.SelectItem{{Value: "openai", Label: "OpenAI"}}, 5, func() {})
+	if _, ok := any(selector).(pasteTarget); ok {
+		t.Fatal("a selector has no text field, so it must not implement pasteTarget")
+	}
+	a := &App{modal: selector, editor: tui.NewEditor(nil, tui.EditorTheme{}, 0)}
+	a.editor.SetText("unsent prompt")
+	a.handlePaste([]byte("sk-pasted"))
+	if got := a.editor.Text(); got != "unsent prompt" {
+		t.Fatalf("a paste leaked past a modal into the editor: %q", got)
 	}
 }

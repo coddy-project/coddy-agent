@@ -176,6 +176,10 @@ export function statusKeyForTool(toolName: string): string {
       return "status.webFetch";
     case "preview_server":
       return "status.previewServer";
+    case "preview_publish":
+      return "status.previewPublish";
+    case "preview_unpublish":
+      return "status.previewUnpublish";
     case "http_request":
       return "status.httpRequest";
     case "load_skill":

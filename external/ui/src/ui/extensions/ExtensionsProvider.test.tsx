@@ -59,6 +59,44 @@ test("a poll that finds the same packages does not re-render the context", async
   expect(renders).toBe(settled);
 });
 
+test("an unsupported package never installs its styles or module", async () => {
+  const unsupported = {
+    ...installed,
+    enabled: true,
+    required_features: ["future.feature"],
+    ui: { entry: "main.js", styles: ["main.css"] },
+  };
+  const fetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/coddy/info")) {
+        return Response.json({ version: "1.4.23" });
+      }
+      if (url === "/coddy/extensions") {
+        return Response.json({ items: [unsupported] });
+      }
+      return new Response("export function activate() {}");
+    });
+  let runtime!: ExtensionRuntime;
+  function Consumer() {
+    runtime = useExtensions()!.runtime;
+    return null;
+  }
+  render(
+    <ExtensionsProvider>
+      <Consumer />
+    </ExtensionsProvider>,
+  );
+  await waitFor(() =>
+    expect(runtime.snapshot().errors.demo).toMatch(/future\.feature/),
+  );
+  expect(document.querySelector("style[data-ext=demo]")).toBeNull();
+  expect(
+    fetchSpy.mock.calls.some(([url]) => String(url).includes("main.")),
+  ).toBe(false);
+});
+
 test("an explicit refresh is the one that asks for the failed again", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(
     async () =>

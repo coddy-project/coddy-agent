@@ -113,7 +113,7 @@ func (m *Manager) continueGoalChain(st *State, done GoalState, verifyRan bool, u
 		m.goalChainNotice(st, "Goal chain stopped: "+err.Error())
 		return
 	}
-	res, err := m.newSession(context.Background(), acp.SessionNewParams{CWD: st.GetCWD()}, "", "")
+	res, err := m.newSession(context.Background(), acp.SessionNewParams{CWD: st.GetCWD()}, "", "", "")
 	var ns *State
 	if err == nil {
 		if ns = m.getSession(res.SessionID); ns == nil {

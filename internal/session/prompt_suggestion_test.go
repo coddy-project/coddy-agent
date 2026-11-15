@@ -1,0 +1,388 @@
+package session
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+)
+
+func newSuggestionTestManager(t *testing.T, respond func(http.ResponseWriter, *http.Request)) (*Manager, *State, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		calls.Add(1)
+		respond(w, r)
+	}))
+	t.Cleanup(server.Close)
+	zero := 0
+	blocking := false
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "p", Type: "openai", APIBase: server.URL, APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "p/test", Stream: &blocking}},
+		Agent:     config.Agent{Model: "p/test", LLMRetryMax: &zero},
+	}
+	st := &State{ID: "sess_suggestion"}
+	for _, text := range []string{"fix the bug", "fixed the bug", "add a test", "added the test"} {
+		role := llm.RoleUser
+		if len(st.GetMessages())%2 == 1 {
+			role = llm.RoleAssistant
+		}
+		st.AddMessage(llm.Message{Role: role, Content: text})
+	}
+	m := &Manager{sessions: map[string]*State{st.ID: st}}
+	m.cfgAt.Store(cfg)
+	setSuggestionTestFork(t, m, st)
+	return m, st, &calls
+}
+
+func setSuggestionTestFork(t *testing.T, m *Manager, st *State) {
+	t.Helper()
+	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"}}, MessagesForLLM(st.GetMessages())...)
+	st.SetPromptSuggestionFork(PromptSuggestionFork{Messages: messages, Tools: []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}, Input: suggestionTestInput(t, m)})
+}
+
+// suggestionTestInput stands in for what a turn stores on the fork: the input
+// its provider was built from, which the side call re-issues.
+func suggestionTestInput(t *testing.T, m *Manager) llm.ProviderInput {
+	t.Helper()
+	cfg := m.activeCfg()
+	rm, err := cfg.ResolveLLM(cfg.Agent.Model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return llm.ProviderInput{
+		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
+		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
+		MaxTokens: rm.MaxTokens, DisableStream: !rm.Stream, RetryDisabled: true,
+	}
+}
+
+func answerSuggestion(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "run the tests"}, "finish_reason": "stop"}},
+	})
+}
+
+func TestPromptSuggestionCanceledCallDoesNotCacheNextRevision(t *testing.T) {
+	started := make(chan struct{})
+	m, st, calls := newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-started:
+			answerSuggestion(w, r)
+		default:
+			close(started)
+			<-r.Context().Done()
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		_, _ = m.GeneratePromptSuggestion(ctx, st.ID)
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	m.CancelPromptSuggestion(st.ID)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check another file"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "checked it"})
+	setSuggestionTestFork(t, m, st)
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	text, err := m.GeneratePromptSuggestion(ctx, st.ID)
+	if err != nil || text != "run the tests" || calls.Load() != 2 {
+		t.Fatalf("next revision: text=%q err=%v calls=%d", text, err, calls.Load())
+	}
+}
+
+func TestPromptSuggestionFailedCallCanRetry(t *testing.T) {
+	var failed atomic.Bool
+	m, st, calls := newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+		if !failed.Swap(true) {
+			http.Error(w, "temporary failure", http.StatusBadRequest)
+			return
+		}
+		answerSuggestion(w, r)
+	})
+	if _, err := m.GeneratePromptSuggestion(context.Background(), st.ID); err == nil {
+		t.Fatal("expected provider failure")
+	}
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if err != nil || text != "run the tests" || calls.Load() != 2 {
+		t.Fatalf("retry: text=%q err=%v calls=%d", text, err, calls.Load())
+	}
+}
+
+func TestPromptSuggestionConcurrentReadersShareCall(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	m, st, calls := newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		select {
+		case <-release:
+			answerSuggestion(w, r)
+		case <-r.Context().Done():
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	firstCtx, cancelFirst := context.WithCancel(ctx)
+	defer cancelFirst()
+	first := make(chan error, 1)
+	go func() { _, err := m.GeneratePromptSuggestion(firstCtx, st.ID); first <- err }()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	second := make(chan string, 1)
+	go func() {
+		text, _ := m.GeneratePromptSuggestion(ctx, st.ID)
+		second <- text
+	}()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		m.promptSuggestionSide.mu.Lock()
+		call := m.promptSuggestionSide.call[st.ID]
+		ready := call != nil && call.waiters == 2
+		m.promptSuggestionSide.mu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal("the readers did not join the same call")
+		}
+	}
+	cancelFirst()
+	if err := <-first; err != context.Canceled {
+		t.Fatalf("first reader: %v", err)
+	}
+	once.Do(func() { close(release) })
+	if text := <-second; text != "run the tests" || calls.Load() != 1 {
+		t.Fatalf("second reader: %q, provider calls %d", text, calls.Load())
+	}
+}
+
+func TestPromptSuggestionDisableRetiresCachedAnswer(t *testing.T) {
+	m, st, calls := newSuggestionTestManager(t, answerSuggestion)
+	if _, err := m.GeneratePromptSuggestion(context.Background(), st.ID); err != nil {
+		t.Fatal(err)
+	}
+	next := *m.activeCfg()
+	off := false
+	next.Agent.PromptSuggestions = &off
+	m.cfgAt.Store(&next)
+	m.resetPromptSuggestions()
+	if text, err := m.GeneratePromptSuggestion(context.Background(), st.ID); text != "" || !IsPromptSuggestionSuppressed(err) {
+		t.Fatalf("disabled suggestion: %q, %v", text, err)
+	}
+	m.NotePromptSuggestionOutcome(st.ID, false)
+	if state := (&promptSuggestionStore{home: next.Paths.Home}).load(); state.UnusedStreak != 0 {
+		t.Fatalf("disabled feature recorded an outcome: %+v", state)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("disabled feature called the model: %d", calls.Load())
+	}
+}
+
+func TestValidatePromptSuggestionAcceptsPlainLines(t *testing.T) {
+	for _, in := range []string{
+		"run the tests",
+		"yes",
+		"да",
+		"продолжай",
+		"push it",
+		"/resume",
+		"  try it out  ",
+		"<suggestion>commit this</suggestion>",
+		"Suggested response: run the tests",
+	} {
+		if got, category := ValidatePromptSuggestion(in); category != "" {
+			t.Errorf("ValidatePromptSuggestion(%q) refused with %q (got %q)", in, category, got)
+		}
+	}
+}
+
+func TestValidatePromptSuggestionRefusesCategories(t *testing.T) {
+	cases := []struct {
+		in       string
+		category string
+	}{
+		{"done", "done"},
+		{"Nothing to suggest here", "meta_text"},
+		{"Silence is golden", "meta_text"},
+		{"(nothing here)", "meta_wrapped"},
+		{"［nothing here］", "meta_wrapped"},
+		{"〔nothing here〕", "meta_wrapped"},
+		{"api error: boom", "error_message"},
+		{"Label: run the tests", "prefixed_label"},
+		{"run", "too_few_words"},
+		{"one two three four five six seven eight nine ten eleven twelve thirteen", "too_many_words"},
+		// 2 words, but past the length cap: the length is checked after the
+		// word count, like Claude Code's order.
+		{strings.Repeat("a", 99) + " b", "too_long"},
+		{"First sentence. Second one", "multiple_sentences"},
+		{"bold *stuff*", "has_formatting"},
+		{"thanks, that works", "evaluative"},
+		{"Let me check the file", "agent_voice"},
+		{"", "empty"},
+	}
+	for _, c := range cases {
+		if _, category := ValidatePromptSuggestion(c.in); category != c.category {
+			t.Errorf("ValidatePromptSuggestion(%q) refused with %q, want %q", c.in, category, c.category)
+		}
+	}
+}
+
+func TestPromptSuggestionStateBackOff(t *testing.T) {
+	fresh := promptSuggestionState{FirstStart: time.Now().UTC().Add(-time.Hour).Format(time.RFC3339), UnusedStreak: promptSuggestionBackOffAfter}
+	if fresh.backedOff(time.Now()) {
+		t.Fatal("a fresh install never backs off, whatever the streak")
+	}
+	old := promptSuggestionState{FirstStart: time.Now().UTC().Add(-promptSuggestionGrace - time.Hour).Format(time.RFC3339)}
+	if old.backedOff(time.Now()) {
+		t.Fatal("no back-off before the streak reaches the threshold")
+	}
+	old.UnusedStreak = promptSuggestionBackOffAfter
+	if !old.backedOff(time.Now()) {
+		t.Fatal("the threshold past the grace period backs off")
+	}
+}
+
+func TestPromptSuggestionStoreRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	store := &promptSuggestionStore{home: dir}
+	store.update(func(s *promptSuggestionState) { s.UnusedStreak = 3 })
+	reloaded := (&promptSuggestionStore{home: dir}).load()
+	if reloaded.UnusedStreak != 3 || reloaded.FirstStart == "" {
+		t.Fatalf("store round trip lost the streak or the start: %+v", reloaded)
+	}
+	store.update(func(s *promptSuggestionState) { s.UnusedStreak = 0 })
+	if got := (&promptSuggestionStore{home: dir}).load().UnusedStreak; got != 0 {
+		t.Fatalf("accepted outcome resets the streak, got %d", got)
+	}
+}
+
+type suggestionRequestMessage struct {
+	Role       llm.Role `json:"role"`
+	Content    string   `json:"content"`
+	ToolCallID string   `json:"tool_call_id"`
+	ToolCalls  []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	} `json:"tool_calls"`
+}
+
+type suggestionRequest struct {
+	Messages []suggestionRequestMessage `json:"messages"`
+	Tools    []struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name        string      `json:"name"`
+			Description string      `json:"description"`
+			Parameters  interface{} `json:"parameters"`
+		} `json:"function"`
+	} `json:"tools"`
+}
+
+func validateSuggestionMainContext(captured suggestionRequest, mainContext []llm.Message) error {
+	if len(captured.Messages) != len(mainContext)+1 {
+		return fmt.Errorf("prediction holds %d messages, want %d", len(captured.Messages), len(mainContext)+1)
+	}
+	for i, want := range mainContext {
+		got := captured.Messages[i]
+		if got.Role != want.Role || got.Content != want.Content || got.ToolCallID != want.ToolCallID || len(got.ToolCalls) != len(want.ToolCalls) {
+			return fmt.Errorf("prediction message %d = %+v, want role/content/calls of %+v", i, got, want)
+		}
+		for j, call := range want.ToolCalls {
+			wire := got.ToolCalls[j]
+			if wire.ID != call.ID || wire.Function.Name != call.Name || wire.Function.Arguments != call.InputJSON {
+				return fmt.Errorf("prediction tool call %d/%d = %+v, want %+v", i, j, wire, call)
+			}
+		}
+	}
+	last := captured.Messages[len(captured.Messages)-1]
+	if last.Role != llm.RoleUser || last.Content != promptSuggestionInstruction {
+		return fmt.Errorf("prediction instruction is not the trailing user message: %+v", last)
+	}
+	return nil
+}
+
+func TestPromptSuggestionUsesMainContextFork(t *testing.T) {
+	var captured suggestionRequest
+	m, st, _ := newSuggestionTestManager(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		answerSuggestion(w, r)
+	})
+	mainContext := []llm.Message{
+		{Role: llm.RoleSystem, Content: "MAIN_SYSTEM_PROMPT"},
+		{Role: llm.RoleUser, Content: "FIRST_REQUEST_MARKER"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "read", InputJSON: `{"path":"README.md"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "call_1", Content: "TOOL_RESULT_MARKER"},
+		{Role: llm.RoleAssistant, Content: "completed the last step"},
+	}
+	tools := []llm.ToolDefinition{{Name: "read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}}
+	st.ReplaceMessagesWithoutPersist(mainContext[1:])
+	st.SetPromptSuggestionFork(PromptSuggestionFork{Messages: mainContext, Tools: tools, Input: suggestionTestInput(t, m)})
+
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if err != nil || text != "run the tests" {
+		t.Fatalf("suggestion = %q, %v", text, err)
+	}
+	if err := validateSuggestionMainContext(captured, mainContext); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != tools[0].Name || captured.Tools[0].Function.Description != tools[0].Description || !reflect.DeepEqual(captured.Tools[0].Function.Parameters, tools[0].InputSchema) {
+		t.Fatalf("prediction tools = %#v, want %#v", captured.Tools, tools)
+	}
+}
+
+func TestPromptSuggestionRefusesStaleFork(t *testing.T) {
+	m, st, calls := newSuggestionTestManager(t, answerSuggestion)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "a newer message"})
+	text, err := m.GeneratePromptSuggestion(context.Background(), st.ID)
+	if text != "" || !IsPromptSuggestionSuppressed(err) {
+		t.Fatalf("stale fork: text=%q err=%v", text, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("stale fork reached the provider %d times", calls.Load())
+	}
+}

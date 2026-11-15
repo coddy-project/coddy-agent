@@ -155,11 +155,12 @@ func (p *opencodeGoogleProvider) Stream(ctx context.Context, messages []Message,
 	return p.generate(ctx, messages, tools, onChunk, true)
 }
 
-func (p *opencodeGoogleProvider) generate(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk), streaming bool) (*Response, error) {
+func (p *opencodeGoogleProvider) generate(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk), streaming bool) (_ *Response, retErr error) {
 	body, err := p.requestBody(messages, tools)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = withToolSchemaRequest(retErr, body, false) }()
 	method := ":generateContent"
 	if streaming {
 		method = ":streamGenerateContent?alt=sse"
@@ -178,8 +179,12 @@ func (p *opencodeGoogleProvider) generate(ctx context.Context, messages []Messag
 	}
 	defer func() { _ = raw.Body.Close() }()
 	if raw.StatusCode < 200 || raw.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(raw.Body, 512))
-		return nil, &httpStatusError{label: "opencode google", status: raw.StatusCode, header: raw.Header, body: string(snippet)}
+		snippet, _ := io.ReadAll(io.LimitReader(raw.Body, streamErrorSnippetLimit))
+		display := snippet
+		if len(display) > 512 {
+			display = display[:512]
+		}
+		return nil, &httpStatusError{label: "opencode google", status: raw.StatusCode, header: raw.Header, body: string(display), diagnostic: string(snippet)}
 	}
 	result := &Response{}
 	var parts []opencodeGooglePart

@@ -72,6 +72,13 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if sid == "" {
 		return nil, fmt.Errorf("remote: prompt needs a session id")
 	}
+	// A session the operator closed on this connection is answered the way the
+	// local agent answers one it no longer holds: the server still has it, but
+	// this client put it away, and a turn started here would be a turn nobody
+	// asked for. Loading or resuming the session brings it back.
+	if h.closedSession(sid) {
+		return nil, acp.SessionNotFound(sid)
+	}
 	st := h.session(sid)
 	h.mu.Lock()
 	mode := st.mode

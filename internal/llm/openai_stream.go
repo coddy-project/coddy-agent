@@ -150,6 +150,7 @@ func streamErrorSnippet(payload []byte) string {
 type streamServerError struct {
 	code       int
 	msg        string
+	diagnostic string
 	emitted    bool
 	retryAfter time.Duration
 }
@@ -460,8 +461,9 @@ func newStreamServerError(obj []byte, emitted bool) error {
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.
-func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
 	params := p.buildParams(messages, tools, true)
+	defer func() { retErr = withToolSchemaRequest(retErr, params, false) }()
 
 	var raw *http.Response
 	err := p.client.Post(ctx, "chat/completions", params, &raw, option.WithJSONSet("stream", true))

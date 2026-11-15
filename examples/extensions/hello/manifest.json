@@ -4,5 +4,6 @@
   "name": "Hello extension",
   "version": "1.0.0",
   "description": "A small page with HTML, CSS and a JavaScript counter.",
+  "required_features": ["ui.pages", "theme.tokens"],
   "ui": { "entry": "main.js", "styles": ["style.css"] }
 }

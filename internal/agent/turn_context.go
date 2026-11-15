@@ -46,6 +46,11 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 				sections = append(sections, section)
 			}
 		}
+		if len(a.firstPromptContext) > 0 {
+			if section := hookContextText(a.firstPromptContext); section != "" {
+				sections = append(sections, section)
+			}
+		}
 		if len(sections) == 0 {
 			return ""
 		}
@@ -72,6 +77,12 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 
 	if section := a.surfaceTurnContextSection(); section != "" {
 		parts = append(parts, section)
+	}
+
+	if len(a.firstPromptContext) > 0 {
+		if section := hookContextText(a.firstPromptContext); section != "" {
+			parts = append(parts, section)
+		}
 	}
 
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +
@@ -106,6 +117,9 @@ func (a *Agent) gitWorkspaceSection() string {
 	lines = append(lines, "Current directory: "+cwd, "Main checkout: "+info.RepoRoot)
 	if info.BaseBranch != "" {
 		lines = append(lines, "Default branch: "+info.BaseBranch)
+	}
+	if info.IsWorktree {
+		lines = append(lines, "This session is in a linked git worktree. Keep implementation work in this worktree and its feature branch; do not create or switch branches in the main checkout unless the operator explicitly asks.")
 	}
 	a.workspaceContextText = "## Git workspace\n\n" + strings.Join(lines, "\n")
 	return a.workspaceContextText

@@ -30,6 +30,7 @@ var ErrUnavailable = errors.New("extension unavailable or digest changed")
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 var filePattern = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
 var scopePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$`)
+var versionComparatorPattern = regexp.MustCompile(`^(>=|<=|>|<|=)?v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
 // The permission vocabulary is closed: a manifest only declares these scopes,
 // and until a later phase enforces them the declaration rides along with the
@@ -54,13 +55,17 @@ var knownScopes = map[string]bool{
 var locks sync.Map
 
 type Manifest struct {
-	API         int      `json:"api"`
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
-	UI          struct {
+	API              int      `json:"api"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Version          string   `json:"version"`
+	Description      string   `json:"description,omitempty"`
+	Permissions      []string `json:"permissions,omitempty"`
+	RequiredFeatures []string `json:"required_features,omitempty"`
+	Engines          struct {
+		Coddy string `json:"coddy,omitempty"`
+	} `json:"engines,omitempty"`
+	UI struct {
 		Entry        string   `json:"entry"`
 		Styles       []string `json:"styles,omitempty"`
 		CompatStyles []string `json:"compat_styles,omitempty"`
@@ -171,6 +176,42 @@ func parse(data []byte) (*bundle, error) {
 		}
 		if !knownScopes[scope] {
 			return bad("permissions must name known scopes")
+		}
+	}
+	if len(m.RequiredFeatures) > 32 {
+		return bad("too many required features")
+	}
+	for _, feature := range m.RequiredFeatures {
+		if len(feature) > 64 || !scopePattern.MatchString(feature) {
+			return bad("required_features must be dotted lowercase names")
+		}
+	}
+	var rawManifest map[string]json.RawMessage
+	if err := json.Unmarshal(b.files["manifest.json"], &rawManifest); err != nil {
+		return bad("manifest.json is missing or invalid")
+	}
+	if raw, ok := rawManifest["engines"]; ok {
+		var engines map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &engines); err != nil {
+			return bad("engines must be an object")
+		}
+		for name := range engines {
+			if name != "coddy" {
+				return bad("engines accepts only coddy")
+			}
+		}
+	}
+	if m.Engines.Coddy != "" {
+		if strings.TrimSpace(m.Engines.Coddy) == "" {
+			return bad("engines.coddy must contain semver comparisons")
+		}
+		if len(m.Engines.Coddy) > 128 {
+			return bad("engines.coddy range is too long")
+		}
+		for _, term := range strings.Fields(m.Engines.Coddy) {
+			if !versionComparatorPattern.MatchString(term) {
+				return bad("engines.coddy must contain semver comparisons")
+			}
 		}
 	}
 	if !validPath(m.UI.Entry) || !strings.HasSuffix(m.UI.Entry, ".js") || len(b.files[m.UI.Entry]) == 0 {

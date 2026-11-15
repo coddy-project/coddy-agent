@@ -1,0 +1,252 @@
+// The terminal window of a chat.
+
+@use "../abstracts" as *;
+
+/* ── Terminal window ──────────────────────────────────────────────────────
+   A window of its own over the chat, framed like the Files window and the
+   documentation reader, but small and movable: the component writes left,
+   top, width and height, and the eight grips around it resize it. Above the
+   top bar (80) and the expanded Files sheet (85), so a window the person
+   dragged there stays reachable; under the composer's menus (90), which open
+   over everything. DESIGN.md, Terminal window. */
+.terminal-panel {
+  position: fixed;
+  z-index: 86;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-family: $coddy-mono-ui;
+}
+
+/* Full screen: the stacked shell always, a desktop window the person sent
+   there. The radius goes with the frame - a corner cut against the edge of
+   the screen reads as a rendering fault. */
+.terminal-panel--full {
+  inset: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  border: 0;
+}
+
+.terminal-panel--maximized {
+  inset: 14px;
+  width: auto;
+  height: auto;
+}
+
+/* ── The grips ────────────────────────────────────────────────────────────
+   Eight bands over the window's edge, wide enough for a pointer and no wider:
+   each one drags its own edge or corner and the opposite one stays put. */
+.terminal-grip {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.terminal-grip--n,
+.terminal-grip--s {
+  left: 10px;
+  right: 10px;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.terminal-grip--e,
+.terminal-grip--w {
+  top: 10px;
+  bottom: 10px;
+  width: 7px;
+  cursor: ew-resize;
+}
+
+.terminal-grip--n {
+  top: -3px;
+}
+.terminal-grip--s {
+  bottom: -3px;
+}
+.terminal-grip--e {
+  right: -3px;
+}
+.terminal-grip--w {
+  left: -3px;
+}
+
+.terminal-grip--ne,
+.terminal-grip--nw,
+.terminal-grip--se,
+.terminal-grip--sw {
+  width: 14px;
+  height: 14px;
+}
+
+.terminal-grip--nw {
+  top: -3px;
+  left: -3px;
+  cursor: nwse-resize;
+}
+.terminal-grip--ne {
+  top: -3px;
+  right: -3px;
+  cursor: nesw-resize;
+}
+.terminal-grip--sw {
+  bottom: -3px;
+  left: -3px;
+  cursor: nesw-resize;
+}
+.terminal-grip--se {
+  bottom: -3px;
+  right: -3px;
+  cursor: nwse-resize;
+}
+
+/* ── The head ─────────────────────────────────────────────────────────────
+   The height and inset every head of a window takes, and the surface the
+   window is moved by: a press anywhere on it but a button starts the drag. */
+.terminal-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--coddy-panel-head-height);
+  padding: 0 var(--coddy-panel-head-inline);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid mix-text(6%);
+  font-family: $coddy-sans;
+  font-size: 12px;
+  touch-action: none;
+  user-select: none;
+}
+
+.terminal-panel:not(.terminal-panel--full):not(.terminal-panel--maximized)
+  .terminal-head {
+  cursor: move;
+}
+
+.terminal-title-row,
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.terminal-title-row strong {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: mix-text(72%);
+}
+
+.terminal-status {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: mix-text(38%);
+}
+
+.terminal-status[data-running="true"] {
+  background: #34c759;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #34c759 20%, transparent);
+}
+
+.terminal-shell {
+  min-width: 0;
+  overflow: hidden;
+  color: mix-text(52%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The controls brighten on hover and while pressed, as every window's do; the
+   accent is kept for work in flight elsewhere in the chat. */
+.terminal-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid mix-text(12%);
+  border-radius: 8px;
+  background: mix-text(5%);
+  color: mix-text(78%);
+  font: inherit;
+  cursor: pointer;
+}
+
+.terminal-actions button:hover,
+.terminal-actions button[aria-pressed="true"] {
+  border-color: mix-text(22%);
+  background: mix-text(9%);
+  color: var(--text);
+}
+
+.terminal-actions .terminal-icon-btn {
+  width: 28px;
+  padding: 0;
+}
+
+.terminal-output {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  color: mix-text(88%);
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-input-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid mix-text(6%);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--accent);
+}
+
+.terminal-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.terminal-error {
+  flex: none;
+  padding: 5px 12px;
+  color: #ff453a;
+  background: color-mix(in srgb, #ff453a 14%, transparent);
+  font-size: 11px;
+}
+
+/* A text field under 16px makes iOS Safari zoom into it and stay zoomed. */
+@media (max-width: 599px) {
+  .terminal-input-row input {
+    font-size: 16px;
+  }
+}

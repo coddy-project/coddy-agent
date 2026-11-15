@@ -90,7 +90,9 @@ jobs:
           TAG="${{ steps.git_tag.outputs.tag }}"
           git fetch origin main --tags
           TAG_SHA="$(git rev-parse "${TAG}^{commit}")"
+          echo "sha=${TAG_SHA}" >> "$GITHUB_OUTPUT"
           if git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            git checkout --force "$TAG_SHA"
             echo "Tag ${TAG} is on main."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
@@ -126,7 +128,6 @@ jobs:
           set -euo pipefail
           DIST="${GITHUB_WORKSPACE}/dist"
           LDFLAGS="-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}"
-          rm -rf "$DIST"
           mkdir -p "$DIST"
 
           build_target() {
@@ -156,10 +157,10 @@ jobs:
             if [ "$goos" = "windows" ]; then
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
-              # The macOS archives are what the Homebrew cask installs, so the
-              # man page and the completions travel beside the binary. The
-              # install script and `coddy update` take all four out by name,
-              # so a member added here is invisible to them until they ask.
+              # Every archive but Windows', which the install script, the
+              # Homebrew cask and `coddy update` take all four files out of by
+              # name, so a member added here is invisible to them until they
+              # ask.
               cp packaging/man/coddy.1 "$bindir/coddy.1"
               cp packaging/completions/coddy.bash "$bindir/coddy.bash"
               cp packaging/completions/coddy.zsh "$bindir/coddy.zsh"
@@ -169,6 +170,17 @@ jobs:
 
           build_target linux amd64
           build_target linux arm64
+          # macOS. The window of `coddy desktop` reaches Cocoa and WebKit
+          # through the Objective-C runtime rather than a C bridge, so these
+          # cross-compile here like every other target: no macOS runner, no
+          # Xcode Command Line Tools, and one job builds the whole release.
+          build_target darwin arm64
+          build_target darwin amd64
+          # FreeBSD. Pure Go like the Linux targets: the BSD halves of
+          # internal/platform and internal/localipc are build-constrained
+          # source files, not cgo, so there is nothing to install here.
+          build_target freebsd amd64
+          build_target freebsd arm64
           # Termux on Android. GOOS=android with cgo makes the position-
           # independent executable the Android system linker loads; the static
           # linux build above is refused by it (`has unexpected e_type: 2`)
@@ -176,8 +188,6 @@ jobs:
           build_target android arm64
           build_target android amd64
           build_target windows amd64
-          build_target darwin amd64
-          build_target darwin arm64
 
           # The deb and rpm wrap the Linux binaries built above rather than
           # compiling their own: packaging must not double the slowest step of

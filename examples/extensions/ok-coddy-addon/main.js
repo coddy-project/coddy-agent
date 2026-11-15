@@ -18,16 +18,7 @@ export function activate(coddy) {
       button.textContent = coddy.i18n.t("trick");
       button.addEventListener(
         "click",
-        () => {
-          const duck = document.querySelector(".ok-duck");
-          if (duck) {
-            duck.classList.remove(
-              ...[...duck.classList].filter((c) => c.indexOf("trick-") === 0),
-            );
-            void duck.offsetWidth;
-            duck.classList.add("trick-dance");
-          }
-        },
+        () => coddy.hooks.invoke("ok-coddy/tricks", { name: "disco" }),
         { signal: coddy.signal },
       );
       element.append(button);
@@ -43,11 +34,11 @@ export function activate(coddy) {
       element.append(line);
     },
   });
-  // A control in the composer's pick strip, and an alter pass over the
-  // assembled control list - the declare-then-alter pipeline.
+  // A targeted control: the host keeps every other control in its own order.
   const control = coddy.ui.registerComposerControl({
     id: "disco-quick",
     placement: "tabs",
+    after: "host/model",
     title: "Disco",
     mount(element) {
       const button = document.createElement("button");
@@ -56,47 +47,19 @@ export function activate(coddy) {
       button.textContent = coddy.i18n.t("trick");
       button.addEventListener(
         "click",
-        () => {
-          const duck = document.querySelector(".ok-duck");
-          if (duck) {
-            duck.classList.remove(
-              ...[...duck.classList].filter((c) => c.indexOf("trick-") === 0),
-            );
-            void duck.offsetWidth;
-            duck.classList.add("trick-dance");
-          }
-        },
+        () => coddy.hooks.invoke("ok-coddy/tricks", { name: "disco" }),
         { signal: coddy.signal },
       );
       element.append(button);
     },
   });
-  const alter = coddy.ui.alterControls((controls) => {
-    const rank = (row) =>
-      row.key === "host/mode"
-        ? 0
-        : row.key === "host/model"
-          ? 1
-          : row.key === "host/reasoning"
-            ? 2
-            : 10;
-    return controls
-      .map((row) =>
-        row.id === "disco-quick" ? { ...row, title: "Disco trick" } : row,
-      )
-      .sort((a, b) => rank(a) - rank(b));
-  });
-  const rowAlter = coddy.settings.alterRows((rows, { section }) => {
-    if (section !== "appearance") return rows;
-    return rows
-      .map((row) =>
-        row.id === "language" ? { ...row, label: "Interface language" } : row,
-      )
-      .reverse();
-  });
+  const rowRename = coddy.settings.renameRow(
+    "appearance",
+    "language",
+    "Interface language",
+  );
   return () => {
-    rowAlter.remove();
-    alter.remove();
+    rowRename.remove();
     control.remove();
     tricks.remove();
     footer.remove();

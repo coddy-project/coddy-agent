@@ -14,9 +14,12 @@ Make a folder with `manifest.json` and `main.js`. The complete files are in [exa
   "id": "first-extension",
   "name": "My first extension",
   "version": "1.0.0",
+  "required_features": ["ui.pages"],
   "ui": { "entry": "main.js" }
 }
 ```
+
+`required_features` tells Coddy which stable API this package needs. `engines.coddy` can add a range such as `>=1.4.23 <2.0.0`; both are checked before any module code runs. `coddy.host.info()` reports the same feature list to the extension, and `examples/extensions/manifest.schema.json` describes the manifest.
 
 `main.js` exports the function Coddy calls after you approve the package.
 

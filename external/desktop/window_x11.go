@@ -1,4 +1,4 @@
-//go:build desktop && linux && !android
+//go:build desktop && ((linux && !android) || freebsd)
 
 package desktop
 
@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,8 +25,8 @@ import (
 // compositor to move or undecorate somebody else's surface at all, by design.
 // A Wayland session therefore keeps the system frame, which is what
 // Supported() reports, and the window around the tab strip is an ordinary
-// decorated window. The native window of the desktop.native tag is what closes
-// that gap, because there the window is this process's own.
+// decorated window. The native macOS window is what closes that gap, because
+// there the window is this process's own.
 
 var errWindowUnsupported = errors.New("desktop: this session cannot be asked to change the window")
 
@@ -60,8 +58,8 @@ type x11Control struct {
 
 	// mu guards where a drag started from, which the page sets once and then
 	// measures every move against.
-	mu               sync.Mutex
-	originX, originY int
+	mu                                 sync.Mutex
+	originX, originY, originW, originH int
 }
 
 // newWindowControl answers the control for this session. A session that is not
@@ -119,29 +117,10 @@ func (c *x11Control) ours(pid int) bool {
 	return false
 }
 
-// parentOf reads a process's parent out of /proc. The field is the fourth of
-// stat, after the executable name, which is in brackets and may itself hold
-// spaces or brackets - so the line is read from its last bracket on.
-func parentOf(pid int) (int, bool) {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0, false
-	}
-	line := string(b)
-	i := strings.LastIndex(line, ")")
-	if i < 0 {
-		return 0, false
-	}
-	fields := strings.Fields(line[i+1:])
-	if len(fields) < 2 {
-		return 0, false
-	}
-	parent, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return 0, false
-	}
-	return parent, true
-}
+// parentOf answers a process's parent, and lives per platform beside this
+// file: Linux reads /proc, which FreeBSD does not mount by default and
+// answers with a sysctl instead. Neither failure is fatal - a parent that
+// cannot be read ends the walk, and the window is then simply not claimed.
 
 // window finds the browser window of this run and remembers it.
 func (c *x11Control) window() (xproto.Window, error) {
@@ -452,6 +431,36 @@ func (c *x11Control) MoveBy(dx, dy int) error {
 	return nil
 }
 
+// BeginResize remembers the geometry every request of an edge drag is
+// measured from, just as BeginMove does for the window's position.
+func (c *x11Control) BeginResize() error {
+	cur, err := c.rect()
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.originX, c.originY, c.originW, c.originH = cur.X, cur.Y, cur.W, cur.H
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *x11Control) ResizeBy(direction string, dx, dy int) error {
+	c.mu.Lock()
+	start := windowRect{X: c.originX, Y: c.originY, W: c.originW, H: c.originH}
+	c.mu.Unlock()
+	next, ok := resizeRect(start, direction, dx, dy)
+	if !ok {
+		return errors.New("desktop: unknown resize direction")
+	}
+	if err := c.placeRect(next); err != nil {
+		return err
+	}
+	// A move can lay its old shape again, but a resize cannot: the browser
+	// clears the region and the corners now belong to a different rectangle.
+	c.reshapeAfterResize(next)
+	return nil
+}
+
 // place puts the window's top left corner at x, y.
 //
 // _NET_MOVERESIZE_WINDOW and not ConfigureWindow: a managed window's geometry
@@ -468,6 +477,16 @@ func (c *x11Control) place(x, y int) error {
 	// screen the window is on, and the message carries them as the signed
 	// 32-bit numbers EWMH specifies.
 	return c.message("_NET_MOVERESIZE_WINDOW", flags, uint32(int32(x)), uint32(int32(y)), 0, 0) //nolint:gosec // G115: see above.
+}
+
+// placeRect asks for a new geometry through the same manager-owned path as a
+// move, with the width and height flags set as well as the position flags.
+func (c *x11Control) placeRect(rect windowRect) error {
+	const flags = 1<<8 | 1<<9 | 1<<10 | 1<<11 | 1<<12
+	// G115: EWMH carries signed 32-bit geometry and unsigned 32-bit sizes;
+	// resizeRect bounds both sizes to a usable positive minimum.
+	return c.message("_NET_MOVERESIZE_WINDOW", flags,
+		uint32(int32(rect.X)), uint32(int32(rect.Y)), uint32(rect.W), uint32(rect.H)) //nolint:gosec // G115: see above.
 }
 
 // rect answers where the window is, in root coordinates. Its own x and y are

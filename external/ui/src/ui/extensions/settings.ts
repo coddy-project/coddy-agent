@@ -38,17 +38,23 @@ export type ExtensionSettingsAPI = {
   /** Adds a hand-drawn block to a host or extension Settings section. An
    * optional match limits it to one opened row, such as neuraldeep. */
   registerBlock: (block: SettingsBlock) => ContributionHandle<SettingsBlock>;
-  /** Rewrites the Settings tab list before the nav draws it: hide, retitle
-   * or reorder any tab, the host's included. Needs the `ui.alter` scope. */
-  alterSections: (
-    pass: SettingsSectionAlterFn,
-  ) => ContributionHandle<SettingsSectionAlter>;
-  /** Rewrites the rows of a schema-driven Settings section before the form
-   * and its search index draw them. Needs the `ui.alter` scope. */
-  alterRows: (pass: SettingsRowAlterFn) => ContributionHandle<SettingsRowAlter>;
+  /** Retitles one stable row without changing any other row or its position. */
+  renameRow: (
+    section: string,
+    id: string,
+    label: string,
+  ) => ContributionHandle<SettingsRowAlter>;
   get: (id: string) => Promise<SettingValue | undefined>;
   set: (id: string, value: SettingValue | null) => Promise<void>;
 };
+
+export type ExtensionExperimentalSettingsAPI = {
+  alterSections: (
+    pass: SettingsSectionAlterFn,
+  ) => ContributionHandle<SettingsSectionAlter>;
+  alterRows: (pass: SettingsRowAlterFn) => ContributionHandle<SettingsRowAlter>;
+};
+
 export function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -74,10 +80,11 @@ export function extensionSettings(
   registerField: ExtensionSettingsAPI["registerField"],
   registerSection: ExtensionSettingsAPI["registerSection"],
   registerBlock: ExtensionSettingsAPI["registerBlock"],
-  alterSections: ExtensionSettingsAPI["alterSections"],
-  alterRows: ExtensionSettingsAPI["alterRows"],
+  alterSections: ExtensionExperimentalSettingsAPI["alterSections"],
+  alterRows: ExtensionExperimentalSettingsAPI["alterRows"],
+  renameRow: ExtensionSettingsAPI["renameRow"],
   fields: () => AnySettingsField[],
-): ExtensionSettingsAPI {
+): ExtensionSettingsAPI & ExtensionExperimentalSettingsAPI {
   let pending = Promise.resolve();
   const active = () => signal.throwIfAborted();
   const read = async () => {
@@ -95,6 +102,7 @@ export function extensionSettings(
     registerBlock,
     alterSections,
     alterRows,
+    renameRow,
     async get(id) {
       const doc = await read();
       const values = ownerValues(doc, owner);

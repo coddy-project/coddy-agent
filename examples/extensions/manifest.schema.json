@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Coddy JavaScript extension manifest",
+  "type": "object",
+  "required": ["api", "id", "name", "version", "ui"],
+  "properties": {
+    "api": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "maxLength": 32
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "permissions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "enum": [
+          "ui.page",
+          "ui.alter",
+          "sessions.read",
+          "sessions.assets.write",
+          "sessions.title",
+          "sessions.prompt",
+          "workspace.switch",
+          "events.publish",
+          "ide.actions",
+          "kv",
+          "config.read",
+          "config.write",
+          "llm.complete"
+        ]
+      }
+    },
+    "required_features": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+        "maxLength": 64
+      }
+    },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "coddy": {
+          "type": "string",
+          "description": "Space-separated semver comparisons, for example >=1.4.23 <2.0.0",
+          "maxLength": 128
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "required": ["entry"],
+      "properties": {
+        "entry": { "type": "string", "pattern": "\\.js$" },
+        "styles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\.css$" }
+        },
+        "compat_styles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "\\.css$" }
+        }
+      }
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "styles"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "name": { "type": "string" },
+          "title": { "type": "string" },
+          "mode": { "enum": ["light", "dark"] },
+          "styles": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "\\.css$" }
+          },
+          "swatch": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

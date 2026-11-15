@@ -14,6 +14,7 @@ import {
   appNavHrefHome,
   appNavHrefScheduler,
   appNavHrefSettings,
+  appNavHrefStatistics,
   appNavHrefSwarm,
 } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "./sameTabInAppNav";
@@ -159,6 +160,27 @@ function IconSignOut(props: { className?: string }) {
   );
 }
 
+/** Bars of a chart: the statistics. */
+function IconStatistics(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 20h16" />
+      <path d="M7 20v-6M12 20V7M17 20v-9" />
+    </svg>
+  );
+}
+
 function IconSettings(props: { className?: string }) {
   return (
     <svg
@@ -241,6 +263,9 @@ export function NavRail(props: {
   /** The host name of the page's own server, for the environment item. */
   localHost?: string;
   onNewChat: () => void;
+  /** Statistics stands between the documentation and the settings. */
+  onOpenStatistics?: () => void;
+  statisticsOpen?: boolean;
   onOpenHistory: () => void;
   historyOpen: boolean;
   /** Currently active sessions across History's normal eligible listing. */
@@ -322,7 +347,6 @@ export function NavRail(props: {
   const moreBtnRef = useRef<HTMLButtonElement | null>(null);
   const [slots, setSlots] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-
   useLayoutEffect(() => {
     const pill = pillRef.current;
     const middle = middleRef.current;
@@ -369,6 +393,7 @@ export function NavRail(props: {
   if (showSwarm) present.push("swarm");
   if (props.onOpenDocs) present.push("docs");
   if (extensions && props.showHistory !== false) present.push("extensions");
+  if (props.onOpenStatistics) present.push("statistics");
   present.push("settings");
   present.push("environment");
   if (signedIn) present.push("signOut");
@@ -378,6 +403,7 @@ export function NavRail(props: {
     (id) =>
       (id === "scheduler" && props.schedulerOpen) ||
       (id === "docs" && props.docsOpen === true) ||
+      (id === "statistics" && props.statisticsOpen === true) ||
       (id === "settings" && props.settingsOpen),
   );
 
@@ -671,6 +697,31 @@ export function NavRail(props: {
             <ExtensionMenu className={navBtnCls} wide={pillWide} />
           ) : null}
           <ExtensionAnchor name="nav.rail" />
+          {inBar("statistics") ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefStatistics()}
+                className={`${navBtnCls} ${props.statisticsOpen ? "is-active" : ""}`}
+                aria-label={t("nav.statistics")}
+                aria-pressed={props.statisticsOpen}
+                data-testid="nav-statistics"
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onOpenStatistics ?? (() => {}))
+                }
+              >
+                <IconStatistics className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.statistics")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.statisticsOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.statistics")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           {inBar("settings") ? (
             <div className="rail-tip-host">
               <a

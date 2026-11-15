@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
+
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
 )
@@ -133,6 +135,20 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		allowance.recordAttempt(attempt > 0)
 		clock := &attemptClock{began: time.Now(), retry: attempt > 0}
 		resp, err := fn(ctx, clock)
+		// An attempt that never reached an answer is not a call of the
+		// account: the retry that follows it is the same request, and one
+		// checkpoint per attempt counted a flaky connection as usage nobody
+		// could report.
+		if resp != nil {
+			var input, output, cached *int64
+			if resp.InputTokens > 0 || resp.OutputTokens > 0 {
+				input, output = statistics.Int(int64(resp.InputTokens)), statistics.Int(int64(resp.OutputTokens))
+				if resp.CachedInputTokens > 0 {
+					cached = statistics.Int(int64(resp.CachedInputTokens))
+				}
+			}
+			statistics.RecordCall(ctx, p.opts.Name, p.opts.Model, "", input, output, cached)
+		}
 		p.observeAttempt(clock, resp, err)
 		p.markCallFinished()
 		if err == nil {
@@ -462,6 +478,10 @@ func serverRetryDelay(err error) (time.Duration, bool) {
 	if d, ok := parseRetryAfterHeaders(err); ok {
 		return d, true
 	}
+	var raw *httpStatusError
+	if errors.As(err, &raw) && raw.retryAfter > 0 {
+		return raw.retryAfter, true
+	}
 	if d, ok := parseLimitResetDelay(err); ok {
 		return d, true
 	}
@@ -508,7 +528,7 @@ func isRetryableLLMError(err error) bool {
 	// way. Typed statuses already keep it out of the switch below, but an
 	// error that reached this far as text is read for a status by its digits,
 	// and "your messages resulted in 4500 tokens" holds a "500 ".
-	if IsContextOverflow(err) {
+	if IsContextOverflow(err) || IsClientToolLimit(err) || IsToolSchemaLimit(err) {
 		return false
 	}
 	// Ahead of the deadline gate: a dial that ran out of time matches

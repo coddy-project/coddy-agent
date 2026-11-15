@@ -58,6 +58,13 @@ type State struct {
 	// mention treat as inside the workspace beside CWD.
 	additionalDirectories []string
 
+	// acpSystemPrompt is the system-level block a client asked for when it
+	// opened this session (ACP systemPrompt, append mode): the editor's own
+	// instructions, which follow the agent's and never replace them. It is
+	// stored with the session, so a client that reopens the session without
+	// resending it keeps the instructions it set.
+	acpSystemPrompt string
+
 	// Mode is the current operating mode.
 	Mode Mode
 
@@ -255,6 +262,15 @@ type State struct {
 	// turnWake is the background wake the current turn was started for, until
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
+
+	// promptSuggestionFork is the completed turn's provider context for the
+	// next-prompt side call. It is process-local and never persisted.
+	promptSuggestionFork *promptSuggestionFork
+
+	// turnSend is the shape of the last request this session put on the wire
+	// (turn_send.go), which is what a compaction repeats so the provider reads
+	// the history back from its prompt cache. Process-local, never persisted.
+	turnSend *TurnSend
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -464,6 +480,30 @@ func (s *State) AdditionalDirectoriesForPersist() []string {
 		return nil
 	}
 	return append([]string(nil), s.additionalDirectories...)
+}
+
+// GetACPSystemPrompt returns the system-level block the client asked for when
+// it opened the session, "" when it asked for none.
+func (s *State) GetACPSystemPrompt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.acpSystemPrompt
+}
+
+// SetACPSystemPrompt records that block; it persists session metadata when a
+// store is attached, which is what keeps a reopened session on the same
+// instructions.
+func (s *State) SetACPSystemPrompt(text string) {
+	s.SetACPSystemPromptWithoutPersist(text)
+	s.touchPersist()
+}
+
+// SetACPSystemPromptWithoutPersist restores the block from a snapshot without
+// writing it back.
+func (s *State) SetACPSystemPromptWithoutPersist(text string) {
+	s.mu.Lock()
+	s.acpSystemPrompt = strings.TrimSpace(text)
+	s.mu.Unlock()
 }
 
 // setSessionDir records the bundle directory once it exists (child sessions

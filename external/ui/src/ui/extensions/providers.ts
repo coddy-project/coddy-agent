@@ -23,9 +23,27 @@ export type ProviderModelRow = Readonly<{
   catalog?: ProviderModelCatalog;
 }>;
 
+export type ProviderUpsert = Readonly<{
+  name: string;
+  type?: string;
+  api_key?: string;
+  api_base?: string;
+  proxy?: string;
+  timeout_ms?: number;
+  usage_limits_panel?: boolean;
+  models?: readonly {
+    model: string;
+    max_tokens?: number;
+    multimodal?: boolean;
+    stream?: boolean;
+  }[];
+}>;
+
 export type ExtensionProvidersAPI = {
   list: () => Promise<readonly ProviderCatalogRow[]>;
   models: (name: string) => Promise<readonly ProviderModelRow[]>;
+  /** Updates a provider and models by name in one save, preserving omitted fields. */
+  upsert: (provider: ProviderUpsert) => Promise<void>;
 };
 
 type ModelsResponse = {
@@ -91,6 +109,8 @@ export function extensionProviders(
   opts: {
     /** The transport; tests swap it for a stub. */
     request?: (input: string, init?: RequestInit) => Promise<Response>;
+    owner?: string;
+    sha256?: string;
   } = {},
 ): ExtensionProvidersAPI {
   const call = opts.request ?? fetch;
@@ -158,6 +178,37 @@ export function extensionProviders(
         `/coddy/providers/${encodeURIComponent(name)}/models`,
       );
       return normalizeModels(body.models);
+    },
+    async upsert(provider) {
+      active();
+      if (!opts.owner || !opts.sha256) {
+        throw new Error("Providers API: upsert needs the extension identity");
+      }
+      if (!provider?.name?.trim()) {
+        throw new Error("Providers API: provider name must be non-empty");
+      }
+      const { models, ...row } = provider;
+      const response = await call(
+        `/coddy/extensions/${encodeURIComponent(opts.owner)}/providers/upsert`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sha256: opts.sha256,
+            provider: row,
+            ...(models ? { models } : {}),
+          }),
+          signal,
+        },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: unknown;
+        };
+        throw new Error(
+          `Providers API: ${typeof body.error === "string" ? body.error : `HTTP ${response.status}`}`,
+        );
+      }
     },
   };
 }

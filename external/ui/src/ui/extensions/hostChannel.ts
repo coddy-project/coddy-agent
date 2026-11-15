@@ -15,8 +15,12 @@ export type ExtensionHostRequest = ExtensionFireEvent & {
   /** How long to wait for an answer, 1-60000 ms (default 30000). */
   timeoutMs?: number;
 };
+import type { ExtensionHostInfo } from "./hostCompatibility";
+
 export type ExtensionHostAPI = {
   api: 1;
+  /** The SDK and Coddy versions and the feature contract this host offers. */
+  info: () => Promise<ExtensionHostInfo>;
   /** Names of the manifest permissions this host build honours. */
   capabilities: () => Promise<readonly string[]>;
   /** Publishes one host event: `extension_event` on the shared server stream
@@ -40,9 +44,11 @@ export function extensionHost(
   sha256: string,
   signal: AbortSignal,
   emitLocal: (type: string, data: unknown) => void,
+  info: () => Promise<ExtensionHostInfo>,
 ): ExtensionHostAPI {
   return {
     api: 1,
+    info,
     capabilities: async () => HONORED_PERMISSIONS,
     async fireEvent(event) {
       if (signal.aborted) throw new Error("Extension disposed");

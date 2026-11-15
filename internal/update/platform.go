@@ -8,7 +8,7 @@ import (
 // AssetFileName returns the release archive name for CI-published binaries.
 func AssetFileName(version, goos, goarch string) (string, error) {
 	switch goos {
-	case "linux", "darwin":
+	case "linux", "darwin", "freebsd":
 		switch goarch {
 		case "amd64", "arm64":
 			return fmt.Sprintf("coddy_%s_%s_%s.tar.gz", version, goos, goarch), nil

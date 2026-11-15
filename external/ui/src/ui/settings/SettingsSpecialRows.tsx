@@ -135,7 +135,7 @@ export function buildSpecialRowPlan(input: {
   for (const landmark of input.landmarks ?? []) {
     if (landmark.section !== section || baseIds.has(landmark.id)) continue;
     try {
-      if (landmark.shown !== undefined && !landmark.shown()) continue;
+      if (landmark.shown !== undefined && !landmark.shown(input.doc)) continue;
       if (
         rowName === null
           ? landmark.row !== undefined

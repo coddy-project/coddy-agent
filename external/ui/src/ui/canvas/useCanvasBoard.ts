@@ -35,6 +35,7 @@ export function boardFingerprint(b: CanvasBoard, now = Date.now()): string {
     }),
     b.items,
     b.edges,
+    b.trust ?? null,
   ]);
 }
 

@@ -16,3 +16,11 @@ type UpdateSender interface {
 	// form elicitation, else through session/request_question.
 	RequestQuestion(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error)
 }
+
+// NoticeSender is implemented by a sender whose client said it renders the
+// standard notice update (clientCapabilities.session.notices). A surface that
+// does not implement it, or answers false, receives the notice as the notice
+// field of the Coddy update it already reads - one line either way, never both.
+type NoticeSender interface {
+	SupportsNotices() bool
+}

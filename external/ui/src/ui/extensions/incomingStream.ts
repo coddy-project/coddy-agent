@@ -14,6 +14,14 @@ export type IncomingRegistration = {
   id: string;
   transform: IncomingTransform;
 };
+export type IncomingTextTransform = (
+  text: string,
+  context: IncomingContext,
+) => string | void;
+export type IncomingTextRegistration = {
+  id: string;
+  transform: IncomingTextTransform;
+};
 export type IncomingHandle = { remove: () => void };
 
 type Processor = {
@@ -51,6 +59,53 @@ export class IncomingStream {
     this.processors.set(key, processor);
     signal.addEventListener("abort", remove, { once: true });
     return { remove };
+  }
+
+  registerText(
+    owner: string,
+    id: string,
+    signal: AbortSignal,
+    transform: IncomingTextTransform,
+  ): IncomingHandle {
+    if (typeof transform !== "function") {
+      throw new Error("A text processor needs a transform function");
+    }
+    return this.register(owner, id, signal, (data, context) => {
+      let payload: any;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        return undefined;
+      }
+      let text: string | undefined;
+      let assign: (next: string) => void;
+      if (
+        context.event === "response.output_text.delta" &&
+        typeof payload?.delta === "string"
+      ) {
+        text = payload.delta;
+        assign = (next) => {
+          payload.delta = next;
+        };
+      } else if (
+        !context.event &&
+        typeof payload?.choices?.[0]?.delta?.content === "string"
+      ) {
+        text = payload.choices[0].delta.content;
+        assign = (next) => {
+          payload.choices[0].delta.content = next;
+        };
+      } else {
+        return undefined;
+      }
+      const next = transform(text!, context);
+      if (next === undefined) return undefined;
+      if (typeof next !== "string") {
+        throw new Error("Text processors must return a string or undefined");
+      }
+      assign!(next);
+      return JSON.stringify(payload);
+    });
   }
 
   process = (frame: IncomingFrame): string => {

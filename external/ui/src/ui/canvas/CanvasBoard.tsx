@@ -25,6 +25,7 @@ import {
   patchNodes,
   removeFrame,
   rotateFrame,
+  untrustBoard,
   type CanvasDevice,
   type CanvasFrame as Frame,
   type CanvasItem,
@@ -35,6 +36,7 @@ import { CameraStore } from "./cameraStore";
 import { CanvasFrame, sizeLabel } from "./CanvasFrame";
 import { CanvasPromptBar } from "./CanvasPromptBar";
 import { CanvasEdges, CanvasNode } from "./CanvasNodes";
+import { CanvasHeldFrame, CanvasTrustDialog } from "./CanvasTrust";
 import { useCanvasBoard } from "./useCanvasBoard";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
@@ -619,6 +621,20 @@ export function CanvasBoard(props: CanvasBoardProps) {
       }
     : undefined;
 
+  // The pages of a board that came with the workspace wait for the person.
+  const [asking, setAsking] = useState(false);
+  const held = useMemo(() => frames.filter((f) => f.held), [frames]);
+  const trust = board?.trust;
+  useEffect(() => {
+    if (held.length === 0) setAsking(false);
+  }, [held.length]);
+  const ask = useCallback(() => setAsking(true), []);
+  const canHold =
+    trust?.policy === "ask" && frames.length > 0 && frames.some((f) => !f.held);
+  const hold = () => {
+    void untrustBoard(sessionId, file).finally(reload);
+  };
+
   const fileError = board?.error || "";
   const empty = board !== null && everything.length === 0 && !fileError;
 
@@ -672,25 +688,36 @@ export function CanvasBoard(props: CanvasBoardProps) {
               onPointerUp={onNodeUp}
             />
           ))}
-          {frames.map((f) => (
-            <CanvasFrameAt
-              key={f.id}
-              sessionId={sessionId}
-              file={file}
-              frame={f}
-              shift={nodeDrag?.ids.includes(f.id) ? nodeDrag : null}
-              camera={camera}
-              mode={mode}
-              focused={f.id === props.focusFrameId}
-              onPick={onPick}
-              onEscape={escapeStep}
-              onMove={onMove}
-              onDragging={onFrameDrag}
-              onResize={onResize}
-              onRemove={onRemove}
-              onLeft={onLeft}
-            />
-          ))}
+          {frames.map((f) =>
+            f.held ? (
+              <CanvasHeldFrame
+                key={f.id}
+                frame={f}
+                dx={nodeDrag?.ids.includes(f.id) ? nodeDrag.dx : 0}
+                dy={nodeDrag?.ids.includes(f.id) ? nodeDrag.dy : 0}
+                policy={trust?.policy}
+                onAsk={ask}
+              />
+            ) : (
+              <CanvasFrameAt
+                key={f.id}
+                sessionId={sessionId}
+                file={file}
+                frame={f}
+                shift={nodeDrag?.ids.includes(f.id) ? nodeDrag : null}
+                camera={camera}
+                mode={mode}
+                focused={f.id === props.focusFrameId}
+                onPick={onPick}
+                onEscape={escapeStep}
+                onMove={onMove}
+                onDragging={onFrameDrag}
+                onResize={onResize}
+                onRemove={onRemove}
+                onLeft={onLeft}
+              />
+            ),
+          )}
         </div>
         {fileError || readError ? (
           <div
@@ -739,6 +766,32 @@ export function CanvasBoard(props: CanvasBoardProps) {
           </button>
         </div>
         <CanvasZoom camera={camera} onZoom={zoomBy} onFit={fitAll} />
+        {canHold ? (
+          <button
+            type="button"
+            className="canvas-hold"
+            data-testid="canvas-hold"
+            title={t("canvas.holdTitle")}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={hold}
+          >
+            {t("canvas.hold")}
+          </button>
+        ) : null}
+        {asking && trust && held.length > 0 ? (
+          <CanvasTrustDialog
+            sessionId={sessionId}
+            file={file}
+            trust={trust}
+            held={held}
+            onClose={() => setAsking(false)}
+            onDone={() => {
+              setAsking(false);
+              reload();
+            }}
+            onStale={reload}
+          />
+        ) : null}
         {popover ? (
           <div
             className="canvas-popover"

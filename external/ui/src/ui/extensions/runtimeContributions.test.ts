@@ -361,14 +361,14 @@ describe("the widened extension API", () => {
     setup();
     const plain = await activateOne(() => {});
     expect(() =>
-      plain.api.settings.alterSections((sections) => sections),
+      plain.api.experimental.settings.alterSections((sections) => sections),
     ).toThrow(/ui\.alter/);
     plain.runtime.stop();
 
     let handle!: { remove: () => void };
     const { runtime } = await activateOne(
       (api) => {
-        handle = api.settings.alterSections((sections) =>
+        handle = api.experimental.settings.alterSections((sections) =>
           sections
             .filter((section) => section.id !== "secrets")
             .map((section) =>
@@ -396,15 +396,15 @@ describe("the widened extension API", () => {
   test("alterRows needs the ui.alter scope and rewrites schema rows", async () => {
     setup();
     const plain = await activateOne(() => {});
-    expect(() => plain.api.settings.alterRows((rows) => rows)).toThrow(
-      /ui\.alter/,
-    );
+    expect(() =>
+      plain.api.experimental.settings.alterRows((rows) => rows),
+    ).toThrow(/ui\.alter/);
     plain.runtime.stop();
 
     let handle!: { remove: () => void };
     const { runtime } = await activateOne(
       (api) => {
-        handle = api.settings.alterRows((rows, { section }) =>
+        handle = api.experimental.settings.alterRows((rows, { section }) =>
           section === "agent"
             ? rows.filter((row) => row.id !== "legacy")
             : rows,

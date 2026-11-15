@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
+	"gopkg.in/yaml.v3"
 )
 
 // HTTPServerConfig controls the optional OpenAI-compatible HTTP gateway (built with -tags http). The embedded SPA requires -tags http,ui.
@@ -89,18 +90,52 @@ type HTTPLoginConfig struct {
 	// `coddy serve set-password`. The HTTP layer never echoes it back through
 	// GET /coddy/config, and a save from the settings screen preserves it.
 	PasswordHash string `yaml:"password_hash"`
+	// TOTPSecret turns on one-time codes as a second factor: the base32 secret
+	// an authenticator app was given through the web UI's Settings →
+	// Authentication enrollment. Empty means the
+	// password alone signs in. It is a key, not a hash - a code can only be
+	// checked against the secret itself - so GET /coddy/config never returns it
+	// and a save from the settings screen preserves it, like the password hash.
+	TOTPSecret  string              `yaml:"totp_secret"`
+	BackupCodes webauth.BackupState `yaml:"backup_codes,omitempty"`
 	// SessionTTLHours is how long a browser stays signed in. Zero means the
 	// cookie is dropped when the browser closes; the server still bounds the
 	// session it holds (webauth.DefaultSessionTTL), because it cannot see a
 	// browser close and a record it keeps forever is not a session.
 	SessionTTLHours int `yaml:"session_ttl_hours"`
+	// SessionTTLHoursSet distinguishes an explicit zero from an absent field.
+	SessionTTLHoursSet bool `yaml:"-" json:"-"`
 }
+
+func (l *HTTPLoginConfig) UnmarshalYAML(node *yaml.Node) error {
+	type plain HTTPLoginConfig
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	var fields struct {
+		SessionTTLHours *int `yaml:"session_ttl_hours"`
+	}
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	decoded.SessionTTLHoursSet = fields.SessionTTLHours != nil
+	*l = HTTPLoginConfig(decoded)
+	return nil
+}
+
+const DefaultLoginSessionTTLHours = 24
 
 // Normalize trims the login fields.
 func (l *HTTPLoginConfig) Normalize() {
 	l.Mode = strings.ToLower(strings.TrimSpace(l.Mode))
 	l.User = strings.TrimSpace(l.User)
 	l.PasswordHash = strings.TrimSpace(l.PasswordHash)
+	l.TOTPSecret = webauth.NormalizeTOTPSecret(l.TOTPSecret)
+	if l.SessionTTLHours == 0 && !l.SessionTTLHoursSet {
+		l.SessionTTLHours = DefaultLoginSessionTTLHours
+	}
+	l.SessionTTLHoursSet = true
 }
 
 // Validate reports the login settings a server could not honour.
@@ -127,12 +162,24 @@ func (l *HTTPLoginConfig) Validate() error {
 			"(a hand-written one needs every \"$\" doubled, as \"$$argon2id$$v=19$$...\"); " +
 			"write it with `coddy serve set-password`")
 	}
+	if l.TOTPSecret != "" {
+		if err := webauth.ValidateTOTPSecret(l.TOTPSecret); err != nil {
+			return fmt.Errorf("httpserver.login.totp_secret is not a usable secret (%v); "+
+				"enroll the key in the web UI under Settings, Authentication", err)
+		}
+	}
 	return nil
 }
 
 // HasAccount reports whether this file carries a complete account.
 func (l *HTTPLoginConfig) HasAccount() bool {
 	return l.User != "" && l.PasswordHash != ""
+}
+
+// HasTOTP reports whether the sign-in asks for a one-time code after the
+// password.
+func (l *HTTPLoginConfig) HasTOTP() bool {
+	return l.TOTPSecret != ""
 }
 
 // IsExplicitlyDisabled reports an `enable: false` the operator wrote, which wins
@@ -151,8 +198,11 @@ func (l *HTTPLoginConfig) IsExplicitlyEnabled() bool {
 // closes", which is what the cookie then says too - the server still applies
 // webauth.DefaultSessionTTL to its own record of it.
 func (l *HTTPLoginConfig) SessionTTL() time.Duration {
-	if l.SessionTTLHours <= 0 {
+	if l.SessionTTLHours < 0 {
 		return 0
+	}
+	if l.SessionTTLHours == 0 && !l.SessionTTLHoursSet {
+		return DefaultLoginSessionTTLHours * time.Hour
 	}
 	return time.Duration(l.SessionTTLHours) * time.Hour
 }

@@ -34,6 +34,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,18 +80,23 @@ fs.writeFileSync(path.join(workspace, "README.md"), "# demo\n");
 const fakeWindow = path.join(root, "window.sh");
 fs.writeFileSync(fakeWindow, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
 
-// A link out of Coddy is handed to this machine's own opener. The stand puts
-// its own `xdg-open` first on PATH, both so that nothing opens on the
-// operator's desktop and so that the check can read what the opener was
-// given.
+// A link out of Coddy is handed to this machine's own opener, and which
+// program that is depends on the platform: `xdg-open` on Linux, `open` on
+// macOS (internal/platform/browser.go). The stand puts a stub of every one of
+// them first on PATH, both so that nothing opens on the operator's desktop and
+// so that the check can read what the opener was given. Windows calls
+// `rundll32` and is not part of this check.
+const OPENERS = ["xdg-open", "open"];
 const binDir = path.join(root, "bin");
 const openedLog = path.join(root, "opened.txt");
 fs.mkdirSync(binDir, { recursive: true });
-fs.writeFileSync(
-  path.join(binDir, "xdg-open"),
-  `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(openedLog)}\n`,
-  { mode: 0o755 },
-);
+for (const opener of OPENERS) {
+  fs.writeFileSync(
+    path.join(binDir, opener),
+    `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(openedLog)}\n`,
+    { mode: 0o755 },
+  );
+}
 
 const MODEL_PORT = Number(process.env.CODDY_PORT_BASE || 19910);
 fs.writeFileSync(
@@ -198,11 +204,81 @@ function startModel(port) {
 
 let desktop = null;
 let modelServer = null;
+let remoteServer = null;
+
+async function freePort() {
+  const listener = net.createServer();
+  await new Promise((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = listener.address();
+  await new Promise((resolve, reject) =>
+    listener.close((err) => (err ? reject(err) : resolve())),
+  );
+  return port;
+}
+
+function startRemote(port, desktopOrigin, token) {
+  const remoteHome = path.join(root, "remote-home");
+  fs.mkdirSync(remoteHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(remoteHome, "config.yaml"),
+    `providers:
+  - name: stub
+    type: openai
+    api_base: "http://127.0.0.1:${MODEL_PORT}/v1"
+    api_key: "sk-stub"
+models:
+  - model: stub/coddy-demo
+    max_context_tokens: 131072
+agent:
+  model: stub/coddy-demo
+httpserver:
+  host: "127.0.0.1"
+  port: ${port}
+  auth_token: ${JSON.stringify(token)}
+  cors:
+    enable: true
+    allowed_origins: [${JSON.stringify(desktopOrigin)}]
+logger:
+  level: warn
+  outputs: [stderr]
+`,
+  );
+  const proc = spawn(
+    BIN,
+    ["serve", "--home", remoteHome, "--cwd", workspace, "--log-level", "warn"],
+    {
+      env: { PATH: `${binDir}:${process.env.PATH}`, HOME: root, TMPDIR: root },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  proc.stdout.on("data", () => {});
+  proc.stderr.on("data", (b) => {
+    const line = String(b).trim();
+    if (line) console.log(`      [remote] ${line}`);
+  });
+  return proc;
+}
 
 function startDesktop() {
   const proc = spawn(
     BIN,
-    ["desktop", "--home", home, "--cwd", workspace, "--log-level", "warn"],
+    // --window browser: the stand drives the tab shell through the fake
+    // window above, and a binary built with the native macOS backend would
+    // otherwise open a real window in place of the sleeping script.
+    [
+      "desktop",
+      "--window",
+      "browser",
+      "--home",
+      home,
+      "--cwd",
+      workspace,
+      "--log-level",
+      "warn",
+    ],
     {
       env: {
         PATH: `${binDir}:${process.env.PATH}`,
@@ -331,6 +407,126 @@ async function main() {
   const page = await context.newPage();
   const shellURL = `http://127.0.0.1:${port}/desktop/`;
 
+  console.log("the frameless window buttons fit the title bar");
+  // This stand does not start a real window. Offer the shell a window control
+  // for this page alone, so the actual button CSS is measured by the browser.
+  const buttonsPage = await context.newPage();
+  await buttonsPage.route("**/desktop/window", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { supported: true } });
+    } else {
+      await route.continue();
+    }
+  });
+  await buttonsPage.goto(shellURL, { waitUntil: "domcontentloaded" });
+  await buttonsPage.locator("#window-btns").waitFor({ state: "visible" });
+  const geometry = await buttonsPage.evaluate(() => {
+    const bar = document.querySelector(".tabs").getBoundingClientRect();
+    return [...document.querySelectorAll("#window-btns .win")].map((button) => {
+      const rect = button.getBoundingClientRect();
+      const icon = button.querySelector("svg").getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        iconDx: icon.left + icon.width / 2 - (rect.left + rect.width / 2),
+        iconDy: icon.top + icon.height / 2 - (rect.top + rect.height / 2),
+        barRight: bar.right,
+      };
+    });
+  });
+  expect(
+    geometry.length === 3 &&
+      geometry.every(
+        (button) =>
+          button.width === 38 &&
+          button.height === 38 &&
+          button.top === 0 &&
+          Math.abs(button.iconDx) < 0.5 &&
+          Math.abs(button.iconDy) < 0.5,
+      ) &&
+      geometry[0].right === geometry[1].left &&
+      geometry[1].right === geometry[2].left &&
+      geometry[2].right === geometry[2].barRight,
+    `window buttons are centered 38px squares without gaps at the window edge (${JSON.stringify(geometry)})`,
+  );
+  const minButton = buttonsPage.locator("#win-min");
+  await minButton.hover();
+  const minHover = await minButton.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return { background: style.backgroundColor, radius: style.borderRadius };
+  });
+  expect(
+    minHover.background !== "rgba(0, 0, 0, 0)" && minHover.radius === "0px",
+    "hover highlights the whole square minimise button",
+  );
+  const closeButton = buttonsPage.locator("#win-close");
+  await closeButton.hover();
+  expect(
+    (await closeButton.evaluate(
+      (button) => getComputedStyle(button).backgroundColor,
+    )) === "rgb(232, 17, 35)",
+    "the close button fills its square in the danger colour on hover",
+  );
+  await buttonsPage.close();
+
+  console.log("a remote server can allow exactly this desktop origin");
+  const remotePort = await freePort();
+  const remoteURL = `http://127.0.0.1:${remotePort}`;
+  const desktopOrigin = `http://127.0.0.1:${port}`;
+  const remoteToken = "desktop-check-remote-token";
+  remoteServer = startRemote(remotePort, desktopOrigin, remoteToken);
+  const remoteDeadline = Date.now() + 30000;
+  let remoteListening = false;
+  while (Date.now() < remoteDeadline && !remoteListening) {
+    if (remoteServer.exitCode !== null) {
+      throw new Error(`the remote server exited with ${remoteServer.exitCode}`);
+    }
+    try {
+      await get(`${remoteURL}/v1/models`);
+      remoteListening = true;
+    } catch {
+      await sleep(100);
+    }
+  }
+  expect(remoteListening, "the authenticated remote server started");
+  const remoteContext = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    locale: "en-US",
+  });
+  await remoteContext.addInitScript(
+    ({ baseUrl, token }) => {
+      try {
+        localStorage.setItem(
+          "coddy_env",
+          JSON.stringify({ mode: "remote", baseUrl, token, name: "Remote" }),
+        );
+      } catch {
+        // An initial about:blank document has no storage origin.
+      }
+    },
+    { baseUrl: remoteURL, token: remoteToken },
+  );
+  const remotePage = await remoteContext.newPage();
+  await remotePage.goto(shellURL, { waitUntil: "domcontentloaded" });
+  const remoteFrame = remotePage.frameLocator(".frames iframe").first();
+  await remoteFrame.locator("textarea#composer").waitFor({ timeout: 30000 });
+  const remoteStatus = await remoteFrame.locator("body").evaluate(async () => {
+    const response = await fetch("/v1/models", {
+      headers: { Accept: "application/json" },
+    });
+    return response.status;
+  });
+  expect(
+    remoteStatus === 200,
+    "the iframe's authenticated fetch reaches the remote through CORS",
+  );
+  await remoteContext.close();
+  await stopDesktop(remoteServer);
+  remoteServer = null;
+
   console.log("the shell opens on one chat");
   await page.goto(shellURL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#strip .tab");
@@ -397,6 +593,7 @@ async function main() {
   );
 
   console.log("the tab says what the chat behind it is doing");
+  await page.waitForSelector("#strip .tab .dot.is-idle", { timeout: 60000 });
   expect(
     (await page.locator("#strip .tab .dot.is-idle").count()) === 1,
     "a finished chat carries the finished mark",
@@ -407,6 +604,159 @@ async function main() {
   ok("the tab of a chat that is working carries the working mark");
   await page.waitForSelector("#strip .tab .dot.is-idle", { timeout: 60000 });
   ok("and it goes back to the finished mark when the turn ends");
+
+  console.log("middle clicks open Coddy routes in tabs of this window");
+  const firstSessionID = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("coddy.desktop.tabs.v1"))[0].session,
+  );
+  const browserPages = context.pages().length;
+  const activeHash = () =>
+    page.evaluate(() => {
+      const frame = [...document.querySelectorAll(".frames iframe")].find(
+        (f) => !f.hidden,
+      );
+      return frame ? frame.contentWindow.location.hash : null;
+    });
+  const closeSecondTab = async () => {
+    await page.locator("#strip .tab").nth(1).locator(".close").click();
+    await page.waitForFunction(
+      () => document.querySelectorAll("#strip .tab").length === 1,
+    );
+  };
+  const expectMiddleClickTab = async (testID, hash) => {
+    await first
+      .locator(`[data-testid='${testID}']`)
+      .click({ button: "middle" });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#strip .tab").length === 2,
+    );
+    await page.waitForFunction((want) => {
+      const frame = [...document.querySelectorAll(".frames iframe")].find(
+        (f) => !f.hidden,
+      );
+      return frame && frame.contentWindow.location.hash === want;
+    }, hash);
+    expect(
+      context.pages().length === browserPages,
+      `${testID} opened no browser window`,
+    );
+    expect((await activeHash()) === hash, `${testID} opened ${hash} in a tab`);
+    await closeSecondTab();
+  };
+
+  await first.locator("[data-testid='nav-history']").click();
+  await first.locator(`[data-testid='session-row-${firstSessionID}'] a`).click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction((sessionID) => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === `#/s/${sessionID}`;
+  }, firstSessionID);
+  expect(
+    (await activeHash()) === `#/s/${firstSessionID}`,
+    "a History row opened its session in a new tab",
+  );
+  expect(
+    context.pages().length === browserPages,
+    "the History row opened no browser window",
+  );
+  await closeSecondTab();
+  await first.locator("body").press("Escape");
+
+  const workspaceCookieBefore = await page.evaluate(() =>
+    document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("coddy_workspace_dir=")),
+  );
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction(() => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === "#/";
+  });
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[1];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, workspace);
+  expect(
+    context.pages().length === browserPages,
+    "nav-new-chat opened no browser window",
+  );
+  expect((await activeHash()) === "#/", "nav-new-chat opened #/ in a tab");
+  expect(
+    (await page.evaluate(() =>
+      document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("coddy_workspace_dir=")),
+    )) === workspaceCookieBefore,
+    "inheriting a folder did not change the shared last-picked cookie",
+  );
+  await closeSecondTab();
+  for (const [testID, hash] of [
+    ["nav-history", "#/history"],
+    ["nav-scheduler", "#/scheduler"],
+    ["nav-docs", "#/docs"],
+    ["nav-settings", "#/settings"],
+  ]) {
+    await expectMiddleClickTab(testID, hash);
+  }
+  await first
+    .locator("[data-testid='nav-settings']")
+    .click({ modifiers: ["Control"] });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.waitForFunction(() => {
+    const frame = [...document.querySelectorAll(".frames iframe")].find(
+      (f) => !f.hidden,
+    );
+    return frame?.contentWindow.location.hash === "#/settings";
+  });
+  await closeSecondTab();
+  ok("Ctrl+click opens the same routes in tabs too");
+
+  console.log("a delayed folder answer does not steal the current tab");
+  let releaseWorkspace;
+  const workspaceDelayed = new Promise((resolve) => {
+    releaseWorkspace = resolve;
+  });
+  await page.route("**/coddy/workspace/context", async (route) => {
+    await workspaceDelayed;
+    await route.continue();
+  });
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  await page.locator("#strip .tab").first().click();
+  releaseWorkspace();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".frames iframe").length === 2,
+  );
+  expect(
+    (await page
+      .locator("#strip .tab")
+      .first()
+      .getAttribute("aria-selected")) === "true",
+    "the delayed answer left the operator on the tab they picked",
+  );
+  await page.unroute("**/coddy/workspace/context");
+  await closeSecondTab();
 
   console.log("a second tab opens beside it and both stay loaded");
   await page.click("#new-tab");
@@ -427,6 +777,67 @@ async function main() {
     await page.locator(".frames iframe").first().isHidden(),
     "the tab behind is hidden, not removed",
   );
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[1];
+    return (
+      frame?.contentDocument
+        .querySelector("[data-testid='composer-workspace-chip']")
+        ?.getAttribute("title") === folder
+    );
+  }, workspace);
+  await page
+    .frameLocator(".frames iframe")
+    .nth(1)
+    .locator("[data-testid='nav-new-chat']")
+    .click({ button: "middle" });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 3,
+  );
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, workspace);
+  await page.locator("#strip .tab").nth(2).locator(".close").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  ok("a new chat from an empty tab keeps its picked folder");
+  const namedDraftWorkspace = path.join(workspace, "named-draft");
+  fs.mkdirSync(namedDraftWorkspace, { recursive: true });
+  await page.locator("#strip .tab").first().click();
+  await first.locator("body").evaluate((_, folder) => {
+    history.replaceState(
+      null,
+      "",
+      `/?desktop_workspace=${encodeURIComponent(folder)}#/draft/draft_test`,
+    );
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  }, namedDraftWorkspace);
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[0];
+    return (
+      frame?.contentWindow.location.hash === "#/draft/draft_test" &&
+      frame.contentDocument
+        .querySelector("[data-testid='composer-workspace-chip']")
+        ?.getAttribute("title") === folder
+    );
+  }, namedDraftWorkspace);
+  await first.locator("[data-testid='nav-new-chat']").click({
+    button: "middle",
+  });
+  await page.waitForFunction((folder) => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame
+      ?.getAttribute("src")
+      ?.includes(`desktop_workspace=${encodeURIComponent(folder)}`);
+  }, namedDraftWorkspace);
+  await page.locator("#strip .tab").nth(2).locator(".close").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 2,
+  );
+  ok("a named draft does not inherit the previous session's folder");
   console.log("a look chosen in one tab reaches the others");
   // What the SPA itself does when a theme is picked (ui/theme/uiTheme.ts): the
   // name on <html> and the colour scheme beside it. Everything else is CSS.
@@ -439,7 +850,7 @@ async function main() {
   await page.waitForFunction(
     () => {
       const second = document.querySelectorAll(".frames iframe")[1];
-      return second.contentDocument.documentElement.dataset.theme === "nord";
+      return second?.contentDocument?.documentElement?.dataset.theme === "nord";
     },
     null,
     { timeout: 10000 },
@@ -451,6 +862,9 @@ async function main() {
   await page.waitForFunction(
     () => {
       const [a, b] = document.querySelectorAll(".frames iframe");
+      if (!a?.contentDocument?.documentElement || !b?.contentDocument) {
+        return false;
+      }
       const read = (f) =>
         f.contentWindow
           .getComputedStyle(f.contentDocument.documentElement)
@@ -707,6 +1121,14 @@ async function main() {
   await page.waitForFunction(
     () => document.querySelectorAll("#strip .tab").length === 2,
   );
+  await page
+    .frameLocator(".frames iframe")
+    .nth(1)
+    .locator("[data-testid='nav-settings']")
+    .click({ button: "middle" });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#strip .tab").length === 3,
+  );
   await stopDesktop(desktop);
   desktop = startDesktop();
   const second = await rememberedPort();
@@ -717,9 +1139,21 @@ async function main() {
   await waitForShell(second);
   await page.goto(shellURL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#strip .tab");
+  await page.waitForFunction(() => {
+    const frame = document.querySelectorAll(".frames iframe")[2];
+    return frame?.contentWindow.location.hash === "#/settings";
+  });
   expect(
-    (await page.locator("#strip .tab").count()) === 2,
-    "both tabs came back after the restart",
+    (await page.locator("#strip .tab").count()) === 3,
+    "all three tabs came back after the restart",
+  );
+  expect(
+    (await page
+      .frameLocator(".frames iframe")
+      .nth(2)
+      .locator("body")
+      .evaluate(() => location.hash)) === "#/settings",
+    "the route of a tab came back after the restart",
   );
 
   if (!KEEP) {
@@ -737,6 +1171,7 @@ try {
 } finally {
   if (!KEEP) {
     await stopDesktop(desktop);
+    await stopDesktop(remoteServer);
     if (modelServer) {
       // Coddy keeps its connection to the provider alive, and close() alone
       // waits for it, which would leave this script running after its last

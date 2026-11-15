@@ -107,6 +107,29 @@ func TestExtensionContributionsFeature(t *testing.T) {
 		sc.Step(`^the mixed control list follows the pass and conditional controls stay live$`, func() error {
 			return runVitestScenario("src/ui/chat/Composer.extensions.test.tsx", "composer host controls in the extension pipeline mixed controls alter by namespaced key and follow conditional props")
 		})
+		sc.Step(`^a package requiring a feature the host does not offer$`, func() {})
+		sc.Step(`^its compatibility is checked$`, func() {})
+		sc.Step(`^Settings names the missing feature and the module is not read$`, func() error {
+			return runVitestScenario("src/ui/extensions/runtime.test.ts", "extension lifetime an unsupported required feature fails before the package is read or imported")
+		})
+		sc.Step(`^host composer controls and Appearance rows$`, func() {})
+		sc.Step(`^an extension places a control after host/model and renames the language row$`, func() {})
+		sc.Step(`^unrelated controls keep their order and only the language title changes$`, func() error {
+			if err := runVitestScenario("src/ui/extensions/composerControls.test.ts", "composer controls targeted placement leaves unknown host controls in their own order and reset is an explicit takeover"); err != nil {
+				return err
+			}
+			return runVitestScenario("src/ui/extensions/settingsRowAlter.test.tsx", "Settings row alter passes a targeted rename changes only the named row, never the host's order")
+		})
+		sc.Step(`^an OK, coddy panel and its addon$`, func() {})
+		sc.Step(`^the addon invokes the tricks hook with disco$`, func() {})
+		sc.Step(`^the panel performs the trick through its own handler$`, func() error {
+			return runVitestScenario("src/ui/extensions/examples.test.ts", "the addon invokes the panel owner's trick without touching its DOM")
+		})
+		sc.Step(`^a provider and model that need onboarding$`, func() {})
+		sc.Step(`^the extension upserts them by name in one call$`, func() {})
+		sc.Step(`^provider and model are installed in one configuration transaction$`, func() error {
+			return runVitestScenario("src/ui/extensions/examples.test.ts", "onboarding writes provider and model once, by name")
+		})
 		sc.Step(`^nested schema-driven Settings rows and row alter passes$`, func() {})
 		sc.Step(`^a pass hides, retitles and reorders rows$`, func() {})
 		sc.Step(`^drawing and search agree and configuration values stay untouched$`, func() error {

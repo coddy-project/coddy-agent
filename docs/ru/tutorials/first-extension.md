@@ -14,9 +14,12 @@
   "id": "first-extension",
   "name": "My first extension",
   "version": "1.0.0",
+  "required_features": ["ui.pages"],
   "ui": { "entry": "main.js" }
 }
 ```
+
+`required_features` сообщает Coddy, какой стабильный API нужен пакету. `engines.coddy` может задать диапазон, например `>=1.4.23 <2.0.0`; оба поля проверяются до выполнения кода модуля. `coddy.host.info()` возвращает тот же список возможностей расширению, а `examples/extensions/manifest.schema.json` описывает манифест.
 
 `main.js` экспортирует функцию, которую Coddy вызывает после одобрения пакета.
 
@@ -74,4 +77,4 @@ const status = await response.json();
 
 Если страница не появилась, проверьте, что файлы находятся в корне ZIP, пакет включён, а `activate` экспортируется. Ошибки активации появляются в настройках. Используйте HTTPS или localhost, чтобы Web Crypto проверял хеш точки входа. Дальнейшие возможности описаны в [руководстве по API](../features/extensions.md) и [указателе примеров](../../../examples/extensions/README.md).
 
-<!-- docsgen:source sha256=3ac53a75211613a8 -->
+<!-- docsgen:source sha256=be27cbcbcb6a5eae -->

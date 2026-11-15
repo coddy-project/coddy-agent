@@ -818,7 +818,11 @@ test("generating shows stop and calls onStop", () => {
 // that say it. The five lines it used to be - input, output, total and the
 // window - repeated the popover the ring opens, badly.
 test("the context tip is the percent and the tokens, and follows the model's window", () => {
-  const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
+  const usage = {
+    inputTokens: 800000,
+    outputTokens: 200000,
+    totalTokens: 1000000,
+  };
   const { rerender } = render(
     <Composer
       value=""
@@ -964,6 +968,66 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
   const c = 2 * Math.PI * 12;
   const off = Number.parseFloat(fg!.getAttribute("stroke-dashoffset") || "0");
   expect(off).toBeCloseTo(c * (1 - 23787 / 128000), 1);
+});
+
+// The tip counts the same tokens the ring fills by: the context window, not
+// the session's cumulative usage. With 820k lifetime tokens in a 128k window
+// holding ~24k, the line used to read "19% · 820k / 128k" (issue #732).
+test("the context tip counts the window's tokens, not cumulative usage", () => {
+  const breakdown = {
+    systemPrompt: 851,
+    toolDefinitions: 1950,
+    rules: 14867,
+    skills: 45,
+    mcp: 0,
+    subagents: 0,
+    conversation: 6074,
+    estimatedTotal: 23787,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "18.6% · 23.7k / 128k",
+  );
+});
+
+test("the context tip does not use lifetime tokens when the window is unknown", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "Context usage unavailable · max 128k",
+  );
 });
 
 test("context meter fill width reflects usage percent", () => {
@@ -3604,3 +3668,87 @@ test("the pencil on an attached picture marks it up in place", async () => {
     restore();
   }
 });
+
+test("the prompt suggestion shows dim and Tab takes it into the draft", () => {
+  const onChange = vi.fn();
+  const onAccepted = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+      onPromptSuggestionAccepted={onAccepted}
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenCalledWith("run the tests");
+  expect(onAccepted).toHaveBeenCalledTimes(1);
+});
+
+test("a draft hides the prompt suggestion from Tab", () => {
+  const onChange = vi.fn();
+  render(
+    <Composer
+      value="already typing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).not.toHaveBeenCalledWith("run the tests");
+});
+
+test.each(["Tab", "ArrowRight"])(
+  "the composer preserves its suggestion through editing and clearing - %s",
+  (key) => {
+    const onSend = vi.fn();
+    const onAccepted = vi.fn();
+    function EditableComposer() {
+      const [value, onChange] = useState("");
+      return (
+        <Composer
+          value={value}
+          isEmpty={false}
+          mode="agent"
+          modes={["agent", "plan"]}
+          onModeChange={() => {}}
+          onChange={onChange}
+          onSend={onSend}
+          promptSuggestion="run the tests"
+          onPromptSuggestionAccepted={onAccepted}
+        />
+      );
+    }
+    render(<EditableComposer />);
+    const ta = document.getElementById("composer") as HTMLTextAreaElement;
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "my own follow-up" } });
+    expect(ta.value).toBe("my own follow-up");
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.keyDown(ta, { key });
+    expect(ta.value).toBe("run the tests");
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    fireEvent.change(ta, { target: { value: "run the tests and explain" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.value).toBe("");
+    expect(ta.placeholder).toBe("run the tests");
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);

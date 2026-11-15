@@ -20,6 +20,9 @@ func TestExtensionStreamFeature(t *testing.T) {
 				}
 				return nil
 			})
+			sc.Step(`^semantic processors transform text deltas and leave other frames unchanged$`, func() error {
+				return runVitestScenario("src/ui/extensions/incomingStream.test.ts", "semantic text transforms cover both supported protocols and ignore every other frame")
+			})
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/ui_extension_stream.feature"}, TestingT: t, Strict: true},
 	}

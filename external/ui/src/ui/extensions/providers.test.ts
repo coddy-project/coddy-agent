@@ -139,6 +139,38 @@ describe("the providers API", () => {
     );
   });
 
+  test("upsert names the provider and models, sending one atomic write", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(async () => new Response(null, { status: 204 }));
+    const api = extensionProviders(controller.signal, {
+      request,
+      owner: "neuraldeep-onboarding",
+      sha256: "digest",
+    });
+    await api.upsert({
+      name: "neuraldeep",
+      type: "neuraldeep",
+      api_key: "secret",
+      models: [{ model: "neuraldeep/qwen" }],
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/coddy/extensions/neuraldeep-onboarding/providers/upsert",
+      expect.objectContaining({
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({
+          sha256: "digest",
+          provider: {
+            name: "neuraldeep",
+            type: "neuraldeep",
+            api_key: "secret",
+          },
+          models: [{ model: "neuraldeep/qwen" }],
+        }),
+      }),
+    );
+  });
+
   test("abort reaches the transport and disposes later calls", async () => {
     const controller = new AbortController();
     const request = vi.fn(

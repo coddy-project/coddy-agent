@@ -20,6 +20,7 @@ export type HookContribution = {
   ) => void | (() => void) | ToolView;
 };
 export type HookRef = Readonly<{ owner: string; hook: string }>;
+export type HookCommandHandler = (payload: unknown) => unknown;
 export type HookSlotHandle = { remove: () => void };
 
 export function parseHookRef(into: string): HookRef | null {
@@ -50,6 +51,7 @@ type Mounted = { key: string; box: HTMLElement; cleanup: () => void };
  * moved to its place. Order is owner id, then registration order. */
 export class HookSlotHost {
   private boxes = new Map<string, Map<HTMLElement, Mounted[]>>();
+  private handlers = new Map<string, Map<HTMLElement, HookCommandHandler>>();
   constructor(
     private rows: () => Owned<HookContribution>[],
     private fail: (key: string, owner: string, error: unknown) => void,
@@ -61,22 +63,37 @@ export class HookSlotHost {
     ref: string,
     element: HTMLElement,
     signal: AbortSignal,
+    handler?: HookCommandHandler,
   ): HookSlotHandle {
     if (signal.aborted) throw new Error("Extension disposed");
     if (!parseHookRef(ref)) throw new Error("Unknown hook reference");
     let boxes = this.boxes.get(ref);
     if (!boxes) this.boxes.set(ref, (boxes = new Map()));
     boxes.set(element, []);
+    if (handler) {
+      let handlers = this.handlers.get(ref);
+      if (!handlers) this.handlers.set(ref, (handlers = new Map()));
+      handlers.set(element, handler);
+    }
     this.render(ref, element);
     const remove = () => {
       const placed = boxes!.get(element);
       if (!boxes!.delete(element)) return;
+      const handlers = this.handlers.get(ref);
+      handlers?.delete(element);
+      if (!handlers?.size) this.handlers.delete(ref);
       signal.removeEventListener("abort", remove);
       this.unmount(element, placed ?? []);
       if (!boxes!.size) this.boxes.delete(ref);
     };
     signal.addEventListener("abort", remove, { once: true });
     return { remove };
+  }
+
+  invoke(ref: string, payload: unknown): unknown {
+    const handler = this.handlers.get(ref)?.values().next().value;
+    if (!handler) throw new Error(`No hook handler for ${ref}`);
+    return handler(payload);
   }
 
   /** Updates every box after the contribution rows changed. A render that

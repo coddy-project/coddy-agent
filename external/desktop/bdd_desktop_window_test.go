@@ -94,7 +94,9 @@ func helperBrowser(t *testing.T) desktop.BrowserCommand {
 type windowState struct {
 	t *testing.T
 
-	home string
+	home        string
+	nativeURL   chan string
+	nativeClose chan struct{}
 	// recordPath is where the fake browser writes the argv it was started
 	// with; closePath is the file whose appearance closes the window.
 	recordPath string
@@ -117,7 +119,6 @@ type windowState struct {
 	srv     *http.Server
 	cancel  context.CancelFunc
 	lastCfg *config.Config
-	left    []string
 	// before is the configuration as it stood before the decision, so the
 	// scenario can see that the decision changed none of it.
 	before string
@@ -172,7 +173,6 @@ func (s *windowState) reset(t *testing.T) {
 	s.mu.Unlock()
 	s.runErr = nil
 	s.lastCfg = nil
-	s.left = nil
 	s.before = ""
 	s.secondRun = nil
 	t.Setenv("CODDY_TEST_BROWSER_RECORD", s.recordPath)
@@ -300,9 +300,12 @@ func (s *windowState) stripIsToldTo(what string) error {
 // asked, the settings of a home of its own, and the shell over both, which is
 // where the bar's own menu comes from.
 func (s *windowState) trayCarriesAMenu() error {
-	// The autostart entry is a file in the XDG config folder of this session,
-	// so the scenario gives it one of its own rather than the operator's.
+	// "Open at login" writes a file of this session: the XDG config folder on
+	// Linux, a launch agent under the home on darwin. The scenario gives it
+	// both of its own rather than the operator's, since this package is the
+	// external test package and cannot reach isolateAutostart.
 	s.t.Setenv("XDG_CONFIG_HOME", s.t.TempDir())
+	s.t.Setenv("HOME", s.t.TempDir())
 	s.menuWindow = desktop.NewMenuWindow()
 	handle := desktop.NewWindowHandle()
 	handle.Attach(s.menuWindow)
@@ -692,7 +695,46 @@ func (s *windowState) switchWrittenDown() error {
 	if !saved.Autostart {
 		return errors.New("the settings of this home do not have it on")
 	}
+	// The entry the platform writes belongs to the scenario, not to the
+	// operator: on darwin a launch agent under ~/Library/LaunchAgents would
+	// otherwise point launchd at the temporary test binary at the next login,
+	// over whatever the operator had there.
+	entry, within := autostartEntryOfThisPlatform()
+	if entry == "" {
+		return nil
+	}
+	if _, err := os.Stat(entry); err != nil {
+		return fmt.Errorf("the entry of this platform was not written to %s: %w", entry, err)
+	}
+	if !strings.HasPrefix(entry, within) {
+		return fmt.Errorf("the entry went to %s, outside the scenario's own %s", entry, within)
+	}
 	return nil
+}
+
+// linuxOnlyTags leaves out the scenarios only a Linux session can answer.
+func linuxOnlyTags() string {
+	if runtime.GOOS == "linux" {
+		return ""
+	}
+	return "~@linux"
+}
+
+// autostartEntryOfThisPlatform answers where "Open at login" writes on this
+// platform and the folder the scenario gave it, or "" where it writes nothing.
+func autostartEntryOfThisPlatform() (entry, within string) {
+	switch runtime.GOOS {
+	case "linux":
+		config := os.Getenv("XDG_CONFIG_HOME")
+		return filepath.Join(config, "autostart", "coddy-desktop.desktop"), config
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		return filepath.Join(home, "Library", "LaunchAgents", "dev.coddy.desktop.plist"), home
+	}
+	return "", ""
 }
 
 func (s *windowState) barDrawsItTicked() error {
@@ -763,6 +805,47 @@ func (s *windowState) launch() error {
 	s.runErr = errs
 	return s.waitForWindow()
 }
+
+func (s *windowState) launchNative() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.nativeURL = make(chan string, 1)
+	s.nativeClose = make(chan struct{})
+	s.runErr = make(chan error, 1)
+	opts := s.options()
+	opts.Window = desktop.WindowNative
+	go func() {
+		s.runErr <- desktop.RunWithNativeOpener(ctx, opts, func(ctx context.Context, _ desktop.Options, url string) error {
+			s.nativeURL <- url
+			select {
+			case <-s.nativeClose:
+			case <-ctx.Done():
+			}
+			return nil
+		})
+	}()
+	return nil
+}
+
+func (s *windowState) nativeOpenedRememberedShell() error {
+	select {
+	case url := <-s.nativeURL:
+		port, err := desktop.ReadPort(s.home)
+		if err != nil {
+			return err
+		}
+		if want := "http://127.0.0.1:" + strconv.Itoa(port) + shell.Prefix; url != want {
+			return fmt.Errorf("native window opened %q, wanted %q", url, want)
+		}
+		return s.runsOnThePortOfTheLastLaunch()
+	case err := <-s.runErr:
+		return fmt.Errorf("native run ended before opening: %v", err)
+	case <-time.After(10 * time.Second):
+		return errors.New("native window did not open")
+	}
+}
+
+func (s *windowState) closeNative() error { close(s.nativeClose); return nil }
 
 func (s *windowState) waitForWindow() error {
 	deadline := time.Now().Add(15 * time.Second)
@@ -864,7 +947,6 @@ func (s *windowState) decidesWhatToRun() error {
 		return errors.New("no configuration was given")
 	}
 	s.before = fmt.Sprintf("%+v", *s.lastCfg)
-	s.left = desktop.SurfacesLeftToServe(s.lastCfg)
 	return nil
 }
 
@@ -1017,19 +1099,10 @@ func (s *windowState) changesNothingInTheConfig() error {
 	return nil
 }
 
-func (s *windowState) namesWhatItLeft() error {
-	if len(s.left) == 0 {
-		return errors.New("the desktop named none of the surfaces it turned off")
-	}
-	joined := strings.Join(s.left, " ")
-	for _, want := range []string{"swarm", "scheduler"} {
-		if !strings.Contains(joined, want) {
-			return fmt.Errorf("the desktop did not name %q among %v", want, s.left)
-		}
-	}
-	return nil
-}
-
+// The desktop decides by building the same subsystem list `coddy serve`
+// builds, so an enabled relay and an enabled scheduler are its work as much
+// as the window is; nothing is named away to another process any more.
+//
 // --- dragging the bar -------------------------------------------------------
 
 // The window manager's side of a drag needs a display and a running manager,
@@ -1124,6 +1197,9 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a configuration that also enables the swarm relay and the scheduler$`, st.configWithRelayAndScheduler)
 
 			sc.Step(`^the operator opens the desktop$`, st.opensTheDesktop)
+			sc.Step(`^the operator opens the native desktop$`, st.launchNative)
+			sc.Step(`^the native window is opened on the tab shell of the remembered port$`, st.nativeOpenedRememberedShell)
+			sc.Step(`^the native window closes$`, st.closeNative)
 			sc.Step(`^the operator opens the desktop again$`, st.opensTheDesktopAgain)
 			sc.Step(`^the window closes$`, st.windowCloses)
 			sc.Step(`^the desktop decides what to run$`, st.decidesWhatToRun)
@@ -1135,7 +1211,6 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^the run ends and the HTTP surface stops with it$`, st.runEndsAndServeStops)
 			sc.Step(`^the second run serves nothing of its own$`, st.secondRunServedNothing)
 			sc.Step(`^it opens the tab shell of the desktop already running$`, st.secondRunOpenedTheRunningDesktop)
-			sc.Step("^it names the surfaces it left to `coddy serve`$", st.namesWhatItLeft)
 			sc.Step(`^it changes nothing in the configuration itself$`, st.changesNothingInTheConfig)
 
 			sc.Step(`^a window whose browser answers Ctrl\+T and Ctrl\+W itself$`, st.browserAnswersTheChordsItself)
@@ -1185,8 +1260,14 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a drag never puts the bar above the top of the screen$`, st.neverAboveTheTop)
 		},
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/desktop_window.feature"},
+			Format: "pretty",
+			Paths:  []string{"../../features/desktop_window.feature"},
+			// The application entry is a file of the XDG desktop specification
+			// and only menu_entry_linux.go writes one, so its scenario is
+			// Linux's alone; everywhere else writeMenuEntry does nothing and
+			// there is nothing to assert. Same shape as ~@metrics in
+			// cmd/coddy/bdd_dry_run_serve_test.go.
+			Tags:     linuxOnlyTags(),
 			TestingT: t,
 			Output:   os.Stdout,
 			Strict:   true,

@@ -160,14 +160,18 @@ func (h *WindowHandle) OpenTab(cwd string) error {
 	return nil
 }
 
-func (h *WindowHandle) Supported() bool                    { return h.current().Supported() }
-func (h *WindowHandle) Undecorate() error                  { return h.current().Undecorate() }
-func (h *WindowHandle) Decorate() error                    { return h.current().Decorate() }
-func (h *WindowHandle) Minimise() error                    { return h.current().Minimise() }
-func (h *WindowHandle) ToggleMaximise() error              { return h.current().ToggleMaximise() }
-func (h *WindowHandle) Close() error                       { return h.current().Close() }
-func (h *WindowHandle) BeginMove(x, y int) error           { return h.current().BeginMove(x, y) }
-func (h *WindowHandle) MoveBy(dx, dy int) error            { return h.current().MoveBy(dx, dy) }
+func (h *WindowHandle) Supported() bool          { return h.current().Supported() }
+func (h *WindowHandle) Undecorate() error        { return h.current().Undecorate() }
+func (h *WindowHandle) Decorate() error          { return h.current().Decorate() }
+func (h *WindowHandle) Minimise() error          { return h.current().Minimise() }
+func (h *WindowHandle) ToggleMaximise() error    { return h.current().ToggleMaximise() }
+func (h *WindowHandle) Close() error             { return h.current().Close() }
+func (h *WindowHandle) BeginMove(x, y int) error { return h.current().BeginMove(x, y) }
+func (h *WindowHandle) MoveBy(dx, dy int) error  { return h.current().MoveBy(dx, dy) }
+func (h *WindowHandle) BeginResize() error       { return h.current().BeginResize() }
+func (h *WindowHandle) ResizeBy(direction string, dx, dy int) error {
+	return h.current().ResizeBy(direction, dx, dy)
+}
 func (h *WindowHandle) WaitForWindow(b time.Duration) bool { return h.current().WaitForWindow(b) }
 
 // noWindowControl is every platform the window is not ported to, and the
@@ -175,14 +179,18 @@ func (h *WindowHandle) WaitForWindow(b time.Duration) bool { return h.current().
 // nothing destructive.
 type noWindowControl struct{}
 
-func (noWindowControl) Supported() bool                  { return false }
-func (noWindowControl) Undecorate() error                { return errWindowUnsupported }
-func (noWindowControl) Decorate() error                  { return errWindowUnsupported }
-func (noWindowControl) Minimise() error                  { return errWindowUnsupported }
-func (noWindowControl) ToggleMaximise() error            { return errWindowUnsupported }
-func (noWindowControl) Close() error                     { return errWindowUnsupported }
-func (noWindowControl) BeginMove(_, _ int) error         { return errWindowUnsupported }
-func (noWindowControl) MoveBy(_, _ int) error            { return errWindowUnsupported }
+func (noWindowControl) Supported() bool          { return false }
+func (noWindowControl) Undecorate() error        { return errWindowUnsupported }
+func (noWindowControl) Decorate() error          { return errWindowUnsupported }
+func (noWindowControl) Minimise() error          { return errWindowUnsupported }
+func (noWindowControl) ToggleMaximise() error    { return errWindowUnsupported }
+func (noWindowControl) Close() error             { return errWindowUnsupported }
+func (noWindowControl) BeginMove(_, _ int) error { return errWindowUnsupported }
+func (noWindowControl) MoveBy(_, _ int) error    { return errWindowUnsupported }
+func (noWindowControl) BeginResize() error       { return errWindowUnsupported }
+func (noWindowControl) ResizeBy(_ string, _, _ int) error {
+	return errWindowUnsupported
+}
 func (noWindowControl) WaitForWindow(time.Duration) bool { return false }
 
 // cornerRounder is the part of a window control that can cut the window's

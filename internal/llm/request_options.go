@@ -51,10 +51,6 @@ func (o RequestOptions) Validate(providerType, model string) error {
 		if *o.MaxTokens < 1 {
 			return fmt.Errorf("max_tokens must be a positive integer")
 		}
-		if providerType == "codex" {
-			// The Codex backend answers "Unsupported parameter: max_output_tokens".
-			return fmt.Errorf("max_tokens is not supported by a codex model: the Codex backend takes no output cap")
-		}
 	}
 	if o.Temperature != nil {
 		if providerType == "codex" {

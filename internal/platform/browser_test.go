@@ -116,6 +116,22 @@ func TestLocalBrowserAvailable(t *testing.T) {
 			want:    false,
 		},
 		{
+			// FreeBSD runs the same freedesktop desktops, and reaches a
+			// browser the same way.
+			name:    "FreeBSD desktop with an opener",
+			goos:    "freebsd",
+			env:     map[string]string{"DISPLAY": ":0"},
+			openers: []string{"xdg-open"},
+			want:    true,
+		},
+		{
+			name:    "FreeBSD server with no display",
+			goos:    "freebsd",
+			env:     map[string]string{},
+			openers: []string{"xdg-open"},
+			want:    false,
+		},
+		{
 			name:    "NO_BROWSER wins over a working desktop",
 			goos:    "linux",
 			env:     map[string]string{"DISPLAY": ":0", "NO_BROWSER": "1"},
@@ -177,6 +193,12 @@ func TestBrowserOpenArgv(t *testing.T) {
 			goos:    "linux",
 			openers: []string{"wslview"},
 			want:    []string{"wslview", "https://hub/device"},
+		},
+		{
+			name:    "FreeBSD takes the same openers",
+			goos:    "freebsd",
+			openers: []string{"xdg-open"},
+			want:    []string{"xdg-open", "https://hub/device"},
 		},
 		{
 			name:    "BROWSER names the command",

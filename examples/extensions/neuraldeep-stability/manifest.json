@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "description": "Shows NeuralDeep uptime and daily history inside the provider row.",
   "permissions": ["ui.page"],
+  "required_features": ["settings.blocks", "network.proxy"],
   "ui": {
     "entry": "main.js",
     "styles": ["style.css"]

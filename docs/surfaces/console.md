@@ -115,7 +115,10 @@ away: the header keeps pointing at `/login`, which opens it again, so nothing
 about it is a one-shot screen. A row that signs in runs the sign-in below; a
 row that takes a key is asked for its endpoint where it has none of its own and
 then for the key; an ACP agent is asked only for the command that starts it,
-because the agent signs itself in and Coddy stores no credential for it. An empty answer at the key prompt changes no credential: a row
+because the agent signs itself in and Coddy stores no credential for it. Every
+field of the setup takes a paste from the terminal as well as typing, and Enter
+confirms what the field holds. A key copied with the newline after it loses
+that newline there. An empty answer at the key prompt changes no credential: a row
 `config.yaml` already holds keeps its `api_key` or its `api_key_command`, and a
 row with neither reads its `NAME_API_KEY` variable, which is how a local server
 with no key works. Coddy then asks the provider what it serves, the way that row
@@ -342,7 +345,8 @@ Top to bottom:
   gives way first, then the model is cut.
   The right side of the second line shows while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
-  read from the Codex backend's usage endpoint; `devin`, read from the
+  read from the Codex backend's usage endpoint; `openai`, read with
+  `GET {api_base}/limits` from the row's own `api_base`; `devin`, read from the
   seat-management status RPC):
   `Pro • 3h 3% • week 7% • wallet -1 229 ₽`,
   the plan, each metered window as percent **used**, and the account's own
@@ -392,6 +396,43 @@ zero-width APC cursor marker for IME hardware-cursor placement, 16 ms render
 throttle with immediate renders after keystrokes.
 
 ## Commands and keys
+
+Suggestions are available from the first completed reply. After a turn, the empty
+editor can show a dim suggestion for the next prompt, including a one-word reply
+in Russian such as "продолжай".
+**Tab** or **Right** copies it into the draft; typing hides it. The extra model
+call repeats the finished turn's own request - the same model and reasoning level,
+its system prompt, complete history and tool definitions - with the suggestion
+instruction appended as a request-only user message, so a provider that caches
+prompts reads the turn's history back from its cache instead of paying for it
+again. The turn-context block (the time, the git state) is left out, tools are
+never executed and the transcript stays unchanged. Where the turn asked for no
+reasoning, the call reserves up to 1024 output tokens, including reasoning, so a
+model such as OpenCode's `beam-free` can finish before producing the hint; where
+it did ask for reasoning, the turn's own output bound stays, because Anthropic
+derives the thinking budget from `max_tokens` and a request whose thinking
+parameters differ from the turn's reads none of its cached history. A turn the
+provider did not serve from its cache gets no suggestion at all: Coddy reads the
+turn's own usage, and over 10000 tokens of it processed rather than read back the
+side call is not worth making. The reading applies where a provider reports what
+it served from its cache, which the Messages API always does. Suggestions
+are enabled by default; set `agent.prompt_suggestions: false` in `config.yaml` to
+disable them, or use **Settings → ReAct loop → Prompt suggestions** in the web UI.
+With `--remote`, the console fetches the hint from the server and reports whether
+it was accepted. The server's `agent.prompt_suggestions` controls generation; no
+local model or provider credentials are needed. Tab and Right work the same way.
+A new remote turn, server configuration reload or reconnect retires an obsolete
+hint and cancels a pending request. If the server does not provide the suggestion
+route, the editor continues without a hint. Update both the server and console to
+use this feature.
+
+![A dim suggestion in a remote console](../assets/cli-tui/remote-suggestion-hint-dark-1280.png)
+
+*A dim hint from the server, dark theme, 1280px. [Narrow view at 390px](../assets/cli-tui/remote-suggestion-hint-dark-390.png).*
+
+![The remote suggestion accepted into the draft](../assets/cli-tui/remote-suggestion-accepted-dark-1280.png)
+
+*The hint accepted with Tab into an editable draft, dark theme, 1280px. [Accepted with Right at 390px](../assets/cli-tui/remote-suggestion-accepted-dark-390.png).*
 
 Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with

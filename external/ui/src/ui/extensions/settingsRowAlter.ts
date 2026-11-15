@@ -48,6 +48,23 @@ export type SettingsRowTextResolver = (
       secondDesc?: string | undefined;
     };
 
+export function renameSettingsRow(
+  section: string,
+  id: string,
+  label: string,
+): SettingsRowAlter {
+  if (!section.trim() || !id.trim() || !label.trim()) {
+    throw new Error("A settings rename needs section, row id and label");
+  }
+  return {
+    id: `rename-${section}-${id}`,
+    run: (rows, context) =>
+      context.section === section
+        ? rows.map((row) => (row.id === id ? { ...row, label } : row))
+        : rows,
+  };
+}
+
 /** Supplied by Settings so SchemaForm and its search index run the same passes. */
 export const SettingsRowAlterContext = createContext<{
   alters: readonly SettingsRowAlter[];

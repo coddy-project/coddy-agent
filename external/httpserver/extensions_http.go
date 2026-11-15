@@ -386,6 +386,41 @@ func (s *Server) registerExtensionRoutes() {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	s.mux.HandleFunc("POST /coddy/extensions/{id}/providers/upsert", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		var body struct {
+			SHA256   string                  `json:"sha256"`
+			Provider configapi.NamedProvider `json:"provider"`
+			Models   []configapi.NamedModel  `json:"models"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			http.Error(w, errorJSON("expected sha256, provider and optional models"), http.StatusBadRequest)
+			return
+		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			http.Error(w, errorJSON("expected one JSON object"), http.StatusBadRequest)
+			return
+		}
+		if err := store().CheckEnabled(id, body.SHA256); err != nil {
+			fail(w, err)
+			return
+		}
+		if s.configUpsertProvider == nil {
+			http.Error(w, errorJSON("the configuration editor is not available"), http.StatusServiceUnavailable)
+			return
+		}
+		if err := s.configUpsertProvider(body.Provider, body.Models); err != nil {
+			code := http.StatusInternalServerError
+			if configapi.ConfigBadRequest(err) {
+				code = http.StatusBadRequest
+			}
+			http.Error(w, errorJSON(err.Error()), code)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	s.mux.HandleFunc("GET /coddy/extensions/{id}/assets/{file...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("file")
 		data, err := store().Asset(r.PathValue("id"), r.URL.Query().Get("sha256"), name)

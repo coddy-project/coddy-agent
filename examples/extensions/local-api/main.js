@@ -28,11 +28,13 @@ export function activate(coddy) {
           const method = field("method").value;
           const response = await coddy.net.fetch(field("url").value, {
             method,
-            ...(method === "POST" ? {
-              headers: { "Content-Type": "application/json" },
-              body: field("body").value
-            } : {}),
-            signal: current.signal
+            ...(method === "POST"
+              ? {
+                  headers: { "Content-Type": "application/json" },
+                  body: field("body").value,
+                }
+              : {}),
+            signal: current.signal,
           });
           const text = await response.text();
           if (request === current)
@@ -44,8 +46,11 @@ export function activate(coddy) {
         }
       });
       element.append(form);
-      return () => { request?.abort(); form.remove(); };
-    }
+      return () => {
+        request?.abort();
+        form.remove();
+      };
+    },
   });
   return () => page.remove();
 }

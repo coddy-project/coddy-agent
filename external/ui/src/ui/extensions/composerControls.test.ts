@@ -262,6 +262,60 @@ describe("composer controls", () => {
     expect(box.children[1]).toHaveAttribute("title", "First extension");
   });
 
+  test("targeted placement leaves unknown host controls in their own order and reset is an explicit takeover", () => {
+    const { controls, host } = setup();
+    const owner = {};
+    host.declareHostControls(
+      [
+        { id: "mode", key: "host/mode", placement: "tabs" },
+        { id: "model", key: "host/model", placement: "tabs" },
+        { id: "reasoning", key: "host/reasoning", placement: "tabs" },
+      ],
+      owner,
+    );
+    controls.register(
+      "a",
+      api("a"),
+      { id: "disco", placement: "tabs", after: "host/model", mount: () => {} },
+      validateComposerControl,
+    );
+    controls.register(
+      "b",
+      api("b"),
+      { id: "first", placement: "tabs", before: "host/mode", mount: () => {} },
+      validateComposerControl,
+    );
+    controls.register(
+      "c",
+      api("c"),
+      { id: "ordinary", placement: "tabs", mount: () => {} },
+      validateComposerControl,
+    );
+    expect(host.descriptors("tabs").map((row) => row.key)).toEqual([
+      "c/ordinary",
+      "b/first",
+      "host/mode",
+      "host/model",
+      "a/disco",
+      "host/reasoning",
+    ]);
+    const restore = host.reset("a");
+    expect(host.descriptors("tabs").map((row) => row.key)).toEqual(["a/disco"]);
+    restore();
+    expect(host.descriptors("tabs").map((row) => row.key)).toContain(
+      "host/mode",
+    );
+    expect(() =>
+      validateComposerControl({
+        id: "bad",
+        placement: "tabs",
+        before: "host/mode",
+        after: "host/model",
+        mount: () => {},
+      }),
+    ).toThrow(/before.*after|after.*before/);
+  });
+
   test("conditional host declarations and stale cleanup do not clear a successor", () => {
     const { host } = setup();
     const first = {};

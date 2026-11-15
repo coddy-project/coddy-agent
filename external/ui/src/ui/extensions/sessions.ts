@@ -28,7 +28,9 @@ export type SessionMessage = Readonly<{
   id?: string;
   role?: string;
   type?: string;
-  [key: string]: unknown;
+  /** Text normalized from content or text; other fields stay in raw. */
+  text: string;
+  raw: Readonly<Record<string, unknown>>;
 }>;
 export type SessionLiveEvent = Readonly<
   | { type: "text"; delta: string }
@@ -104,7 +106,13 @@ export function decodeLiveEvent(
   event: string,
   data: string,
 ): SessionLiveEvent[] {
-  if (data === "[DONE]" || event === "done") return [{ type: "done" }];
+  if (
+    data === "[DONE]" ||
+    event === "done" ||
+    event === "response.completed" ||
+    event === "response.failed"
+  )
+    return [{ type: "done" }];
   if (!data) return [];
   if (event === "error") {
     let message = data;
@@ -150,10 +158,20 @@ export function decodeLiveEvent(
   // A text chunk: the OpenAI shape, or the relay's own `{delta}`.
   try {
     const parsed = JSON.parse(data) as {
-      delta?: { content?: unknown; reasoning_content?: unknown };
+      delta?: string | { content?: unknown; reasoning_content?: unknown };
       choices?: Array<{ delta?: { content?: unknown } }>;
     };
-    const delta = parsed.delta ?? parsed.choices?.[0]?.delta;
+    if (
+      event === "response.output_text.delta" &&
+      typeof parsed.delta === "string" &&
+      parsed.delta
+    ) {
+      return [{ type: "text", delta: parsed.delta }];
+    }
+    const delta =
+      typeof parsed.delta === "object"
+        ? parsed.delta
+        : parsed.choices?.[0]?.delta;
     const content = delta?.content;
     if (typeof content === "string" && content)
       return [{ type: "text", delta: content }];
@@ -163,8 +181,43 @@ export function decodeLiveEvent(
   return [];
 }
 
-function freezeRows<T>(rows: unknown[]): readonly T[] {
-  return rows.map((row) => Object.freeze({ ...(row as object) }) as T);
+function normalizeSummaries(rows: unknown[]): readonly SessionSummary[] {
+  return rows.map((value) => {
+    const row = (value ?? {}) as Record<string, unknown>;
+    return Object.freeze({
+      id: String(row.id ?? ""),
+      title: String(row.title ?? ""),
+      cwd: String(row.cwd ?? ""),
+      repoRoot: String(row.repoRoot ?? ""),
+      archived: row.archived === true,
+      pinned: row.pinned === true,
+      origin: String(row.origin ?? ""),
+      tags: Object.freeze(Array.isArray(row.tags) ? row.tags.map(String) : []),
+      updatedAt: String(row.updatedAt ?? ""),
+      turnActive: row.turnActive === true,
+      permissionPending: row.permissionPending === true,
+      questionPending: row.questionPending === true,
+      backgroundRunning:
+        typeof row.backgroundRunning === "number" ? row.backgroundRunning : 0,
+    });
+  });
+}
+
+function normalizeMessages(rows: unknown[]): readonly SessionMessage[] {
+  return rows.map((value) => {
+    const row = (value ?? {}) as Record<string, unknown>;
+    const raw = Object.freeze({ ...row });
+    return Object.freeze({
+      ...(row.id !== undefined ? { id: String(row.id) } : {}),
+      ...(row.role !== undefined ? { role: String(row.role) } : {}),
+      ...(row.type !== undefined ? { type: String(row.type) } : {}),
+      text:
+        typeof (row.content ?? row.text) === "string"
+          ? String(row.content ?? row.text)
+          : "",
+      raw,
+    });
+  });
 }
 
 export function extensionSessions(
@@ -195,7 +248,7 @@ export function extensionSessions(
     const body = await getJSON<{ items?: unknown[] }>(
       `/coddy/sessions${suffix}`,
     );
-    return freezeRows<SessionSummary>(body.items ?? []);
+    return normalizeSummaries(body.items ?? []);
   };
   const patch = async (sessionId: string, body: Record<string, unknown>) => {
     active();
@@ -229,7 +282,7 @@ export function extensionSessions(
       const body = await getJSON<{ messages?: unknown[] }>(
         `/coddy/sessions/${encodeURIComponent(sessionId)}/messages${suffix}`,
       );
-      return freezeRows<SessionMessage>(body.messages ?? []);
+      return normalizeMessages(body.messages ?? []);
     },
     async toolCalls(sessionId, opts2) {
       const params = new URLSearchParams();
@@ -240,7 +293,7 @@ export function extensionSessions(
       const body = await getJSON<{ items?: unknown[]; toolCalls?: unknown[] }>(
         `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls${suffix}`,
       );
-      return freezeRows<SessionMessage>(body.items ?? body.toolCalls ?? []);
+      return normalizeMessages(body.items ?? body.toolCalls ?? []);
     },
     async send(req) {
       active();

@@ -1,3 +1,7 @@
+import {
+  AuthenticationSection,
+  AUTHENTICATION_FIELD_TEXTS,
+} from "./AuthenticationSection";
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
@@ -46,6 +50,9 @@ import { translate } from "../i18n/i18n";
 // (vite.config.ts names it SystemSection-<hash>.js), so app.js carries only the
 // store, the badge and the strings.
 const SystemSection = lazy(() => import("./SystemSection"));
+const StatisticsSettings = lazy(
+  () => import("../statistics/StatisticsSettings"),
+);
 
 // The deployments a neuraldeep provider may point at, mirroring
 // neuralDeepEndpoints in internal/llm/neuraldeep_auth.go. The backend ignores
@@ -108,7 +115,12 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 // Provider types with an account-usage source server-side
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
 // means something only for them, so the other types do not show it.
-const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+const USAGE_PANEL_PROVIDER_TYPES = new Set([
+  "neuraldeep",
+  "codex",
+  "devin",
+  "openai",
+]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
@@ -346,6 +358,9 @@ export function overrideTexts(
   parent: Record<string, unknown> | undefined,
   schema: JsonSchema,
 ): false | null | OverrideTexts {
+  if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
+    return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+  }
   const label = () =>
     schemaFieldLabel(
       domain,
@@ -803,6 +818,15 @@ function BuiltinSettingsSection(props: {
     );
   }
   if (section.kind === "extensions") return <ExtensionsSection />;
+  if (section.kind === "statistics") {
+    return (
+      <ChunkBoundary>
+        <Suspense fallback={<SystemPending />}>
+          <StatisticsSettings />
+        </Suspense>
+      </ChunkBoundary>
+    );
+  }
 
   // The session table is API-driven (/coddy/sessions): it reads and removes
   // stored bundles and never touches the settings document. Above it, once
@@ -846,6 +870,15 @@ function BuiltinSettingsSection(props: {
           <SystemSection />
         </Suspense>
       </ChunkBoundary>
+    );
+  }
+
+  if (section.kind === "authentication") {
+    return (
+      <AuthenticationSection
+        value={asObject(doc.httpserver)}
+        onChange={(v) => setKey("httpserver", v)}
+      />
     );
   }
 
@@ -1305,7 +1338,7 @@ export function objectSectionGroups(
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: ["model", "max_turns", "queue_mode"],
+        paths: ["model", "max_turns", "queue_mode", "prompt_suggestions"],
       },
       {
         id: "retries",

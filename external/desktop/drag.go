@@ -70,3 +70,51 @@ func clampMove(x, y int) (int, int) {
 	}
 	return x, y
 }
+
+const (
+	minWindowWidth  = 320
+	minWindowHeight = 200
+)
+
+// resizeRect measures an edge drag from the geometry where it began. The
+// opposite edge stays anchored, including when the minimum size is reached.
+func resizeRect(start windowRect, direction string, dx, dy int) (windowRect, bool) {
+	var north, south, west, east bool
+	switch direction {
+	case "n", "s", "w", "e", "nw", "ne", "sw", "se":
+		north = direction == "n" || direction == "nw" || direction == "ne"
+		south = direction == "s" || direction == "sw" || direction == "se"
+		west = direction == "w" || direction == "nw" || direction == "sw"
+		east = direction == "e" || direction == "ne" || direction == "se"
+	default:
+		return windowRect{}, false
+	}
+	out := start
+	if west {
+		out.X += dx
+		out.W -= dx
+	}
+	if east {
+		out.W += dx
+	}
+	if north {
+		out.Y += dy
+		out.H -= dy
+	}
+	if south {
+		out.H += dy
+	}
+	if out.W < minWindowWidth {
+		if west {
+			out.X = start.X + start.W - minWindowWidth
+		}
+		out.W = minWindowWidth
+	}
+	if out.H < minWindowHeight {
+		if north {
+			out.Y = start.Y + start.H - minWindowHeight
+		}
+		out.H = minWindowHeight
+	}
+	return out, true
+}

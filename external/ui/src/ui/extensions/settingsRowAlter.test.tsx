@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   alterSettingsRows,
+  renameSettingsRow,
   SettingsRowAlterContext,
   type SettingsRowAlter,
   type SettingsRowDescriptor,
@@ -113,6 +114,32 @@ function alter(run: SettingsRowAlter["run"], id = "test"): SettingsRowAlter {
 }
 
 describe("Settings row alter passes", () => {
+  test("a targeted rename changes only the named row, never the host's order", () => {
+    const rename = renameSettingsRow("demo", "alpha", "Only alpha renamed");
+    const originalOrder = [
+      "alpha",
+      "nested",
+      "nested.first",
+      "nested.second",
+      "nested.entries",
+      "nested.entries.name",
+      "nested.entries.enabled",
+      "omega",
+    ];
+    const { container } = render(alteredForm([rename]));
+    expect(screen.getByLabelText("Only alpha renamed")).toHaveValue(
+      "keep alpha",
+    );
+    expect(screen.getByLabelText("Original omega")).toHaveValue("keep omega");
+    const anchors = [
+      ...container.querySelectorAll("[data-settings-anchor]"),
+    ].map((el) => el.getAttribute("data-settings-anchor"));
+    expect(anchors).toEqual(originalOrder.map((id) => `demo:${id}`));
+    const index = alteredIndex([rename]);
+    expect(titles(index, "Only alpha renamed")).toEqual(["Only alpha renamed"]);
+    expect(titles(index, "Original omega")).toEqual(["Original omega"]);
+  });
+
   test("passes receive frozen descriptors with section, path, label, kind, type and description", () => {
     let seen: readonly SettingsRowDescriptor[] = [];
     const pass = alter((rows, context) => {

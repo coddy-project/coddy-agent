@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/configapi"
 	"github.com/EvilFreelancer/coddy-agent/internal/extensions"
 )
 
@@ -329,5 +330,57 @@ func TestUIExtensionConfigRoute(t *testing.T) {
 	}
 	if w = request("POST", "/coddy/extensions/demo/config", body); w.Code != 500 {
 		t.Fatalf("editor failure: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestUIExtensionProviderUpsert(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	s := &Server{mux: http.NewServeMux()}
+	s.cfgAt.Store(cfg)
+	s.registerExtensionRoutes()
+	request := func(method, path string, body []byte) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		s.authGate(s.mux).ServeHTTP(w, r)
+		return w
+	}
+	var b bytes.Buffer
+	z := zip.NewWriter(&b)
+	for name, body := range map[string]string{"manifest.json": `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`, "main.js": "export {}"} {
+		f, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := request("POST", "/coddy/extensions", b.Bytes())
+	if w.Code != 201 {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	var row extensions.Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if w := request("PUT", "/coddy/extensions/demo", []byte(`{"enabled":true,"sha256":"`+row.SHA256+`","accept_risk":true}`)); w.Code != 200 {
+		t.Fatalf("enable: %d %s", w.Code, w.Body)
+	}
+	var provider configapi.NamedProvider
+	var models []configapi.NamedModel
+	s.configUpsertProvider = func(got configapi.NamedProvider, gotModels []configapi.NamedModel) error {
+		provider, models = got, gotModels
+		return nil
+	}
+	body := []byte(`{"sha256":"` + row.SHA256 + `","provider":{"name":"neuraldeep","type":"neuraldeep"},"models":[{"model":"neuraldeep/qwen"}]}`)
+	if w := request("POST", "/coddy/extensions/demo/providers/upsert", body); w.Code != 204 {
+		t.Fatalf("upsert: %d %s", w.Code, w.Body)
+	}
+	if provider.Name != "neuraldeep" || len(models) != 1 || models[0].Model != "neuraldeep/qwen" {
+		t.Fatalf("applied: %#v %#v", provider, models)
 	}
 }

@@ -22,6 +22,7 @@ import {
   type SettingsRowPlan,
 } from "./SchemaForm";
 import type { SettingsRowAlter } from "../extensions/settingsRowAlter";
+import { translate } from "../i18n/i18n";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import {
   modelFormGroups,
@@ -35,6 +36,7 @@ import {
   ARRAY_LABEL_FIELDS,
   landmarkAnchor,
   SESSIONS_CONFIG_KEY,
+  SETTINGS_TEXTS,
   type SectionDescriptor,
 } from "./settingsSections";
 import { SETTINGS_LANDMARKS, type SettingsLandmark } from "./settingsLandmarks";
@@ -305,6 +307,10 @@ function asObject(v: unknown): PlainObject {
     : {};
 }
 
+function backupCodesShown(doc: PlainObject): boolean {
+  return asObject(asObject(doc.httpserver).login).totp_configured === true;
+}
+
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
@@ -319,18 +325,20 @@ function rowLabel(row: unknown, field: string): string {
 }
 
 /**
- * What the index reads from the document: row names and the public row metadata
- * a SettingsBlock match can read. Secret edits do not rebuild the index.
+ * What the index reads from the document: row names, the public row metadata
+ * a SettingsBlock match can read and whether the backup codes block is shown.
+ * Secret edits do not rebuild the index.
  */
 export function settingsIndexRowsKey(doc: PlainObject): string {
-  return JSON.stringify(
-    Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
+  return JSON.stringify({
+    rows: Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
       asArray(doc[key]).map((row) => [
         rowLabel(row, field),
         sanitizedSettingsRow(row),
       ]),
     ),
-  );
+    backupCodes: backupCodesShown(doc),
+  });
 }
 
 type Form = {
@@ -378,6 +386,12 @@ function walkField(frame: FieldFrame): void {
   const names =
     texts.second === undefined ? [primary] : [primary, texts.second];
   const anchor = fieldAnchor(form.domain, path);
+  const passwordHint =
+    form.domain === "httpserver.login" && path === "password"
+      ? translate(SETTINGS_TEXTS.authPassword.desc!)
+      : form.domain === "httpserver.login" && path === "session_ttl_hours"
+        ? translate(SETTINGS_TEXTS.authTtl.desc!)
+        : undefined;
   walk.out.push(
     makeSearchEntry({
       kind: box === null && isBlockField(schema) ? "block" : "field",
@@ -387,9 +401,10 @@ function walkField(frame: FieldFrame): void {
       list,
       fallbackAnchor: list,
       names,
-      descriptions: [texts.primaryDesc, texts.secondDesc].filter(
-        (d): d is string => !!d,
-      ),
+      descriptions: [
+        texts.primaryDesc ?? passwordHint,
+        texts.secondDesc,
+      ].filter((d): d is string => !!d),
       where,
       keyPath,
     }),
@@ -584,6 +599,24 @@ function tabForms(
       : null;
   };
   switch (section.kind) {
+    case "authentication": {
+      const schema = props[key]?.properties?.login;
+      return schema
+        ? {
+            forms: [
+              {
+                form: {
+                  domain: "httpserver.login",
+                  keyRoot: "httpserver.login",
+                  schema,
+                  groups: undefined,
+                },
+                value: asObject(asObject(doc[key]).login),
+              },
+            ],
+          }
+        : null;
+    }
     case "object":
       return one(section.id, key, objectSectionGroups(key));
     case "skills":

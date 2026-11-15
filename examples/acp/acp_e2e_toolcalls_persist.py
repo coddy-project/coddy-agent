@@ -105,6 +105,19 @@ def extract_tool_events(backlog: list[dict[str, Any]]) -> tuple[list[dict[str, A
     return calls, updates
 
 
+def extract_chunks(backlog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Returns the message chunks of the stream: user_message_chunk and
+    agent_message_chunk, each of which ACP groups by the messageId it carries."""
+    out: list[dict[str, Any]] = []
+    for m in backlog:
+        if m.get("method") != "session/update":
+            continue
+        u = m.get("params", {}).get("update") or {}
+        if u.get("sessionUpdate") in ("user_message_chunk", "agent_message_chunk"):
+            out.append(u)
+    return out
+
+
 def main() -> int:
     binary = os.environ.get("CODDY_BIN", default_coddy_bin())
     cfg = os.environ.get("CODDY_CONFIG", default_config())
@@ -200,6 +213,31 @@ STEP 2 - Reply single line OK when done.
         if not tcid:
             print("missing toolCallId in tool_call", calls[0], file=sys.stderr)
             return 1
+
+        # ACP's toolCall.name is the programmatic tool beside the title a
+        # person reads: a client keys its icons and filters on it.
+        tool_name = (calls[0].get("name") or "").strip()
+        if tool_name != "run_command":
+            print(f"tool_call name = {tool_name!r}, want 'run_command': {jd(calls[0])}", file=sys.stderr)
+            return 1
+
+        # Every chunk of one message carries the same messageId, and the run
+        # of one prompt is more than one message: its prompt and its answer.
+        chunks = extract_chunks(backlog)
+        if not chunks:
+            print("expected message chunks in the ACP backlog", file=sys.stderr)
+            return 1
+        for chunk in chunks:
+            if not (chunk.get("messageId") or "").strip():
+                print(f"chunk carries no messageId: {jd(chunk)}", file=sys.stderr)
+                return 1
+        user_chunks = [c for c in chunks if c.get("sessionUpdate") == "user_message_chunk"]
+        answer_chunks = [c for c in chunks if c.get("sessionUpdate") == "agent_message_chunk"]
+        for group, label in ((user_chunks, "user"), (answer_chunks, "answer")):
+            ids = {(c.get("messageId") or "") for c in group}
+            if len(ids) != 1:
+                print(f"the {label} chunks carry {len(ids)} message ids, want one: {sorted(ids)}", file=sys.stderr)
+                return 1
 
         tool_dir = sdir / "tool_calls" / tcid
         for name in ("args.json", "result.md", "meta.json"):

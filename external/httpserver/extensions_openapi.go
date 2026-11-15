@@ -12,7 +12,7 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 	array := func(items any) map[string]any {
 		return map[string]any{"type": "array", "items": items}
 	}
-	entry := object(map[string]any{"api": map[string]any{"type": "integer", "enum": []int{1}}, "id": str, "name": str, "version": str, "description": str, "permissions": array(str), "sha256": str, "entry_sha256": str, "enabled": boolean, "ui": object(map[string]any{"entry": str, "styles": array(str), "compat_styles": array(str)})})
+	entry := object(map[string]any{"api": map[string]any{"type": "integer", "enum": []int{1}}, "id": str, "name": str, "version": str, "description": str, "permissions": array(str), "required_features": array(str), "engines": object(map[string]any{"coddy": str}), "sha256": str, "entry_sha256": str, "enabled": boolean, "ui": object(map[string]any{"entry": str, "styles": array(str), "compat_styles": array(str)})})
 	response := func(desc string, schema any) map[string]any {
 		return map[string]any{"description": desc, "content": map[string]any{"application/json": map[string]any{"schema": schema}}}
 	}
@@ -62,6 +62,25 @@ func mergeExtensionsOpenAPI(doc map[string]interface{}) {
 		"operationId": "writeUIExtensionConfig", "summary": "Write one configuration path for an approved UI extension", "parameters": params,
 		"description": "Requires the exact enabled package digest and the `config.write` manifest scope. JSON `{sha256, path, value}` writes one dot path of the configuration document - an object key, an array index, or `+` to append - through the same transaction a settings save runs under: a minimal write over the file as it is, comments preserved, the result installed. Another extension's `extension_values` are refused. Body up to 256 KiB.",
 		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "required": []any{"sha256", "path"}, "properties": map[string]any{"sha256": str, "path": str, "value": map[string]any{"description": "One JSON value to write at the path (missing is null)"}}}}}},
+		"responses":   map[string]any{"204": map[string]any{"description": "Written and reloaded"}, "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse, "503": errResponse},
+	}}
+	providerUpsertSchema := object(map[string]any{
+		"sha256": str,
+		"provider": object(map[string]any{
+			"name": str, "type": str, "api_key": str, "api_base": str, "proxy": str,
+			"timeout_ms": map[string]any{"type": "integer"}, "usage_limits_panel": boolean,
+		}),
+		"models": array(object(map[string]any{
+			"model": str, "max_tokens": map[string]any{"type": "integer"},
+			"multimodal": boolean, "stream": boolean,
+		})),
+	})
+	providerUpsertSchema["required"] = []string{"sha256", "provider"}
+	providerUpsertSchema["additionalProperties"] = false
+	paths["/coddy/extensions/{id}/providers/upsert"] = map[string]any{"post": map[string]any{
+		"operationId": "upsertUIExtensionProvider", "summary": "Create or update a provider and its models by name", "parameters": params,
+		"description": "Requires the exact enabled package digest and the `config.write` manifest scope. The provider is matched by `name`, each model by `model`; numeric array indices are never accepted. Omitted fields survive, and provider plus models are installed in one configuration transaction.",
+		"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": providerUpsertSchema}}},
 		"responses":   map[string]any{"204": map[string]any{"description": "Written and reloaded"}, "400": errResponse, "401": errResponse, "403": errResponse, "409": errResponse, "503": errResponse},
 	}}
 	paths["/coddy/extensions/{id}/requests/{requestId}"] = map[string]any{"post": map[string]any{

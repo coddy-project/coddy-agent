@@ -19,6 +19,9 @@ import (
 // here, outside the build tag, so `coddy serve` reads the same names in a
 // binary that cannot serve the API and quotes them in its own help.
 const (
+	// DesktopNoAuthHeader selects the ordinary password-free desktop mode on
+	// the authenticated local IPC channel. The bridge removes any browser copy.
+	DesktopNoAuthHeader = "X-Coddy-Desktop-NoAuth"
 	// TokenEnvVar is the bearer token for API clients.
 	TokenEnvVar = "CODDY_HTTP_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 	// LoginUserEnvVar and LoginPasswordEnvVar are the web sign-in account. The
@@ -56,6 +59,11 @@ type Options struct {
 	// surface too; the handler that uses it asserts the interface.
 	DesktopWindow any
 
+	// NoAuthHeader, when non-empty, lets an authenticated local IPC client
+	// choose NoAuth per request by sending this header with value "1". It is
+	// never set on a public listener.
+	NoAuthHeader string
+
 	// NoAuth serves without asking for any credential, whatever the
 	// configuration carries: no bearer token, no sign-in form. It exists for a
 	// server that is not reachable from anywhere else and has nobody to ask -
@@ -70,6 +78,10 @@ type Options struct {
 	// and never reaches the file, so a save from the settings screen cannot
 	// write the operator's password into config.yaml.
 	ExtraLogin LoginCredentials
+	// Mirror fans this server's turns out to the other surfaces of the process.
+	// The server's own composer relay stays the primary sender; Mirror wraps it
+	// only after that relay exists, so its own registration is a no-op.
+	Mirror session.TurnMirror
 	// OnServer, when set, is handed the live server as it comes up and nil as
 	// it goes down. It is how the process installs the turn mirror and offers
 	// this server as a surface for detached subagent permission prompts, and

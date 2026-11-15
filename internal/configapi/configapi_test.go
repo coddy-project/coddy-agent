@@ -143,3 +143,50 @@ func TestApplyPath(t *testing.T) {
 		t.Fatalf("scalar walk: %v", err)
 	}
 }
+
+func TestUpsertProvider(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	source := "# preserved\nproviders:\n  - name: neuraldeep\n    type: neuraldeep\n    api_key: old\n    api_base: https://hub.example/v1\n    proxy: http://proxy.example:8080\n    timeout_ms: 45000\nmodels:\n  - model: neuraldeep/qwen\n    max_tokens: 4096\n"
+	if err := os.WriteFile(cfgPath, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: cfgPath, Home: dir}
+	base, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed := 0
+	backend := &Backend{
+		Live: func() *config.Config { return base },
+		Install: func(c *config.Config) error {
+			installed++
+			base = c
+			return nil
+		},
+		Schema: func() ([]byte, error) { return []byte("{}"), nil },
+	}
+	maxTokens := 8192
+	err = backend.UpsertProvider(NamedProvider{
+		Name: "neuraldeep", Type: "neuraldeep", APIKey: "new",
+	}, []NamedModel{{Model: "neuraldeep/qwen", MaxTokens: &maxTokens}, {Model: "neuraldeep/other"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed != 1 {
+		t.Fatalf("provider and models installed %d times, want one transaction", installed)
+	}
+	if len(base.Providers) != 1 || base.Providers[0].APIKey != "new" || base.Providers[0].APIBase != "https://hub.example/v1" || base.Providers[0].Proxy != "http://proxy.example:8080" || base.Providers[0].TimeoutMS != 45000 {
+		t.Fatalf("upsert did not preserve provider fields: %#v", base.Providers[0])
+	}
+	if len(base.Models) != 2 || base.Models[0].Model != "neuraldeep/qwen" || base.Models[0].MaxTokens != 8192 || base.Models[1].Model != "neuraldeep/other" {
+		t.Fatalf("models landed wrong: %#v", base.Models)
+	}
+	written, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(written, []byte("# preserved")) {
+		t.Fatalf("comment lost: %s", written)
+	}
+}

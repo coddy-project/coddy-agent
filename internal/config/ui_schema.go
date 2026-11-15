@@ -8,7 +8,7 @@ import (
 )
 
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
-// HTTPServer is omitted; listen bind is controlled via CLI, not this form.
+// The HTTP section exposes account settings, not listener or bearer controls.
 func UISchemaJSON() ([]byte, error) {
 	return UISchemaJSONHiding()
 }
@@ -306,7 +306,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+			"Show the account usage of this NeuralDeep, Codex, Devin or OpenAI-compatible provider here, in the console footer and in /usage, reading its usage endpoint (GET {api_base}/limits for OpenAI-compatible rows). Off hides the panel and stops those reads for this row.",
 			true),
 		"acp": acpProviderSchema(),
 	}
@@ -545,6 +545,8 @@ func UISchemaMap() map[string]interface{} {
 					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
 				"loop_nudge_max": intProp("Loop nudge max",
 					"How many times one turn may be nudged back on track before the loop guard stops it."),
+				"prompt_suggestions": boolPropDefault("Prompt suggestions",
+					"Suggest the next prompt in the empty composer after a turn. Uses an extra model call; Tab or Right accepts the suggestion. Turn off to stop generating suggestions.", true),
 				"wait_for_limit_reset": boolProp("Wait for limit reset",
 					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
 				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
@@ -553,7 +555,7 @@ func UISchemaMap() map[string]interface{} {
 			[]string{
 				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
-				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+				"prompt_suggestions", "wait_for_limit_reset", "wait_for_limit_reset_max_ms",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
@@ -607,6 +609,23 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "host", "public_host"},
 					nil),
+				"preview_publish": objectSchema("Published previews",
+					"A read-only static origin on a fixed address over one artifact root, and the preview_publish tool that copies finished work there. For a Coddy behind an authenticated HTTPS edge: the reverse proxy authenticates the visitor and routes a stable prefix to this origin, so a link survives a rebuild and no random port is published.",
+					map[string]interface{}{
+						"enable": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Run the published-preview origin and offer the preview_publish and preview_unpublish tools (default off).",
+						},
+						"host":        strProp("Bind host", "Address the origin binds (default 127.0.0.1). Anything that is not loopback serves every published preview to whoever can reach that address."),
+						"port":        intProp("Port", "Fixed port the origin binds, so a reverse proxy has an upstream that does not move (default 8081)."),
+						"root":        strProp("Artifact root", "The only directory the origin serves and the only one a publish writes into, absolute. Empty uses <home>/previews."),
+						"public_url":  strProp("Public URL", "Address your edge serves the root under, written into the link the agent hands out (https://coddy.example/preview/). Empty uses the origin's own address."),
+						"ttl_seconds": intProp("Lifetime (s)", "How long a published preview stays up before it is removed (default 86400). A call may ask for its own lifetime, or for none."),
+						"max_bytes":   intProp("Max size (bytes)", "Largest one published preview may be (default 104857600). A publish over it is refused whole."),
+					},
+					[]string{"enable", "host", "port", "root", "public_url", "ttl_seconds", "max_bytes"},
+					nil),
 				"canvas": objectSchema("Canvas",
 					"The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox.",
 					map[string]interface{}{
@@ -626,8 +645,14 @@ func UISchemaMap() map[string]interface{} {
 							"description": "Further hosts a frame may load from and connect to: https://host or https://*.host. A page on the canvas can send what it reads to any of them.",
 							"items":       map[string]interface{}{"type": "string"},
 						},
+						"project_trust": map[string]interface{}{
+							"type":        "string",
+							"title":       "Pages of a checkout's board",
+							"description": "A .canvas file travels with the checkout, and its pages read every file under their root. \"ask\": run the pages Coddy put on a board and hold the rest until the person trusts the board. \"allow\": run every page. \"deny\": run only the pages Coddy put.",
+							"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+						},
 					},
-					[]string{"enable", "allow_cdn", "allowed_sources"},
+					[]string{"enable", "allow_cdn", "allowed_sources", "project_trust"},
 					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
@@ -680,7 +705,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"command_allowlist", "output_limits", "background", "preview_server", "canvas", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "preview_publish", "canvas", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
@@ -963,12 +988,22 @@ func UISchemaMap() map[string]interface{} {
 	// process (the logger, the metrics exporter and the browser extension, then prompts and
 	// instructions, which the web UI folds into one System tab). The sessions
 	// key belongs to the Sessions tab.
+	password := strProp("Password", "Set a new sign-in password; leave empty to keep the existing password.")
+	password["writeOnly"] = true
+	props["httpserver"] = objectSchema("Account", "Web sign-in account", map[string]interface{}{
+		"login": objectSchema("Sign-in", "", map[string]interface{}{
+			"enable":            boolProp("Enable sign-in", "Require a web sign-in."),
+			"user":              strProp("User", "The account name."),
+			"password":          password,
+			"session_ttl_hours": intProp("Session duration", "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie."),
+		}, []string{"enable", "user", "password", "session_ttl_hours"}, nil),
+	}, []string{"login"}, nil)
 	rootOrder := []string{
 		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "metrics", "browser", "sessions", "prompts", "instructions",
+		"logger", "metrics", "browser", "httpserver", "sessions", "prompts", "instructions",
 	}
 
 	doc := map[string]interface{}{
@@ -998,8 +1033,6 @@ func toIfaceOrder(keys []string) []interface{} {
 // so hiding one here never drops it from the saved document.
 //
 //	extension_values - SDK-owned variables rendered by registered fields inside existing sections.
-//	httpserver - the surface the UI itself is served from; editing it there
-//	             would let the page cut its own connection.
 //	mcp        - project_trust is edited in the MCP servers tab (POST
 //	             /coddy/mcp/project-trust), next to the servers the policy
 //	             governs; idle_timeout_seconds is set in the file and survives
@@ -1015,7 +1048,6 @@ func toIfaceOrder(keys []string) []interface{} {
 //	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"extension_values": {},
-	"httpserver":       {},
 	"mcp":              {},
 	"swarm":            {},
 	"rules":            {},

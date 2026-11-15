@@ -49,6 +49,25 @@ describe("extension lifetime", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(load).not.toHaveBeenCalled();
   });
+  test("an unsupported required feature fails before the package is read or imported", async () => {
+    setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/coddy/info")
+          ? Response.json({ version: "1.4.23" })
+          : new Response(source),
+      ),
+    );
+    const load = vi.fn();
+    const runtime = new ExtensionRuntime(vi.fn(), load);
+    await runtime.reconcile([
+      { ...entry, required_features: ["future.feature"] },
+    ]);
+    expect(runtime.snapshot().errors.demo).toMatch(/future\.feature/);
+    expect(load).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   test("every extension gets the theme API of the active theme", async () => {
     setup();
     let api!: ExtensionAPI;

@@ -83,6 +83,7 @@ export function activate(coddy) {
   let item = null;
   let anchorButton = null;
   let anchorHandle = null;
+  let trickRunner = null;
 
   const duckSvg = () => {
     const wrap = document.createElement("div");
@@ -157,15 +158,20 @@ export function activate(coddy) {
     const runTrick = (name) => {
       applyTrick(duck, name || nextTrick());
     };
+    trickRunner = runTrick;
     duck.addEventListener("click", () => runTrick(), {
       signal: coddy.signal,
     });
-    duck.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        runTrick();
-      }
-    }, { signal: coddy.signal });
+    duck.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          runTrick();
+        }
+      },
+      { signal: coddy.signal },
+    );
 
     const tray = document.createElement("div");
     tray.className = "ok-tray";
@@ -175,9 +181,13 @@ export function activate(coddy) {
     const trayBody = document.createElement("div");
     trayBody.className = "ok-tray-body";
     trayBody.hidden = true;
-    trayHead.addEventListener("click", () => {
-      trayBody.hidden = !trayBody.hidden;
-    }, { signal: coddy.signal });
+    trayHead.addEventListener(
+      "click",
+      () => {
+        trayBody.hidden = !trayBody.hidden;
+      },
+      { signal: coddy.signal },
+    );
     const autoBtn = document.createElement("button");
     autoBtn.className = "settings-btn";
     const syncAuto = () => {
@@ -186,26 +196,36 @@ export function activate(coddy) {
         : coddy.i18n.t("resume");
     };
     syncAuto();
-    autoBtn.addEventListener("click", () => {
-      state.auto = !state.auto;
-      syncAuto();
-    }, { signal: coddy.signal });
+    autoBtn.addEventListener(
+      "click",
+      () => {
+        state.auto = !state.auto;
+        syncAuto();
+      },
+      { signal: coddy.signal },
+    );
     for (const name of [...TRICKS, ...state.extraTricks]) {
       const b = document.createElement("button");
       b.className = "settings-btn ok-trick-btn";
       b.textContent = name;
-      b.addEventListener("click", () => {
-        state.auto = false;
-        syncAuto();
-        runTrick(name);
-      }, { signal: coddy.signal });
+      b.addEventListener(
+        "click",
+        () => {
+          state.auto = false;
+          syncAuto();
+          runTrick(name);
+        },
+        { signal: coddy.signal },
+      );
       trayBody.append(b);
     }
     // The tricks hook: other extensions add their own trick buttons.
     const trickSlot = document.createElement("div");
     trickSlot.className = "ok-tray-hooks";
     trayBody.append(trickSlot);
-    const slot = coddy.hooks.slot("tricks", trickSlot);
+    const slot = coddy.hooks.slot("tricks", trickSlot, (command) => {
+      if (command && typeof command.name === "string") runTrick(command.name);
+    });
     const big = document.createElement("button");
     big.className = "settings-btn";
     big.textContent = coddy.i18n.t("bigDuck");
@@ -261,10 +281,14 @@ export function activate(coddy) {
     attachBtn.addEventListener("click", () => fileInput.click(), {
       signal: coddy.signal,
     });
-    fileInput.addEventListener("change", () => {
-      const file = fileInput.files && fileInput.files[0];
-      chip.textContent = file ? file.name : "";
-    }, { signal: coddy.signal });
+    fileInput.addEventListener(
+      "change",
+      () => {
+        const file = fileInput.files && fileInput.files[0];
+        chip.textContent = file ? file.name : "";
+      },
+      { signal: coddy.signal },
+    );
     attachRow.append(attachBtn, chip);
 
     const input = document.createElement("input");
@@ -296,9 +320,13 @@ export function activate(coddy) {
       window.setTimeout(() => line("duck", coddy.i18n.t("reply") + text), 250);
     };
     send.addEventListener("click", sendLine, { signal: coddy.signal });
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") sendLine();
-    }, { signal: coddy.signal });
+    input.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") sendLine();
+      },
+      { signal: coddy.signal },
+    );
 
     const actions = document.createElement("div");
     actions.className = "ok-actions";
@@ -329,11 +357,9 @@ export function activate(coddy) {
         // The navigation API exists now: the rail's History answers it.
         b.disabled = false;
         b.title = coddy.i18n.t("live");
-        b.addEventListener(
-          "click",
-          () => coddy.nav.openScreen("history"),
-          { signal: coddy.signal },
-        );
+        b.addEventListener("click", () => coddy.nav.openScreen("history"), {
+          signal: coddy.signal,
+        });
       }
       if (label === "toFeed" && sessionId) {
         // The feed action is the sessions API now; the other two still
@@ -386,6 +412,7 @@ export function activate(coddy) {
       if (live) live.remove();
       slot.remove();
       footer.remove();
+      trickRunner = null;
       stopAuto();
     };
   };
@@ -405,14 +432,17 @@ export function activate(coddy) {
     stopAuto();
     state.timer = window.setInterval(() => {
       if (!state.auto || document.hidden || !panel) return;
-      const duck = document.querySelector(".ok-duck");
-      if (duck) applyTrick(duck, nextTrick());
+      if (trickRunner) trickRunner(nextTrick());
     }, 2600);
   };
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopAuto();
-    else if (panel) startAuto();
-  }, { signal: coddy.signal });
+  document.addEventListener(
+    "visibilitychange",
+    () => {
+      if (document.hidden) stopAuto();
+      else if (panel) startAuto();
+    },
+    { signal: coddy.signal },
+  );
 
   const open = () => {
     if (panel) return;

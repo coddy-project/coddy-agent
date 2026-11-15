@@ -4,5 +4,6 @@
   "name": "Local API",
   "version": "1.0.0",
   "description": "Call HTTP APIs from the Coddy server",
+  "required_features": ["network.proxy"],
   "ui": { "entry": "main.js" }
 }

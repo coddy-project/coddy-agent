@@ -120,6 +120,46 @@ func TestManifestPermissions(t *testing.T) {
 	}
 }
 
+func TestManifestCompatibilityDeclarations(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features string
+		engines  string
+		ok       bool
+	}{
+		{name: "feature list and range", features: `["composer.controls","stream.text"]`, engines: `{"coddy":">=1.4.0 <2.0.0"}`, ok: true},
+		{name: "absent declarations", ok: true},
+		{name: "unknown feature syntax", features: `["future.feature"]`, ok: true},
+		{name: "bad feature syntax", features: `["Composer Controls"]`},
+		{name: "too many features", features: `["a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a","a"]`},
+		{name: "bad engine range", engines: `{"coddy":"latest"}`},
+		{name: "unknown engine", engines: `{"vscode":">=1.0.0"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := `{"api":1,"id":"demo","name":"Demo","version":"1","ui":{"entry":"main.js"}}`
+			if tc.features != "" {
+				manifest = `{"api":1,"id":"demo","name":"Demo","version":"1","required_features":` + tc.features + `,"ui":{"entry":"main.js"}}`
+			}
+			if tc.engines != "" {
+				manifest = strings.Replace(manifest, `,"ui":`, `,"engines":`+tc.engines+`,"ui":`, 1)
+			}
+			row, err := NewStore(t.TempDir()).Install(archive(t, map[string]string{"manifest.json": manifest, "main.js": "export {}"}))
+			if tc.ok && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("invalid compatibility declaration accepted")
+			}
+			if tc.name == "feature list and range" && strings.Join(row.RequiredFeatures, ",") != "composer.controls,stream.text" {
+				t.Fatalf("features: %v", row.RequiredFeatures)
+			}
+			if tc.ok && tc.engines != "" && row.Engines.Coddy != ">=1.4.0 <2.0.0" {
+				t.Fatalf("engines: %#v", row.Engines)
+			}
+		})
+	}
+}
+
 func TestManifestStyles(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -145,6 +185,41 @@ func TestManifestStyles(t *testing.T) {
 				t.Fatal("invalid stylesheet accepted")
 			}
 		})
+	}
+}
+
+func TestShippedExamplesPassServerManifestValidation(t *testing.T) {
+	root := filepath.Join("..", "..", "examples", "extensions")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		t.Run(entry.Name(), func(t *testing.T) {
+			dir := filepath.Join(root, entry.Name())
+			files := map[string]string{}
+			for _, name := range []string{"manifest.json", "main.js", "style.css", "panel.html", "ocean.css"} {
+				data, err := os.ReadFile(filepath.Join(dir, name))
+				if os.IsNotExist(err) {
+					continue
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				files[name] = string(data)
+			}
+			if _, err := NewStore(t.TempDir()).Install(archive(t, files)); err != nil {
+				t.Fatalf("server rejected the shipped manifest: %v", err)
+			}
+			checked++
+		})
+	}
+	if checked != 11 {
+		t.Fatalf("checked %d examples, want all 11", checked)
 	}
 }
 

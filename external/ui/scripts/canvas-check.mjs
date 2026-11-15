@@ -32,7 +32,8 @@
  *     nothing again, with the window opaque while a board shows;
  *   - the window at every tier of the grid, in English and Russian;
  *   - an Obsidian canvas (design/shop.canvas, JSON Canvas) opened in the
- *     Files window: it becomes the chat's canvas, its page runs as a frame
+ *     Files window: it becomes the chat's canvas, its page waits for the
+ *     person until they let the board's pages run, then runs as a frame
  *     through the relay, its text card, note, link, group and edges are
  *     drawn, a dragged card and a frame resized from its menu move in the file
  *     with the keys Coddy does not know kept, an edit of the file elsewhere
@@ -630,6 +631,21 @@ async function frameFor(page, title) {
 }
 
 /**
+ * Lets the pages of a board that came with the workspace run, as a person
+ * does: the button on a waiting frame, then the dialog that names the pages.
+ * Answers what the dialog listed.
+ */
+async function trustHeldBoard(page) {
+  await page.getByTestId("canvas-held-run").first().click();
+  const dialog = page.getByTestId("canvas-trust-dialog");
+  await dialog.waitFor();
+  const listed = await page.getByTestId("canvas-trust-pages").textContent();
+  await page.getByTestId("canvas-trust-confirm").click();
+  await dialog.waitFor({ state: "detached" });
+  return listed || "";
+}
+
+/**
  * Clicks an element of a frame the way a person does: with the mouse, at the
  * element's centre on the screen, through the board's scaling of the iframe
  * (Playwright's own frame clicks ignore a CSS transform on the iframe).
@@ -1145,6 +1161,33 @@ try {
       },
     ).catch(() => null);
     check("opening the file makes it the chat's canvas", !!current);
+    // The board came with the workspace: its page waits for the person and
+    // nothing of it loads until they let it run.
+    const waiting = await until("the waiting page", () =>
+      ob.page.evaluate(() => {
+        const held = document.querySelector("[data-testid=canvas-frame-held]");
+        return held
+          ? {
+              text: held.textContent || "",
+              frames: document.querySelectorAll("iframe.canvas-frame-page")
+                .length,
+            }
+          : null;
+      }),
+    ).catch(() => null);
+    check(
+      "the page of a board that came with the workspace waits, loading nothing",
+      !!waiting &&
+        waiting.text.includes("site/index.html") &&
+        waiting.frames === 0,
+      JSON.stringify(waiting),
+    );
+    const listed = await trustHeldBoard(ob.page);
+    check(
+      "the dialog names the page and the folder it reads",
+      listed.includes("site/index.html") && listed.includes("reads site/"),
+      listed,
+    );
     const obFrame = await frameFor(ob.page, "index.html");
     const drawn = await until("the file's nodes", () =>
       ob.page.evaluate(() => {
@@ -1673,6 +1716,20 @@ try {
       );
       const shotSid = await sessionIdOf(s.page);
       await showCanvas(s.page, shotSid, "design/shop.canvas");
+      // First the page waiting for the person, with the dialog open.
+      await s.page.getByTestId("canvas-frame-held").first().waitFor();
+      await closeOtherTabs(s.page);
+      await s.page.getByTestId("canvas-fit").click();
+      await s.page.waitForTimeout(600);
+      await shoot(s.page, `canvas-held-${theme}-1280`);
+      await s.page.getByTestId("canvas-held-run").first().click();
+      await s.page.getByTestId("canvas-trust-dialog").waitFor();
+      await s.page.waitForTimeout(300);
+      await shoot(s.page, `canvas-trust-${theme}-1280`);
+      await s.page.getByTestId("canvas-trust-confirm").click();
+      await s.page
+        .getByTestId("canvas-trust-dialog")
+        .waitFor({ state: "detached" });
       await until("the note", () =>
         s.page.evaluate(() =>
           (
@@ -1689,6 +1746,18 @@ try {
       await s.page.getByTestId("canvas-fit").click();
       await s.page.waitForTimeout(600);
       await shoot(s.page, `canvas-obsidian-${theme}-1280`);
+      // Hold pages takes the approval back: the page waits again, which is
+      // also what the next theme's pass starts from.
+      await s.page.getByTestId("canvas-hold").click();
+      const heldAgain = await s.page
+        .getByTestId("canvas-frame-held")
+        .first()
+        .waitFor()
+        .then(
+          () => true,
+          () => false,
+        );
+      check(`Hold pages makes the page wait again (${theme})`, heldAgain);
       await s.context.close();
     }
   }

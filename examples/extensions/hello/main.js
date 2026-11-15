@@ -24,20 +24,28 @@ export function activate(coddy) {
       };
       const watched = api.theme.onChange(paint);
       paint(api.theme.get());
-      api.assets.text("panel.html").then((html) => {
-        if (!mounted || api.signal.aborted) return;
-        element.innerHTML = html;
-        element.querySelector(".ext-hello").append(themeBox);
-        let count = 0;
-        const button = element.querySelector("button");
-        button.addEventListener("click", () => {
-          count += 1;
-          button.textContent = `Clicked ${count} times`;
-          action.update({ title: `Counter: ${count}` });
-        }, { signal: api.signal });
-      }).catch((error) => {
-        if (mounted && !api.signal.aborted) element.textContent = String(error);
-      });
+      api.assets
+        .text("panel.html")
+        .then((html) => {
+          if (!mounted || api.signal.aborted) return;
+          element.innerHTML = html;
+          element.querySelector(".ext-hello").append(themeBox);
+          let count = 0;
+          const button = element.querySelector("button");
+          button.addEventListener(
+            "click",
+            () => {
+              count += 1;
+              button.textContent = `Clicked ${count} times`;
+              action.update({ title: `Counter: ${count}` });
+            },
+            { signal: api.signal },
+          );
+        })
+        .catch((error) => {
+          if (mounted && !api.signal.aborted)
+            element.textContent = String(error);
+        });
       return () => {
         mounted = false;
         watched.remove();
@@ -50,5 +58,8 @@ export function activate(coddy) {
     title: "Open counter",
     onSelect: () => coddy.ui.openPage("counter"),
   });
-  return () => { action.remove(); page.remove(); };
+  return () => {
+    action.remove();
+    page.remove();
+  };
 }

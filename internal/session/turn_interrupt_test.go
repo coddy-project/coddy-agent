@@ -115,6 +115,7 @@ func TestQueuedInterruptHardCancelRetainsUnreadFIFO(t *testing.T) {
 				return string(acp.StopReasonCancelled), nil
 			}
 			m, sid := newQueueManagerWith(t, runner)
+			m.Cfg().Models[0].Multimodal = true
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)

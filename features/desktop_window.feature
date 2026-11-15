@@ -6,6 +6,9 @@ Feature: Opening Coddy as a desktop window
   button ends the run unless a visible tray keeps it alive; starting the app
   again while a window is open returns to that window instead of serving a
   second time.
+  A middle click on a chat in History, on New chat or on a rail screen opens
+  that route in another tab of the same window. A new chat starts in the
+  folder of the chat the operator was reading.
 
   Scenario: The window opens on a port the desktop writes down
     Given a machine where Coddy has never opened a desktop window
@@ -13,6 +16,13 @@ Feature: Opening Coddy as a desktop window
     Then the HTTP surface runs on a loopback port of its own
     And that port is written down for the next launch
     And the browser is opened on the tab shell of that port, in a profile of its own
+
+  Scenario: The native window opens the remembered shell and closing it ends the run
+    Given a machine where Coddy has opened a desktop window before
+    When the operator opens the native desktop
+    Then the native window is opened on the tab shell of the remembered port
+    When the native window closes
+    Then the run ends and the HTTP surface stops with it
 
   Scenario: The next launch comes back to the same port
     Given a machine where Coddy has opened a desktop window before
@@ -30,11 +40,10 @@ Feature: Opening Coddy as a desktop window
     Then the second run serves nothing of its own
     And it opens the tab shell of the desktop already running
 
-  Scenario: Only the HTTP surface runs behind the window
+  Scenario: The desktop runs what the configuration enables, beside the window
     Given a configuration that also enables the swarm relay and the scheduler
     When the desktop decides what to run
-    Then it names the surfaces it left to `coddy serve`
-    And it changes nothing in the configuration itself
+    Then it changes nothing in the configuration itself
 
   Scenario: A chord the browser answers itself still reaches the strip
     Given a window whose browser answers Ctrl+T and Ctrl+W itself
@@ -91,6 +100,10 @@ Feature: Opening Coddy as a desktop window
     When the application menu asks for a chat in a folder that is not there
     Then the window refuses, and the strip is told nothing
 
+  # The application entry is a file of the XDG desktop specification, which
+  # only Linux writes; elsewhere there is no entry to name. The suite leaves
+  # this scenario out where it cannot hold.
+  @linux
   Scenario: The application menu of this user names Coddy and its recent folders
     Given a machine where Coddy has never opened a desktop window
     And two chats of this home were had in folders of their own

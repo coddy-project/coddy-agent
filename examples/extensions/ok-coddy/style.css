@@ -134,62 +134,137 @@
   animation: ok-sleep 2s ease-in-out 1;
 }
 @keyframes ok-idle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
 }
 @keyframes ok-wave {
-  0%, 100% { transform: rotate(0deg); }
-  30% { transform: rotate(-8deg); }
-  60% { transform: rotate(8deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(8deg);
+  }
 }
 @keyframes ok-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @keyframes ok-flip {
-  from { transform: scaleY(1); }
-  50% { transform: scaleY(-1); }
-  to { transform: scaleY(1); }
+  from {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(-1);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
 @keyframes ok-dance {
-  0%, 100% { transform: translateX(0) rotate(-4deg); }
-  50% { transform: translateX(6px) rotate(4deg); }
+  0%,
+  100% {
+    transform: translateX(0) rotate(-4deg);
+  }
+  50% {
+    transform: translateX(6px) rotate(4deg);
+  }
 }
 @keyframes ok-moonwalk {
-  from { transform: translateX(24px); }
-  to { transform: translateX(-24px); }
+  from {
+    transform: translateX(24px);
+  }
+  to {
+    transform: translateX(-24px);
+  }
 }
 @keyframes ok-turbo {
-  0%, 100% { transform: translateY(0) scale(1); }
-  40% { transform: translateY(-14px) scale(1.05); }
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-14px) scale(1.05);
+  }
 }
 @keyframes ok-tongue {
-  0%, 100% { transform: skewX(0deg); }
-  50% { transform: skewX(-10deg); }
+  0%,
+  100% {
+    transform: skewX(0deg);
+  }
+  50% {
+    transform: skewX(-10deg);
+  }
 }
 @keyframes ok-heart {
-  0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.12); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.12);
+  }
 }
 @keyframes ok-magic {
-  0% { filter: hue-rotate(0deg); opacity: 1; }
-  50% { filter: hue-rotate(160deg); opacity: 0.6; }
-  100% { filter: hue-rotate(0deg); opacity: 1; }
+  0% {
+    filter: hue-rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    filter: hue-rotate(160deg);
+    opacity: 0.6;
+  }
+  100% {
+    filter: hue-rotate(0deg);
+    opacity: 1;
+  }
 }
 @keyframes ok-confetti {
-  0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-4px, -8px) rotate(-6deg); }
-  75% { transform: translate(4px, -4px) rotate(6deg); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-4px, -8px) rotate(-6deg);
+  }
+  75% {
+    transform: translate(4px, -4px) rotate(6deg);
+  }
 }
 @keyframes ok-cannon {
-  from { transform: translateX(0); }
-  30% { transform: translateX(-18px); }
-  60% { transform: translateX(6px); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-18px);
+  }
+  60% {
+    transform: translateX(6px);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 @keyframes ok-sleep {
-  0%, 100% { transform: rotate(0deg) scale(1); }
-  50% { transform: rotate(-12deg) scale(0.96); }
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(-12deg) scale(0.96);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ok-duck,

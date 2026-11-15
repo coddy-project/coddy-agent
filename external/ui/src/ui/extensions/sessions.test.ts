@@ -27,6 +27,12 @@ describe("the sessions API", () => {
         resultText: "ok",
       },
     ]);
+    expect(
+      decodeLiveEvent("response.output_text.delta", '{"delta":"Hi"}'),
+    ).toEqual([{ type: "text", delta: "Hi" }]);
+    expect(decodeLiveEvent("response.completed", "{}")).toEqual([
+      { type: "done" },
+    ]);
     expect(decodeLiveEvent("", "[DONE]")).toEqual([{ type: "done" }]);
     expect(decodeLiveEvent("error", '{"message":"boom"}')).toEqual([
       { type: "error", message: "boom" },
@@ -71,7 +77,12 @@ describe("the sessions API", () => {
     const state = await api.state("s1");
     expect(state?.title).toBe("Chat");
     const messages = await api.messages("s1", { limit: 5 });
-    expect(messages[0]).toMatchObject({ id: "m1", role: "user" });
+    expect(messages[0]).toMatchObject({
+      id: "m1",
+      role: "user",
+      text: "hi",
+      raw: { content: "hi" },
+    });
     expect(calls.at(-1)).toBe("/coddy/sessions/s1/messages?limit=5");
   });
 

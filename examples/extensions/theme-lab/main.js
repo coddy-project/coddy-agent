@@ -19,64 +19,6 @@ export function activate(coddy) {
     lightness: "Светлота",
     tokens: "Токены",
   });
-  const channels = (text, max) => {
-    const read = (part) =>
-      part.endsWith("%")
-        ? (parseFloat(part) / 100) * 255
-        : (parseFloat(part) / max) * 255;
-    const [r, g, b] = text.split(/[\s,/]+/).filter(Boolean).map(read);
-    return { r: r, g: g, b: b };
-  };
-  const parse = (text) => {
-    const value = String(text).trim().toLowerCase();
-    let match = value.match(/^#([0-9a-f]{3})$/);
-    if (match)
-      return {
-        r: parseInt(match[1][0] + match[1][0], 16),
-        g: parseInt(match[1][1] + match[1][1], 16),
-        b: parseInt(match[1][2] + match[1][2], 16),
-      };
-    match = value.match(/^#([0-9a-f]{6})$/);
-    if (match)
-      return {
-        r: parseInt(match[1].slice(0, 2), 16),
-        g: parseInt(match[1].slice(2, 4), 16),
-        b: parseInt(match[1].slice(4, 6), 16),
-      };
-    match = value.match(/^rgba?\(([^)]+)\)$/);
-    if (match) return channels(match[1], 255);
-    match = value.match(/^color\(srgb\s+([^)]+)\)$/);
-    if (match) return channels(match[1], 1);
-    return null;
-  };
-  const toHex = (rgb) => {
-    const part = (v) => {
-      const n = Math.max(0, Math.min(255, Math.round(v)));
-      return (n < 16 ? "0" : "") + n.toString(16);
-    };
-    return "#" + part(rgb.r) + part(rgb.g) + part(rgb.b);
-  };
-  const toHsl = (rgb) => {
-    if (!rgb) return { h: 0, s: 0, l: 50 };
-    const r = rgb.r / 255;
-    const g = rgb.g / 255;
-    const b = rgb.b / 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const delta = max - min;
-    const l = (max + min) / 2;
-    let h = 0;
-    let s = 0;
-    if (delta) {
-      s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
-      if (max === r) h = ((g - b) / delta + (g < b ? 6 : 0)) * 60;
-      else if (max === g) h = ((b - r) / delta + 2) * 60;
-      else h = ((r - g) / delta + 4) * 60;
-    }
-    return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
-  };
-  const hslValue = (t) => "hsl(" + t.h + ", " + t.s + "%, " + t.l + "%)";
-
   // The app repaints from its whole token layer. The lab seeds every
   // colour-valued token from `theme.tokens()` and shifts them all at once,
   // with a colour input per token for the fine moves.
@@ -90,8 +32,8 @@ export function activate(coddy) {
     tones = {};
     custom = {};
     for (const name of Object.keys(base)) {
-      const hsl = toHsl(parse(base[name]));
-      if (parse(base[name])) tones[name] = hsl;
+      const hsl = coddy.theme.parseColor(base[name]);
+      if (hsl) tones[name] = hsl;
     }
     shift.hue = 0;
     shift.sat = 100;
@@ -104,7 +46,7 @@ export function activate(coddy) {
       if (custom[name]) out[name] = custom[name];
       else {
         const t = tones[name];
-        out[name] = hslValue({
+        out[name] = coddy.theme.formatColor({
           h: (t.h + shift.hue + 360) % 360,
           s: Math.max(0, Math.min(100, Math.round((t.s * shift.sat) / 100))),
           l: Math.max(0, Math.min(100, t.l + shift.light)),

@@ -20,6 +20,12 @@ export type AuthState = {
   /** The signed-in account, when there is one. */
   user: string;
   /**
+   * The form also asks for a one-time code from an authenticator app
+   * (enrolled in Settings, Authentication); empty when the password alone signs in.
+   */
+  secondFactor: "" | "totp";
+  rememberAvailable?: boolean;
+  /**
    * The page was opened as the Telegram bot's Mini App by somebody who is not
    * one of the bot's admins: the server refused the launch data, and only
    * the bot's admins open Coddy from the chat.
@@ -44,6 +50,7 @@ const initial: AuthState = {
   authRequired: false,
   authenticated: false,
   user: "",
+  secondFactor: "",
   telegramRefused: false,
   telegramProblem: "",
   loaded: false,
@@ -84,6 +91,8 @@ type AuthMeResponse = {
   auth_required?: boolean;
   authenticated?: boolean;
   user?: string;
+  second_factor?: string;
+  remember_available?: boolean;
   telegram_login?: boolean;
   browser_login?: boolean;
 };
@@ -224,6 +233,8 @@ async function askAuthMe(): Promise<{
           authRequired: body.auth_required === true,
           authenticated: body.authenticated === true,
           user: typeof body.user === "string" ? body.user : "",
+          secondFactor: body.second_factor === "totp" ? "totp" : "",
+          rememberAvailable: body.remember_available !== false,
           telegramRefused: false,
           telegramProblem: "",
           loaded: true,
@@ -242,27 +253,70 @@ async function askAuthMe(): Promise<{
   };
 }
 
-export type SignInResult = { ok: boolean; status: number; error?: string };
+export type SignInResult = {
+  ok: boolean;
+  status: number;
+  error?: string;
+  /** Password accepted; this one-time challenge must be verified next. */
+  challenge?: string;
+};
 
-/** signIn posts the form. The cookie, when there is one, is set by the server. */
+/**
+ * signIn posts the password. A TOTP answer carries a challenge and no session;
+ * verifySignIn completes that separate step. The cookie, when there is one, is
+ * set by the server.
+ */
 export async function signIn(
   user: string,
   password: string,
+  remember = false,
+): Promise<SignInResult> {
+  return postSignIn("/coddy/auth/login", {
+    user,
+    password,
+    ...(remember ? { remember: true } : {}),
+  });
+}
+
+/** verifySignIn spends a password challenge on a TOTP or backup code. */
+export async function verifySignIn(
+  challenge: string,
+  code: string,
+): Promise<SignInResult> {
+  return postSignIn("/coddy/auth/login/verify", { challenge, code });
+}
+
+async function postSignIn(
+  path: string,
+  payload: Record<string, string | boolean>,
 ): Promise<SignInResult> {
   let res: Response;
   try {
-    res = await localFetch("/coddy/auth/login", {
+    res = await localFetch(path, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ user, password }),
+      body: JSON.stringify(payload),
     });
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : "" };
   }
   if (res.ok) {
+    let body: { second_factor?: string; challenge?: string } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      /* an ordinary session response need not carry a JSON body */
+    }
+    if (
+      body.second_factor === "totp" &&
+      typeof body.challenge === "string" &&
+      body.challenge !== ""
+    ) {
+      return { ok: true, status: res.status, challenge: body.challenge };
+    }
     await refreshAuthState();
     return { ok: true, status: res.status };
   }

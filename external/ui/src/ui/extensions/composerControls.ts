@@ -15,6 +15,10 @@ export type ComposerControl = {
   title?: string;
   /** Lower sorts first; default is registration order. */
   order?: number;
+  /** Places this control immediately after a stable host or extension key. */
+  after?: string;
+  /** Places this control immediately before a stable host or extension key. */
+  before?: string;
   /** An alter may hide an entry without unregistering it. */
   visible?: boolean;
   mount: (
@@ -53,9 +57,14 @@ export function validateComposerControl(control: ComposerControl) {
     !["actions", "tabs"].includes(control.placement ?? "") ||
     typeof control.mount !== "function" ||
     (control.order !== undefined && !Number.isFinite(control.order)) ||
-    (control.visible !== undefined && typeof control.visible !== "boolean")
+    (control.visible !== undefined && typeof control.visible !== "boolean") ||
+    (control.after !== undefined && typeof control.after !== "string") ||
+    (control.before !== undefined && typeof control.before !== "string") ||
+    (control.after !== undefined && control.before !== undefined)
   )
-    throw new Error("A composer control needs an id, placement and mount");
+    throw new Error(
+      "A composer control needs an id, placement, mount and at most one of before/after",
+    );
 }
 
 export function validateComposerAlter(pass: ComposerAlterFn) {
@@ -75,6 +84,7 @@ export class ComposerControlHost {
   private hostOwner: object | null = null;
   private listeners = new Set<() => void>();
   private version = 0;
+  private resetOwner: string | null = null;
 
   constructor(
     private rows: () => Owned<ComposerControl>[],
@@ -115,6 +125,18 @@ export class ComposerControlHost {
     for (const listener of [...this.listeners]) listener();
   }
 
+  reset(owner: string) {
+    this.resetOwner = owner;
+    this.refresh();
+    let active = true;
+    return () => {
+      if (!active || this.resetOwner !== owner) return;
+      active = false;
+      this.resetOwner = null;
+      this.refresh();
+    };
+  }
+
   /** Declares the controls of one mounted composer. React renders these rows
    * itself; declaring them here lets the same alters govern DOM-mounted rows.
    * An old composer unmounting cannot clear a newer composer's declaration. */
@@ -144,10 +166,13 @@ export class ComposerControlHost {
     hostControls: readonly ComposerHostControlDescriptor[] = this.hostRows,
   ): ComposerControlDescriptor[] {
     const extensionRows = this.rows().filter(
-      (row) => !placement || row.placement === placement,
+      (row) =>
+        (!placement || row.placement === placement) &&
+        (this.resetOwner === null || row.owner === this.resetOwner),
     );
     const declaredHosts = hostControls.filter(
-      (row) => !placement || row.placement === placement,
+      (row) =>
+        (!placement || row.placement === placement) && this.resetOwner === null,
     );
     // Extension controls stood before the static controls in the original
     // anchors, so the unaltered mixed list keeps that order.
@@ -159,6 +184,8 @@ export class ComposerControlHost {
           placement: row.placement,
           ...(row.title !== undefined ? { title: row.title } : {}),
           ...(row.order !== undefined ? { order: row.order } : {}),
+          ...(row.after !== undefined ? { after: row.after } : {}),
+          ...(row.before !== undefined ? { before: row.before } : {}),
           ...(row.visible !== undefined ? { visible: row.visible } : {}),
         }),
       ),
@@ -188,13 +215,12 @@ export class ComposerControlHost {
       const key = candidates.length === 1 ? candidates[0]!.key : undefined;
       return key ? { ...row, key } : row;
     });
-    // An `order` sorts before the entries without one; the rest keep the
-    // order the alters left them in (the sort is stable).
-    return [...list].sort(
+    const ordered = [...list].sort(
       (a, b) =>
         (a.order ?? Number.MAX_SAFE_INTEGER) -
         (b.order ?? Number.MAX_SAFE_INTEGER),
     );
+    return placeTargetedControls(ordered);
   }
 
   private render(element: HTMLElement) {
@@ -278,6 +304,35 @@ export class ComposerControlHost {
     }
     element.replaceChildren();
   }
+}
+
+function placeTargetedControls(
+  rows: readonly ComposerControlDescriptor[],
+): ComposerControlDescriptor[] {
+  const list = [...rows];
+  const afterPositions = new Map<string, number>();
+  const beforePositions = new Map<string, number>();
+  for (const row of rows) {
+    const anchor = row.after ?? row.before;
+    if (!anchor) continue;
+    const current = list.indexOf(row);
+    if (current >= 0) list.splice(current, 1);
+    const anchorIndex = list.findIndex((candidate) => candidate.key === anchor);
+    if (anchorIndex < 0) {
+      list.splice(Math.min(current, list.length), 0, row);
+      continue;
+    }
+    if (row.after) {
+      const position = afterPositions.get(anchor) ?? anchorIndex + 1;
+      list.splice(position, 0, row);
+      afterPositions.set(anchor, position + 1);
+    } else {
+      const position = beforePositions.get(anchor) ?? anchorIndex;
+      list.splice(position, 0, row);
+      beforePositions.set(anchor, position + 1);
+    }
+  }
+  return list;
 }
 
 function validateAlteredDescriptors(

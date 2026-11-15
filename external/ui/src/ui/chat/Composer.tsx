@@ -117,7 +117,7 @@ import {
 } from "../shellBreakpoint";
 import { formatTurnTokens } from "./turnProgress";
 import { composerEnterAction, insertNewline } from "./composerEnter";
-import { contextUsagePercent } from "./contextUsage";
+import { contextUsagePercent, contextUsedTokens } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
@@ -548,6 +548,14 @@ export function Composer(props: {
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
+  /**
+   * The follow-up prompt suggestion of the finished turn: shown dim in the
+   * empty field, taken with Tab (or ArrowRight) into the draft. Cleared by
+   * the app when a turn starts or the session changes.
+   */
+  promptSuggestion?: string | null;
+  /** Fires when Tab or ArrowRight took the suggestion into the draft. */
+  onPromptSuggestionAccepted?: () => void;
   onStop?: () => void;
   /**
    * `/docs [page or words]` opens the documentation reader here instead of
@@ -2453,7 +2461,6 @@ export function Composer(props: {
   const pct01 = contextIdle
     ? 0
     : clamp01(typeof pct === "number" ? pct / 100 : 0);
-  const usage = contextIdle ? null : props.tokenUsage || null;
   const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
   // On narrow/mobile shells the mode/model/reasoning menus render as a
   // full-width bottom sheet (same family as the slash/at picker sheet) instead
@@ -2486,14 +2493,23 @@ export function Composer(props: {
   // One line, because the ring opens a popover with everything: how much of
   // the window is used and the two numbers that say it, "20.1% · 201k / 1M".
   // The five lines it used to be repeated the popover badly - input, output
-  // and total of a window nobody reads at a glance.
+  // and total of a window nobody reads at a glance. `used` is the count the
+  // ring fills by, not the cumulative token usage of the whole session.
+  const usedCtxTokens =
+    props.contextBreakdown != null
+      ? contextUsedTokens(props.contextBreakdown)
+      : typeof pct === "number"
+        ? Math.round((pct / 100) * maxCtx)
+        : null;
   const tip = contextIdle
     ? t("composer.contextTipIdle")
-    : t("composer.contextTipShort", {
-        percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
-        used: formatTurnTokens(usage?.totalTokens ?? 0),
-        max: formatTurnTokens(maxCtx ?? 0),
-      });
+    : usedCtxTokens === null
+      ? t("composer.contextTipUnknown", { max: formatTurnTokens(maxCtx) })
+      : t("composer.contextTipShort", {
+          percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
+          used: formatTurnTokens(usedCtxTokens),
+          max: formatTurnTokens(maxCtx),
+        });
 
   const commandMatches = useMemo(
     () => (slashOpen ? filterCommandRows(allCommandItems, slashPrefix) : []),
@@ -3585,351 +3601,390 @@ export function Composer(props: {
             </button>
           </div>
         ) : null}
-        {plate}
-        <div
-          className={[
-            "composer-card",
-            dragOverCard ? "composer-card--dragover" : "",
-            plate ? "composer-card--joined" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          ref={composerCardRef}
-          onDragOver={(ev) => {
-            const dt = ev.dataTransfer;
-            if (!dt || !Array.from(dt.types || []).includes("Files")) {
-              return;
-            }
-            ev.preventDefault();
-            setDragOverCard(true);
-          }}
-          onDragLeave={(ev) => {
-            const to = ev.relatedTarget;
-            if (to instanceof Node && ev.currentTarget.contains(to)) {
-              return;
-            }
-            setDragOverCard(false);
-          }}
-          onDrop={(ev) => {
-            if (composerBridge.claimDrop(ev)) {
+        <div className="composer-panel" data-testid="composer-panel">
+          {plate}
+          <div
+            className={[
+              "composer-card",
+              dragOverCard ? "composer-card--dragover" : "",
+              plate ? "composer-card--joined" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            ref={composerCardRef}
+            onDragOver={(ev) => {
+              const dt = ev.dataTransfer;
+              if (!dt || !Array.from(dt.types || []).includes("Files")) {
+                return;
+              }
+              ev.preventDefault();
+              setDragOverCard(true);
+            }}
+            onDragLeave={(ev) => {
+              const to = ev.relatedTarget;
+              if (to instanceof Node && ev.currentTarget.contains(to)) {
+                return;
+              }
+              setDragOverCard(false);
+            }}
+            onDrop={(ev) => {
+              if (composerBridge.claimDrop(ev)) {
+                ev.preventDefault();
+                setDragOverCard(false);
+                return;
+              }
+              const files = ev.dataTransfer
+                ? Array.from(ev.dataTransfer.files || [])
+                : [];
+              if (files.length === 0) {
+                return;
+              }
               ev.preventDefault();
               setDragOverCard(false);
-              return;
-            }
-            const files = ev.dataTransfer
-              ? Array.from(ev.dataTransfer.files || [])
-              : [];
-            if (files.length === 0) {
-              return;
-            }
-            ev.preventDefault();
-            setDragOverCard(false);
-            if (!props.llmModelMultimodal) {
-              showAttachHint();
-              return;
-            }
-            attachFiles(files);
-          }}
-        >
-          {(props.editingFiles && props.editingFiles.length > 0) ||
-          attachedFiles.length > 0 ? (
-            <div
-              className="composer-attachments"
-              aria-label={t("composer.attachedFilesAriaLabel")}
-            >
-              {(props.editingFiles || []).map((f, idx) => {
-                const { svg } = fileTypeIcon(f.mimeType, f.name);
-                return (
-                  <span
-                    key={`ef-${idx}`}
-                    className="composer-attachment-chip composer-attachment-chip--locked"
-                    title={f.name}
-                  >
-                    <span
-                      className="composer-attachment-chip-icon"
-                      aria-hidden="true"
-                    >
-                      {svg}
-                    </span>
-                    <span className="composer-attachment-chip-name">
-                      {f.name}
-                    </span>
-                  </span>
-                );
-              })}
-              {attachedFiles.map((f, idx) => (
-                <AttachedFileChip
-                  key={idx}
-                  file={f}
-                  disabled={!attachmentSendingEnabled}
-                  onRemove={() =>
-                    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
-                  }
-                  onMarkup={
-                    attachmentSendingEnabled && markupSupported()
-                      ? () => openMarkup(f, true)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          ) : null}
-          {markup ? (
-            <Suspense fallback={null}>
-              <ImageMarkupDialog
-                file={markup.file}
-                onCancel={() => setMarkup(null)}
-                onDone={(edited) => {
-                  const { file: source, attached } = markup;
-                  setMarkup(null);
-                  setAttachedFiles((prev) =>
-                    attached
-                      ? prev.map((f) => (f === source ? edited : f))
-                      : [...prev, edited],
-                  );
-                }}
-              />
-            </Suspense>
-          ) : null}
-          {attachHint ? (
-            <div
-              className="composer-attach-hint"
-              role="status"
-              data-testid="composer-attach-hint"
-            >
-              {attachHint}
-            </div>
-          ) : null}
-          <div className="composer-field-wrap" ref={composerFieldWrapRef}>
-            {/* The wand stands in the field's top right corner, so the field
-                starts at the top of the card; the text keeps clear of it. */}
-            <button
-              type="button"
-              className="composer-enhance-btn"
-              aria-label={t("composer.enhance")}
-              title={t("composer.enhance")}
-              data-testid="composer-enhance-btn"
-              disabled={enhancing || props.generating || idleSendDisabled}
-              onClick={() => void enhancePrompt()}
-            >
-              <svg
-                className={
-                  enhancing
-                    ? "composer-enhance-icon is-spinning"
-                    : "composer-enhance-icon"
-                }
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                width="12"
-                height="12"
-                aria-hidden="true"
+              if (!props.llmModelMultimodal) {
+                showAttachHint();
+                return;
+              }
+              attachFiles(files);
+            }}
+          >
+            {(props.editingFiles && props.editingFiles.length > 0) ||
+            attachedFiles.length > 0 ? (
+              <div
+                className="composer-attachments"
+                aria-label={t("composer.attachedFilesAriaLabel")}
               >
-                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-              </svg>
-            </button>
-            <div
-              className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
-            >
-              {maskComposerText ? (
-                <div
-                  ref={mirrorRef}
-                  className="composer-mirror"
+                {(props.editingFiles || []).map((f, idx) => {
+                  const { svg } = fileTypeIcon(f.mimeType, f.name);
+                  return (
+                    <span
+                      key={`ef-${idx}`}
+                      className="composer-attachment-chip composer-attachment-chip--locked"
+                      title={f.name}
+                    >
+                      <span
+                        className="composer-attachment-chip-icon"
+                        aria-hidden="true"
+                      >
+                        {svg}
+                      </span>
+                      <span className="composer-attachment-chip-name">
+                        {f.name}
+                      </span>
+                    </span>
+                  );
+                })}
+                {attachedFiles.map((f, idx) => (
+                  <AttachedFileChip
+                    key={idx}
+                    file={f}
+                    disabled={!attachmentSendingEnabled}
+                    onRemove={() =>
+                      setAttachedFiles((prev) =>
+                        prev.filter((_, i) => i !== idx),
+                      )
+                    }
+                    onMarkup={
+                      attachmentSendingEnabled && markupSupported()
+                        ? () => openMarkup(f, true)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
+            {markup ? (
+              <Suspense fallback={null}>
+                <ImageMarkupDialog
+                  file={markup.file}
+                  onCancel={() => setMarkup(null)}
+                  onDone={(edited) => {
+                    const { file: source, attached } = markup;
+                    setMarkup(null);
+                    setAttachedFiles((prev) =>
+                      attached
+                        ? prev.map((f) => (f === source ? edited : f))
+                        : [...prev, edited],
+                    );
+                  }}
+                />
+              </Suspense>
+            ) : null}
+            {attachHint ? (
+              <div
+                className="composer-attach-hint"
+                role="status"
+                data-testid="composer-attach-hint"
+              >
+                {attachHint}
+              </div>
+            ) : null}
+            <div className="composer-field-wrap" ref={composerFieldWrapRef}>
+              {/* The wand stands in the field's top right corner, so the field
+                starts at the top of the card; the text keeps clear of it. */}
+              <button
+                type="button"
+                className="composer-enhance-btn"
+                aria-label={t("composer.enhance")}
+                title={t("composer.enhance")}
+                data-testid="composer-enhance-btn"
+                disabled={enhancing || props.generating || idleSendDisabled}
+                onClick={() => void enhancePrompt()}
+              >
+                <svg
+                  className={
+                    enhancing
+                      ? "composer-enhance-icon is-spinning"
+                      : "composer-enhance-icon"
+                  }
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  width="12"
+                  height="12"
                   aria-hidden="true"
                 >
-                  <div ref={mirrorInnerRef} className="composer-mirror-inner">
-                    {composerSegments.map((seg, idx) =>
-                      seg.type === "text" ? (
-                        <span key={idx}>{seg.value}</span>
-                      ) : seg.type === "slash" ? (
-                        <span
-                          key={idx}
-                          className="composer-skill-chip-inline"
-                          data-testid="composer-skill-chip"
-                          data-skill-name={seg.name}
-                        >
-                          {seg.literal}
-                        </span>
-                      ) : (
-                        <span
-                          key={idx}
-                          className="composer-at-chip-inline"
-                          data-testid="composer-at-chip"
-                          data-path-rel={seg.pathRel}
-                        >
-                          {seg.literal}
-                        </span>
-                      ),
-                    )}
+                  <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+                </svg>
+              </button>
+              <div
+                className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
+              >
+                {maskComposerText ? (
+                  <div
+                    ref={mirrorRef}
+                    className="composer-mirror"
+                    aria-hidden="true"
+                  >
+                    <div ref={mirrorInnerRef} className="composer-mirror-inner">
+                      {composerSegments.map((seg, idx) =>
+                        seg.type === "text" ? (
+                          <span key={idx}>{seg.value}</span>
+                        ) : seg.type === "slash" ? (
+                          <span
+                            key={idx}
+                            className="composer-skill-chip-inline"
+                            data-testid="composer-skill-chip"
+                            data-skill-name={seg.name}
+                          >
+                            {seg.literal}
+                          </span>
+                        ) : (
+                          <span
+                            key={idx}
+                            className="composer-at-chip-inline"
+                            data-testid="composer-at-chip"
+                            data-path-rel={seg.pathRel}
+                          >
+                            {seg.literal}
+                          </span>
+                        ),
+                      )}
+                    </div>
                   </div>
-                </div>
-              ) : null}
-              <textarea
-                ref={taRef}
-                id="composer"
-                className={maskComposerText ? "composer-ta-masked" : undefined}
-                rows={props.isEmpty ? 5 : 2}
-                enterKeyHint={touchOnly ? "enter" : "send"}
-                placeholder={
-                  props.generating
-                    ? t("composer.placeholderQueue")
-                    : props.isEmpty
-                      ? t("composer.placeholderEmpty")
-                      : t("composer.placeholderFollowUp")
-                }
-                autoComplete="off"
-                value={props.value}
-                onChange={(ev) => {
-                  const v = ev.target.value;
-                  const caret = ev.target.selectionStart ?? v.length;
-                  setCaretPos(caret);
-                  preEnhanceRef.current = null;
-                  setEnhanceErr(null);
-                  props.onChange(v);
-                  composerBridge.draftChanged();
-                  updatePickerMenus(v, caret);
-                }}
-                onScroll={() => syncComposerScroll()}
-                onKeyUp={(ev) => {
-                  const el = taRef.current;
-                  if (!el) {
-                    return;
+                ) : null}
+                <textarea
+                  ref={taRef}
+                  id="composer"
+                  className={
+                    maskComposerText ? "composer-ta-masked" : undefined
                   }
-                  setCaretPos(el.selectionStart ?? el.value.length);
-                  if (
-                    ev.key === "ArrowLeft" ||
-                    ev.key === "ArrowRight" ||
-                    ev.key === "Home" ||
-                    ev.key === "End"
-                  ) {
-                    updatePickerMenus(props.value, el.selectionStart);
+                  rows={props.isEmpty ? 5 : 2}
+                  enterKeyHint={touchOnly ? "enter" : "send"}
+                  placeholder={
+                    props.generating
+                      ? t("composer.placeholderQueue")
+                      : (props.promptSuggestion ??
+                        t(
+                          props.isEmpty
+                            ? "composer.placeholderEmpty"
+                            : "composer.placeholderFollowUp",
+                        ))
                   }
-                }}
-                onSelect={() => {
-                  const el = taRef.current;
-                  if (el) {
-                    setCaretPos(el.selectionStart ?? el.value.length);
-                    updatePickerMenus(props.value, el.selectionStart);
-                    syncComposerScroll();
-                  }
-                }}
-                onClick={() => {
-                  const el = taRef.current;
-                  if (el) {
-                    setCaretPos(el.selectionStart ?? el.value.length);
-                    updatePickerMenus(props.value, el.selectionStart);
-                    syncComposerScroll();
-                  }
-                }}
-                onPaste={(ev) => {
-                  if (composerBridge.claimPaste(ev)) {
-                    ev.preventDefault();
-                    return;
-                  }
-                  const images = clipboardImageFiles(ev.clipboardData);
-                  if (images.length === 0) {
-                    return; // plain-text paste: keep the browser default
-                  }
-                  ev.preventDefault();
-                  if (!props.llmModelMultimodal) {
-                    showAttachHint();
-                    return;
-                  }
-                  const pasted = renamePastedImages(images, pastedSeqRef);
-                  const [only] = pasted;
-                  if (only && pasted.length === 1 && markupSupported()) {
-                    // One pasted picture opens in the markup editor first,
-                    // as ctrl+v does in the console on a desktop.
-                    openMarkup(only, false);
-                    return;
-                  }
-                  attachFiles(pasted);
-                }}
-                onCompositionStart={() => {
-                  compositionEndedAtRef.current = null;
-                }}
-                onCompositionEnd={() => {
-                  compositionEndedAtRef.current = performance.now();
-                }}
-                onKeyDown={(ev) => {
-                  // A key an input method is composing with is its own: no
-                  // picker takes a row on it, no list closes, Ctrl+Z restores
-                  // nothing, and it never sends. Browsers mark it with
-                  // isComposing; Safari ends the composition first and marks
-                  // the key that ended it only with keyCode 229, which alone
-                  // proves nothing, since Android keyboards send 229 with no
-                  // composition behind it.
-                  const endedAt = compositionEndedAtRef.current;
-                  compositionEndedAtRef.current = null;
-                  const endsComposition =
-                    ev.keyCode === 229 &&
-                    endedAt !== null &&
-                    performance.now() - endedAt < COMPOSITION_END_KEY_WINDOW_MS;
-                  if (ev.nativeEvent.isComposing || endsComposition) {
-                    return;
-                  }
-                  if (
-                    ev.key === "z" &&
-                    (ev.metaKey || ev.ctrlKey) &&
-                    !ev.shiftKey &&
-                    preEnhanceRef.current !== null
-                  ) {
-                    ev.preventDefault();
-                    const restored = preEnhanceRef.current;
+                  autoComplete="off"
+                  value={props.value}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    const caret = ev.target.selectionStart ?? v.length;
+                    setCaretPos(caret);
                     preEnhanceRef.current = null;
-                    props.onChange(restored);
-                    return;
-                  }
-                  if (ev.key === "Escape" && contextPopoverOpen) {
-                    ev.preventDefault();
-                    closeContextPopover();
-                    return;
-                  }
-                  if (
-                    ev.key === "Escape" &&
-                    (slashOpen || atOpen || atRangeOpen || argOpen)
-                  ) {
-                    ev.preventDefault();
-                    dismissSlashAtPickers();
-                    return;
-                  }
-                  // Escape folds an expanded field before it leaves an edit:
-                  // folding loses nothing.
-                  if (
-                    ev.key === "Escape" &&
-                    fieldExpanded &&
-                    // One Escape, one step: a picker or a popover that took
-                    // the key first has had its step.
-                    !ev.defaultPrevented &&
-                    !ev.repeat &&
-                    !ev.shiftKey &&
-                    !ev.altKey &&
-                    !ev.ctrlKey &&
-                    !ev.metaKey
-                  ) {
-                    ev.preventDefault();
-                    fold();
-                    return;
-                  }
-                  // Escape leaves an edit the way the banner's cross does,
-                  // once no picker or popover above claimed it.
-                  if (
-                    ev.key === "Escape" &&
-                    props.editingMessage &&
-                    !ev.repeat &&
-                    !ev.shiftKey &&
-                    !ev.altKey &&
-                    !ev.ctrlKey &&
-                    !ev.metaKey
-                  ) {
-                    ev.preventDefault();
-                    props.editingMessage.onCancel();
-                    return;
-                  }
-                  if (argOpen && argItems.length > 0) {
-                    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+                    setEnhanceErr(null);
+                    props.onChange(v);
+                    composerBridge.draftChanged();
+                    preEnhanceRef.current = null;
+                    setEnhanceErr(null);
+                    props.onChange(v);
+                    updatePickerMenus(v, caret);
+                  }}
+                  onScroll={() => syncComposerScroll()}
+                  onKeyUp={(ev) => {
+                    const el = taRef.current;
+                    if (!el) {
+                      return;
+                    }
+                    setCaretPos(el.selectionStart ?? el.value.length);
+                    if (
+                      ev.key === "ArrowLeft" ||
+                      ev.key === "ArrowRight" ||
+                      ev.key === "Home" ||
+                      ev.key === "End"
+                    ) {
+                      updatePickerMenus(props.value, el.selectionStart);
+                    }
+                  }}
+                  onSelect={() => {
+                    const el = taRef.current;
+                    if (el) {
+                      setCaretPos(el.selectionStart ?? el.value.length);
+                      updatePickerMenus(props.value, el.selectionStart);
+                      syncComposerScroll();
+                    }
+                  }}
+                  onClick={() => {
+                    const el = taRef.current;
+                    if (el) {
+                      setCaretPos(el.selectionStart ?? el.value.length);
+                      updatePickerMenus(props.value, el.selectionStart);
+                      syncComposerScroll();
+                    }
+                  }}
+                  onPaste={(ev) => {
+                    if (composerBridge.claimPaste(ev)) {
                       ev.preventDefault();
-                      const len = argItems.length;
-                      setArgActive((i) => {
+                      return;
+                    }
+                    const images = clipboardImageFiles(ev.clipboardData);
+                    if (images.length === 0) {
+                      return; // plain-text paste: keep the browser default
+                    }
+                    ev.preventDefault();
+                    if (!props.llmModelMultimodal) {
+                      showAttachHint();
+                      return;
+                    }
+                    const pasted = renamePastedImages(images, pastedSeqRef);
+                    const [only] = pasted;
+                    if (only && pasted.length === 1 && markupSupported()) {
+                      // One pasted picture opens in the markup editor first,
+                      // as ctrl+v does in the console on a desktop.
+                      openMarkup(only, false);
+                      return;
+                    }
+                    attachFiles(pasted);
+                  }}
+                  onCompositionStart={() => {
+                    compositionEndedAtRef.current = null;
+                  }}
+                  onCompositionEnd={() => {
+                    compositionEndedAtRef.current = performance.now();
+                  }}
+                  onKeyDown={(ev) => {
+                    // A key an input method is composing with is its own: no
+                    // picker takes a row on it, no list closes, Ctrl+Z restores
+                    // nothing, and it never sends. Browsers mark it with
+                    // isComposing; Safari ends the composition first and marks
+                    // the key that ended it only with keyCode 229, which alone
+                    // proves nothing, since Android keyboards send 229 with no
+                    // composition behind it.
+                    const endedAt = compositionEndedAtRef.current;
+                    compositionEndedAtRef.current = null;
+                    const endsComposition =
+                      ev.keyCode === 229 &&
+                      endedAt !== null &&
+                      performance.now() - endedAt <
+                        COMPOSITION_END_KEY_WINDOW_MS;
+                    if (ev.nativeEvent.isComposing || endsComposition) {
+                      return;
+                    }
+                    if (
+                      ev.key === "z" &&
+                      (ev.metaKey || ev.ctrlKey) &&
+                      !ev.shiftKey &&
+                      preEnhanceRef.current !== null
+                    ) {
+                      ev.preventDefault();
+                      const restored = preEnhanceRef.current;
+                      preEnhanceRef.current = null;
+                      props.onChange(restored);
+                      return;
+                    }
+                    if (ev.key === "Escape" && contextPopoverOpen) {
+                      ev.preventDefault();
+                      closeContextPopover();
+                      return;
+                    }
+                    if (
+                      ev.key === "Escape" &&
+                      (slashOpen || atOpen || atRangeOpen || argOpen)
+                    ) {
+                      ev.preventDefault();
+                      dismissSlashAtPickers();
+                      return;
+                    }
+                    // Escape folds an expanded field before it leaves an edit:
+                    // folding loses nothing.
+                    if (
+                      ev.key === "Escape" &&
+                      fieldExpanded &&
+                      // One Escape, one step: a picker or a popover that took
+                      // the key first has had its step.
+                      !ev.defaultPrevented &&
+                      !ev.repeat &&
+                      !ev.shiftKey &&
+                      !ev.altKey &&
+                      !ev.ctrlKey &&
+                      !ev.metaKey
+                    ) {
+                      ev.preventDefault();
+                      fold();
+                      return;
+                    }
+                    // Escape leaves an edit the way the banner's cross does,
+                    // once no picker or popover above claimed it.
+                    if (
+                      ev.key === "Escape" &&
+                      props.editingMessage &&
+                      !ev.repeat &&
+                      !ev.shiftKey &&
+                      !ev.altKey &&
+                      !ev.ctrlKey &&
+                      !ev.metaKey
+                    ) {
+                      ev.preventDefault();
+                      props.editingMessage.onCancel();
+                      return;
+                    }
+                    if (argOpen && argItems.length > 0) {
+                      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+                        ev.preventDefault();
+                        const len = argItems.length;
+                        setArgActive((i) => {
+                          const cur = Math.min(Math.max(i, 0), len - 1);
+                          return ev.key === "ArrowDown"
+                            ? (cur + 1) % len
+                            : (cur - 1 + len) % len;
+                        });
+                        return;
+                      }
+                      if (
+                        ev.key === "Tab" ||
+                        (ev.key === "Enter" && !ev.shiftKey)
+                      ) {
+                        ev.preventDefault();
+                        const pick = argItems[argActiveIdx];
+                        if (pick) {
+                          applyArgChoice(pick);
+                        }
+                        return;
+                      }
+                    }
+                    if (
+                      (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                      atOpen &&
+                      atItems.length > 0
+                    ) {
+                      ev.preventDefault();
+                      const len = atItems.length;
+                      setAtActive((i) => {
                         const cur = Math.min(Math.max(i, 0), len - 1);
                         return ev.key === "ArrowDown"
                           ? (cur + 1) % len
@@ -3937,236 +3992,230 @@ export function Composer(props: {
                       });
                       return;
                     }
+                    // The skills picker answers its keys while a turn runs, as
+                    // the mention picker above does: it is open and its rows
+                    // take a click, so a key that did nothing left Tab to the
+                    // browser, which moved the focus to the attach control.
                     if (
-                      ev.key === "Tab" ||
-                      (ev.key === "Enter" && !ev.shiftKey)
+                      (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                      slashOpen &&
+                      !atOpen &&
+                      slashRows.length > 0
                     ) {
                       ev.preventDefault();
-                      const pick = argItems[argActiveIdx];
-                      if (pick) {
-                        applyArgChoice(pick);
+                      const len = slashRows.length;
+                      setSlashActive((i) => {
+                        const cur = Math.min(Math.max(i, 0), len - 1);
+                        return ev.key === "ArrowDown"
+                          ? (cur + 1) % len
+                          : (cur - 1 + len) % len;
+                      });
+                      return;
+                    }
+                    if (ev.key === "Tab" && atOpen && atItems.length > 0) {
+                      ev.preventDefault();
+                      const row = atItems[atActiveIdx];
+                      if (row) {
+                        applyAtChoice(row);
                       }
                       return;
                     }
-                  }
-                  if (
-                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
-                    atOpen &&
-                    atItems.length > 0
-                  ) {
-                    ev.preventDefault();
-                    const len = atItems.length;
-                    setAtActive((i) => {
-                      const cur = Math.min(Math.max(i, 0), len - 1);
-                      return ev.key === "ArrowDown"
-                        ? (cur + 1) % len
-                        : (cur - 1 + len) % len;
-                    });
-                    return;
-                  }
-                  // The skills picker answers its keys while a turn runs, as
-                  // the mention picker above does: it is open and its rows
-                  // take a click, so a key that did nothing left Tab to the
-                  // browser, which moved the focus to the attach control.
-                  if (
-                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
-                    slashOpen &&
-                    !atOpen &&
-                    slashRows.length > 0
-                  ) {
-                    ev.preventDefault();
-                    const len = slashRows.length;
-                    setSlashActive((i) => {
-                      const cur = Math.min(Math.max(i, 0), len - 1);
-                      return ev.key === "ArrowDown"
-                        ? (cur + 1) % len
-                        : (cur - 1 + len) % len;
-                    });
-                    return;
-                  }
-                  if (ev.key === "Tab" && atOpen && atItems.length > 0) {
-                    ev.preventDefault();
-                    const row = atItems[atActiveIdx];
-                    if (row) {
-                      applyAtChoice(row);
+                    if (
+                      ev.key === "Tab" &&
+                      slashOpen &&
+                      (slashItems.length > 0 || commandMatches.length > 0)
+                    ) {
+                      ev.preventDefault();
+                      const pick = slashRows[slashActiveIdx]?.name;
+                      if (pick) {
+                        applySlashChoice(pick);
+                      }
+                      return;
                     }
-                    return;
-                  }
-                  if (
-                    ev.key === "Tab" &&
-                    slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0)
-                  ) {
-                    ev.preventDefault();
-                    const pick = slashRows[slashActiveIdx]?.name;
-                    if (pick) {
-                      applySlashChoice(pick);
+                    if (
+                      ev.key === "Enter" &&
+                      !ev.shiftKey &&
+                      atOpen &&
+                      atItems.length > 0
+                    ) {
+                      ev.preventDefault();
+                      const row = atItems[atActiveIdx];
+                      if (row) {
+                        applyAtChoice(row);
+                      }
+                      return;
                     }
-                    return;
-                  }
-                  if (
-                    ev.key === "Enter" &&
-                    !ev.shiftKey &&
-                    atOpen &&
-                    atItems.length > 0
-                  ) {
-                    ev.preventDefault();
-                    const row = atItems[atActiveIdx];
-                    if (row) {
-                      applyAtChoice(row);
+                    if (
+                      ev.key === "Enter" &&
+                      !ev.shiftKey &&
+                      slashOpen &&
+                      (slashItems.length > 0 || commandMatches.length > 0)
+                    ) {
+                      ev.preventDefault();
+                      const pick = slashRows[slashActiveIdx]?.name;
+                      if (pick) {
+                        applySlashChoice(pick);
+                      }
+                      return;
                     }
-                    return;
-                  }
-                  if (
-                    ev.key === "Enter" &&
-                    !ev.shiftKey &&
-                    slashOpen &&
-                    (slashItems.length > 0 || commandMatches.length > 0)
-                  ) {
-                    ev.preventDefault();
-                    const pick = slashRows[slashActiveIdx]?.name;
-                    if (pick) {
-                      applySlashChoice(pick);
+                    // The follow-up prompt suggestion of the finished turn:
+                    // Tab (and ArrowRight on the empty field) takes it into
+                    // the draft, the way the console's editor does. Open
+                    // pickers keep Tab for their own rows above.
+                    if (
+                      (ev.key === "Tab" || ev.key === "ArrowRight") &&
+                      !ev.shiftKey &&
+                      !ev.ctrlKey &&
+                      !ev.altKey &&
+                      !ev.metaKey &&
+                      !props.generating &&
+                      !props.value.trim() &&
+                      !(slashOpen || atOpen || atRangeOpen || argOpen) &&
+                      props.promptSuggestion
+                    ) {
+                      ev.preventDefault();
+                      props.onChange(props.promptSuggestion);
+                      props.onPromptSuggestionAccepted?.();
+                      return;
                     }
-                    return;
-                  }
-                  // Tab belongs to an open picker even when it lists nothing:
-                  // the draft there is a mention or a command being written.
-                  if (
-                    ev.key === "Tab" &&
-                    props.generating &&
-                    queueArmed &&
-                    !(slashOpen || atOpen || atRangeOpen || argOpen) &&
-                    !ev.shiftKey &&
-                    !ev.ctrlKey &&
-                    !ev.altKey &&
-                    !ev.metaKey
-                  ) {
-                    ev.preventDefault();
-                    queueDraft(
-                      props.queueMode
-                        ? oppositeQueueMode(props.queueMode)
-                        : undefined,
-                      true,
+                    // Tab belongs to an open picker even when it lists nothing:
+                    // the draft there is a mention or a command being written.
+                    if (
+                      ev.key === "Tab" &&
+                      props.generating &&
+                      queueArmed &&
+                      !(slashOpen || atOpen || atRangeOpen || argOpen) &&
+                      !ev.shiftKey &&
+                      !ev.ctrlKey &&
+                      !ev.altKey &&
+                      !ev.metaKey
+                    ) {
+                      ev.preventDefault();
+                      queueDraft(
+                        props.queueMode
+                          ? oppositeQueueMode(props.queueMode)
+                          : undefined,
+                        true,
+                      );
+                      return;
+                    }
+                    const enterAction = composerEnterAction(
+                      {
+                        key: ev.key,
+                        shiftKey: ev.shiftKey,
+                        ctrlKey: ev.ctrlKey,
+                        altKey: ev.altKey,
+                        metaKey: ev.metaKey,
+                        isComposing: ev.nativeEvent.isComposing,
+                        keyCode: ev.keyCode,
+                        repeat: ev.repeat,
+                      },
+                      touchOnly,
                     );
-                    return;
-                  }
-                  const enterAction = composerEnterAction(
-                    {
-                      key: ev.key,
-                      shiftKey: ev.shiftKey,
-                      ctrlKey: ev.ctrlKey,
-                      altKey: ev.altKey,
-                      metaKey: ev.metaKey,
-                      isComposing: ev.nativeEvent.isComposing,
-                      keyCode: ev.keyCode,
-                      repeat: ev.repeat,
-                    },
-                    touchOnly,
-                  );
-                  if (enterAction === "newline-insert") {
-                    ev.preventDefault();
-                    const el = ev.currentTarget;
-                    const start = el.selectionStart ?? props.value.length;
-                    const end = el.selectionEnd ?? start;
-                    const next =
-                      expandCodeFenceAtCaret(props.value, start, end) ??
-                      insertNewline(props.value, start, end);
-                    setCaretPos(next.caret);
-                    preEnhanceRef.current = null;
-                    setEnhanceErr(null);
-                    props.onChange(next.text);
-                    updatePickerMenus(next.text, next.caret);
-                    requestAnimationFrame(() => {
-                      const ta = taRef.current;
-                      if (!ta) {
+                    if (enterAction === "newline-insert") {
+                      ev.preventDefault();
+                      const el = ev.currentTarget;
+                      const start = el.selectionStart ?? props.value.length;
+                      const end = el.selectionEnd ?? start;
+                      const next =
+                        expandCodeFenceAtCaret(props.value, start, end) ??
+                        insertNewline(props.value, start, end);
+                      setCaretPos(next.caret);
+                      preEnhanceRef.current = null;
+                      setEnhanceErr(null);
+                      props.onChange(next.text);
+                      updatePickerMenus(next.text, next.caret);
+                      requestAnimationFrame(() => {
+                        const ta = taRef.current;
+                        if (!ta) {
+                          return;
+                        }
+                        ta.setSelectionRange(next.caret, next.caret);
+                        syncComposerScroll();
+                      });
+                      return;
+                    }
+                    if (enterAction === "send") {
+                      ev.preventDefault();
+                      if (runLocalCommandFromDraft()) {
                         return;
                       }
-                      ta.setSelectionRange(next.caret, next.caret);
-                      syncComposerScroll();
-                    });
-                    return;
-                  }
-                  if (enterAction === "send") {
-                    ev.preventDefault();
-                    if (runLocalCommandFromDraft()) {
-                      return;
+                      if (props.generating) {
+                        // A turn is running: the draft joins the queue the turn
+                        // reads at its next step instead of being refused.
+                        queueDraft();
+                        return;
+                      }
+                      if (props.sessionLoading) {
+                        // The opened session's settings are still on the way:
+                        // the draft waits in the field, as Send does.
+                        return;
+                      }
+                      const txt = props.value.trim();
+                      if (!txt && sendableAttachedFiles.length === 0) {
+                        return;
+                      }
+                      fold();
+                      if (sendableAttachedFiles.length > 0) {
+                        const files = [...sendableAttachedFiles];
+                        setAttachedFiles([]);
+                        props.onSend(txt, files);
+                      } else {
+                        props.onSend(txt);
+                      }
                     }
-                    if (props.generating) {
-                      // A turn is running: the draft joins the queue the turn
-                      // reads at its next step instead of being refused.
-                      queueDraft();
-                      return;
-                    }
-                    if (props.sessionLoading) {
-                      // The opened session's settings are still on the way:
-                      // the draft waits in the field, as Send does.
-                      return;
-                    }
-                    const txt = props.value.trim();
-                    if (!txt && sendableAttachedFiles.length === 0) {
-                      return;
-                    }
-                    fold();
-                    if (sendableAttachedFiles.length > 0) {
-                      const files = [...sendableAttachedFiles];
-                      setAttachedFiles([]);
-                      props.onSend(txt, files);
-                    } else {
-                      props.onSend(txt);
-                    }
-                  }
-                }}
-              />
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          {goalLength !== null ? (
-            <div className="composer-goal-validation">
-              <span
-                className={`goal-form-count${goalTooLong ? " goal-form-count--over" : ""}`}
-                data-testid="composer-goal-count"
+            {goalLength !== null ? (
+              <div className="composer-goal-validation">
+                <span
+                  className={`goal-form-count${goalTooLong ? " goal-form-count--over" : ""}`}
+                  data-testid="composer-goal-count"
+                >
+                  {goalLength} / {GOAL_OBJECTIVE_MAX}
+                </span>
+                {goalTooLong ? (
+                  <p className="goal-error" role="alert">
+                    {t("goal.objectiveTooLong", { max: GOAL_OBJECTIVE_MAX })}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {enhanceErr ? (
+              <div
+                className="composer-enhance-err"
+                role="status"
+                data-testid="composer-enhance-err"
               >
-                {goalLength} / {GOAL_OBJECTIVE_MAX}
-              </span>
-              {goalTooLong ? (
-                <p className="goal-error" role="alert">
-                  {t("goal.objectiveTooLong", { max: GOAL_OBJECTIVE_MAX })}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          {enhanceErr ? (
-            <div
-              className="composer-enhance-err"
-              role="status"
-              data-testid="composer-enhance-err"
-            >
-              {enhanceErr}
-            </div>
-          ) : null}
+                {enhanceErr}
+              </div>
+            ) : null}
 
-          <div className="composer-bar">
-            <div
-              className="composer-tabs"
-              aria-label={t("composer.composerOptions")}
-            >
-              <ExtensionAnchor
-                name="composer.tabs"
-                mountComposerControls={false}
-              />
-              {renderComposerControls("tabs")}
-            </div>
+            <div className="composer-bar">
+              <div
+                className="composer-tabs"
+                aria-label={t("composer.composerOptions")}
+              >
+                <ExtensionAnchor
+                  name="composer.tabs"
+                  mountComposerControls={false}
+                />
+                {renderComposerControls("tabs")}
+              </div>
 
-            <div className="composer-bar-actions">
-              <ExtensionAnchor
-                name="composer.actions"
-                mountComposerControls={false}
-              />
-              {renderComposerControls("actions")}
+              <div className="composer-bar-actions">
+                <ExtensionAnchor
+                  name="composer.actions"
+                  mountComposerControls={false}
+                />
+                {renderComposerControls("actions")}
+              </div>
             </div>
+            <ExtensionAnchor name="composer" />
           </div>
-          <ExtensionAnchor name="composer" />
         </div>
       </footer>
       {contextPopoverOpen ? (

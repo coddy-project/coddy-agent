@@ -11,7 +11,7 @@ export type SettingsLandmark = {
   /** Generated forms are the reorder boundary between the two slots. */
   place: "before" | "after";
   /** The block's own predicate: false where the tab does not draw it. */
-  shown?: () => boolean;
+  shown?: (doc: Record<string, unknown>) => boolean;
   /** Present for a block of a list's row form; says whether this row draws it. */
   row?: (row: Record<string, unknown>) => boolean;
 };
@@ -26,7 +26,21 @@ function landmark(
   return { section, id, heading, place, ...more };
 }
 
+export function backupCodesShown(doc: Record<string, unknown>): boolean {
+  const http = (doc.httpserver ?? {}) as Record<string, unknown>;
+  const login = (http.login ?? {}) as Record<string, unknown>;
+  return login.totp_configured === true;
+}
+
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
+  landmark("httpserver", "account", "authAccount", "before"),
+  landmark("httpserver", "authenticator", "authAuthenticator", "before"),
+  landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
+    shown: backupCodesShown,
+  }),
+  landmark("statistics", "enable", "statisticsEnable", "before"),
+  landmark("statistics", "timezone", "statisticsCounters", "before"),
+  landmark("statistics", "prices", "statisticsPrices", "before"),
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
   landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),

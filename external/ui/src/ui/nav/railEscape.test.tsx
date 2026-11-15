@@ -45,6 +45,7 @@ function pressEscape(
 describe("the screens of the rail", () => {
   it("are every item of the rail but sign-out, the topmost first", () => {
     expect([...RAIL_SCREENS]).toEqual([
+      "statistics",
       "docs",
       "settings",
       "swarm",

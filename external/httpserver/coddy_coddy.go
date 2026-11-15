@@ -234,6 +234,9 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/terminal", s.coddyTerminalGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/terminal", s.coddyTerminalPost)
+	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/terminal", s.coddyTerminalDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}", s.coddySessionAssetGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}", s.coddySessionArtifactGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/artifacts/{artifactID}/preview", s.coddySessionArtifactPreviewGet)
@@ -243,6 +246,8 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/prompt-suggestion", s.coddySessionPromptSuggestionGet)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/prompt-suggestion/outcome", s.coddySessionPromptSuggestionOutcomePost)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace", s.coddySessionWorkspacePost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
@@ -648,7 +653,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	ctx, finishStatistics := s.auxiliaryStatistics(r.Context(), "background")
+	defer finishStatistics()
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(describeSystemPrompt(commands))},
 		{Role: llm.RoleUser, Content: text},

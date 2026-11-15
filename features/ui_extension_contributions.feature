@@ -84,6 +84,26 @@ Feature: UI extension contributions
     When an alter pass retitles, reorders and hides entries by namespaced key
     Then the mixed control list follows the pass and conditional controls stay live
 
+  Scenario: Refuse an unsupported extension before importing code
+    Given a package requiring a feature the host does not offer
+    When its compatibility is checked
+    Then Settings names the missing feature and the module is not read
+
+  Scenario: Place one control and rename one row without moving the rest
+    Given host composer controls and Appearance rows
+    When an extension places a control after host/model and renames the language row
+    Then unrelated controls keep their order and only the language title changes
+
+  Scenario: Invoke a slot owner without reading its DOM
+    Given an OK, coddy panel and its addon
+    When the addon invokes the tricks hook with disco
+    Then the panel performs the trick through its own handler
+
+  Scenario: Upsert a provider and its model by name
+    Given a provider and model that need onboarding
+    When the extension upserts them by name in one call
+    Then provider and model are installed in one configuration transaction
+
   Scenario: Alter schema Settings rows and their search entries together
     Given nested schema-driven Settings rows and row alter passes
     When a pass hides, retitles and reorders rows

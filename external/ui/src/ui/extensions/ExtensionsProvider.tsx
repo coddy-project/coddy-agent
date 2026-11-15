@@ -124,12 +124,16 @@ export function ExtensionsProvider({ children }: { children: ReactNode }) {
           setEntries(body.items);
         }
         setError("");
-        // The first App commit waits for package CSS only, never for module
-        // evaluation or activate(). A broken package reports through activation
-        // later and does not keep the whole application off the screen.
+        // Compatibility precedes CSS too: an unsupported package can neither
+        // repaint the app nor run code. The first App commit waits for allowed
+        // package CSS only, never for module evaluation or activate().
+        await runtime.preflight(body.items);
+        const allowed = body.items.filter((entry) =>
+          runtime.canActivate(entry),
+        );
         await Promise.all([
-          runtime.stylePreloader.prepare(body.items),
-          extensionThemeRegistry.prepare(body.items, fetchExtensionAssetText),
+          runtime.stylePreloader.prepare(allowed),
+          extensionThemeRegistry.prepare(allowed, fetchExtensionAssetText),
         ]);
         if (current !== generation.current) return;
         setStylesReady(true);

@@ -231,12 +231,9 @@ func TestListenerFreeAndInUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = held.Close() })
-	free, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	freeAddr := free.Addr().String()
-	_ = free.Close()
+	// Let the kernel choose the free port when the probe binds it. Reserving
+	// and releasing a numbered port here races listeners in other tests.
+	freeAddr := "127.0.0.1:0"
 	port := held.Addr().(*net.TCPAddr).Port
 	rep := run(t, fmt.Sprintf("httpserver:\n  host: 127.0.0.1\n  port: %d\n", port), func(r *Request) {
 		r.Listeners = []Listener{{Path: "httpserver", Addr: held.Addr().String()}, {Path: "swarm", Addr: freeAddr}}
