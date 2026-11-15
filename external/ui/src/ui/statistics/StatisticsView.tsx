@@ -302,7 +302,8 @@ export default function StatisticsView({
     setNode("");
   };
   const chooseDisplayCurrency = async (currency: StatisticsCurrency) => {
-    if (!data || currencySaving || currency === displayCurrency) return;
+    if (!data || aggregate || currencySaving || currency === displayCurrency)
+      return;
     setCurrencySaving(true);
     setError("");
     try {
@@ -310,6 +311,7 @@ export default function StatisticsView({
         "/coddy/statistics/settings",
         { method: "PUT", body: JSON.stringify({ currency }) },
       );
+      request.current++;
       setData((current) =>
         current
           ? {
@@ -322,6 +324,7 @@ export default function StatisticsView({
             }
           : current,
       );
+      void read();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -595,7 +598,7 @@ export default function StatisticsView({
               onClose={() => setFiltersOpen(false)}
             >
               <div className="statistics-filters statistics-filter-fields">
-                {tab === "overview" && (
+                {tab === "overview" && !aggregate && (
                   <label className="statistics-filter statistics-currency-filter">
                     <span>{t("stats.currency.field")}</span>
                     <span className="appearance-language-select-wrap">

@@ -867,7 +867,7 @@ export const messagesRu: Record<string, string> = {
     "Сколько автоматических ходов может занять одна цель, после них идёт завершающий ход и остановка.",
   "settings.schema.supervisor.token_budget.label": "Бюджет токенов",
   "settings.schema.supervisor.token_budget.desc":
-    "Некэшированные входные и выходные токены на одну цель. 0 снимает ограничение.",
+    "Некешированные входные и выходные токены на одну цель. 0 снимает ограничение.",
   "settings.schema.supervisor.max_chain_sessions.label": "Сессий в цепочке",
   "settings.schema.supervisor.max_chain_sessions.desc":
     "Сколько сессий одна цепочка целей (/goal --then-file) может открыть одну за другой. 0 отключает цепочки.",
@@ -1177,7 +1177,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.start_percent.label":
     "Начинать с (%)",
   "settings.schema.compaction.result_eviction.start_percent.desc":
-    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кэш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
+    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кеш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
 
   "settings.schema.scheduler.label": "Планировщик",
   "settings.schema.scheduler.enable.label": "Включено",

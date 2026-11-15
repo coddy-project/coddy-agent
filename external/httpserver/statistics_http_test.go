@@ -212,6 +212,21 @@ func TestStatisticsCurrencyOpenAPI(t *testing.T) {
 	if settings["currency"].(map[string]interface{})["default"] != statistics.CurrencyUSD || settings["usdToRub"].(map[string]interface{})["default"] != statistics.DefaultUSDToRubRate {
 		t.Fatalf("statistics currency defaults = %+v / %+v", settings["currency"], settings["usdToRub"])
 	}
+	requestPrices := requestProps["prices"].(map[string]interface{})
+	priceInputRef := requestPrices["additionalProperties"].(map[string]interface{})["$ref"]
+	if priceInputRef != "#/components/schemas/StatisticsPriceInput" {
+		t.Fatalf("price input schema = %v, want StatisticsPriceInput", priceInputRef)
+	}
+	priceInput := schemas["StatisticsPriceInput"].(map[string]interface{})
+	required, ok := priceInput["required"].([]string)
+	if !ok {
+		t.Fatalf("price input required fields = %#v", priceInput["required"])
+	}
+	for _, key := range required {
+		if key == "currency" {
+			t.Fatal("price currency must be optional in requests")
+		}
+	}
 	priceCurrency := schemas["StatisticsPrice"].(map[string]interface{})["properties"].(map[string]interface{})["currency"].(map[string]interface{})
 	priceCurrencyValues, ok := priceCurrency["enum"].([]string)
 	if !ok || len(priceCurrencyValues) != 2 || priceCurrencyValues[0] != statistics.CurrencyUSD || priceCurrencyValues[1] != statistics.CurrencyRUB || priceCurrency["default"] != statistics.CurrencyUSD {

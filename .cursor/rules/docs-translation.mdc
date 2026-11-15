@@ -117,6 +117,7 @@ Glossary (English - Russian):
   pipeline `a | b` included; a pipe that carries data into stdin ("data piped into coddy") - канал;
   a relay of any kind (the swarm's, the composer's, the permission relay) - релей (never "ретранслятор");
 - memory - память; compaction - сжатие контекста; context window - окно контекста;
+- cache - кеш;
 - reasoning - рассуждение; reasoning level - уровень рассуждения;
 - provider - провайдер; model - модель; environment - окружение; remote mode - удалённый режим;
 - surface - интерфейс; console - консоль; web UI - веб-интерфейс; harness - харнес;

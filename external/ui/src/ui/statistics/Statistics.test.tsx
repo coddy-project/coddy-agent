@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -192,6 +193,90 @@ test("the Filters currency select converts the estimated cost and shows the rate
       body: JSON.stringify({ currency: "RUB" }),
     }),
   );
+});
+
+test("the Filters currency selector is hidden for swarm aggregates", async () => {
+  initLocale("en");
+  const data = fixture();
+  delete data.settings;
+  const fetch = vi.fn(async () => new Response(JSON.stringify(data)));
+  vi.stubGlobal("fetch", fetch);
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={vi.fn()}
+      swarm
+      relayHome
+      cwd="/project"
+    />,
+  );
+
+  await screen.findByText("Token activity");
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  expect(await screen.findByRole("combobox", { name: "Scope" })).toHaveValue(
+    "swarm",
+  );
+  expect(screen.queryByTestId("statistics-display-currency")).toBeNull();
+});
+
+test("a stale report cannot undo the saved Filters currency", async () => {
+  initLocale("en");
+  const data = fixture();
+  data.report.totals.costUsd = 1.25;
+  Object.assign(data.settings!, { currency: "USD", usdToRub: 90 });
+  data.settings!.import.state = "complete";
+  const staleData = JSON.parse(JSON.stringify(data)) as StatisticsData;
+  let reportReads = 0;
+  let releaseStale: (() => void) | undefined;
+  const fetch = vi.fn(
+    (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const path = String(url);
+      if (
+        path.startsWith("/coddy/statistics/settings") &&
+        init?.method === "PUT"
+      ) {
+        Object.assign(data.settings!, JSON.parse(String(init.body)));
+        return Promise.resolve(new Response(JSON.stringify(data.settings)));
+      }
+      if (path.startsWith("/coddy/statistics?")) {
+        reportReads++;
+        if (reportReads === 2) {
+          return new Promise<Response>((resolve) => {
+            releaseStale = () =>
+              resolve(new Response(JSON.stringify(staleData)));
+          });
+        }
+      }
+      return Promise.resolve(new Response(JSON.stringify(data)));
+    },
+  );
+  vi.stubGlobal("fetch", fetch);
+  render(
+    <StatisticsView
+      onClose={vi.fn()}
+      onSettings={vi.fn()}
+      swarm={false}
+      relayHome={false}
+      cwd="/project"
+    />,
+  );
+
+  await screen.findByText("Token activity");
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "30" },
+  });
+  await waitFor(() => expect(reportReads).toBe(2));
+  fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+  const currency = await screen.findByRole("combobox", { name: "Currency" });
+  fireEvent.change(currency, { target: { value: "RUB" } });
+  await waitFor(() => expect(currency).toHaveValue("RUB"));
+  await waitFor(() => expect(reportReads).toBe(3));
+
+  await act(async () => {
+    releaseStale?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(screen.getByTestId("statistics-display-currency")).toHaveValue("RUB");
 });
 
 test("a reset warns that every counter goes and clears the whole history", async () => {

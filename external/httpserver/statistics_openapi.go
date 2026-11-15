@@ -79,6 +79,16 @@ func mergeStatisticsOpenAPI(doc map[string]interface{}) {
 		"default":     statistics.CurrencyUSD,
 		"description": "Currency of this model tariff. Omitted means USD.",
 	}
+	priceInputProperties := map[string]interface{}{
+		"input":    schema(reflect.TypeFor[float64]()),
+		"output":   schema(reflect.TypeFor[float64]()),
+		"cached":   schema(reflect.TypeFor[*float64]()),
+		"currency": priceProperties["currency"],
+	}
+	schemas["StatisticsPriceInput"] = map[string]interface{}{
+		"type": "object", "properties": priceInputProperties, "required": []string{"input", "output"},
+	}
+	priceMap["additionalProperties"] = map[string]interface{}{"$ref": "#/components/schemas/StatisticsPriceInput"}
 	settingsSchema := schemas["StatisticsSettings"].(map[string]interface{})
 	settingsProperties := settingsSchema["properties"].(map[string]interface{})
 	settingsProperties["currency"] = map[string]interface{}{

@@ -3,7 +3,7 @@
  * everything the Settings drawer draws. The index walks the served schema with
  * SchemaForm's own layout (layoutSchemaForm), the tabs' form groups and the
  * texts the overrides draw (overrideTexts), so a name is searched as it is
- * shown. The document is read only for the row names of the two lists.
+ * shown. The document is read for list row names and provider-specific fields.
  */
 import {
   defaultForSchema,
@@ -407,6 +407,7 @@ type Walk = {
   section: SectionDescriptor;
   form: Form;
   row: string | null;
+  doc: PlainObject;
 };
 
 type FieldFrame = {
@@ -424,7 +425,7 @@ type FieldFrame = {
 function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
-  const box = overrideTexts(form.domain, path, parent, schema);
+  const box = overrideTexts(form.domain, path, parent, schema, walk.doc);
   if (box === false) {
     return;
   }
@@ -742,7 +743,7 @@ export function buildSettingsSearchIndex(input: {
 
     landmarkEntries(out, section, blocks("before"), null, input.doc);
     for (const { form, value } of generated.forms) {
-      walkForm({ out, section, form, row: null }, value, tab);
+      walkForm({ out, section, form, row: null, doc: input.doc }, value, tab);
     }
     const key = section.schemaKey ?? section.id;
     for (const { label, row } of generated.rows
@@ -758,10 +759,17 @@ export function buildSettingsSearchIndex(input: {
           where: tab,
         }),
       );
-      walkForm({ out, section, form: generated.rows!, row: label }, row, [
-        ...tab,
-        label,
-      ]);
+      walkForm(
+        {
+          out,
+          section,
+          form: generated.rows!,
+          row: label,
+          doc: input.doc,
+        },
+        row,
+        [...tab, label],
+      );
       landmarkEntries(
         out,
         section,
