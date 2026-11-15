@@ -580,8 +580,9 @@ func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		RequestID string     `json:"requestId"`
-		Answers   [][]string `json:"answers"`
+		RequestID string          `json:"requestId"`
+		Answers   json.RawMessage `json:"answers"`
+		Error     json.RawMessage `json:"error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -592,11 +593,27 @@ func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":{"message":"requestId is required"}}`, http.StatusBadRequest)
 		return
 	}
-	if body.Answers == nil {
-		http.Error(w, `{"error":{"message":"answers is required"}}`, http.StatusBadRequest)
+	if (body.Answers == nil) == (body.Error == nil) {
+		http.Error(w, `{"error":{"message":"exactly one of answers or error is required"}}`, http.StatusBadRequest)
 		return
 	}
-	ok := CompleteQuestionAnswer(id, rid, &acp.QuestionResult{Answers: body.Answers})
+	var reply questionReply
+	if body.Error != nil {
+		var message string
+		if json.Unmarshal(body.Error, &message) != nil || strings.TrimSpace(message) == "" {
+			http.Error(w, `{"error":{"message":"error must be a non-empty string"}}`, http.StatusBadRequest)
+			return
+		}
+		reply.err = errors.New(acp.BoundQuestionError(message))
+	} else {
+		var answers [][]string
+		if json.Unmarshal(body.Answers, &answers) != nil || answers == nil {
+			http.Error(w, `{"error":{"message":"answers must be an array of string arrays"}}`, http.StatusBadRequest)
+			return
+		}
+		reply.result = &acp.QuestionResult{Answers: answers}
+	}
+	ok := completeQuestionReply(id, rid, reply)
 	if !ok {
 		http.Error(w, `{"error":{"message":"no pending question for this requestId"}}`, http.StatusNotFound)
 		return
