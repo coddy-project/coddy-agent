@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -86,5 +87,56 @@ func TestPreviewServerSettingsCarryTheConfiguredHosts(t *testing.T) {
 	}
 	if def := previewServerSettings(&config.Config{}); def.Host != config.PreviewServerDefaultHost {
 		t.Fatalf("default host: %+v", def)
+	}
+}
+
+// TestPreviewPublishSettingsMirrorTooling is the same guard for
+// previewPublishSettings.
+func TestPreviewPublishSettingsMirrorTooling(t *testing.T) {
+	from := reflect.TypeOf(config.ToolPreviewPublishSettings{})
+	to := reflect.TypeOf(tooling.PreviewPublishSettings{})
+	if from.NumField() != to.NumField() {
+		t.Fatalf("field count: config has %d, tooling has %d", from.NumField(), to.NumField())
+	}
+	for i := 0; i < from.NumField(); i++ {
+		a, b := from.Field(i), to.Field(i)
+		if a.Name != b.Name || a.Type != b.Type {
+			t.Errorf("field %d: config %s %s, tooling %s %s", i, a.Name, a.Type, b.Name, b.Type)
+		}
+	}
+}
+
+func TestPreviewPublishSettingsAreNilUntilTheChannelIsOn(t *testing.T) {
+	if got := previewPublishSettings(nil); got != nil {
+		t.Fatalf("no configuration should mean no publishing, got %+v", got)
+	}
+	if got := previewPublishSettings(&config.Config{}); got != nil {
+		t.Fatalf("publishing is off by default, got %+v", got)
+	}
+}
+
+func TestPreviewPublishSettingsResolveTheRootAndTheAddress(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = filepath.Join("/tmp", "coddy-home")
+	cfg.Tools.PreviewPublish = config.ToolPreviewPublish{Enable: true, Host: "127.0.0.1", Port: 9090}
+	got := previewPublishSettings(cfg)
+	if got == nil || !got.Enabled {
+		t.Fatalf("settings: %+v", got)
+	}
+	if want := filepath.Join(cfg.Paths.Home, "previews"); got.Root != want {
+		t.Fatalf("root = %q, want %q", got.Root, want)
+	}
+	// Without a public URL the origin's own address stands in, with the
+	// trailing slash a relative asset of a published page needs.
+	if got.PublicURL != "http://127.0.0.1:9090/" {
+		t.Fatalf("public URL = %q", got.PublicURL)
+	}
+	if got.TTLSeconds != config.PreviewPublishDefaultTTLSeconds || got.MaxBytes != config.PreviewPublishDefaultMaxBytes {
+		t.Fatalf("defaults: %+v", got)
+	}
+
+	cfg.Tools.PreviewPublish.PublicURL = "https://coddy.example/preview"
+	if got := previewPublishSettings(cfg); got.PublicURL != "https://coddy.example/preview/" {
+		t.Fatalf("a public URL without a trailing slash should get one, got %q", got.PublicURL)
 	}
 }

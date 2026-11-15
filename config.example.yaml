@@ -459,6 +459,22 @@ tools:
   #   host: 127.0.0.1       # bind address; 0.0.0.0 inside a container exposes the files
   #   public_host: ""       # host written into the URL, when the browser is elsewhere
 
+  # Published previews: a read-only static origin on a fixed address over one artifact
+  # root, plus the preview_publish and preview_unpublish tools. This is for a Coddy that
+  # runs behind your own authenticated HTTPS edge: the reverse proxy authenticates the
+  # visitor and routes a stable prefix (/preview/) to this origin, so nothing random has
+  # to be published and a link survives a rebuild. preview_server above is unchanged and
+  # stays local. Off unless you turn it on.
+  # preview_publish:
+  #   enable: false
+  #   host: 127.0.0.1                        # keep the origin private; the edge reaches it
+  #   port: 8081                             # fixed, so the proxy has an upstream that stays
+  #   root: ""                               # artifact root, absolute; empty = <home>/previews
+  #   public_url: ""                         # what the edge serves it as, e.g.
+  #                                          # https://coddy.example/preview/
+  #   ttl_seconds: 86400                     # a published preview is removed after this
+  #   max_bytes: 104857600                   # largest one published preview may be
+
   # The canvas of the web UI: a .canvas file of the workspace shown in the Files window
   # as a board of live frames, each a page of the workspace (HTML, CSS, JS) running in a
   # sandbox. The agent puts pages there with canvas_show and reads what the browser saw

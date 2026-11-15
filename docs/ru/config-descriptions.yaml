@@ -335,6 +335,30 @@ tools.preview_server.host:
 tools.preview_server.public_host:
   en: "Host written into the URL the agent hands out, for a coddy that runs where the operator's browser is not (a container, a remote machine). Empty uses the bind host."
   ru: "Хост, который подставляется в URL, выдаваемый агентом, если coddy работает не там, где браузер оператора (в контейнере, на удалённой машине). Пусто - используется адрес привязки."
+tools.preview_publish:
+  en: "The published-preview channel: a read-only static origin on a fixed address over one artifact root, and the preview_publish and preview_unpublish tools that put copies of finished work there. For a Coddy behind an authenticated HTTPS edge: the reverse proxy authenticates the visitor and routes a stable prefix to this origin. Off by default. See https://coddy.dev/docs/features/published-previews."
+  ru: "Канал опубликованных предпросмотров: статический сервер только на чтение по неизменному адресу над одним корнем артефактов и инструменты preview_publish и preview_unpublish, которые кладут туда копии готовой работы. Для Coddy за HTTPS-прокси с аутентификацией: обратный прокси проверяет посетителя и направляет неизменный префикс на этот сервер. По умолчанию выключен. См. https://coddy.dev/docs/features/published-previews."
+tools.preview_publish.enable:
+  en: "Run the published-preview origin and offer the preview_publish and preview_unpublish tools."
+  ru: "Запускать статический сервер опубликованных предпросмотров и предлагать инструменты preview_publish и preview_unpublish."
+tools.preview_publish.host:
+  en: "Address the origin binds, without a port. Anything that is not loopback serves every published artifact to whoever can reach that address: protect it with network policy or an authenticated tunnel."
+  ru: "Адрес, к которому привязывается сервер, без порта. Любой адрес, кроме loopback, отдаёт все опубликованные артефакты всем, кто до этого адреса достучится: закройте его сетевой политикой или аутентифицированным туннелем."
+tools.preview_publish.port:
+  en: "Fixed port the origin binds, so a reverse proxy has an upstream that does not move."
+  ru: "Неизменный порт, к которому привязывается сервер, чтобы у обратного прокси был апстрим, который не переезжает."
+tools.preview_publish.root:
+  en: "Artifact root: the only directory the origin serves and the only one a publish writes into. Absolute. Empty uses <home>/previews."
+  ru: "Корень артефактов - единственный каталог, который отдаёт сервер и в который пишет публикация. Абсолютный путь. Пусто - используется <home>/previews."
+tools.preview_publish.public_url:
+  en: "Address the edge serves the artifact root under, written into the link the agent hands out (https://coddy.example/preview/). Empty uses the origin's own address, which is right only where the browser reaches it directly."
+  ru: "Адрес, по которому корень артефактов отдаёт ваш прокси; он подставляется в ссылку, которую выдаёт агент (https://coddy.example/preview/). Пусто - используется собственный адрес сервера, и это верно, только если браузер обращается к нему напрямую."
+tools.preview_publish.ttl_seconds:
+  en: "How long a published preview stays up before the origin removes it. A call may ask for its own lifetime, or for none at all."
+  ru: "Сколько опубликованный предпросмотр держится, прежде чем сервер его удалит. Вызов может попросить своё время жизни или не ограничивать его вовсе."
+tools.preview_publish.max_bytes:
+  en: "Largest one published preview may be. A publish that would pass it is refused whole, so a half-copied artifact is never served."
+  ru: "Наибольший размер одного опубликованного предпросмотра. Публикация, которая его превысит, отклоняется целиком, поэтому недокопированный артефакт никогда не отдаётся."
 tools.websearch:
   en: "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as \"the web has nothing\"."
   ru: "Какие поисковые системы опрашивает инструмент websearch, в каком порядке объединяются их результаты и сколько он может потратить на опрос. Каждая система сообщает свой исход рядом с результатами, поэтому заблокированный бэкенд называется по имени, а не считается ответом \"в сети ничего нет\"."

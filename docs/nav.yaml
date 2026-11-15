@@ -160,6 +160,9 @@ groups:
       - path: features/preview-server.md
         title: Preview server
         summary: Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
+      - path: features/published-previews.md
+        title: Published previews
+        summary: Handing somebody a finished build through your own authenticated edge - one static origin on a fixed address over one artifact root, preview_publish and preview_unpublish, what the copy leaves behind, and a reverse-proxy configuration for Caddy, Nginx and Traefik.
       - path: features/canvas.md
         title: Canvas
         summary: Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it.

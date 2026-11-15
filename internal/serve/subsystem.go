@@ -36,6 +36,10 @@ const (
 	KindScheduler     Kind = "scheduler"
 	KindMetrics       Kind = "metrics"
 	KindBrowser       Kind = "browser"
+	// KindPreviewPublish is the static origin of the published-preview
+	// channel: one fixed address over the artifact root, which a reverse
+	// proxy routes to after it has authenticated the visitor.
+	KindPreviewPublish Kind = "preview-publish"
 	// KindLocalIPC is the process-private endpoint a desktop uses to reach
 	// the one runtime of this home, independent of the public HTTP listener.
 	KindLocalIPC Kind = "local-ipc"

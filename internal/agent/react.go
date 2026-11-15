@@ -490,6 +490,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 		BackgroundEnabled:  a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:          webSearchSettings(a.cfg),
 		PreviewServer:      previewServerSettings(a.cfg),
+		PreviewPublish:     previewPublishSettings(a.cfg),
 		CanvasProjectTrust: a.cfg.Tools.Canvas.ResolvedProjectTrust(),
 		AttachImage:        a.attachToolImage,
 		ImageRefusal:       a.toolImageRefusal,
@@ -2084,6 +2085,7 @@ func (a *Agent) runReActLoop(
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.WebSearch = webSearchSettings(a.cfg)
 			toolEnv.PreviewServer = previewServerSettings(a.cfg)
+			toolEnv.PreviewPublish = previewPublishSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 		}
 		// A step the output limit cut off inside its last tool call. The calls
