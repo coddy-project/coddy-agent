@@ -508,21 +508,57 @@ func (t *turnStream) settleAsk(u acp.ToolCallStatusUpdate) {
 
 // onQuestion forwards the question to the surface and posts the answers back.
 func (t *turnStream) onQuestion(data string) error {
-	var params acp.QuestionRequestParams
-	if err := json.Unmarshal([]byte(data), &params); err != nil {
+	var event struct {
+		acp.QuestionRequestParams
+		SupportsError bool `json:"supportsError"`
+	}
+	if err := json.Unmarshal([]byte(data), &event); err != nil {
 		return nil
 	}
-	answers := [][]string{}
+	params := event.QuestionRequestParams
 	res, err := t.sender.RequestQuestion(t.ctx, params)
-	if err == nil && res != nil && res.Answers != nil {
-		answers = res.Answers
+	if err == nil && res == nil {
+		err = fmt.Errorf("question client returned no result")
 	}
-	answer := map[string]interface{}{"requestId": params.RequestID, "answers": answers}
+	answer := map[string]interface{}{"requestId": params.RequestID}
+	if err != nil {
+		// An old server ignores unknown fields. Never send an empty answer
+		// alongside an error, or a refusal becomes a successful skipped question.
+		if !event.SupportsError {
+			return t.abortQuestion(fmt.Errorf("question client failed (server does not support question errors): %w", err))
+		}
+		message := err.Error()
+		if strings.TrimSpace(message) == "" {
+			message = "question client failed"
+		}
+		answer["error"] = acp.BoundQuestionError(message)
+	} else {
+		answers := res.Answers
+		if answers == nil {
+			answers = [][]string{}
+		}
+		answer["answers"] = answers
+	}
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/question"
 	if qerr := t.h.postJSON(t.ctx, path, answer, nil); qerr != nil {
-		return fmt.Errorf("question answer: %w", qerr)
+		if isNotFound(qerr) {
+			return nil // another surface answered or the server withdrew the question
+		}
+		return t.abortQuestion(errors.Join(err, fmt.Errorf("question answer: %w", qerr)))
 	}
 	return nil
+}
+
+// abortQuestion releases a server still waiting for an answer this client
+// cannot deliver. The stream context may already be cancelled, so the cancel
+// request has its own bounded lifetime. Cancellation failure remains visible.
+func (t *turnStream) abortQuestion(err error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if cerr := t.h.cancelSession(ctx, t.sessionID); cerr != nil {
+		return errors.Join(err, fmt.Errorf("cancel remote turn after question failure: %w", cerr))
+	}
+	return err
 }
 
 // promptInput splits an ACP prompt for POST /v1/responses: the text blocks

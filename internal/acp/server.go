@@ -284,8 +284,19 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 			return nil
 		}
 		if qOK {
+			var wire struct {
+				Answers json.RawMessage `json:"answers"`
+			}
+			if err := json.Unmarshal(resultRaw, &wire); err != nil {
+				qch <- questionReply{err: fmt.Errorf("the client's answer to the question does not read as one: %w", err)}
+				return nil
+			}
+			if wire.Answers == nil {
+				qch <- questionReply{err: errors.New("the client's answer to the question has no answers field")}
+				return nil
+			}
 			var result QuestionResult
-			if err := json.Unmarshal(resultRaw, &result); err != nil {
+			if err := json.Unmarshal(wire.Answers, &result.Answers); err != nil {
 				qch <- questionReply{err: fmt.Errorf("the client's answer to the question does not read as one: %w", err)}
 				return nil
 			}
@@ -588,7 +599,7 @@ func questionRefused(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &rpcErr); err != nil || rpcErr.Message == "" {
 		return errors.New("the client could not ask the user; continue without an answer")
 	}
-	return fmt.Errorf("the client could not ask the user (%d %s); continue without an answer", rpcErr.Code, rpcErr.Message)
+	return fmt.Errorf("the client could not ask the user (%d %s); continue without an answer", rpcErr.Code, BoundQuestionError(rpcErr.Message))
 }
 
 // RequestElicitation sends an elicitation/create request and waits for the

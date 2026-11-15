@@ -3049,7 +3049,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/question": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a pending interactive question from a streaming ReAct turn",
-					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and exactly one non-null outcome is required: **`answers`**, an array of string arrays (one row per question, entries are selected labels or custom text), or a non-empty **`error`** string for a client refusal/failure. The server truncates error text to at most 4096 UTF-8 bytes, including a ` [truncated]` marker, without splitting a character; successful answers are unchanged. An empty successful **`answers: []`** remains distinct from failure. The SSE question advertises **`supportsError: true`**; clients must not send errors unless it is present. A remote client whose question fails against an older server cancels the turn instead of submitting empty answers. The first answer or error settles the wait; later submissions return **404**. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3066,9 +3066,14 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"required": []interface{}{
-										"requestId", "answers",
+										"requestId",
+									},
+									"oneOf": []interface{}{
+										map[string]interface{}{"required": []interface{}{"answers"}},
+										map[string]interface{}{"required": []interface{}{"error"}},
 									},
 									"properties": map[string]interface{}{
+										"error":     map[string]interface{}{"type": "string", "minLength": 1, "pattern": `\S`, "description": "Client refusal/failure. Truncated by the server to at most 4096 UTF-8 bytes including a truncation marker; longer input is accepted."},
 										"requestId": map[string]string{"type": "string"},
 										"answers": map[string]interface{}{
 											"type": "array",

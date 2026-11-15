@@ -926,7 +926,7 @@ A form cannot offer a picker and an escape from it on one field, so a question t
 
 ### `session/request_question` - the fallback
 
-Coddy's own question request, kept for a client that does not implement elicitation. The payload is the questions as the tool asked them and the answer is one array of choices per question, where an entry that matches no option label is the text the user typed.
+Coddy's own question request, kept for a client that does not implement elicitation. The payload is the questions as the tool asked them and the answer is one array of choices per question, where an entry that matches no option label is the text the user typed. A JSON-RPC error, an unreadable result, or a result without `answers` reaches the model as a tool error rather than an empty answer.
 
 ```json
 {

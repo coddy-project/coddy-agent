@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
@@ -77,6 +78,26 @@ func TestQuestionAnswerThatDoesNotReadIsAnError(t *testing.T) {
 	}
 }
 
+func TestQuestionAnswerRequiresAnAnswersField(t *testing.T) {
+	for _, reply := range []string{`"result":null`, `"result":{}`} {
+		t.Run(reply, func(t *testing.T) {
+			if res, err := askOverWire(t, reply); err == nil {
+				t.Fatalf("missing answers read as answered: %+v", res)
+			}
+		})
+	}
+}
+
+func TestQuestionEmptyAnswersRemainValid(t *testing.T) {
+	for _, reply := range []string{`"result":{"answers":[]}`, `"result":{"answers":null}`} {
+		t.Run(reply, func(t *testing.T) {
+			if _, err := askOverWire(t, reply); err != nil {
+				t.Fatalf("empty answers rejected: %v", err)
+			}
+		})
+	}
+}
+
 func TestQuestionAnsweredByTheClientIsReturned(t *testing.T) {
 	res, err := askOverWire(t, `"result":{"answers":[["JSON"]]}`)
 	if err != nil {
@@ -85,5 +106,52 @@ func TestQuestionAnsweredByTheClientIsReturned(t *testing.T) {
 	got, _ := json.Marshal(res)
 	if !strings.Contains(string(got), "JSON") {
 		t.Fatalf("answers = %s, want the client's pick", got)
+	}
+}
+
+func TestQuestionClientErrorMessageIsBounded(t *testing.T) {
+	for _, message := range []string{"refused", strings.Repeat("x", 4096), strings.Repeat("x", 4097), strings.Repeat("界", 2000)} {
+		raw, _ := json.Marshal(message)
+		_, err := askOverWire(t, `"error":{"code":-32601,"message":`+string(raw)+`}`)
+		if err == nil {
+			t.Fatal("missing refusal")
+		}
+		got := err.Error()
+		prefix, suffix := "the client could not ask the user (-32601 ", "); continue without an answer"
+		if !strings.HasPrefix(got, prefix) || !strings.HasSuffix(got, suffix) {
+			t.Fatalf("lost code or guidance: %q", got)
+		}
+		detail := strings.TrimSuffix(strings.TrimPrefix(got, prefix), suffix)
+		if len(detail) > 4096 || !utf8.ValidString(detail) {
+			t.Fatalf("invalid diagnostic: %d bytes, valid UTF-8 %v", len(detail), utf8.ValidString(detail))
+		}
+		if len(message) <= 4096 && detail != message {
+			t.Fatal("short diagnostic changed")
+		}
+		if len(message) > 4096 && !strings.HasSuffix(detail, "[truncated]") {
+			t.Fatal("missing truncation marker")
+		}
+	}
+}
+
+func TestBoundQuestionError(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"empty", "", ""},
+		{"short", "request refused", "request refused"},
+		{"boundary", strings.Repeat("x", 4096), strings.Repeat("x", 4096)},
+		{"over boundary", strings.Repeat("x", 4097), strings.Repeat("x", 4084) + " [truncated]"},
+		{"UTF-8 boundary", strings.Repeat("界", 2000), strings.Repeat("界", 1361) + " [truncated]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := acp.BoundQuestionError(tc.input)
+			if got != tc.want {
+				t.Fatalf("bounded error differs: got %d bytes, want %d", len(got), len(tc.want))
+			}
+			if acp.BoundQuestionError(got) != got {
+				t.Fatal("bounding twice changed the diagnostic")
+			}
+		})
 	}
 }
