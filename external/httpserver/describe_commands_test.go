@@ -336,3 +336,34 @@ func TestCoddyDescribeKeepsTheUnderscoreOfACommandName(t *testing.T) {
 		t.Fatal("/warm_up_ is taken for the command warm_up")
 	}
 }
+
+// The naming call's cap pays for the reasoning tokens an OpenAI-shaped
+// backend hides, not only for the phrase it asks for: at 96 a chat on a
+// reasoning model came back with finish_reason=length and an empty answer, and
+// the new chat kept the first words of its message as a title with no tags.
+// The cap leaves room for that reasoning, and a model entry with a narrower
+// cap of its own still narrows it.
+func TestDescribeTokenLimitKeepsRoomForAReasoningModel(t *testing.T) {
+	const model = "neuraldeep/qwen3.8-27b"
+	tests := []struct {
+		name  string
+		entry *config.ModelEntry
+		want  int
+	}{
+		{name: "no entry for the model", want: 512},
+		{name: "a model without a cap of its own", entry: &config.ModelEntry{Model: model}, want: 512},
+		{name: "a model capped wider", entry: &config.ModelEntry{Model: model, MaxTokens: 8192}, want: 512},
+		{name: "a model capped narrower", entry: &config.ModelEntry{Model: model, MaxTokens: 64}, want: 64},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			if tc.entry != nil {
+				cfg.Models = []config.ModelEntry{*tc.entry}
+			}
+			if got := describeTokenLimit(cfg, model); got != tc.want {
+				t.Fatalf("describeTokenLimit = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
