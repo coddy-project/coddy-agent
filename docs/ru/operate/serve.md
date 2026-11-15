@@ -54,9 +54,10 @@ coddy serve uninstall                    # take it away again
 загрузке. `coddy serve install` устанавливает сервис, а `coddy serve uninstall` убирает его. Обе
 команды запускаются от имени пользователя, для которого предназначен сервис, и никогда через `sudo`.
 
-В macOS и Windows systemd нет, и обе команды об этом сообщают; там используйте
-`coddy serve --daemon`. В Linux то, что предстоит сделать `install`, зависит от того, как был
-установлен Coddy.
+В macOS, Windows и FreeBSD systemd нет, и обе команды об этом сообщают; там используйте
+`coddy serve --daemon`, а во FreeBSD есть ещё путь через скрипт `rc.d`
+([FreeBSD](../getting-started/freebsd.md#запуск-coddy-serve)). В Linux то, что предстоит сделать
+`install`, зависит от того, как был установлен Coddy.
 
 | Чем установлен | Юнит | Что с ним делает `install` |
 |---|---|---|
@@ -361,6 +362,7 @@ Coddy, понимает его так, как задумано, - этот за�
 |-----------|------|
 | Linux с systemd, сервер, который должен работать и после вашего выхода из системы | `coddy serve install` (пользовательский сервис systemd) |
 | ноутбук, машина для разработки, оболочка на машине без systemd | `coddy serve --daemon` |
+| FreeBSD, сервер, который должен вернуться после перезагрузки | скрипт `rc.d`, запускающий `coddy serve` под `daemon -r` ([FreeBSD](../getting-started/freebsd.md#запуск-coddy-serve)) |
 | `supervisord`, `runit` | `coddy serve` на переднем плане с `CODDY_SERVE_ROLE=service`, а перезапуск оставьте им |
 | Docker, Kubernetes | `coddy serve` на переднем плане как PID 1; контейнер перезапускает оркестратор |
 
@@ -369,4 +371,4 @@ Coddy, понимает его так, как задумано, - этот за�
 понадобились бы домашний каталог и конфигурация, которые никто не может править. См.
 [установку](../getting-started/install.md).
 
-<!-- docsgen:source sha256=eb4d03ab8fb8f9e6 -->
+<!-- docsgen:source sha256=e254360f36305167 -->

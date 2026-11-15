@@ -1,4 +1,4 @@
-//go:build desktop && linux && !android
+//go:build desktop && ((linux && !android) || freebsd)
 
 package desktop
 

@@ -100,6 +100,12 @@ pages:
     en:
       title: "Android (Termux)"
       summary: "The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device."
+  getting-started/freebsd.md:
+    title: "FreeBSD"
+    summary: "Архивы для FreeBSD, запуск сервера без systemd, окно рабочего стола и места, где интерфейсы ядра BSD отличаются от Linux."
+    en:
+      title: "FreeBSD"
+      summary: "The FreeBSD archives, running the server without systemd, the desktop window, and where the BSD kernel interfaces differ from Linux."
   getting-started/troubleshooting.md:
     title: "Устранение неполадок"
     summary: "Что проверить, если бинарника нет в PATH, конфигурация не загружается, провайдер отвергает ключ, порт занят или нужного интерфейса нет в сборке."

@@ -16,6 +16,7 @@ Install Coddy, give it a model, run it for the first time and keep it updated.
 - [Docker](getting-started/docker.md) - The GHCR image, docker compose, volumes and environment, the bundled UI on port 12345.
 - [Homebrew](getting-started/homebrew.md) - The cask against the formula, which Homebrew repository takes what, the homebrew/core submission.
 - [Android (Termux)](getting-started/android.md) - The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device.
+- [FreeBSD](getting-started/freebsd.md) - The FreeBSD archives, running the server without systemd, the desktop window, and where the BSD kernel interfaces differ from Linux.
 - [Troubleshooting](getting-started/troubleshooting.md) - What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.
 
 ## Surfaces

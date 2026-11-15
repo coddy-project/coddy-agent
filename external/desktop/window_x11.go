@@ -1,4 +1,4 @@
-//go:build desktop && linux && !android
+//go:build desktop && ((linux && !android) || freebsd)
 
 package desktop
 
@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -119,29 +117,10 @@ func (c *x11Control) ours(pid int) bool {
 	return false
 }
 
-// parentOf reads a process's parent out of /proc. The field is the fourth of
-// stat, after the executable name, which is in brackets and may itself hold
-// spaces or brackets - so the line is read from its last bracket on.
-func parentOf(pid int) (int, bool) {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0, false
-	}
-	line := string(b)
-	i := strings.LastIndex(line, ")")
-	if i < 0 {
-		return 0, false
-	}
-	fields := strings.Fields(line[i+1:])
-	if len(fields) < 2 {
-		return 0, false
-	}
-	parent, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return 0, false
-	}
-	return parent, true
-}
+// parentOf answers a process's parent, and lives per platform beside this
+// file: Linux reads /proc, which FreeBSD does not mount by default and
+// answers with a sysctl instead. Neither failure is fatal - a parent that
+// cannot be read ends the walk, and the window is then simply not claimed.
 
 // window finds the browser window of this run and remembers it.
 func (c *x11Control) window() (xproto.Window, error) {

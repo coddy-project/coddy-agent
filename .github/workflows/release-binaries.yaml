@@ -176,6 +176,11 @@ jobs:
           # Xcode Command Line Tools, and one job builds the whole release.
           build_target darwin arm64
           build_target darwin amd64
+          # FreeBSD. Pure Go like the Linux targets: the BSD halves of
+          # internal/platform and internal/localipc are build-constrained
+          # source files, not cgo, so there is nothing to install here.
+          build_target freebsd amd64
+          build_target freebsd arm64
           # Termux on Android. GOOS=android with cgo makes the position-
           # independent executable the Android system linker loads; the static
           # linux build above is refused by it (`has unexpected e_type: 2`)

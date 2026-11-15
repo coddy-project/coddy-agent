@@ -16,6 +16,7 @@ Coddy - агент общего назначения в одном статич�
 - [Docker](getting-started/docker.md) - Образ в GHCR, docker compose, тома и окружение, встроенный веб-интерфейс на порту 12345.
 - [Homebrew](getting-started/homebrew.md) - Cask и формула, какой репозиторий Homebrew что принимает, заявка в homebrew/core.
 - [Android (Termux)](getting-started/android.md) - Сборка для Termux на Android, почему архив для Linux там не запускается и что Coddy подстраивает на устройстве.
+- [FreeBSD](getting-started/freebsd.md) - Архивы для FreeBSD, запуск сервера без systemd, окно рабочего стола и места, где интерфейсы ядра BSD отличаются от Linux.
 - [Устранение неполадок](getting-started/troubleshooting.md) - Что проверить, если бинарника нет в PATH, конфигурация не загружается, провайдер отвергает ключ, порт занят или нужного интерфейса нет в сборке.
 
 ## Интерфейсы
