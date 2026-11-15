@@ -52,7 +52,7 @@ The **⋯** menu contains export and statistics settings. On a phone, filters, s
 
 The **Limits** tab lists every configured provider, including providers that have not served a chat. It shows every reported quota window, used and remaining counters, reset times, request rates, cooldowns, wallet balance and model restrictions. Missing fields stay absent. Providers without a supported usage source, disabled usage reads and failed requests have separate notices. A failed refresh keeps the last snapshot marked stale.
 
-These are current account limits, independent of the overview's period, project, model and source filters. The page reads them every 30 seconds while visible; **Refresh** requests an update through the same server cache and pacing rules as the chat's usage panel. In swarm mode, limits remain grouped by node and provider. Identical provider names on different nodes are separate accounts; their quotas are not added together. A node that cannot answer remains visible with an error.
+These are current account limits, independent of the overview's period, project, model and source filters. For a NeuralDeep account, the reported Kimi subscription windows are included alongside the hub's own quota windows. The page reads them every 30 seconds while visible; **Refresh** requests an update through the same server cache and pacing rules as the chat's usage panel. In swarm mode, limits remain grouped by node and provider. Identical provider names on different nodes are separate accounts; their quotas are not added together. A node that cannot answer remains visible with an error.
 
 ![Provider account limits](../assets/statistics/statistics-limits-dark-1280.png)
 

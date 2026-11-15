@@ -84,6 +84,30 @@ test("the section lists the metered windows with their reset time and percent, a
   expect(section.querySelector("[data-testid=context-usage-note]")).toBeNull();
 });
 
+test("NeuralDeep Kimi windows render in the context usage section", () => {
+  const usage = fixture();
+  usage.windows = [
+    {
+      id: "5h",
+      label: "5h",
+      usedPercent: 25,
+      resetsAt: "2026-09-06T22:00:00Z",
+    },
+    { id: "7d", label: "7d", usedPercent: 50 },
+  ];
+  usage.wallet = null;
+  const { container } = render(
+    <UsageSection usage={usage} modelId="neuraldeep/kimi-k2.6" now={now} />,
+  );
+
+  expect(
+    container.querySelector("[data-testid=context-usage-row-5h]"),
+  ).toHaveTextContent("25%");
+  expect(
+    container.querySelector("[data-testid=context-usage-row-7d]"),
+  ).toHaveTextContent("50%");
+});
+
 test("the section hides for another provider and an unsupported answer", () => {
   const r1 = render(
     <UsageSection usage={fixture()} modelId="stub/model" now={now} />,

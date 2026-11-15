@@ -303,6 +303,21 @@ func TestMapNeuralDeepUsageWindowsRateWalletAndOptions(t *testing.T) {
 	}
 }
 
+func TestMapNeuralDeepUsageIncludesKimiWindows(t *testing.T) {
+	fetchedAt := time.Date(2026, 9, 6, 17, 47, 10, 0, time.UTC)
+	body := strings.Replace(usageFixture(407), `"kimi": null`, `"kimi":{"usages":{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-09-06T22:00:00Z"},"limit_7d":{"used_ratio":0.5}}}`, 1)
+	u := mapNeuralDeepUsage(decodeUsageFixture(t, body), "neuraldeep", fetchedAt)
+
+	fiveHour := findWindow(u, "5h")
+	if fiveHour == nil || fiveHour.Label != "5h" || fiveHour.UsedPercent != 25 || fiveHour.ResetsAt != "2026-09-06T22:00:00Z" {
+		t.Fatalf("Kimi 5h window = %+v, want 25%% and reset time", fiveHour)
+	}
+	sevenDay := findWindow(u, "7d")
+	if sevenDay == nil || sevenDay.Label != "7d" || sevenDay.UsedPercent != 50 {
+		t.Fatalf("Kimi 7d window = %+v, want 50%%", sevenDay)
+	}
+}
+
 func TestMapNeuralDeepUsageUnlimitedKeysBlockersAndEdges(t *testing.T) {
 	fetchedAt := time.Date(2026, 9, 6, 17, 47, 10, 0, time.UTC)
 	bypass := `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","bypass":true,"fair_use":false,

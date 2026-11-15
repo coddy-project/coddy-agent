@@ -53,3 +53,4 @@ Feature: NeuralDeep account usage on every surface
     Given a coddy HTTP server with a neuraldeep provider, a stored hub login and a stand-in limits API
     When I read all provider limits over REST
     Then the list contains neuraldeep windows and the unsupported stub provider
+    And the list includes the NeuralDeep Kimi subscription windows at 25% over 5h and 50% over 7d
