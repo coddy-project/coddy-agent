@@ -67,7 +67,7 @@ The conversation starts over in a new ACP session, with the whole history in its
 What the agent reports while it works:
 
 - its text streams as the answer and its reasoning as reasoning;
-- each of its tool calls is a tool row like those of Coddy's own tools, titled by what it works on (`Read README.md`, `read notes.txt`), with what it was given and what it produced. A call the agent announces by the tool's name alone gets its row once it names the file or the command it works on, or when it ends. The rows are the agent's own tools: Coddy runs none of them and sends them to no model;
+- each of its tool calls is a tool row like those of Coddy's own tools, titled by what it works on (`Read README.md`, `read notes.txt`), with what it was given and what it produced. A call the agent announces by the tool's name alone is titled by the programmatic tool name when the agent reports one (`fs_read_file README.md`), which is what tells the same kind of call apart on an agent whose titles are that bare; without it the row appears once the agent names the file or the command it works on, or when the call ends. The rows are the agent's own tools: Coddy runs none of them and sends them to no model;
 - an answer the agent ends without any text reads `(the agent finished without a message)`, and one it stops short of an ordinary end says why, for example `(the agent stopped: it reached its output limit)`.
 
 ![The agent's answer under its two tool calls, the test run open with its command and its output](../assets/acp-provider/acp-provider-answer-dark-1280.png)

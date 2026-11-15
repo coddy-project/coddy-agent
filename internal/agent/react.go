@@ -386,6 +386,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 			_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeUserMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
+				// The id this message takes in the history, so the chunks a
+				// client receives of it group as one message rather than
+				// running into the answer below.
+				MessageID: acp.MessageID(len(a.state.GetMessages())),
 			})
 		}
 		a.state.AddMessage(llm.Message{
@@ -1151,6 +1155,12 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
+		// The chunks of this call belong to the message it is about to add, so
+		// they all carry the same id: ACP reads a change of messageId as the
+		// start of the next message, which is exactly the boundary between two
+		// model calls divided by their tool calls.
+		callMessageID := acp.MessageID(len(a.state.GetMessages()))
+
 		// Cancel the stream if no tokens arrive within the configured window
 		// (agent.llm_first_token_timeout_ms, default 90 s; the API hang guard). A model
 		// configured with stream: false produces nothing until the whole completion is
@@ -1206,6 +1216,7 @@ func (a *Agent) runReActLoop(
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: d},
+				MessageID:     callMessageID,
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
@@ -1219,6 +1230,7 @@ func (a *Agent) runReActLoop(
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: delta},
+				MessageID:     callMessageID,
 			})
 		}
 
@@ -1398,6 +1410,7 @@ func (a *Agent) runReActLoop(
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    announce.ID,
 					Title:         announce.Name, // plain name, no "Calling: " prefix
+					Name:          announce.Name,
 					Kind:          session.ToolKind(announce.Name),
 					Status:        "pending",
 				})
@@ -1846,6 +1859,7 @@ func (a *Agent) runReActLoop(
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "\n\n" + markers},
+					MessageID:     callMessageID,
 				})
 			}
 		}
@@ -2585,6 +2599,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			ToolCall: acp.PermissionToolCall{
 				ToolCallID: tc.ID,
 				Title:      fmt.Sprintf("Run: %s", tc.Name),
+				Name:       tc.Name,
 				Kind:       session.ToolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{

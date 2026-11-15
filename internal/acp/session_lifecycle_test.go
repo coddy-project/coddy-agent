@@ -117,7 +117,7 @@ func TestFullSessionCapsMarshalsEverySupportedMethod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"list":{},"delete":{},"additionalDirectories":{},"resume":{}}`
+	want := `{"list":{},"delete":{},"additionalDirectories":{},"resume":{},"close":{},"systemPrompt":{}}`
 	if string(got) != want {
 		t.Fatalf("sessionCapabilities = %s, want %s", got, want)
 	}

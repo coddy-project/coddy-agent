@@ -348,7 +348,18 @@ func (m *Manager) PublishSessionGoal(st *State, notice string) acp.SessionGoalUp
 		sender = m.server
 	}
 	if sender != nil {
-		_ = sender.SendSessionUpdate(st.ID, update)
+		// A client that renders the standard notice gets the line on its own
+		// after the goal it describes, and an empty field: one line, not the
+		// same line twice. Every other surface keeps the field.
+		wire := update
+		standard := notice != "" && sendsNotices(sender)
+		if standard {
+			wire.Notice = ""
+		}
+		_ = sender.SendSessionUpdate(st.ID, wire)
+		if standard {
+			sendNotice(sender, st.ID, acp.NoticeSeverityInfo, notice, "")
+		}
 	}
 	o := &m.goalObs
 	o.mu.Lock()
