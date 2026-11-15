@@ -153,6 +153,11 @@ type AgentToolCall struct {
 	ID string `json:"id"`
 	// Title names the call by what it works on ("read notes.txt").
 	Title string `json:"title"`
+	// ToolName is the programmatic name of the tool the agent invoked, when it
+	// reported one (ACP's `toolCall.name`). A call whose title is only the
+	// tool's bare name is titled by this instead, so a row reads
+	// "fs_read_file" rather than "other". Empty when the agent named none.
+	ToolName string `json:"tool_name,omitempty"`
 	// Kind is the agent's tool kind (ACP: read, edit, delete, move, search,
 	// execute, think, fetch, other).
 	Kind string `json:"kind,omitempty"`

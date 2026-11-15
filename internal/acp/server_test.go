@@ -3,6 +3,7 @@ package acp_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -14,7 +15,10 @@ type mockHandler struct {
 	newResult    *acp.SessionNewResult
 	promptResult *acp.SessionPromptResult
 	modeError    error
+	promptError  error
 	cancelledID  string
+	closedID     string
+	closeNil     bool
 }
 
 func (m *mockHandler) HandleInitialize(_ context.Context, _ acp.InitializeParams) (*acp.InitializeResult, error) {
@@ -51,10 +55,21 @@ func (m *mockHandler) HandleSessionDelete(_ context.Context, _ acp.SessionDelete
 }
 
 func (m *mockHandler) HandleSessionPrompt(_ context.Context, _ acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
+	if m.promptError != nil {
+		return nil, m.promptError
+	}
 	if m.promptResult != nil {
 		return m.promptResult, nil
 	}
 	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+func (m *mockHandler) HandleSessionClose(_ context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	m.closedID = params.SessionID
+	if m.closeNil {
+		return nil, nil
+	}
+	return &acp.SessionCloseResult{}, nil
 }
 
 func (m *mockHandler) HandleSessionSetMode(_ context.Context, _ acp.SessionSetModeParams) error {
@@ -222,5 +237,129 @@ func TestPermissionResultAcceptsBothWireShapes(t *testing.T) {
 				t.Errorf("optionId: got %q, want %q", got.OptionID, tc.wantOption)
 			}
 		})
+	}
+}
+
+// A session-scoped method that names a session this agent does not hold
+// answers -32002 with the id it was given, which is what tells a client the
+// difference between "this session is gone" and "the agent failed": the first
+// is answered by reopening or dropping the session, the second by retrying.
+func TestUnknownSessionAnswersResourceNotFound(t *testing.T) {
+	w := startWireServer(t, &mockHandler{promptError: acp.SessionNotFound("sess_gone")})
+	w.initialize(t, `{}`)
+	if err := w.send(`{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":` +
+		`{"sessionId":"sess_gone","prompt":[{"type":"text","text":"hello"}]}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.awaitWritten(t, `"code":-32002`)
+	w.awaitWritten(t, `"sessionId":"sess_gone"`)
+}
+
+// A value the method does not accept is invalid params, not an agent failure:
+// ACP names an unknown mode on session/set_mode and an unknown config option as
+// the -32602 cases, and a client shows them as its own mistake.
+func TestRejectedModeAnswersInvalidParams(t *testing.T) {
+	w := startWireServer(t, &mockHandler{modeError: acp.InvalidParams(`unknown mode %q (agent, plan, ask)`, "turbo")})
+	w.initialize(t, `{}`)
+	if err := w.send(`{"jsonrpc":"2.0","id":8,"method":"session/set_mode","params":` +
+		`{"sessionId":"sess_1","modeId":"turbo"}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.awaitWritten(t, `"code":-32602`)
+}
+
+// session/close reaches the handler and answers with the empty object ACP
+// defines for it, so a client that offers "close" gets a close and not
+// "method not found".
+func TestSessionCloseIsDispatched(t *testing.T) {
+	handler := &mockHandler{}
+	w := startWireServer(t, handler)
+	w.initialize(t, `{}`)
+	if err := w.send(`{"jsonrpc":"2.0","id":9,"method":"session/close","params":{"sessionId":"sess_9"}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.awaitWritten(t, `"id":9`)
+	if handler.closedID != "sess_9" {
+		t.Fatalf("the handler was given %q, want sess_9", handler.closedID)
+	}
+	// ACP defines close's success as the empty object, and a client that reads
+	// the answer expects to find it: a response with neither result nor error
+	// is what a handler returning nil would otherwise produce.
+	w.awaitWritten(t, `"result":{}`)
+}
+
+// The empty object close answers with is written even when the handler returns
+// no result of its own.
+func TestSessionCloseAnswersAnEmptyObjectWithoutAResult(t *testing.T) {
+	w := startWireServer(t, &mockHandler{closeNil: true})
+	w.initialize(t, `{}`)
+	if err := w.send(`{"jsonrpc":"2.0","id":10,"method":"session/close","params":{"sessionId":"sess_10"}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.awaitWritten(t, `"result":{}`)
+}
+
+// authMethods is an array of objects in ACP, and an agent without a sign-in
+// sends it as an empty array rather than as null.
+func TestAuthMethodsMarshalAsAnArray(t *testing.T) {
+	got, err := json.Marshal(acp.InitializeResult{AuthMethods: []acp.AuthMethod{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"authMethods":[]`) {
+		t.Fatalf("initialize result = %s, want an empty authMethods array", got)
+	}
+	method := acp.AuthMethod{Type: "agent", ID: "login", Name: "Log in"}
+	got, err = json.Marshal(method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"type":"agent","id":"login","name":"Log in"}` {
+		t.Fatalf("auth method = %s, want the tagged object of the schema", got)
+	}
+}
+
+// A tool call names the tool it invoked beside the title a person reads, so a
+// client can key its icons and its filters on the name.
+func TestToolCallCarriesItsProgrammaticName(t *testing.T) {
+	got, err := json.Marshal(acp.ToolCallUpdate{
+		SessionUpdate: acp.UpdateTypeToolCall,
+		ToolCallID:    "call_1",
+		Title:         "Run: go build ./...",
+		Name:          "run_command",
+		Kind:          "execute",
+		Status:        "pending",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"name":"run_command"`) {
+		t.Fatalf("tool call = %s, want the tool name", got)
+	}
+	if !strings.Contains(string(got), `"title":"Run: go build ./..."`) {
+		t.Fatalf("tool call = %s, want the title kept", got)
+	}
+}
+
+// Chunks of one message share the id they carry, and the id a message is
+// streamed under is the one it is replayed under: a client groups the chunks
+// and recognises a message it already showed.
+func TestMessageChunksCarryTheirMessageID(t *testing.T) {
+	if got := acp.MessageID(0); got != "msg_0" {
+		t.Fatalf("MessageID(0) = %q, want msg_0", got)
+	}
+	if acp.MessageID(0) == acp.MessageID(1) {
+		t.Fatal("two messages share an id")
+	}
+	got, err := json.Marshal(acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "hi"},
+		MessageID:     acp.MessageID(4),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"messageId":"msg_4"`) {
+		t.Fatalf("chunk = %s, want its message id", got)
 	}
 }

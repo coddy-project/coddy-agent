@@ -759,7 +759,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 			Title:   acp.AgentTitle,
 			Version: version.Get(),
 		},
-		AuthMethods: []string{},
+		AuthMethods: []acp.AuthMethod{},
 	}, nil
 }
 
@@ -786,7 +786,9 @@ func sameAdditionalDirectories(a, b []string) bool {
 func validateAdditionalDirectories(dirs []string) error {
 	for _, d := range dirs {
 		if !filepath.IsAbs(strings.TrimSpace(d)) {
-			return fmt.Errorf("additionalDirectories entries must be absolute paths: %q", d)
+			// The shape of the request is what the client got wrong, which ACP
+			// answers as invalid params rather than as an agent failure.
+			return acp.InvalidParams("additionalDirectories entries must be absolute paths: %q", d)
 		}
 	}
 	return nil
@@ -1036,6 +1038,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		}, nil
 	}
 
+	if !m.store.HasPersistedSnapshot(params.SessionID) {
+		return nil, acp.SessionNotFound(params.SessionID)
+	}
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -1246,6 +1251,34 @@ func (m *Manager) HandleSessionDelete(_ context.Context, params acp.SessionDelet
 	}
 	m.log.Info("session deleted", "id", params.SessionID)
 	return &acp.SessionDeleteResult{}, nil
+}
+
+// HandleSessionClose implements session/close: the agent cancels any work
+// running for the session and frees what it holds for it, while the bundle on
+// disk stays where it is, so the same session can be loaded again later.
+//
+// ACP makes closing idempotent, so a session that is not active on this
+// connection - never opened, already closed, or deleted - answers with the same
+// empty object instead of an error. Ending the turn first is what keeps a
+// closed session from being recreated by the persist hook of a turn that was
+// still writing when the client let go of it.
+func (m *Manager) HandleSessionClose(_ context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	sessionID := strings.TrimSpace(params.SessionID)
+	if sessionID == "" {
+		return nil, acp.InvalidParams("session/close: sessionId is required")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, acp.InvalidParams("session/close: %v", err)
+	}
+	if m.getSession(sessionID) == nil {
+		return &acp.SessionCloseResult{}, nil
+	}
+	if err := m.cancelAndAwaitTurns([]SessionTreeNode{{ID: sessionID}}); err != nil {
+		return nil, fmt.Errorf("session/close: %w", err)
+	}
+	m.ForgetLiveSession(sessionID)
+	m.log.Info("session closed", "id", sessionID)
+	return &acp.SessionCloseResult{}, nil
 }
 
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
@@ -1887,7 +1920,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	state := m.getSession(params.SessionID)
 	if state == nil {
-		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+		return nil, acp.SessionNotFound(params.SessionID)
 	}
 	if opts == nil || !opts.subagentTurn {
 		if err := readOnlyRefusal(state, params.SessionID); err != nil {
@@ -2231,7 +2264,7 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 	case "permission_mode":
 		ch.PermissionMode = &value
 	default:
-		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
+		return nil, acp.InvalidParams("unknown config option: %q", params.ConfigID)
 	}
 	if _, err := m.ApplySessionSettings(ctx, params.SessionID, ch); err != nil {
 		return nil, err

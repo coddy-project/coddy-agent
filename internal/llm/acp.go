@@ -455,9 +455,12 @@ func (p *acpProvider) runPrompt(ctx context.Context, proc *acpProcess, sessionID
 
 // acpToolState is what the agent reported about one of its tool calls.
 type acpToolState struct {
-	id        string
-	n         int
-	title     string
+	id    string
+	n     int
+	title string
+	// name is the programmatic tool name the agent reported, "" when it sent
+	// none. It titles a call whose own title is bare ("read", "bash").
+	name      string
 	kind      string
 	status    string
 	content   []json.RawMessage
@@ -558,6 +561,9 @@ func (s *acpStreamState) tool(u acpSessionUpdate) {
 	if v := strings.TrimSpace(u.Title); v != "" {
 		t.title = v
 	}
+	if v := strings.TrimSpace(u.Name); v != "" {
+		t.name = v
+	}
 	if u.Kind != "" {
 		t.kind = u.Kind
 	}
@@ -617,7 +623,7 @@ func (t *acpToolState) call() AgentToolCall {
 	if status == "" {
 		status = "pending"
 	}
-	return AgentToolCall{ID: t.id, Title: t.shown, Kind: t.kind, Status: status, Input: acpToolInput(t.rawInput), Output: acpToolOutput(t.content)}
+	return AgentToolCall{ID: t.id, Title: t.shown, ToolName: t.name, Kind: t.kind, Status: status, Input: acpToolInput(t.rawInput), Output: acpToolOutput(t.content)}
 }
 
 // acpToolEnded reports whether a status is a call's last.
@@ -684,7 +690,16 @@ func acpCut(s string, limit int) string {
 // the call works on: a title that describes the call, or a bare tool name
 // with the file or the command it works on.
 func (t *acpToolState) label(cwd string) (string, bool) {
+	// The programmatic name is what tells one tool from another on an agent
+	// whose titles are bare ("read", "bash"): the row then says which tool ran
+	// instead of repeating the kind every other row shares.
 	name := t.title
+	if t.name != "" && acpBareToolName(t.title, t.kind) {
+		name = t.name
+	}
+	if name == "" {
+		name = t.title
+	}
 	if name == "" {
 		name = t.kind
 	}

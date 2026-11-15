@@ -59,7 +59,49 @@ const (
 	ErrMethodNotFound = -32601
 	ErrInvalidParams  = -32602
 	ErrInternalError  = -32603
+	// ErrResourceNotFound answers a session-scoped method that names a session
+	// this agent does not hold. ACP reserves it for exactly that, and tells a
+	// client the difference between "this session is gone" and "the agent
+	// failed", so it can offer to reopen the session instead of retrying.
+	ErrResourceNotFound = -32002
 )
+
+// CodedError is an error a handler returns when the JSON-RPC code the client
+// deserves is not the generic internal error: an unknown session answers
+// ErrResourceNotFound with the id it named, a value the method does not accept
+// answers ErrInvalidParams. The server keeps the default code for every other
+// error, so a handler that returns a plain error is answered as before.
+type CodedError struct {
+	Code    int
+	Message string
+	Data    any
+}
+
+// Error implements error.
+func (e *CodedError) Error() string { return e.Message }
+
+// RPCError converts the coded error into the wire object.
+func (e *CodedError) RPCError() *RPCError {
+	return &RPCError{Code: e.Code, Message: e.Message, Data: e.Data}
+}
+
+// SessionNotFound is the error a session-scoped method returns for a session
+// that does not exist or is not active on this connection. ACP asks for
+// ErrResourceNotFound and for the requested id in data.sessionId.
+func SessionNotFound(sessionID string) *CodedError {
+	id := sessionID
+	return &CodedError{
+		Code:    ErrResourceNotFound,
+		Message: fmt.Sprintf("session not found: %s", sessionID),
+		Data:    map[string]any{"sessionId": id},
+	}
+}
+
+// InvalidParams is the error a method returns for a parameter value it cannot
+// accept: an unknown mode or config option, a malformed additional directory.
+func InvalidParams(format string, args ...any) *CodedError {
+	return &CodedError{Code: ErrInvalidParams, Message: fmt.Sprintf(format, args...)}
+}
 
 // ---- ACP initialize ----
 
@@ -104,7 +146,17 @@ type InitializeResult struct {
 	ProtocolVersion   int                `json:"protocolVersion"`
 	AgentCapabilities AgentCapabilities  `json:"agentCapabilities"`
 	AgentInfo         ImplementationInfo `json:"agentInfo"`
-	AuthMethods       []string           `json:"authMethods"`
+	AuthMethods       []AuthMethod       `json:"authMethods"`
+}
+
+// AuthMethod is one way a client can authenticate, tagged by its type. ACP
+// describes the agent-handled, environment and terminal methods this way; Coddy
+// needs no sign-in of its own, so the list it sends is empty.
+type AuthMethod struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // SessionCaps is advertised during initialize (sessionCapabilities in ACP).
@@ -115,17 +167,19 @@ type SessionCaps struct {
 	Delete                *SessionDeleteCapabilities                `json:"delete,omitempty"`
 	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
 	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
+	Close                 *SessionCloseCapabilities                 `json:"close,omitempty"`
 }
 
-// FullSessionCaps advertises every session capability a persisted store backs:
-// listing, deleting, resuming and the additionalDirectories fields those
-// requests and the listing rows carry.
+// FullSessionCaps advertises every session capability Coddy implements:
+// listing, deleting, closing, resuming and the additionalDirectories fields
+// those requests and the listing rows carry.
 func FullSessionCaps() *SessionCaps {
 	return &SessionCaps{
 		List:                  &SessionListCapabilities{},
 		Delete:                &SessionDeleteCapabilities{},
 		AdditionalDirectories: &SessionAdditionalDirectoriesCapabilities{},
 		Resume:                &SessionResumeCapabilities{},
+		Close:                 &SessionCloseCapabilities{},
 	}
 }
 
@@ -296,6 +350,23 @@ type SessionDeleteParams struct {
 // SessionDeleteResult is returned by session/delete: the session and every
 // bundle nested under it are gone.
 type SessionDeleteResult struct{}
+
+// ---- ACP session/close ----
+
+// SessionCloseParams are the parameters for session/close. Closing lets go of
+// a session this connection holds: the running turn is cancelled and the state
+// is freed, while the bundle on disk is untouched, so the same session can be
+// loaded again later.
+type SessionCloseParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// SessionCloseResult is returned by session/close. Closing is idempotent: a
+// session that is not active any more answers with the same empty object.
+type SessionCloseResult struct{}
+
+// SessionCloseCapabilities advertises session/close.
+type SessionCloseCapabilities struct{}
 
 // ---- ACP session/list ----
 
@@ -675,6 +746,20 @@ type PlanEntry struct {
 type MessageChunkUpdate struct {
 	SessionUpdate string       `json:"sessionUpdate"` // "agent_message_chunk" or "user_message_chunk"
 	Content       ContentBlock `json:"content"`
+	// MessageID names the message the chunk belongs to: every chunk of one
+	// message carries the same id, and a client reads a change of id as the
+	// start of the next message. Omitted by senders that have no boundary to
+	// report, which a client treats as one continuous message.
+	MessageID string `json:"messageId,omitempty"`
+}
+
+// MessageID names one message of a session's history for the client receiving
+// it: index is the position that message holds in that history, so the id a
+// live chunk carries and the id the same message is replayed under are equal.
+// Chunks of one message share their id, and a client reads a change of id as
+// the start of the next message.
+func MessageID(index int) string {
+	return "msg_" + strconv.Itoa(index)
 }
 
 // ToolCallUpdate announces a new tool call.
@@ -682,8 +767,12 @@ type ToolCallUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "tool_call"
 	ToolCallID    string `json:"toolCallId"`
 	Title         string `json:"title,omitempty"`
-	Kind          string `json:"kind,omitempty"` // the agent's kind ("read", "write", "run_command", "other"); the ACP server sends WireToolKind of it
-	Status        string `json:"status"`         // "pending"
+	// Name is the programmatic name of the tool that was invoked, beside the
+	// human-readable Title a client shows. It carries no authorization
+	// meaning: the permission gate decides, not this field.
+	Name   string `json:"name,omitempty"`
+	Kind   string `json:"kind,omitempty"` // the agent's kind ("read", "write", "run_command", "other"); the ACP server sends WireToolKind of it
+	Status string `json:"status"`         // "pending"
 	// Meta carries Coddy's extensions (_meta.coddy): agentTool marks the call
 	// of an agent behind an acp model, titled by what it works on already.
 	Meta map[string]interface{} `json:"_meta,omitempty"`
@@ -972,6 +1061,7 @@ type PermissionRequestParams struct {
 type PermissionToolCall struct {
 	ToolCallID string               `json:"toolCallId"`
 	Title      string               `json:"title,omitempty"`
+	Name       string               `json:"name,omitempty"`
 	Kind       string               `json:"kind,omitempty"`
 	Status     string               `json:"status"`
 	Content    []ToolCallResultItem `json:"content,omitempty"`

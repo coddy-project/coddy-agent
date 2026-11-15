@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"io"
@@ -26,6 +27,7 @@ type Handler interface {
 	HandleSessionResume(ctx context.Context, params SessionResumeParams) (*SessionResumeResult, error)
 	HandleSessionList(ctx context.Context, params SessionListParams) (*SessionListResult, error)
 	HandleSessionDelete(ctx context.Context, params SessionDeleteParams) (*SessionDeleteResult, error)
+	HandleSessionClose(ctx context.Context, params SessionCloseParams) (*SessionCloseResult, error)
 	HandleSessionPrompt(ctx context.Context, params SessionPromptParams) (*SessionPromptResult, error)
 	HandleSessionSetMode(ctx context.Context, params SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params SessionSetConfigOptionParams) (*SessionSetConfigOptionResult, error)
@@ -321,7 +323,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		s.elicitationForm.Store(p.ClientCapabilities.Elicitation != nil && p.ClientCapabilities.Elicitation.Form != nil)
 		result, err := s.handler.HandleInitialize(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return result, nil
 
@@ -332,7 +334,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		result, err := s.handler.HandleSessionNew(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return result, nil
 
@@ -343,7 +345,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		loadRes, err := s.handler.HandleSessionLoad(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return loadRes, nil
 
@@ -354,7 +356,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		resumeRes, err := s.handler.HandleSessionResume(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return resumeRes, nil
 
@@ -365,7 +367,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		listRes, err := s.handler.HandleSessionList(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return listRes, nil
 
@@ -376,9 +378,26 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		deleteRes, err := s.handler.HandleSessionDelete(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return deleteRes, nil
+
+	case "session/close":
+		var p SessionCloseParams
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		closeRes, err := s.handler.HandleSessionClose(ctx, p)
+		if err != nil {
+			return nil, rpcErrorFrom(err)
+		}
+		if closeRes == nil {
+			// A response with neither result nor error is not a JSON-RPC
+			// success a strict client accepts: close always answers its empty
+			// object.
+			return &SessionCloseResult{}, nil
+		}
+		return closeRes, nil
 
 	case "session/prompt":
 		var p SessionPromptParams
@@ -390,7 +409,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		// surface that named none, together with the console's.
 		result, err := s.handler.HandleSessionPrompt(statistics.WithSource(ctx, "acp"), p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return result, nil
 
@@ -400,7 +419,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
 		}
 		if err := s.handler.HandleSessionSetMode(ctx, p); err != nil {
-			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return nil, nil
 
@@ -411,13 +430,26 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		}
 		result, err := s.handler.HandleSessionSetConfigOption(ctx, p)
 		if err != nil {
-			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+			return nil, rpcErrorFrom(err)
 		}
 		return result, nil
 
 	default:
 		return nil, &RPCError{Code: ErrMethodNotFound, Message: fmt.Sprintf("method not found: %s", method)}
 	}
+}
+
+// rpcErrorFrom turns a handler's error into the answer the client receives. A
+// handler that says which code its error deserves is answered with that code -
+// an unknown session as ErrResourceNotFound with the id it named, a rejected
+// value as ErrInvalidParams - and every other error stays the internal error it
+// has always been.
+func rpcErrorFrom(err error) *RPCError {
+	var coded *CodedError
+	if errors.As(err, &coded) {
+		return coded.RPCError()
+	}
+	return &RPCError{Code: ErrInternalError, Message: err.Error()}
 }
 
 // SendNotification sends a notification to the client (no response expected).

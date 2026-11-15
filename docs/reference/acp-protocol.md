@@ -46,11 +46,24 @@ stderr -> agent logs (not protocol messages)
   "jsonrpc": "2.0",
   "id": 1,
   "error": {
-    "code": -32600,
-    "message": "Invalid request"
+    "code": -32602,
+    "message": "unknown mode \"turbo\" (agent, plan, ask)"
   }
 }
 ```
+
+Coddy answers with the codes ACP names for the case, and the standard JSON-RPC code for everything else:
+
+| Code | When |
+|---|---|
+| `-32700` | the line is not JSON |
+| `-32600` | the line is not a JSON-RPC request |
+| `-32601` | a method this agent does not implement |
+| `-32602` | a value the method does not accept: an unknown `modeId`, `configId` or value, a malformed `additionalDirectories` entry |
+| `-32002` | a session-scoped method naming a session this agent does not hold, with `data.sessionId` carrying the requested id |
+| `-32603` | anything else that failed inside the agent |
+
+A client reads `-32002` as "this session is gone" - reopen it with `session/load` or drop it - and `-32602` as its own mistake, so a session scoped request made against a session that was closed, deleted or never opened is never reported as an agent failure.
 
 ### Notification (Agent to Client, no response expected)
 
@@ -130,7 +143,8 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
       "list": {},
       "delete": {},
       "additionalDirectories": {},
-      "resume": {}
+      "resume": {},
+      "close": {}
     },
     "promptCapabilities": {
       "image": false,
@@ -150,6 +164,8 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
   "authMethods": []
 }
 ```
+
+`authMethods` is a list of objects tagged by `type` (`agent`, `env`, `terminal`), as ACP defines it. Coddy needs no sign-in of its own, so the list is always empty.
 
 ### `session/new`
 
@@ -334,6 +350,21 @@ Removes a session and every bundle nested under it - a subagent run recorded ins
 **Response result:** `{}`
 
 Advertised as `sessionCapabilities.delete`. This is what an editor calls on a row of `session/list`.
+
+### `session/close`
+
+Lets go of a session this connection holds: a turn running on it is cancelled and awaited, and the state the process keeps for it is freed. The bundle on disk stays where it is, so the same session can be loaded again later - close is what an editor calls when it puts a conversation away, and delete is what it calls when the conversation is gone.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456"
+}
+```
+
+**Response result:** `{}`
+
+Advertised as `sessionCapabilities.close`. Closing is idempotent, as ACP asks: a session that is not active any more - never opened by this process, already closed, or deleted - answers with the same empty object. A prompt sent to a closed session is answered `-32002`, since the session is no longer live here.
 
 ### `session/list`
 
@@ -531,12 +562,15 @@ After **`session/new`** and **`session/load`**, Coddy lists its slash commands. 
 ```json
 {
   "sessionUpdate": "agent_message_chunk",
+  "messageId": "msg_12",
   "content": {
     "type": "text",
     "text": "I'll start by reading the current auth module..."
   }
 }
 ```
+
+`messageId` names the message the chunk belongs to: every chunk of one message carries the same id, and a client reads a change of id as the start of the next message. `user_message_chunk` carries it too. The id is the position the message holds in the session's history, so a message streamed live is replayed under the same id when the session is loaded again - unless a compaction inserted a summary row before it, which moves every later position.
 
 ### `tool_call` - Tool call started
 
@@ -545,10 +579,13 @@ After **`session/new`** and **`session/load`**, Coddy lists its slash commands. 
   "sessionUpdate": "tool_call",
   "toolCallId": "call_001",
   "title": "Reading auth.go",
+  "name": "read",
   "kind": "read",
   "status": "pending"
 }
 ```
+
+`name` is the programmatic tool name beside the human-readable `title`: the built-in tool a call runs (`run_command`, `read`, `write`), or the tool an MCP server exposes. It carries no authorization meaning - the permission gate decides what runs, not this field.
 
 ### `tool_call_update` - Tool call status update
 
@@ -769,6 +806,7 @@ Under `ask`, a request that belongs to the session itself carries two more optio
     "toolCall": {
       "toolCallId": "call_002",
       "title": "Run: go build ./...",
+      "name": "run_command",
       "kind": "execute",
       "status": "pending",
       "content": [

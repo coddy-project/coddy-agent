@@ -55,6 +55,7 @@ func AgentToolRowUpdates(t llm.AgentToolCall) []interface{} {
 		SessionUpdate: acp.UpdateTypeToolCall,
 		ToolCallID:    t.ID,
 		Title:         t.Title,
+		Name:          t.ToolName,
 		Kind:          AgentToolKind(t.Kind),
 		Status:        "pending",
 		Meta:          AgentToolMeta(),

@@ -30,6 +30,14 @@ Feature: ACP session lifecycle
     Then the resume response is not preceded by a replayed transcript
     And the resume response names a mode
 
+  Scenario: A closed session is let go and can be opened again
+    Given a session with a first prompt was created for the workspace
+    When the client closes the created session
+    And the client closes the created session
+    And the client sends a prompt to the closed session
+    Then the agent answers that the session was not found
+    And the client can load the created session again
+
   Scenario: A question reaches a client that renders forms as an elicitation
     Given an ACP client that renders form elicitation has an active session
     When the agent asks "Pick a stack" offering "Go" and "Rust" and the client picks "Rust"

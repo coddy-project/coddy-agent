@@ -212,7 +212,7 @@ func (m *Manager) ApplySessionSettings(ctx context.Context, sessionID string, ch
 func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, string, error) {
 	st := m.getSession(strings.TrimSpace(sessionID))
 	if st == nil {
-		return acp.SessionSettings{}, "", fmt.Errorf("session not found: %s", sessionID)
+		return acp.SessionSettings{}, "", acp.SessionNotFound(sessionID)
 	}
 	// A child's settings were fixed at spawn time and a job session runs
 	// nothing of its own.
@@ -224,7 +224,10 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 	}
 	values, err := m.validateSettingsChange(st, ch)
 	if err != nil {
-		return acp.SessionSettings{}, "", err
+		// Every refusal here is a value the method does not accept - an
+		// unknown mode, model, toolset or reasoning level - which ACP answers
+		// as invalid params rather than as an agent failure.
+		return acp.SessionSettings{}, "", acp.InvalidParams("%s", err)
 	}
 	notice := m.writeSettings(sessionID, st, ch, values)
 	m.keepIfLetGo(sessionID, st)
