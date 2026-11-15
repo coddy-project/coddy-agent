@@ -759,7 +759,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 			Title:   acp.AgentTitle,
 			Version: version.Get(),
 		},
-		AuthMethods: []string{},
+		AuthMethods: []acp.AuthMethod{},
 	}, nil
 }
 
@@ -786,7 +786,9 @@ func sameAdditionalDirectories(a, b []string) bool {
 func validateAdditionalDirectories(dirs []string) error {
 	for _, d := range dirs {
 		if !filepath.IsAbs(strings.TrimSpace(d)) {
-			return fmt.Errorf("additionalDirectories entries must be absolute paths: %q", d)
+			// The shape of the request is what the client got wrong, which ACP
+			// answers as invalid params rather than as an agent failure.
+			return acp.InvalidParams("additionalDirectories entries must be absolute paths: %q", d)
 		}
 	}
 	return nil
@@ -796,6 +798,12 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if err := validateAdditionalDirectories(params.AdditionalDirectories); err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
+	// The client's system prompt is checked before anything is created: a
+	// prompt the agent cannot apply must not leave a session behind.
+	systemPrompt, err := validateACPSystemPrompt(params.SystemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("session/new: %w", err)
+	}
 	preferredConsumed := ""
 	if strings.TrimSpace(m.preferredNewSessionID) != "" {
 		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
@@ -803,14 +811,14 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 	origin := m.nextSessionOrigin
 	m.nextSessionOrigin = ""
-	return m.newSession(ctx, params, preferredConsumed, origin)
+	return m.newSession(ctx, params, preferredConsumed, origin, systemPrompt)
 }
 
 // newSession creates a session under preferredConsumed (a fresh id when it is
 // empty), or reopens the stored bundle of that id, and records origin on a
 // session it creates. EnsureHTTPSessionAs calls it with explicit values rather
 // than through the one-shot fields, which concurrent requests would share.
-func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin string) (*acp.SessionNewResult, error) {
+func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin, systemPrompt string) (*acp.SessionNewResult, error) {
 	var id string
 	if preferredConsumed != "" {
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
@@ -841,6 +849,7 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 				CWD:                   params.CWD,
 				AdditionalDirectories: params.AdditionalDirectories,
 				MCPServers:            params.MCPServers,
+				SystemPrompt:          params.SystemPrompt,
 			}, openOptions{replay: true, deferPublish: true, setExtraRoots: params.AdditionalDirectories != nil})
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
@@ -879,6 +888,9 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	// The extra workspace roots a client names on session/new are the
 	// session's from the start; a request that names none has none.
 	state.SetAdditionalDirectoriesWithoutPersist(params.AdditionalDirectories)
+	// The client's system-level instructions, kept with the session so a
+	// client that reopens it without resending them keeps them.
+	state.SetACPSystemPromptWithoutPersist(systemPrompt)
 	// Before anything can persist the bundle: the SessionStart hooks below
 	// and the initial save both write session.json.
 	state.SetOriginWithoutPersist(origin)
@@ -1016,6 +1028,13 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if err := ValidateFolderSessionID(params.SessionID); err != nil {
 		return nil, fmt.Errorf("session/load: %w", err)
 	}
+	// The client's system-level instructions are checked before the session is
+	// loaded: a prompt the agent cannot apply must not leave a half-applied
+	// session behind. A request that carries none keeps what the bundle holds.
+	systemPrompt, err := validateACPSystemPrompt(params.SystemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("session/load: %w", err)
+	}
 
 	// A live session is already loaded. Rebuilding a second State for it puts
 	// two writers on one bundle: the replacement's snapshot was read before
@@ -1025,6 +1044,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		if opts.setExtraRoots && !sameAdditionalDirectories(live.GetAdditionalDirectories(), params.AdditionalDirectories) {
 			live.SetAdditionalDirectories(params.AdditionalDirectories)
 		}
+		applyACPSystemPrompt(live, systemPrompt)
 		if opts.replay {
 			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir(), live.GetUILog()); err != nil {
 				m.log.Warn("replay conversation", "error", err)
@@ -1036,6 +1056,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		}, nil
 	}
 
+	if !m.store.HasPersistedSnapshot(params.SessionID) {
+		return nil, acp.SessionNotFound(params.SessionID)
+	}
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -1124,6 +1147,17 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	} else {
 		st.SetAdditionalDirectoriesWithoutPersist(snap.Meta.AdditionalDirectories)
 	}
+	// The client's system-level instructions: the request's own when it sent
+	// them, the block the bundle kept otherwise. A rename of that block is
+	// written below, with the roots.
+	promptMoved := false
+	switch {
+	case systemPrompt != "":
+		st.SetACPSystemPromptWithoutPersist(systemPrompt)
+		promptMoved = systemPrompt != snap.Meta.ACPSystemPrompt
+	case snap.Meta.ACPSystemPrompt != "":
+		st.SetACPSystemPromptWithoutPersist(snap.Meta.ACPSystemPrompt)
+	}
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -1165,11 +1199,12 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			ConfigOptions: BuildACPConfigOptions(m.activeCfg(), winner),
 		}, nil
 	}
-	// Roots the request moved are written now: the bundle is what session/list
-	// reads and what the next open restores, so a root the client took away
-	// would otherwise come back. A request that restates the stored list
-	// writes nothing, since a load is read as often as it is continued.
-	if rootsMoved {
+	// Roots and a system prompt the request moved are written now: the bundle
+	// is what session/list reads and what the next open restores, so a root the
+	// client took away, or an instruction it replaced, would otherwise come
+	// back. A request that restates what the bundle holds writes nothing, since
+	// a load is read as often as it is continued.
+	if rootsMoved || promptMoved {
 		st.touchPersist()
 	}
 
@@ -1248,6 +1283,34 @@ func (m *Manager) HandleSessionDelete(_ context.Context, params acp.SessionDelet
 	return &acp.SessionDeleteResult{}, nil
 }
 
+// HandleSessionClose implements session/close: the agent cancels any work
+// running for the session and frees what it holds for it, while the bundle on
+// disk stays where it is, so the same session can be loaded again later.
+//
+// ACP makes closing idempotent, so a session that is not active on this
+// connection - never opened, already closed, or deleted - answers with the same
+// empty object instead of an error. Ending the turn first is what keeps a
+// closed session from being recreated by the persist hook of a turn that was
+// still writing when the client let go of it.
+func (m *Manager) HandleSessionClose(_ context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	sessionID := strings.TrimSpace(params.SessionID)
+	if sessionID == "" {
+		return nil, acp.InvalidParams("session/close: sessionId is required")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, acp.InvalidParams("session/close: %v", err)
+	}
+	if m.getSession(sessionID) == nil {
+		return &acp.SessionCloseResult{}, nil
+	}
+	if err := m.cancelAndAwaitTurns([]SessionTreeNode{{ID: sessionID}}); err != nil {
+		return nil, fmt.Errorf("session/close: %w", err)
+	}
+	m.ForgetLiveSession(sessionID)
+	m.log.Info("session closed", "id", sessionID)
+	return &acp.SessionCloseResult{}, nil
+}
+
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
 // reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
 func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
@@ -1262,7 +1325,7 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 	if err != nil || st != nil {
 		return st, err
 	}
-	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin), "")
 	if err != nil {
 		return nil, err
 	}
@@ -1887,7 +1950,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	state := m.getSession(params.SessionID)
 	if state == nil {
-		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+		return nil, acp.SessionNotFound(params.SessionID)
 	}
 	if opts == nil || !opts.subagentTurn {
 		if err := readOnlyRefusal(state, params.SessionID); err != nil {
@@ -2231,7 +2294,7 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 	case "permission_mode":
 		ch.PermissionMode = &value
 	default:
-		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
+		return nil, acp.InvalidParams("unknown config option: %q", params.ConfigID)
 	}
 	if _, err := m.ApplySessionSettings(ctx, params.SessionID, ch); err != nil {
 		return nil, err

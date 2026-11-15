@@ -42,9 +42,14 @@ type Handler struct {
 	hc   *http.Client
 	log  *slog.Logger
 
-	mu        sync.Mutex
-	sender    acp.UpdateSender
-	sessions  map[string]*sessionState
+	mu       sync.Mutex
+	sender   acp.UpdateSender
+	sessions map[string]*sessionState
+	// closed holds the ids this client closed on the connection: the server
+	// keeps those sessions, so a prompt answering -32002 is how the closed
+	// session stays closed here until a load, a resume or a new turn of the
+	// operator's reopens it. Guarded by mu.
+	closed    map[string]bool
 	preferred string
 	// nextOrigin is the origin the next HandleSessionNew asks the server to
 	// record on a session it creates (SetNextSessionOrigin).
@@ -252,6 +257,7 @@ func (h *Handler) HandleInitialize(_ context.Context, params acp.InitializeParam
 				List:   &acp.SessionListCapabilities{},
 				Delete: &acp.SessionDeleteCapabilities{},
 				Resume: &acp.SessionResumeCapabilities{},
+				Close:  &acp.SessionCloseCapabilities{},
 			},
 			PromptCapabilities: &acp.PromptCapabilities{EmbeddedContext: true},
 		},
@@ -260,7 +266,7 @@ func (h *Handler) HandleInitialize(_ context.Context, params acp.InitializeParam
 			Title:   acp.AgentTitle + " (remote)",
 			Version: version.Get(),
 		},
-		AuthMethods: []string{},
+		AuthMethods: []acp.AuthMethod{},
 	}, nil
 }
 
@@ -325,6 +331,9 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	h.log.Info("remote session created", "id", id, "remote", h.opts.BaseURL)
+	// A session a close put away comes back when the operator opens it again
+	// under the same id.
+	h.reopenSession(id)
 	// A reopened session may have a background subagent already waiting.
 	h.offerDetachedPromptsFor(id)
 	return &acp.SessionNewResult{
@@ -382,6 +391,58 @@ func (h *Handler) HandleSessionDelete(ctx context.Context, params acp.SessionDel
 	return &acp.SessionDeleteResult{}, nil
 }
 
+// HandleSessionClose lets go of the local mirror of a remote session. The
+// server keeps the session and its bundle: closing is a statement about what
+// this client holds, not about what exists on the server, so the two halves are
+// the cancel the session would have got from session/cancel and the mirror this
+// process drops. The id is remembered, because the mirror is built on demand
+// and a prompt would otherwise start a fresh turn on a session the client just
+// put away; loading or resuming it clears that. Like the server's own close it
+// is idempotent, so a session this client never opened answers with the same
+// empty object.
+func (h *Handler) HandleSessionClose(ctx context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	id := strings.TrimSpace(params.SessionID)
+	if id == "" {
+		return nil, acp.InvalidParams("session/close: sessionId is required")
+	}
+	// The turn the server is running for this session is cancelled off the
+	// caller's goroutine, as session/cancel does, and tracked so a surface
+	// about to exit can wait for it.
+	h.cancelWG.Add(1)
+	go func() {
+		defer h.cancelWG.Done()
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := h.cancelSession(cctx, id); err != nil {
+			h.log.Debug("session/close cancel", "session", id, "error", err)
+		}
+	}()
+	h.mu.Lock()
+	delete(h.sessions, id)
+	if h.closed == nil {
+		h.closed = map[string]bool{}
+	}
+	h.closed[id] = true
+	h.mu.Unlock()
+	return &acp.SessionCloseResult{}, nil
+}
+
+// reopenSession marks a closed session live again, which a load, a resume or a
+// session/new of the same id does.
+func (h *Handler) reopenSession(id string) {
+	h.mu.Lock()
+	delete(h.closed, id)
+	h.mu.Unlock()
+}
+
+// closedSession reports whether this client closed session id and nothing has
+// reopened it since.
+func (h *Handler) closedSession(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.closed[id]
+}
+
 // openRemoteSession fetches a session's transcript and installs its settings on
 // the local mirror, which is everything a load and a resume share: the two
 // differ only in whether the transcript is then replayed to the client.
@@ -390,6 +451,8 @@ func (h *Handler) openRemoteSession(ctx context.Context, sessionID string) (*mes
 		return nil, nil, err
 	}
 	id := strings.TrimSpace(sessionID)
+	// Opening a session is what reopens it after a close.
+	h.reopenSession(id)
 	msgs, err := h.sessionMessages(ctx, id)
 	if err != nil {
 		return nil, nil, err

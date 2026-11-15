@@ -46,11 +46,24 @@ stderr -> agent logs (not protocol messages)
   "jsonrpc": "2.0",
   "id": 1,
   "error": {
-    "code": -32600,
-    "message": "Invalid request"
+    "code": -32602,
+    "message": "unknown mode \"turbo\" (agent, plan, ask)"
   }
 }
 ```
+
+Coddy answers with the codes ACP names for the case, and the standard JSON-RPC code for everything else:
+
+| Code | When |
+|---|---|
+| `-32700` | the line is not JSON |
+| `-32600` | the line is not a JSON-RPC request |
+| `-32601` | a method this agent does not implement |
+| `-32602` | a value the method does not accept: an unknown `modeId`, `configId` or value, a malformed `additionalDirectories` entry |
+| `-32002` | a session-scoped method naming a session this agent does not hold, with `data.sessionId` carrying the requested id |
+| `-32603` | anything else that failed inside the agent |
+
+A client reads `-32002` as "this session is gone" - reopen it with `session/load` or drop it - and `-32602` as its own mistake, so a session scoped request made against a session that was closed, deleted or never opened is never reported as an agent failure.
 
 ### Notification (Agent to Client, no response expected)
 
@@ -108,6 +121,9 @@ Negotiate protocol version and exchange capabilities.
     "terminal": true,
     "elicitation": {
       "form": {}
+    },
+    "session": {
+      "notices": {}
     }
   },
   "clientInfo": {
@@ -130,7 +146,9 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
       "list": {},
       "delete": {},
       "additionalDirectories": {},
-      "resume": {}
+      "resume": {},
+      "close": {},
+      "systemPrompt": {}
     },
     "promptCapabilities": {
       "image": false,
@@ -151,6 +169,10 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
 }
 ```
 
+`authMethods` is a list of objects tagged by `type` (`agent`, `env`, `terminal`), as ACP defines it. Coddy needs no sign-in of its own, so the list is always empty.
+
+A client that says it renders the standard notice - `clientCapabilities.session.notices` - is sent its live lines as `notice` updates, and Coddy's own updates then carry an empty `notice` field, so one line is never shown twice. A client that does not keeps reading the field, as before.
+
 ### `session/new`
 
 Create a new conversation session.
@@ -167,11 +189,19 @@ Create a new conversation session.
       "args": ["--stdio"],
       "env": []
     }
-  ]
+  ],
+  "systemPrompt": {
+    "mode": "append",
+    "content": [{ "type": "text", "text": "You are a code review specialist." }]
+  }
 }
 ```
 
 `additionalDirectories` names workspace roots the session works in beside `cwd`. Each path is absolute, and a request naming an entry that is not is refused; the list is the complete one: a request that omits it or sends an empty list starts the session with no extra roots. The roots are kept with the session, reported back on `session/list`, and treated as part of the workspace where Coddy decides whether a path is one the session may reach - the mention resolver and the checks that keep a confined turn inside its workspace.
+
+`systemPrompt` is the client's own system-level instructions for the session, accepted on `session/new`, `session/load` and `session/resume` and advertised as `sessionCapabilities.systemPrompt`. Coddy applies **append** mode only: the text follows its own instructions - under a `## Client system instructions` heading at the end of the system prompt - and never replaces them, so the tool guidance, the project rules and the safety text stay. `override` is not advertised, and a request that names it is refused with `-32602` before a session is created, loaded or resumed, as is an empty `content` or a block that is not text.
+
+The block is kept with the session in `session.json` (`acpSystemPrompt`): a client that reopens a session without resending it keeps the instructions it set, and one that sends a different block replaces them, which is written at once. It is read on every turn rather than folded into the history, so a compaction cannot lose it.
 
 **Response result:**
 
@@ -334,6 +364,21 @@ Removes a session and every bundle nested under it - a subagent run recorded ins
 **Response result:** `{}`
 
 Advertised as `sessionCapabilities.delete`. This is what an editor calls on a row of `session/list`.
+
+### `session/close`
+
+Lets go of a session this connection holds: a turn running on it is cancelled and awaited, and the state the process keeps for it is freed. The bundle on disk stays where it is, so the same session can be loaded again later - close is what an editor calls when it puts a conversation away, and delete is what it calls when the conversation is gone.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456"
+}
+```
+
+**Response result:** `{}`
+
+Advertised as `sessionCapabilities.close`. Closing is idempotent, as ACP asks: a session that is not active any more - never opened by this process, already closed, or deleted - answers with the same empty object. A prompt sent to a closed session is answered `-32002`, since the session is no longer live here.
 
 ### `session/list`
 
@@ -531,12 +576,15 @@ After **`session/new`** and **`session/load`**, Coddy lists its slash commands. 
 ```json
 {
   "sessionUpdate": "agent_message_chunk",
+  "messageId": "msg_12",
   "content": {
     "type": "text",
     "text": "I'll start by reading the current auth module..."
   }
 }
 ```
+
+`messageId` names the message the chunk belongs to: every chunk of one message carries the same id, and a client reads a change of id as the start of the next message. `user_message_chunk` carries it too. The id is the position the message holds in the session's history, so a message streamed live is replayed under the same id when the session is loaded again - unless a compaction inserted a summary row before it, which moves every later position.
 
 ### `tool_call` - Tool call started
 
@@ -545,10 +593,13 @@ After **`session/new`** and **`session/load`**, Coddy lists its slash commands. 
   "sessionUpdate": "tool_call",
   "toolCallId": "call_001",
   "title": "Reading auth.go",
+  "name": "read",
   "kind": "read",
   "status": "pending"
 }
 ```
+
+`name` is the programmatic tool name beside the human-readable `title`: the built-in tool a call runs (`run_command`, `read`, `write`), or the tool an MCP server exposes. It carries no authorization meaning - the permission gate decides what runs, not this field.
 
 ### `tool_call_update` - Tool call status update
 
@@ -574,6 +625,8 @@ Tool call kinds are values of the ACP `ToolKind` enum, and Coddy sends no other:
 
 Coddy sends four `session/update` kinds the ACP specification does not
 define; a client that ignores unknown kinds keeps working.
+
+A context compaction is not one of them: it is an ordinary message row of the session, replayed with the rest of the history, and Coddy does not use the standard ID-addressed `compaction_update` entity. One shape on disk is what keeps the fold, the replay and every surface reading the same transcript.
 
 - **`turn_progress`** carries the turn clock and output tokens. Optional `tokensPerSecond` reports generation speed; `completed: true` marks the final update, including a stopped or failed turn; when present, the rate is the average across measured model calls. Saved averages replay on session load. Blocking (non-streaming) providers, ACP agent models and calls delivered in a single output chunk contribute no tokens or time to the speed average; output counts still include them. With no measurable call interval, live output counts remain available, but the rate is omitted and no generation caption is saved. When an average exists, its saved caption pairs total output tokens from all calls with the rate across measured calls only. The same calculation powers the console and web UI.
 - **`token_usage`** after every completed model call: `inputTokens`,
@@ -692,6 +745,22 @@ An editor that renders only the standard updates would show an answer nobody ask
 
 `coddy acp --remote` replays a woken turn of the server the same way on `session/load`; it does not follow the server's woken turns live.
 
+### `notice` - A line for the person, not the transcript
+
+The standard live notice, sent only to a client that advertised `clientCapabilities.session.notices` at initialize. It carries what a person should see now and what no transcript should keep: a settings change the agent made itself (`Model: qwen3.8-27b for this session`), a goal that paused because a usage limit was reached.
+
+```json
+{
+  "sessionUpdate": "notice",
+  "severity": "info",
+  "title": "Model: qwen3.8-27b for this session"
+}
+```
+
+`severity` is `info`, `warning` or `error` and is a presentation hint only. `title` stands alone; `description` adds a detail a client may show under it. A notice is not part of the history, so `session/load` never replays one: a client that attaches to a running turn sees the notices that arrive after it.
+
+The same line is carried by the `notice` field of the `session_settings` and `session_goal` updates, which every other surface reads. A client that advertised the capability gets one or the other, never both: its `session_settings` and `session_goal` updates arrive with an empty `notice` field, and the line follows as a `notice`.
+
 ### `session_info_update` - The session was renamed
 
 Sent whenever the title the session is listed under moves: the name its first message derived, a name the agent pinned with `session_describe`, a rename an operator made on another surface. A client that keeps a session list in step with the agent renames it along with them instead of showing the name it was created with.
@@ -770,6 +839,7 @@ Under `ask`, a request that belongs to the session itself carries two more optio
     "toolCall": {
       "toolCallId": "call_002",
       "title": "Run: go build ./...",
+      "name": "run_command",
       "kind": "execute",
       "status": "pending",
       "content": [

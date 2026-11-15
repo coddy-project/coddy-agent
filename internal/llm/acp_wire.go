@@ -162,10 +162,14 @@ type acpSessionNotification struct {
 // acpSessionUpdate is a session/update payload, decoded as far as the
 // provider reads it.
 type acpSessionUpdate struct {
-	SessionUpdate string            `json:"sessionUpdate"`
-	Content       json.RawMessage   `json:"content,omitempty"`
-	ToolCallID    string            `json:"toolCallId,omitempty"`
-	Title         string            `json:"title,omitempty"`
+	SessionUpdate string          `json:"sessionUpdate"`
+	Content       json.RawMessage `json:"content,omitempty"`
+	ToolCallID    string          `json:"toolCallId,omitempty"`
+	Title         string          `json:"title,omitempty"`
+	// Name is the programmatic name of the tool the agent invoked, beside the
+	// human-readable Title. Optional: an agent that sends none is titled by
+	// what its call works on, as before.
+	Name          string            `json:"name,omitempty"`
 	Kind          string            `json:"kind,omitempty"`
 	Status        string            `json:"status,omitempty"`
 	CurrentModeID string            `json:"currentModeId,omitempty"`

@@ -64,6 +64,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
+					MessageID:     acp.MessageID(i),
 				})
 			}
 
@@ -79,6 +80,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "agent_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: txt},
+					MessageID:     acp.MessageID(i),
 				})
 			}
 			for _, tc := range msg.ToolCalls {
@@ -86,6 +88,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    tc.ID,
 					Title:         tc.Name,
+					Name:          tc.Name,
 					Kind:          ToolKind(tc.Name),
 					Status:        "pending",
 				})

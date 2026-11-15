@@ -52,6 +52,9 @@ type acpLifecycleState struct {
 	wire []map[string]interface{}
 	// lastResult is the result object of the response that closed that request.
 	lastResult map[string]interface{}
+	// lastError is the error object of a response the scenario expected to
+	// fail, which is how it reads the code the agent answered with.
+	lastError map[string]interface{}
 }
 
 func (s *acpLifecycleState) reset() error {
@@ -222,6 +225,49 @@ func (s *acpLifecycleState) sendPrompt(text string) error {
 	})
 }
 
+// requestExpectingFailure sends one JSON-RPC request whose answer is expected
+// to be an error, and keeps that error object. Every other request treats an
+// error as a failed scenario; reading the code is the point of this one.
+func (s *acpLifecycleState) requestExpectingFailure(id int, method string, params map[string]interface{}) error {
+	if err := s.start(); err != nil {
+		return err
+	}
+	s.lastError = nil
+	if err := writeJSONLine(s.stdin, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+		"params":  params,
+	}); err != nil {
+		return err
+	}
+	deadline := time.NewTimer(4 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case line := <-s.lines:
+			var msg map[string]interface{}
+			if err := json.Unmarshal(line, &msg); err != nil {
+				return err
+			}
+			got, _ := msg["id"].(float64)
+			if got != float64(id) {
+				continue
+			}
+			errObj, ok := msg["error"].(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("request %s answered %#v, want an error", method, msg)
+			}
+			s.lastError = errObj
+			return nil
+		case err := <-s.readErrs:
+			return fmt.Errorf("helper stdout closed: %v", err)
+		case <-deadline.C:
+			return fmt.Errorf("no response to request %d", id)
+		}
+	}
+}
+
 // ---- steps ----
 
 func (s *acpLifecycleState) clientHasActiveSession() error {
@@ -387,6 +433,87 @@ func (s *acpLifecycleState) resumeNamesAMode() error {
 	return fmt.Errorf("session/resume response names no mode: %#v", s.lastResult)
 }
 
+func (s *acpLifecycleState) clientClosesTheCreatedSession() error {
+	return s.request(60, "session/close", map[string]interface{}{"sessionId": s.sessionID})
+}
+
+func (s *acpLifecycleState) clientSendsAPromptToTheClosedSession() error {
+	return s.requestExpectingFailure(61, "session/prompt", map[string]interface{}{
+		"sessionId": s.sessionID,
+		"prompt":    []map[string]interface{}{{"type": "text", "text": "anyone there?"}},
+	})
+}
+
+// agentAnswersSessionNotFound is the -32002 answer ACP asks for when a
+// session-scoped method names a session the agent does not hold, with the id
+// the client named in data.sessionId so it can tell which session is gone.
+func (s *acpLifecycleState) agentAnswersSessionNotFound() error {
+	if s.lastError == nil {
+		return fmt.Errorf("the prompt was answered, want a not-found error")
+	}
+	code, _ := s.lastError["code"].(float64)
+	if int(code) != acp.ErrResourceNotFound {
+		return fmt.Errorf("error code = %v, want %d: %#v", s.lastError["code"], acp.ErrResourceNotFound, s.lastError)
+	}
+	data, _ := s.lastError["data"].(map[string]interface{})
+	if id, _ := data["sessionId"].(string); id != s.sessionID {
+		return fmt.Errorf("error data names session %q, want %q: %#v", id, s.sessionID, s.lastError)
+	}
+	return nil
+}
+
+func (s *acpLifecycleState) clientLoadsTheCreatedSessionAgain() error {
+	return s.request(62, "session/load", map[string]interface{}{
+		"sessionId": s.sessionID,
+		"cwd":       s.root,
+	})
+}
+
+// clientOpensASessionWithSystemInstructions opens a session the way an editor
+// that sets a role does: session/new with a system prompt in append mode.
+func (s *acpLifecycleState) clientOpensASessionWithSystemInstructions(text string) error {
+	if err := s.start(); err != nil {
+		return err
+	}
+	if err := s.request(63, "session/new", map[string]interface{}{
+		"cwd": s.root,
+		"systemPrompt": map[string]interface{}{
+			"mode":    "append",
+			"content": []map[string]interface{}{{"type": "text", "text": text}},
+		},
+	}); err != nil {
+		return err
+	}
+	id, _ := s.lastResult["sessionId"].(string)
+	if id == "" {
+		return fmt.Errorf("session/new response carried no sessionId: %#v", s.lastResult)
+	}
+	s.sessionID = id
+	return nil
+}
+
+// clientProbesTheSystemInstructions runs a turn the helper answers with the
+// instructions the session holds.
+func (s *acpLifecycleState) clientProbesTheSystemInstructions() error {
+	return s.sendPrompt("acp-prompt:probe")
+}
+
+// agentKeepsTheSystemInstructions reads that answer back.
+func (s *acpLifecycleState) agentKeepsTheSystemInstructions(want string) error {
+	for _, msg := range s.wire {
+		params, _ := msg["params"].(map[string]interface{})
+		update, _ := params["update"].(map[string]interface{})
+		if update["sessionUpdate"] != acp.UpdateTypeAgentMessageChunk {
+			continue
+		}
+		content, _ := update["content"].(map[string]interface{})
+		if content["text"] == lifecycleAnswerPrefix+want {
+			return nil
+		}
+	}
+	return fmt.Errorf("the session does not hold the instructions %q: %#v", want, s.wire)
+}
+
 func (s *acpLifecycleState) formClientHasActiveSession() error {
 	if err := s.start(); err != nil {
 		return err
@@ -516,6 +643,13 @@ func initializeACPLifecycleScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the client resumes the created session$`, s.clientResumesTheCreatedSession)
 	sc.Step(`^the resume response is not preceded by a replayed transcript$`, s.resumeIsNotPrecededByAReplayedTranscript)
 	sc.Step(`^the resume response names a mode$`, s.resumeNamesAMode)
+	sc.Step(`^the client closes the created session$`, s.clientClosesTheCreatedSession)
+	sc.Step(`^the client sends a prompt to the closed session$`, s.clientSendsAPromptToTheClosedSession)
+	sc.Step(`^the agent answers that the session was not found$`, s.agentAnswersSessionNotFound)
+	sc.Step(`^the client can load the created session again$`, s.clientLoadsTheCreatedSessionAgain)
+	sc.Step(`^an editor opens a session with the system instructions "([^"]+)"$`, s.clientOpensASessionWithSystemInstructions)
+	sc.Step(`^the client asks the session what its system instructions are$`, s.clientProbesTheSystemInstructions)
+	sc.Step(`^the session holds the system instructions "([^"]+)"$`, s.agentKeepsTheSystemInstructions)
 	sc.Step(`^an ACP client that renders form elicitation has an active session$`, s.formClientHasActiveSession)
 	sc.Step(`^the agent asks "([^"]+)" offering "([^"]+)" and "([^"]+)" and the client picks "([^"]+)"$`, s.agentAsksAndClientPicks)
 	sc.Step(`^the client was asked "([^"]+)" through elicitation/create with a picker of "([^"]+)" and "([^"]+)"$`, s.clientWasAskedThroughElicitation)
@@ -529,6 +663,10 @@ func initializeACPLifecycleScenario(sc *godog.ScenarioContext) {
 const (
 	lifecycleAskPrefix    = "ask:"
 	lifecycleAnswerPrefix = "answer:"
+	// lifecyclePromptProbePrefix asks the helper to answer with the system
+	// instructions the session holds, which is how a scenario checks that the
+	// prompt a client sent with session/new reached the session.
+	lifecyclePromptProbePrefix = "acp-prompt:"
 )
 
 func TestACPSessionLifecycleFeature(t *testing.T) {
@@ -575,6 +713,17 @@ func TestACPLifecycleHelperProcess(t *testing.T) {
 		}
 		text := strings.TrimSpace(b.String())
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+		if _, ok := strings.CutPrefix(text, lifecyclePromptProbePrefix); ok {
+			// The probe reports the system-level instructions the client asked
+			// for, so a scenario can see that the session kept them.
+			if err := sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: "text", Text: lifecycleAnswerPrefix + st.GetACPSystemPrompt()},
+			}); err != nil {
+				return "", err
+			}
+			return string(acp.StopReasonEndTurn), nil
+		}
 		if spec, ok := strings.CutPrefix(text, lifecycleAskPrefix); ok {
 			// The question tool's own request, as the agent hands it to the
 			// ACP adapter: a closed question with two options.

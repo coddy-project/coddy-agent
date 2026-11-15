@@ -4844,6 +4844,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"id":           map[string]interface{}{"type": "string", "description": "The id of the call's tool row: `acp_` and the agent's own id."},
 						"title":        map[string]interface{}{"type": "string", "description": "The call named by what it works on (`read notes.txt`)."},
+						"tool_name":    map[string]interface{}{"type": "string", "description": "The programmatic name of the tool the agent invoked, when it reported one (ACP's `toolCall.name`); absent otherwise."},
 						"kind":         map[string]interface{}{"type": "string", "description": "The agent's tool kind (ACP: read, edit, delete, move, search, execute, think, fetch, other)."},
 						"status":       map[string]interface{}{"type": "string", "enum": []string{"completed", "failed", "cancelled"}},
 						"input":        map[string]interface{}{"type": "string", "description": "What the call was given, as the agent reported it (JSON)."},
