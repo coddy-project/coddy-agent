@@ -48,7 +48,7 @@ type Server struct {
 
 	// Pending permission and question RPC responses from the client.
 	pendingPerms   map[interface{}]chan *PermissionResult
-	pendingQuests  map[interface{}]chan *QuestionResult
+	pendingQuests  map[interface{}]chan questionReply
 	pendingElicits map[interface{}]chan *CreateElicitationResult
 	pendingRPCMu   sync.Mutex
 
@@ -83,7 +83,7 @@ func NewServerWithWriter(handler Handler, log *slog.Logger, w io.Writer) *Server
 		handler:        handler,
 		writer:         json.NewEncoder(w),
 		pendingPerms:   make(map[interface{}]chan *PermissionResult),
-		pendingQuests:  make(map[interface{}]chan *QuestionResult),
+		pendingQuests:  make(map[interface{}]chan questionReply),
 		pendingElicits: make(map[interface{}]chan *CreateElicitationResult),
 		log:            log,
 	}
@@ -256,8 +256,10 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 			return nil
 		}
 		if qOK {
-			_ = errRaw
-			qch <- &QuestionResult{}
+			// The client could not ask: it does not implement the method or
+			// failed answering it. That is no answer from the user, and the
+			// model is told so instead of reading an empty one.
+			qch <- questionReply{err: questionRefused(errRaw)}
 			return nil
 		}
 		var rpcErr RPCError
@@ -284,10 +286,10 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 		if qOK {
 			var result QuestionResult
 			if err := json.Unmarshal(resultRaw, &result); err != nil {
-				qch <- &QuestionResult{}
+				qch <- questionReply{err: fmt.Errorf("the client's answer to the question does not read as one: %w", err)}
 				return nil
 			}
-			qch <- &result
+			qch <- questionReply{result: &result}
 			return nil
 		}
 		var result PermissionResult
@@ -542,7 +544,7 @@ func (s *Server) RequestQuestion(ctx context.Context, params QuestionRequestPara
 // RequestQuestion, for a client that never advertised elicitation.
 func (s *Server) requestQuestionDirect(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error) {
 	id := s.nextID.Add(1)
-	ch := make(chan *QuestionResult, 1)
+	ch := make(chan questionReply, 1)
 
 	s.pendingRPCMu.Lock()
 	s.pendingQuests[float64(id)] = ch
@@ -565,11 +567,28 @@ func (s *Server) requestQuestionDirect(ctx context.Context, params QuestionReque
 	}
 
 	select {
-	case result := <-ch:
-		return result, nil
+	case reply := <-ch:
+		return reply.result, reply.err
 	case <-ctx.Done():
 		return &QuestionResult{}, nil
 	}
+}
+
+// questionReply is the client's response to session/request_question: the
+// answers, or why there are none.
+type questionReply struct {
+	result *QuestionResult
+	err    error
+}
+
+// questionRefused names the error a client answered session/request_question
+// with, for the model to read as the question tool's result.
+func questionRefused(raw json.RawMessage) error {
+	var rpcErr RPCError
+	if err := json.Unmarshal(raw, &rpcErr); err != nil || rpcErr.Message == "" {
+		return errors.New("the client could not ask the user; continue without an answer")
+	}
+	return fmt.Errorf("the client could not ask the user (%d %s); continue without an answer", rpcErr.Code, rpcErr.Message)
 }
 
 // RequestElicitation sends an elicitation/create request and waits for the
