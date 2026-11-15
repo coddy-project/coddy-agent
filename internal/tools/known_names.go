@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
 )
 
 // KnownToolNames lists every built-in tool name this build can offer, the
@@ -19,6 +20,10 @@ func KnownToolNames() []string {
 	r := NewRegistry()
 	registerSchedulerTools(r, &config.Config{Scheduler: config.SchedulerConfig{Enabled: true}})
 	registerBrowserTools(r, &config.Config{Browser: config.BrowserConfig{Enable: true}})
+	// The publishing tools are registered only where the operator turned the
+	// published-preview channel on, and a toolset may name them whatever this
+	// machine's configuration says today.
+	preview.RegisterPublishTools(r.Register)
 	seen := map[string]bool{ToolSwitchModel: true}
 	for _, def := range r.AllToolDefinitions() {
 		seen[def.Name] = true

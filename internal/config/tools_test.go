@@ -3,6 +3,7 @@ package config
 import (
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -247,5 +248,60 @@ func TestHTTPDefaultHeadersSurviveTheSettingsRoundTrip(t *testing.T) {
 	want := map[string]string{"User-Agent": "", "X-Client": "coddy-lab"}
 	if !reflect.DeepEqual(again.Tools.HTTPRequest.DefaultHeaders, want) {
 		t.Fatalf("after a save the file holds %v, want %v\n%s", again.Tools.HTTPRequest.DefaultHeaders, want, data)
+	}
+}
+
+func TestPreviewPublishValidateRefusesWhatCouldNotServe(t *testing.T) {
+	cases := map[string]ToolPreviewPublish{
+		"a host with a port":          {Host: "127.0.0.1:8081"},
+		"a host with a scheme":        {Host: "http://127.0.0.1"},
+		"a bracketed host":            {Host: "[::1]"},
+		"a port out of range":         {Port: 70000},
+		"a relative root":             {Root: "previews"},
+		"a public URL with no scheme": {PublicURL: "coddy.example/preview/"},
+		"a public URL with a query":   {PublicURL: "https://coddy.example/preview/?token=x"},
+		"a negative lifetime":         {TTLSeconds: -1},
+		"a negative size":             {MaxBytes: -1},
+	}
+	for name, section := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := section.validate(); err == nil {
+				t.Fatalf("%+v should not validate", section)
+			}
+		})
+	}
+	ok := ToolPreviewPublish{
+		Enable: true, Host: "127.0.0.1", Port: 8081,
+		// An absolute root on every platform: joining from the separator gives
+		// "\var\..." on Windows, which carries no volume and is not absolute.
+		Root:      t.TempDir(),
+		PublicURL: "https://coddy.example/preview/", TTLSeconds: 3600, MaxBytes: 1 << 20,
+	}
+	if err := ok.validate(); err != nil {
+		t.Fatalf("a complete section should validate: %v", err)
+	}
+}
+
+func TestPreviewPublishToolSettingsFillInTheDefaults(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator), "home", "u", ".coddy")
+	section := ToolPreviewPublish{Enable: true}
+	got := section.ToolSettings(home)
+	if want := filepath.Join(home, "previews"); got.Root != want {
+		t.Fatalf("root = %q, want %q", got.Root, want)
+	}
+	if got.PublicURL != "http://127.0.0.1:8081/" {
+		t.Fatalf("public URL = %q", got.PublicURL)
+	}
+	if got.TTLSeconds != PreviewPublishDefaultTTLSeconds || got.MaxBytes != PreviewPublishDefaultMaxBytes {
+		t.Fatalf("defaults: %+v", got)
+	}
+	if addr := section.ListenAddr(); addr != "127.0.0.1:8081" {
+		t.Fatalf("listen address = %q", addr)
+	}
+	// A wildcard bind is not an address anybody opens, so the link falls back
+	// to a name that reaches this machine from a browser.
+	wildcard := ToolPreviewPublish{Enable: true, Host: "0.0.0.0", Port: 9000}
+	if got := wildcard.ToolSettings(home); got.PublicURL != "http://localhost:9000/" {
+		t.Fatalf("wildcard public URL = %q", got.PublicURL)
 	}
 }

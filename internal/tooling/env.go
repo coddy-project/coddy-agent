@@ -201,6 +201,12 @@ type Env struct {
 	// the built-in defaults (enabled, loopback).
 	PreviewServer *PreviewServerSettings
 
+	// PreviewPublish is the resolved tools.preview_publish section the
+	// preview_publish and preview_unpublish tools read the artifact root and
+	// the public address from. Nil means the channel is off: without an
+	// artifact root there is nowhere to publish to.
+	PreviewPublish *PreviewPublishSettings
+
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
 	// carries the default applied to unlisted (and MCP) tools. A positive value
@@ -402,4 +408,22 @@ type PreviewServerSettings struct {
 	Host string
 	// PublicHost replaces the bind host in the URL handed to the operator.
 	PublicHost string
+}
+
+// PreviewPublishSettings is the resolved tools.preview_publish section as the
+// publishing tools receive it. The field order is part of the contract: the
+// agent converts config.ToolPreviewPublishSettings to this type directly.
+type PreviewPublishSettings struct {
+	// Enabled is false when the operator did not turn the channel on.
+	Enabled bool
+	// Root is the artifact root a publish materialises into, resolved.
+	Root string
+	// PublicURL is the address the edge serves the root under, ending in a
+	// slash.
+	PublicURL string
+	// TTLSeconds is how long an artifact lives when the call names no
+	// lifetime of its own.
+	TTLSeconds int
+	// MaxBytes bounds one artifact.
+	MaxBytes int64
 }
