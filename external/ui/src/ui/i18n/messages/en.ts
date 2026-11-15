@@ -946,6 +946,34 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
   "settings.schema.tools.preview_server.public_host.ph": "The bind host",
+  "settings.schema.tools.preview_publish.label": "Published previews",
+  "settings.schema.tools.preview_publish.desc":
+    "A read-only static origin on a fixed address over one artifact root, and the preview_publish tool that copies finished work there. For a Coddy behind an authenticated HTTPS edge: your reverse proxy authenticates the visitor and routes a stable prefix to this origin.",
+  "settings.schema.tools.preview_publish.enable.label": "Enabled",
+  "settings.schema.tools.preview_publish.enable.desc":
+    "Run the published-preview origin and offer the preview_publish and preview_unpublish tools (default off).",
+  "settings.schema.tools.preview_publish.host.label": "Bind host",
+  "settings.schema.tools.preview_publish.host.desc":
+    "Address the origin binds (default 127.0.0.1). Anything that is not loopback serves every published preview to whoever can reach that address.",
+  "settings.schema.tools.preview_publish.host.ph": "127.0.0.1",
+  "settings.schema.tools.preview_publish.port.label": "Port",
+  "settings.schema.tools.preview_publish.port.desc":
+    "Fixed port the origin binds, so a reverse proxy has an upstream that does not move (default 8081).",
+  "settings.schema.tools.preview_publish.root.label": "Artifact root",
+  "settings.schema.tools.preview_publish.root.desc":
+    "The only directory the origin serves and the only one a publish writes into, absolute. Empty uses <home>/previews.",
+  "settings.schema.tools.preview_publish.root.ph": "<home>/previews",
+  "settings.schema.tools.preview_publish.public_url.label": "Public URL",
+  "settings.schema.tools.preview_publish.public_url.desc":
+    "Address your edge serves the root under, written into the link the agent hands out. Empty uses the origin's own address.",
+  "settings.schema.tools.preview_publish.public_url.ph":
+    "https://coddy.example/preview/",
+  "settings.schema.tools.preview_publish.ttl_seconds.label": "Lifetime (s)",
+  "settings.schema.tools.preview_publish.ttl_seconds.desc":
+    "How long a published preview stays up before it is removed (default 86400). A call may ask for its own lifetime, or for none.",
+  "settings.schema.tools.preview_publish.max_bytes.label": "Max size (bytes)",
+  "settings.schema.tools.preview_publish.max_bytes.desc":
+    "Largest one published preview may be (default 104857600). A publish over it is refused whole.",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
   "settings.schema.tools.websearch.deepseek_api_key.label":
     "DeepSeek Search API key",
@@ -2545,6 +2573,8 @@ export const messagesEn: Record<string, string> = {
   "tool.name.webfetch": "fetching a page",
   "tool.name.http_request": "sending an http request",
   "tool.name.preview_server": "starting a preview server",
+  "tool.name.preview_publish": "publishing a preview",
+  "tool.name.preview_unpublish": "taking a published preview down",
   "tool.name.websearch": "searching the web",
   "tool.name.coddy_docs_search": "searching the documentation",
   "tool.name.coddy_docs_read": "reading the documentation",
@@ -2936,6 +2966,8 @@ export const messagesEn: Record<string, string> = {
   "status.webFetch": "Fetching a page",
   "status.httpRequest": "Sending a request",
   "status.previewServer": "Starting a preview server",
+  "status.previewPublish": "Publishing a preview",
+  "status.previewUnpublish": "Taking a published preview down",
   "status.plan": "Updating the plan",
   "status.planRead": "Reading the plan",
   "status.skill": "Loading a skill",

@@ -7,10 +7,12 @@ decided by `config.yaml`; see the [configuration reference](../reference/config.
 per-surface guides ([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md),
 [swarm](swarm.md), [scheduler](scheduler.md), [Coddy for Browser](../features/browser.md)).
 
-One more subsystem serves beside them: the Prometheus exporter, under `metrics.enable`
-([Monitoring](monitoring.md)). It is auxiliary. It never counts as the surface that keeps the
-process up, so a configuration that enables only `metrics` is refused like one that enables
-nothing, and turning it off always works.
+Two more subsystems serve beside them: the Prometheus exporter, under `metrics.enable`
+([Monitoring](monitoring.md)), and the published-preview origin, under
+`tools.preview_publish.enable` ([Published previews](../features/published-previews.md)).
+Both are auxiliary. Neither counts as the surface that keeps the process up, so a
+configuration that enables only those is refused like one that enables nothing, and turning
+either off always works.
 
 The subsystems share more than the manager. A background task the agent started wakes it
 when it ends (`notify_on_finish`, on by default) whichever subsystems run: the process owns the
@@ -295,7 +297,8 @@ What happens next depends on what moved:
 | a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
 | `mcp.project_trust` | every live session reconnects its configured MCP servers under the new policy; moved to `deny`, the project servers stop |
 | `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |
-| a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart; [Settings → System](#applying-a-saved-address) shows either |
+| the artifact root or the public address of published previews | the published-preview origin alone is rebuilt in place |
+| a listen address (`httpserver.host` / `port`, `swarm.host` / `port`, `tools.preview_publish.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart; [Settings → System](#applying-a-saved-address) shows either |
 
 The MCP servers are not in `config.yaml`: the process watches `~/.coddy/mcp.json` the same
 way, and an edit of it starts a server added or switched on, stops one removed or switched
