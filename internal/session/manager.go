@@ -1612,6 +1612,13 @@ type PromptRunOpts struct {
 	// asked about, whatever the session's permission mode. Turn-scoped, like
 	// SurfaceSystemPrompt, and never persisted.
 	Restriction *TurnRestriction
+	// ImageGeneration is the per-turn opt-in for native image generation
+	// (metadata.image_generation): the surface asked the model for native
+	// image output on this turn alone. It lasts exactly the turn, is never
+	// persisted, and is read by the turn's own provider calls only - side
+	// calls (compaction folds, prompt suggestions, naming, subagent runs)
+	// never inherit it.
+	ImageGeneration bool
 	// Lang is the language of the surface running this turn: the web UI's
 	// locale, the terminal's, a messenger user's. The documentation the
 	// turn's @coddy: mentions attach and the agent's documentation tools read
@@ -1632,8 +1639,9 @@ type PromptRunOpts struct {
 	// the start of the prompt (TakeSettingsCommands) - the HTTP server does,
 	// before it takes the turn lock - and TurnSettings are the turn-scoped
 	// changes it found, applied once this turn is admitted.
-	SettingsTaken bool
-	TurnSettings  []SettingsChange
+	SettingsTaken  bool
+	TurnSettings   []SettingsChange
+	settingsNotice *string
 
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
@@ -1957,6 +1965,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			return nil, err
 		}
 	}
+	if opts != nil && opts.settingsNotice != nil {
+		AnnounceSettingsNotice(sender, params.SessionID, *opts.settingsNotice)
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn, SettingsNotice: *opts.settingsNotice}, nil
+	}
 	// The first turn of a session a goal chain opened (goal_chain.go): its
 	// prompt is the supervisor's kickoff, which nobody typed.
 	chainKickoff := opts != nil && opts.goalKickoff != nil
@@ -1972,7 +1984,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			// A messenger user who is not the bot's admin changes the
 			// settings of the chat's session only.
 			restricted := opts != nil && opts.Restriction != nil
-			taken, err := m.takeSettingsCommands(ctx, params.SessionID, params.Prompt, "command", restricted)
+			var beforeApply func(*State, *CommandLine) error
+			if opts != nil && opts.ImageGeneration {
+				beforeApply = m.validateImageGenerationCommands
+			}
+			taken, err := m.takeSettingsCommandsChecked(ctx, params.SessionID, params.Prompt, "command", restricted, beforeApply)
 			if err != nil {
 				return nil, err
 			}
@@ -2004,17 +2020,23 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer finish()
 
 	if operatorTurn {
-		// Installed under the turn lock, so the turn this prompt starts is the
-		// one that takes them; then this turn consumes one of every override.
-		for _, ch := range turnSettings {
-			if _, err := m.ApplySessionSettings(turnCtx, params.SessionID, ch); err != nil {
+		if opts != nil && opts.ImageGeneration {
+			if err := m.prepareOperatorTurnSettings(params.SessionID, state, turnSettings, true); err != nil {
 				return nil, err
 			}
-		}
-		if m.beginOperatorTurnSettings(params.SessionID, state) {
 			defer m.endTurnSettings(params.SessionID, state)
 		} else {
-			defer state.EndTurnSettings()
+			// Installed under the turn lock, so this prompt consumes the overrides.
+			for _, ch := range turnSettings {
+				if _, err := m.ApplySessionSettings(turnCtx, params.SessionID, ch); err != nil {
+					return nil, err
+				}
+			}
+			if m.beginOperatorTurnSettings(params.SessionID, state) {
+				defer m.endTurnSettings(params.SessionID, state)
+			} else {
+				defer state.EndTurnSettings()
+			}
 		}
 	}
 
@@ -2039,6 +2061,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.Restriction != nil {
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
+	}
+	if opts != nil && opts.ImageGeneration {
+		state.SetTurnImageGeneration(true)
+		defer state.SetTurnImageGeneration(false)
 	}
 	// The language of the turn: the surface's when it names a language the
 	// documentation is written in, else the language the person wrote the

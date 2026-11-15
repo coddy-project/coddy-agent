@@ -116,3 +116,22 @@ test("groups adjacent shared files and opens every image in the shared lightbox"
   );
   expect(screen.getByRole("dialog")).toHaveTextContent("release-cover.webp");
 });
+
+test("opens a generated image in the lightbox", () => {
+  render(
+    <AssistantMessage
+      content=""
+      files={[
+        {
+          name: "result.png",
+          mimeType: "image/png",
+          url: "/coddy/sessions/s/assets/result.png",
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open generated image result.png" }),
+  );
+  expect(screen.getByRole("dialog")).toHaveTextContent("result.png");
+});

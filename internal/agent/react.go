@@ -261,6 +261,13 @@ func (a *Agent) wireWorkspaceTool(env *tools.Env) {
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop string, turnErr error) {
+	imageGeneration := llm.ImageGenerationEnabled(ctx)
+	if scoped, ok := a.state.(interface{ GetTurnImageGeneration() bool }); ok {
+		imageGeneration = imageGeneration || scoped.GetTurnImageGeneration()
+	}
+
+	ctx = llm.WithoutImageGeneration(ctx)
+
 	ctx, finishStatistics := a.beginStatistics(ctx)
 	defer finishStatistics()
 	mode := a.state.EffectiveMode()
@@ -521,7 +528,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (turnStop st
 	}
 	a.applySubagentEnv(toolEnv, mode)
 
-	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, imageGeneration)
 	a.noteStopReason(stop, err, maxTurns)
 	return stop, err
 }
@@ -876,16 +883,23 @@ func (a *Agent) runReActLoop(
 	contextFiles []string,
 	activeSkills []*skills.Skill,
 	maxTurns int,
+	imageGeneration bool,
 ) (string, error) {
 	// What the last provider answer of this turn reported about its own cost,
 	// which is what says whether a side call over the same context would be
 	// read back from the provider's cache (session.PromptSuggestionUsage).
 	var lastUsage session.PromptSuggestionUsage
+	nativeImagesTurn := imageGeneration
 	defer func() {
 		st, ok := a.state.(interface {
 			SetPromptSuggestionFork(session.PromptSuggestionFork)
 		})
 		if !ok || !a.cfg.Agent.EffectivePromptSuggestions() {
+			return
+		}
+		if nativeImagesTurn {
+			// Auxiliary calls cannot reproduce this turn's native tool prefix.
+			st.SetPromptSuggestionFork(session.PromptSuggestionFork{})
 			return
 		}
 		// The turn's own messages, tools and provider input: the side call
@@ -1270,6 +1284,15 @@ func (a *Agent) runReActLoop(
 		// system message, these tools and this provider input, so everything in
 		// front of its instruction is the prefix the provider is about to cache
 		// (compact_cached.go).
+		if imageGeneration {
+			// Check the transport, not a fresh reading of the session: a skill,
+			// operator or tool may have switched models since admission.
+			if err := session.NativeImageGenerationError(a.cfg, transport.model); err != nil {
+				stopFirstTokenTimer()
+				streamCancel()
+				return string(acp.StopReasonRefused), err
+			}
+		}
 		a.noteTurnSend(transport, sendMessages, toolDefs)
 		// The estimate the provider's incoming input_tokens is anchored to is
 		// taken here, while the breakdown still describes the prompt about to
@@ -1306,9 +1329,40 @@ func (a *Agent) runReActLoop(
 		callIDs := newToolCallIDs(messages, callSessionDir)
 		streamCtx = latency.begin(streamCtx, transport.agent)
 		streamCtx = statistics.WithReasoning(streamCtx, a.state.EffectiveReasoning(a.cfg))
-		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		var generatedParts []llm.ImagePart
+		var generatedReceived []llm.GeneratedImage
+		var generatedSaveErr error
+		generatedSeen := make(map[string]bool)
+		keepGeneratedImage := func(img llm.GeneratedImage) {
+			if generatedSeen[img.ID] || generatedSaveErr != nil {
+				return
+			}
+			generatedSeen[img.ID] = true
+			generatedReceived = append(generatedReceived, img)
+			generatedParts, generatedSaveErr = a.saveGeneratedImages(generatedReceived)
+			if len(generatedParts) > 0 {
+				a.sendGeneratedImages(callMessageID, generatedParts)
+				turnHadVisibleText = true
+			}
+		}
+		providerCtx := streamCtx
+		if imageGeneration {
+			providerCtx = llm.WithImageGeneration(providerCtx)
+		}
+		response, streamErr = transport.provider.Stream(providerCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
+			}
+			if chunk.ImageGenerationStarted || chunk.GeneratedImage != nil {
+				stopFirstTokenTimer()
+				streamedAny = true
+			}
+			if chunk.GeneratedImage != nil {
+				keepGeneratedImage(*chunk.GeneratedImage)
+				if generatedSaveErr != nil {
+					streamCancel()
+					return
+				}
 			}
 			chunk = callIDs.chunk(chunk)
 			now := time.Now()
@@ -1466,7 +1520,7 @@ func (a *Agent) runReActLoop(
 		// generic cancellation handling below, which cannot tell a guard abort from a
 		// user Stop. A real cancellation racing the guard wins: the user asked to stop,
 		// so the turn must not be re-prompted.
-		if loopAbort != loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+		if loopAbort != loopAbortNone && !imageGeneration && len(generatedParts) == 0 && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
 			a.persistLoopAbortedMessage(transport.model, response, &reasoningBuf, reasonClockStart, reasonClockEnd, streamRepeatCycles)
 			if loopNudges >= loopNudgeBudget {
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
@@ -1501,7 +1555,9 @@ func (a *Agent) runReActLoop(
 				// request can go out again: behind one model name there is often a
 				// group of deployments, and the silent one is not the whole lane.
 				// This recovery consumes both retry allowance and a ReAct iteration.
-				if firstTokenRetries < maxFirstTokenRetries && retryAllowance.TakeRetry() {
+				// Native generation may already be paid for remotely even when
+				// no event reached us. Keep the timeout, never replay that request.
+				if !imageGeneration && firstTokenRetries < maxFirstTokenRetries && retryAllowance.TakeRetry() {
 					if turn+1 >= maxTurns {
 						return string(acp.StopReasonMaxTurns), nil
 					}
@@ -1514,6 +1570,30 @@ func (a *Agent) runReActLoop(
 				}
 				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
 			}
+		}
+
+		if response != nil {
+			for _, img := range response.GeneratedImages {
+				keepGeneratedImage(img)
+			}
+		}
+		if generatedSaveErr != nil {
+			streamErr = errors.Join(streamErr, generatedSaveErr)
+		}
+		if response == nil && len(generatedParts) > 0 {
+			response = &llm.Response{Content: answerBuf.String(), Reasoning: reasoningBuf.String()}
+		}
+
+		if streamErr != nil && (len(generatedParts) > 0 || imageGeneration) {
+			if response != nil && (len(generatedParts) > 0 || strings.TrimSpace(response.Content) != "") {
+				a.addAssistantMessage(llm.Message{Role: llm.RoleAssistant, Content: response.Content,
+					ImageParts: generatedParts, Reasoning: response.Reasoning, Model: transport.model,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+			}
+			if errors.Is(streamErr, context.Canceled) {
+				return string(acp.StopReasonCancelled), nil
+			}
+			return string(acp.StopReasonRefused), fmt.Errorf("native image generation: %w", streamErr)
 		}
 
 		if streamErr != nil {
@@ -1837,11 +1917,16 @@ func (a *Agent) runReActLoop(
 			a.dropCutOffToolCall(tc)
 		}
 
+		if len(generatedParts) > 0 {
+			imageGeneration = false
+		}
+
 		// Append assistant message to history.
 		reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
 		assistantMsg := llm.Message{
 			Role:                llm.RoleAssistant,
 			Content:             response.Content,
+			ImageParts:          generatedParts,
 			Reasoning:           reasonStore,
 			ReasoningSignature:  reasonSig,
 			ToolCalls:           response.ToolCalls,
@@ -1881,6 +1966,9 @@ func (a *Agent) runReActLoop(
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
 			if response.StopReason == "max_tokens" {
+				if imageGeneration || len(generatedParts) > 0 {
+					return endOnOutputLimit()
+				}
 				// A step the output limit cut off is not an answer to end the turn
 				// on, and a replay of the same request would hit the same cap, so
 				// the model is asked again in words, a bounded number of times
@@ -1914,7 +2002,7 @@ func (a *Agent) runReActLoop(
 			// that failed, and let the proxy hand it to another deployment. The
 			// transcript keeps that turn, because the user watched its reasoning
 			// stream in. Words come next, once a replay has not helped.
-			if strings.TrimSpace(response.Content) == "" && emptyReissues < maxEmptyAssistantReissues &&
+			if strings.TrimSpace(response.Content) == "" && !imageGeneration && len(generatedParts) == 0 && emptyReissues < maxEmptyAssistantReissues &&
 				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant && retryAllowance.TakeRetry() {
 				if turn+1 >= maxTurns {
 					return string(acp.StopReasonMaxTurns), nil
@@ -1926,7 +2014,7 @@ func (a *Agent) runReActLoop(
 					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
 				continue
 			}
-			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations && retryAllowance.TakeRetry() {
+			if strings.TrimSpace(response.Content) == "" && !imageGeneration && len(generatedParts) == 0 && emptyContinuations < maxEmptyAssistantContinuations && retryAllowance.TakeRetry() {
 				if turn+1 >= maxTurns {
 					return string(acp.StopReasonMaxTurns), nil
 				}

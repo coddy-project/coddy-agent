@@ -37,6 +37,10 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeOpenAIValidationError(w, "invalid metadata", "metadata")
 		return
 	}
+	if imageGenerationFromHTTP(req.Metadata) {
+		writeOpenAIValidationError(w, "native image generation requires a chat profile", "metadata.image_generation")
+		return
+	}
 	if completionMetadataForbidden(req.Metadata) {
 		writeOpenAIValidationError(w, "metadata.model is not allowed for direct completion", "metadata.model")
 		return

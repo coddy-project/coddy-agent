@@ -890,3 +890,91 @@ test("unknown session usage stays hidden when the current call is known", async 
   });
   expect(updates).toEqual([null]);
 });
+
+test("assistant image frames keep order and deduplicate repeated deliveries", async () => {
+  const image = {
+    name: "new.png",
+    mime_type: "image/png",
+    asset: "new.png",
+    url: "/coddy/sessions/s/assets/new.png",
+  };
+  const frame = `event: assistant_images\ndata: ${JSON.stringify({ sessionUpdate: "assistant_images", messageId: "msg_1", images: [image] })}\n\n`;
+  const items = await drive(
+    textEvent("Before") +
+      frame +
+      frame +
+      `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "t1", title: "read" })}\n\n` +
+      textEvent("After") +
+      "data: [DONE]\n\n",
+  );
+  expect(items.map((item) => item.type)).toEqual([
+    "assistant_message",
+    "tool_call",
+    "assistant_message",
+  ]);
+  expect(items[0]).toMatchObject({
+    content: "Before",
+    messageId: "msg_1",
+    files: [{ name: "new.png" }],
+  });
+});
+
+test("an image-only frame creates a visible assistant row", async () => {
+  const items = await drive(
+    `event: assistant_images\ndata: ${JSON.stringify({ sessionUpdate: "assistant_images", messageId: "msg_2", images: [{ name: "new.png", mime_type: "image/png", url: "/coddy/sessions/s/assets/new.png" }] })}\n\n`,
+  );
+  expect(items).toEqual([
+    expect.objectContaining({
+      type: "assistant_message",
+      content: "",
+      messageId: "msg_2",
+      files: [expect.objectContaining({ name: "new.png" })],
+    }),
+  ]);
+});
+
+test("rejoin replay updates the persisted image row without duplicating it", async () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "persisted",
+      type: "assistant_message",
+      content: "",
+      messageId: "msg_2",
+      files: [
+        {
+          name: "new.png",
+          mimeType: "image/png",
+          url: "/coddy/sessions/s/assets/new.png",
+        },
+      ],
+    },
+  ];
+  const image = {
+    name: "new.png",
+    mime_type: "image/png",
+    url: "/coddy/sessions/s/assets/new.png",
+  };
+  const event = `event: assistant_images\ndata: ${JSON.stringify({ sessionUpdate: "assistant_images", messageId: "msg_2", images: [image] })}`;
+  const result = await consumeComposerSseReader({
+    reader: mockReader(event),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "rejoin",
+    applyStreamItems: (fn) => {
+      const next = fn(items.slice());
+      items.splice(0, items.length, ...next);
+    },
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+  });
+  result.flushToolQueue();
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    id: "persisted",
+    messageId: "msg_2",
+    files: [{ name: "new.png" }],
+  });
+});

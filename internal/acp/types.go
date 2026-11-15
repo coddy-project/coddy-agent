@@ -827,6 +827,22 @@ type MessageChunkUpdate struct {
 	MessageID string `json:"messageId,omitempty"`
 }
 
+// AssistantImage names a generated image stored with this session.
+type AssistantImage struct {
+	Name       string `json:"name"`
+	MIMEType   string `json:"mime_type,omitempty"`
+	Asset      string `json:"asset,omitempty"`
+	URL        string `json:"url,omitempty"`
+	PreviewURL string `json:"preview_url,omitempty"`
+}
+
+// AssistantImagesUpdate attaches generated images to the owning assistant row.
+type AssistantImagesUpdate struct {
+	SessionUpdate string           `json:"sessionUpdate"`
+	MessageID     string           `json:"messageId"`
+	Images        []AssistantImage `json:"images"`
+}
+
 // MessageID names one message of a session's history for the client receiving
 // it: index is the position that message holds in that history, so the id a
 // live chunk carries and the id the same message is replayed under are equal.

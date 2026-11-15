@@ -256,6 +256,10 @@ type State struct {
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
+	// turnImageGeneration is the per-turn opt-in for native image generation:
+	// true only while a turn the caller enabled it on is in flight;
+	// turn-scoped and never persisted.
+	turnImageGeneration bool
 	// turnLang is the language of the surface running the current turn (the
 	// web UI's locale, the terminal's); turn-scoped and never persisted.
 	turnLang string
@@ -1840,6 +1844,25 @@ func (s *State) GetTurnRestriction() *TurnRestriction {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.turnRestriction
+}
+
+// SetTurnImageGeneration records the per-turn opt-in for native image
+// generation; false clears it.
+func (s *State) SetTurnImageGeneration(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnImageGeneration = on
+}
+
+// GetTurnImageGeneration reports whether the current turn carries the native
+// image generation opt-in. The turn's own provider calls read it and ask for
+// the tool explicitly; side calls (compaction folds, prompt suggestions,
+// naming, subagent runs) never see it, since it is held on the session rather
+// than on their context.
+func (s *State) GetTurnImageGeneration() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnImageGeneration
 }
 
 // SetSurfaceTurnContext records the section the surface running the current

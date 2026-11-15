@@ -984,6 +984,11 @@
             "title": "Allow disabling reasoning",
             "type": "boolean"
           },
+          "image_generation": {
+            "description": "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
+            "title": "Image generation",
+            "type": "boolean"
+          },
           "kimi_metadata": {
             "additionalProperties": false,
             "description": "Protocol and provider settings captured from the model catalog.",
@@ -1082,6 +1087,7 @@
           "temperature",
           "max_context_tokens",
           "multimodal",
+          "image_generation",
           "stream",
           "reasoning_levels",
           "reasoning_default",

@@ -18,6 +18,6 @@ export function transcriptHasFilledAssistant(
     (it) =>
       it.type === "assistant_message" &&
       ids.has(it.id) &&
-      it.content.trim() !== "",
+      (it.content.trim() !== "" || (it.files?.length ?? 0) > 0),
   );
 }

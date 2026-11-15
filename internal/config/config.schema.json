@@ -221,6 +221,11 @@
             "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary.",
             "default": false
           },
+          "image_generation": {
+            "type": "boolean",
+            "description": "Model may emit images natively through the provider's image generation tool. Off by default: the UI offers the per-turn image control only for models opted in here, and a request's metadata.image_generation is refused for a model without it.",
+            "default": false
+          },
           "reasoning_levels": {
             "type": [
               "array",

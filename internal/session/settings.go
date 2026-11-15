@@ -551,6 +551,13 @@ func (m *Manager) TakeSettingsCommands(ctx context.Context, sessionID string, pr
 // takeSettingsCommands is TakeSettingsCommands; sessionOnly marks every change
 // it takes SettingsChange.SessionOnly.
 func (m *Manager) takeSettingsCommands(ctx context.Context, sessionID string, prompt []acp.ContentBlock, source string, sessionOnly bool) (TakenSettings, error) {
+	return m.takeSettingsCommandsChecked(ctx, sessionID, prompt, source, sessionOnly, nil)
+}
+
+// takeSettingsCommandsChecked lets admission validate the settings a prompt
+// would run with before any inline command is applied or published. Commands
+// without a prompt remain settings operations, not model turns.
+func (m *Manager) takeSettingsCommandsChecked(ctx context.Context, sessionID string, prompt []acp.ContentBlock, source string, sessionOnly bool, beforeApply func(*State, *CommandLine) error) (TakenSettings, error) {
 	out := TakenSettings{Prompt: prompt}
 	idx := -1
 	for i, b := range prompt {
@@ -584,6 +591,19 @@ func (m *Manager) takeSettingsCommands(ctx context.Context, sessionID string, pr
 			return out, err
 		}
 	}
+	rest := strings.TrimSpace(line.Rest)
+	others := false
+	for i, b := range prompt {
+		if i != idx && (b.Type != acp.ContentTypeText || strings.TrimSpace(b.Text) != "") {
+			others = true
+			break
+		}
+	}
+	if beforeApply != nil && (rest != "" || others) {
+		if err := beforeApply(st, line); err != nil {
+			return out, err
+		}
+	}
 	var notices []string
 	if !line.Session.Empty() {
 		ch := line.Session
@@ -594,14 +614,6 @@ func (m *Manager) takeSettingsCommands(ctx context.Context, sessionID string, pr
 			return out, err
 		}
 		notices = append(notices, notice)
-	}
-	rest := strings.TrimSpace(line.Rest)
-	others := false
-	for i, b := range prompt {
-		if i != idx && (b.Type != acp.ContentTypeText || strings.TrimSpace(b.Text) != "") {
-			others = true
-			break
-		}
 	}
 	if rest == "" && !others {
 		for _, ch := range line.Turns {

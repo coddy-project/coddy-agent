@@ -2,6 +2,7 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "messages.openGeneratedImage": "Open generated image {fileName}",
   "settings.section.httpserver.label": "Authentication",
   "settings.section.httpserver.desc": "Web sign-in protection",
   "settings.auth.removeTotp": "Remove TOTP",
@@ -803,6 +804,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.multimodal.label": "Multimodal",
   "settings.schema.models.multimodal.desc":
     "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
+  "settings.schema.models.image_generation.label": "Image generation",
+  "settings.schema.models.image_generation.desc":
+    "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
     "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
@@ -2086,6 +2090,11 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoning": "Reasoning",
   "composer.reasoningLevel": "Reasoning level",
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
+  "composer.imageGenerationQueueUnavailable":
+    "Turn off Images to queue a message, or wait for the current turn to finish.",
+  "composer.imageGeneration": "Images",
+  "composer.imageGenerationTitle":
+    "Ask the model for native image output on send (metadata.image_generation)",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",

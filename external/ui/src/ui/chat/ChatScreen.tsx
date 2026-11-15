@@ -119,6 +119,11 @@ export function ChatScreen(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Whether the currently selected model opted in to native image output. */
+  llmModelImageGen?: boolean;
+  /** The per-turn image control's state; passed through to the composer. */
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
@@ -1000,6 +1005,9 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      llmModelImageGen: props.llmModelImageGen,
+                      imageGenOn: props.imageGenOn,
+                      onImageGenToggle: props.onImageGenToggle,
                       ...(props.llmReasoningLevelsByModel !== undefined
                         ? {
                             llmReasoningLevelsByModel:
@@ -1264,6 +1272,9 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        llmModelImageGen: props.llmModelImageGen,
+                        imageGenOn: props.imageGenOn,
+                        onImageGenToggle: props.onImageGenToggle,
                         ...(props.llmReasoningLevelsByModel !== undefined
                           ? {
                               llmReasoningLevelsByModel:

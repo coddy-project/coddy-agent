@@ -427,6 +427,8 @@ type ModelInfo = {
   ownedBy?: string;
   maxContextTokens?: number | undefined;
   multimodal?: boolean;
+  /** The model opted in to native image output (models[].image_generation). */
+  imageGeneration?: boolean;
   reasoningLevels?: string[];
   reasoningDefault?: string;
   /** The toolsets[] preset the model names (models[].toolset). */
@@ -3276,6 +3278,7 @@ export function App() {
           owned_by?: string;
           max_context_tokens?: number;
           multimodal?: boolean;
+          image_generation?: boolean;
           reasoning_levels?: string[];
           reasoning_default?: string;
           toolset?: string;
@@ -3292,6 +3295,7 @@ export function App() {
             ? { maxContextTokens: d.max_context_tokens }
             : {}),
           multimodal: !!d.multimodal,
+          imageGeneration: !!d.image_generation,
           reasoningLevels: Array.isArray(d.reasoning_levels)
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
@@ -3304,6 +3308,7 @@ export function App() {
           id: d.id,
           ownedBy: d.ownedBy,
           multimodal: d.multimodal,
+          imageGeneration: d.imageGeneration,
           reasoningLevels: d.reasoningLevels,
           reasoningDefault: d.reasoningDefault,
         };
@@ -5513,7 +5518,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           ),
         );
@@ -5533,7 +5539,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           );
           return [
@@ -5607,6 +5614,7 @@ export function App() {
     text: string,
     opts?: {
       modeOverride?: string;
+      imageGenerationOverride?: boolean;
       runPlanSlug?: string;
       files?: File[];
       /**
@@ -5706,6 +5714,11 @@ export function App() {
           );
           setActiveDraftId("");
         }
+        setImageGenSelection((previous) =>
+          previous.on && previous.scope === imageGenScope
+            ? { ...previous, scope: `${sid}\0${llmModel}\0${llmModelImageGen}` }
+            : previous,
+        );
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -6031,6 +6044,11 @@ export function App() {
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
+      // The per-turn image control: only for a model the configuration
+      // opted in to native image output (models[].image_generation).
+      const imageGenForTurn =
+        (opts?.imageGenerationOverride ?? imageGenOn) && llmModelImageGen;
+      if (imageGenForTurn) meta.image_generation = true;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
       if (runSlug) meta.runPlanSlug = runSlug;
@@ -6073,6 +6091,12 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
+      if (res.ok)
+        retryImageGenRef.current.set(sid.trim(), {
+          text,
+          model: llmModel,
+          enabled: imageGenForTurn,
+        });
       // The server took the session's first message, and with it the pick.
       if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
         setPendingPermissionMode("");
@@ -6327,7 +6351,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           );
           return [
@@ -6607,6 +6632,37 @@ export function App() {
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
+
+  // The model opted in to native image output: the composer offers the
+  // per-turn Images control only for one, and sends ask for it only then.
+  const llmModelImageGen = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    return row?.imageGeneration ?? false;
+  }, [modelInfos, llmModel]);
+
+  // The per-turn image control: while on, sends carry
+  // metadata.image_generation for a model opted in to native output.
+  const imageGenScope = `${sessionId.trim() || activeDraftId.trim()}\0${llmModel}\0${llmModelImageGen}`;
+  const [imageGenSelection, setImageGenSelection] = useState({
+    scope: imageGenScope,
+    on: false,
+  });
+  if (imageGenSelection.scope !== imageGenScope) {
+    setImageGenSelection({ scope: imageGenScope, on: false });
+  }
+  const imageGenOn =
+    imageGenSelection.scope === imageGenScope && imageGenSelection.on;
+  const retryImageGenRef = useRef(
+    new Map<string, { text: string; model: string; enabled: boolean }>(),
+  );
+  const onImageGenToggle = useCallback(
+    () =>
+      setImageGenSelection((v) => ({
+        scope: imageGenScope,
+        on: v.scope === imageGenScope ? !v.on : true,
+      })),
+    [imageGenScope],
+  );
 
   // Every configured model's levels: /goal --reasoning completes the levels
   // of the model its --model names.
@@ -7877,7 +7933,7 @@ export function App() {
       // neither clears the composer's draft nor comes back into it, and
       // onRefused gives it back to the bar when the server does not take it.
       source: "composer" | "canvas" = "composer",
-      onRefused?: () => void,
+      onRefused?: (reason?: string) => void,
     ) => {
       const sid = sessionId.trim();
       const generation = turnActivity.generation(sid);
@@ -7885,6 +7941,27 @@ export function App() {
       const body = text.trim();
       if (!sid || (!body && files.length === 0)) return;
       const fromComposer = source === "composer";
+      if (imageGenOn && llmModelImageGen) {
+        if (fromComposer) {
+          setDraft((current) => current || body);
+          if (files.length)
+            setComposerFiles((current) => [...files, ...current]);
+        } else {
+          onRefused?.(t("composer.imageGenerationQueueUnavailable"));
+          return;
+        }
+        applyStreamItemsForSession(sid, (prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error",
+            message: t("composer.imageGenerationQueueUnavailable"),
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
       if (fromComposer) setDraft("");
       void (async () => {
         type QueueAnswer = {
@@ -7944,6 +8021,7 @@ export function App() {
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
           void sendLatest(body, {
+            imageGenerationOverride: false,
             files,
             restoreOnRefusal: fromComposer,
             ...(onRefused ? { onRefusal: onRefused } : {}),
@@ -8067,8 +8145,18 @@ export function App() {
       })();
     },
   );
+  const retryImageGen = retryImageGenRef.current.get(sessionId.trim());
+  const retryImageGenKnown =
+    !!retryImageGen &&
+    retryImageGen.text === lastUserText &&
+    retryImageGen.model === llmModel;
   const handleRetryLast = useStableHandler(
-    () => void streamResponses(lastUserText),
+    () =>
+      void streamResponses(lastUserText, {
+        imageGenerationOverride: retryImageGenKnown
+          ? retryImageGen.enabled
+          : false,
+      }),
   );
   /**
    * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
@@ -8589,6 +8677,9 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
+                  llmModelImageGen,
+                  imageGenOn,
+                  onImageGenToggle,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
@@ -8627,7 +8718,11 @@ export function App() {
             onPromptSuggestionAccepted={() => {
               promptSuggestionAcceptedRef.current = true;
             }}
-            {...(!generating && lastUserText.trim() && !subagentTranscript
+            {...(!generating &&
+            lastUserText.trim() &&
+            !subagentTranscript &&
+            (!retryImageGen || retryImageGen.model === llmModel) &&
+            (!llmModelImageGen || retryImageGenKnown)
               ? { onRetryLast: handleRetryLast }
               : {})}
             onContextRingOpen={() => {
