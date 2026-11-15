@@ -393,6 +393,78 @@ jobs:
           path: dist/coddy_android_amd64.tar.gz
           retention-days: 14
 
+  # FreeBSD, type-checked here and then run on a real one.
+  #
+  # The BSD half of every per-OS file - the xucred peer check of the local
+  # endpoint, the statfs of the disk probe, the kern.proc sysctl the desktop
+  # window reads a parent from - is compiled by neither the host gate nor the
+  # linter, the way check-windows covers the Windows half. Cross-building is
+  # not proof that the binary runs, so the second half of this job starts a
+  # FreeBSD virtual machine and runs the release-shaped binary and the
+  # platform suites inside it.
+  #
+  # The test binaries are cross-compiled here rather than built in the VM:
+  # FreeBSD's ports carry whichever Go the quarterly branch pinned, and the
+  # toolchain this repository builds with is the one in go.mod. The VM gets
+  # finished binaries and needs no Go at all.
+  freebsd:
+    name: FreeBSD build and native tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Type-check the FreeBSD build
+        run: make check-freebsd
+
+      - name: Cross-compile the binary and the test binaries a FreeBSD runs
+        env:
+          GOOS: freebsd
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist/freebsd
+          # The release shape minus `ui`: the embedded SPA is a build artefact
+          # and this job proves the platform, not the assets.
+          tags="$(make -s print-lint-tags-no-ui)"
+          go build -tags "$tags" -o dist/freebsd/coddy ./cmd/coddy/
+          for pkg in internal/platform internal/localipc internal/llm internal/bgtask internal/tools/shell internal/rules; do
+            go test -c -tags "$tags" -o "dist/freebsd/$(basename "$pkg").test" "./$pkg"
+          done
+
+      - name: Run them on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          usesh: true
+          # bash is what the shell detector prefers and what a shell-tool test
+          # asks for by name, and ripgrep is what the search tool runs;
+          # FreeBSD's base system ships neither.
+          prepare: pkg install -y bash ripgrep
+          run: |
+            set -e
+            bin="$(pwd)/dist/freebsd"
+            "$bin/coddy" -v
+            "$bin/coddy" sessions list
+            "$bin/coddy" skills list
+            # Each binary runs in the directory of the package it was built
+            # from: the suites read the checkout through relative paths.
+            for pkg in internal/platform internal/localipc internal/bgtask internal/tools/shell internal/rules; do
+              ( cd "$pkg" && "$bin/$(basename "$pkg").test" -test.timeout=20m )
+            done
+            # The Kimi credential store is the one provider path with a
+            # per-platform implementation: owner checks, flock and the
+            # directory flush that makes a refresh survive a crash.
+            ( cd internal/llm && "$bin/llm.test" -test.timeout=20m -test.run '^Test(Kimi|EnsureKimiIdentity|ContextWindowKimi|GoalJudgeKimi)' )
+
   # Run the shipped suite natively as well: cross-building cannot exercise
   # Windows process groups, paths, file handles or the console shell.
   test-windows:
@@ -744,6 +816,22 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         env:
           GOOS: windows
+        with:
+          version: v2.15.0
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
+
+      - name: Run golangci-lint against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
+        with:
+          version: v2.15.0
+          args: ./...
+
+      - name: Run golangci-lint with the shipped tag set against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
         with:
           version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...

@@ -53,8 +53,10 @@ crash and, with [lingering](#after-logout-and-at-boot), keeps running after logo
 starts at boot. `coddy serve install` puts it in place and `coddy serve uninstall` takes it
 away. Both run as the user the service is for, never under `sudo`.
 
-On macOS and Windows there is no systemd, and both commands say so; `coddy serve --daemon`
-is the route there. On Linux, what `install` has to do depends on how Coddy was installed:
+On macOS, Windows and FreeBSD there is no systemd, and both commands say so; `coddy serve --daemon`
+is the route there, and on FreeBSD an `rc.d` script is the other one
+([FreeBSD](../getting-started/freebsd.md#running-coddy-serve)). On Linux, what `install` has to do
+depends on how Coddy was installed:
 
 | Installed with | The unit | What `install` does with it |
 |---|---|---|
@@ -358,6 +360,7 @@ A supervised process restarts only into settings a fresh process can start. When
 |-----------|------|
 | Linux with systemd, a server that should outlive your login | `coddy serve install` (a systemd user service) |
 | a laptop, a dev box, a shell on a machine without systemd | `coddy serve --daemon` |
+| FreeBSD, a server that should come back after a reboot | an `rc.d` script running `coddy serve` under `daemon -r` ([FreeBSD](../getting-started/freebsd.md#running-coddy-serve)) |
 | `supervisord`, `runit` | `coddy serve` in the foreground with `CODDY_SERVE_ROLE=service`, and let them restart it |
 | Docker, Kubernetes | `coddy serve` in the foreground as PID 1; the orchestrator restarts the container |
 

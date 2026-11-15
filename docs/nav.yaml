@@ -34,6 +34,9 @@ groups:
       - path: getting-started/android.md
         title: Android (Termux)
         summary: The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device.
+      - path: getting-started/freebsd.md
+        title: FreeBSD
+        summary: The FreeBSD archives, running the server without systemd, the desktop window, and where the BSD kernel interfaces differ from Linux.
       - path: getting-started/troubleshooting.md
         title: Troubleshooting
         summary: What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.

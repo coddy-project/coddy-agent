@@ -1,4 +1,4 @@
-//go:build desktop && !darwin && !windows && (!linux || android)
+//go:build desktop && !darwin && !windows && !freebsd && (!linux || android)
 
 package desktop
 
