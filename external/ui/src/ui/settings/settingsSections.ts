@@ -393,6 +393,10 @@ export const SETTINGS_TEXTS = {
   statisticsEnable: { label: "stats.enable", desc: "stats.enable.hint" },
   statisticsCounters: { label: "stats.counters", desc: "stats.counters.hint" },
   statisticsTimezone: { label: "stats.timezone", desc: "stats.timezone.hint" },
+  statisticsExchangeRate: {
+    label: "stats.exchange.heading",
+    desc: "stats.exchange.hint",
+  },
   statisticsPrices: { label: "stats.prices", desc: "stats.prices.hint" },
   systemInstallation: { label: "system.installation" },
   systemSubsystems: { label: "system.subsystems" },

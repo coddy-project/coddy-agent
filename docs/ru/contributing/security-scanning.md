@@ -22,7 +22,7 @@ make sec-report        # every scanner, gate off — findings never fail, errors
 
 ## Запуск и версии
 
-Если бинарник сканера есть в `PATH`, используется он; иначе запускается закреплённый docker-образ (`aquasec/trivy`, `semgrep/semgrep`, константы `tag@sha256:` в начале `scripts/security-scan.sh`). Собственного образа у govulncheck нет. Закреплённый образ Go (`GO_IMAGE`) запускает релиз из `GOVULNCHECK_VERSION` через `go run` и держит кэши модулей и сборки в `dist/security/.cache/`. `SEC_DOCKER=0` запрещает этот запасной путь, для машин, где docker под запретом.
+Если бинарник сканера есть в `PATH`, используется он; иначе запускается закреплённый docker-образ (`aquasec/trivy`, `semgrep/semgrep`, константы `tag@sha256:` в начале `scripts/security-scan.sh`). Собственного образа у govulncheck нет. Закреплённый образ Go (`GO_IMAGE`) запускает релиз из `GOVULNCHECK_VERSION` через `go run` и держит кеши модулей и сборки в `dist/security/.cache/`. `SEC_DOCKER=0` запрещает этот запасной путь, для машин, где docker под запретом.
 
 Чтобы обновить сканер, скачайте новый образ, возьмите его дайджест (`docker images --digests`), обновите константу, запустите `make security` и сравните сводку с предыдущей - обновление правил или базы может изменить находки без единого коммита, поэтому каждое обновление идёт отдельным небольшим пул-реквестом.
 
@@ -34,7 +34,7 @@ make sec-report        # every scanner, gate off — findings never fail, errors
 - `govulncheck.json` - JSON-поток govulncheck, то есть каждая запись об уязвимости с трассой, которая к ней ведёт (`govulncheck -tags <tags> ./...` выводит то же текстом);
 - `trivy.sarif`, `semgrep.sarif` - для GitHub code scanning; SARIF trivy не включает секреты, потому что code scanning сохраняет найденный текст;
 - `summary.md` - число находок по уровням серьёзности, его и показывает сводка задания CI;
-- `.cache/` - кэши сканеров, чтобы повторные запуски были быстрыми.
+- `.cache/` - кеши сканеров, чтобы повторные запуски были быстрыми.
 
 ## Гейт
 

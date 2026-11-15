@@ -15,15 +15,19 @@ A git worktree keeps its English name, **worktree** (отдельный worktree
 translate it as **рабочее дерево** in any of its forms: nobody searches for the Russian calque, and the
 English word is what git, the chips of the composer and the documentation all say.
 
+In Russian text, spell cache as **кеш**.
+
 These rules apply to everything written in Russian for this project: the `ru` dictionary under
 `external/ui/src/ui/i18n/messages/`, Russian documentation and screenshots of the Russian interface,
 commit messages, issue comments and answers to the operator. The dictionary is held to them by
 `external/ui/src/ui/i18n/ruWording.test.ts`. Before finishing a change that touches Russian text, run
-the three checks below and expect no hits other than the rule files, which name the wrong words in
-order to forbid them (the test spells them with a character class, so it stays out of the result):
+the four checks below and expect no hits other than the rule files, which name the wrong words in
+order to forbid them (the test and the cache check use character classes, so the forbidden spelling
+stays out of the search pattern):
 
 ```bash
 git grep -n -i 'агентск'
 git grep -n -i 'сабагент'
 git grep -n -i -e 'рабочее дерево' -e 'рабочего дерева' -e 'рабочем дереве' -e 'рабочие деревья'
+git grep -n -i 'к[э]ш'
 ```

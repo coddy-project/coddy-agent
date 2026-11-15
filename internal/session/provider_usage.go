@@ -881,6 +881,9 @@ func mapNeuralDeepUsage(u *llm.NeuralDeepUsage, providerName string, fetchedAt t
 		}
 		out.Windows = append(out.Windows, w)
 	}
+	if kimi, ok := llm.DecodeNeuralDeepKimiUsage(u.Kimi); ok {
+		out.Windows = append(out.Windows, mapKimiUsage(kimi, providerName, fetchedAt).Windows...)
+	}
 	if r := u.Chat.RPM; r.Limit != nil && r.Used != nil {
 		rate := &acp.UsageRate{Used: *r.Used, Limit: *r.Limit}
 		if r.Remaining != nil {

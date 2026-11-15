@@ -1102,6 +1102,124 @@ const modelsSchema: JsonSchema = {
   },
 };
 
+const kimiMetadataSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          kimi_metadata: {
+            type: "object",
+            title: "Kimi catalog metadata",
+            description: "Protocol and provider settings from the catalog.",
+            properties: {
+              model: { type: "string", title: "Model reference" },
+              protocol: { type: "string", title: "Protocol" },
+              mode: { type: "string", title: "Mode" },
+              region: { type: "string", title: "Region" },
+            },
+          },
+          max_tokens: { type: "integer", title: "Max tokens" },
+        },
+        "x-coddy-property-order": ["model", "kimi_metadata", "max_tokens"],
+      },
+    },
+  },
+};
+
+function KimiMetadataHarness(props: {
+  providerName: string;
+  providerType: string;
+  modelId: string;
+  setDoc?: (next: Record<string, unknown>) => void;
+}) {
+  return (
+    <SettingsSection
+      section={modelsSection}
+      schema={kimiMetadataSchema}
+      doc={{
+        providers: [{ name: props.providerName, type: props.providerType }],
+        models: [
+          {
+            model: props.modelId,
+            kimi_metadata: {
+              model: props.modelId,
+              protocol: "kimi",
+              mode: "subscription",
+              region: "global",
+            },
+            max_tokens: 256,
+          },
+        ],
+      }}
+      setDoc={props.setDoc ?? vi.fn()}
+    />
+  );
+}
+
+test("Kimi catalog metadata is hidden for Codex models", () => {
+  render(
+    <KimiMetadataHarness
+      providerName="codex"
+      providerType="codex"
+      modelId="codex/gpt-5.6-sol"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.queryByText("Kimi catalog metadata")).toBeNull();
+});
+
+test("Kimi catalog metadata stays visible for a Kimi provider with a custom name", () => {
+  render(
+    <KimiMetadataHarness
+      providerName="kimi-enterprise"
+      providerType="kimi"
+      modelId="kimi-enterprise/kimi-for-coding"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.getByText("Kimi catalog metadata")).toBeInTheDocument();
+});
+
+test("editing a Codex model preserves hidden Kimi metadata", () => {
+  const setDoc = vi.fn();
+  render(
+    <KimiMetadataHarness
+      providerName="codex"
+      providerType="codex"
+      modelId="codex/gpt-5.6-sol"
+      setDoc={setDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Max tokens" }), {
+    target: { value: "512" },
+  });
+
+  expect(setDoc).toHaveBeenCalledWith(
+    expect.objectContaining({
+      models: [
+        expect.objectContaining({
+          model: "codex/gpt-5.6-sol",
+          max_tokens: 512,
+          kimi_metadata: {
+            model: "codex/gpt-5.6-sol",
+            protocol: "kimi",
+            mode: "subscription",
+            region: "global",
+          },
+        }),
+      ],
+    }),
+  );
+});
+
 const reasoningModelsSchema: JsonSchema = {
   type: "object",
   properties: {

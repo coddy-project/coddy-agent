@@ -81,6 +81,11 @@ func sum(dst **int64, v *int64) {
 // ApplyPrice fills a missing estimate using USD rates per million tokens.
 // An explicit zero rate is supported for a locally hosted model.
 func ApplyPrice(e *Event, prices map[string]Price) {
+	ApplyPriceWithRate(e, prices, DefaultUSDToRubRate)
+}
+
+// ApplyPriceWithRate fills a missing USD estimate from custom USD or RUB rates.
+func ApplyPriceWithRate(e *Event, prices map[string]Price, usdToRub float64) {
 	if e.CostUSD != nil || e.Input == nil || e.Output == nil {
 		return
 	}
@@ -100,6 +105,12 @@ func ApplyPrice(e *Event, prices map[string]Price) {
 		cached = min(*e.Cached, *e.Input)
 	}
 	v := (float64(*e.Input-cached)*p.Input + float64(cached)*p.CachedRate() + float64(*e.Output)*p.Output) / 1e6
+	if p.Currency == CurrencyRUB {
+		if usdToRub <= 0 {
+			usdToRub = DefaultUSDToRubRate
+		}
+		v /= usdToRub
+	}
 	e.CostUSD = &v
 }
 
@@ -191,7 +202,7 @@ func summarizeEach(events []Event, filters []Filter, st Settings, now time.Time)
 		if f.Timezone == "" {
 			f.Timezone = st.Timezone
 		}
-		r, err := Summarize(events, f, st.Prices, now)
+		r, err := SummarizeWithRate(events, f, st.Prices, st.USDToRub, now)
 		if err != nil {
 			return nil, err
 		}
@@ -260,6 +271,11 @@ func (s *Store) Page(f Filter) (Report, Report, error) {
 // Summarize is also used by a relay, which merges leaf datasets before
 // computing streaks, distinct chats and daily records (never sums summaries).
 func Summarize(events []Event, f Filter, prices map[string]Price, now time.Time) (Report, error) {
+	return SummarizeWithRate(events, f, prices, DefaultUSDToRubRate, now)
+}
+
+// SummarizeWithRate computes canonical USD costs from tariffs in either currency.
+func SummarizeWithRate(events []Event, f Filter, prices map[string]Price, usdToRub float64, now time.Time) (Report, error) {
 	r := Report{Days: []Day{}, Models: []Breakdown{}, Providers: []Breakdown{}, Projects: []Breakdown{}, Sources: []Breakdown{}, Reasoning: []Breakdown{}, Skills: []Breakdown{}}
 	if err := f.Validate(); err != nil {
 		return r, err
@@ -330,7 +346,7 @@ func Summarize(events []Event, f Filter, prices map[string]Price, now time.Time)
 			if tokens == nil {
 				r.Totals.UnknownUsage++
 			}
-			ApplyPrice(&e, prices)
+			ApplyPriceWithRate(&e, prices, usdToRub)
 			cost := e.CostUSD
 			if cost == nil {
 				r.Totals.UnpricedCalls++

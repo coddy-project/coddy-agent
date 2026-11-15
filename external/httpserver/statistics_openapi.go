@@ -71,6 +71,32 @@ func mergeStatisticsOpenAPI(doc map[string]interface{}) {
 	settings := schema(reflect.TypeFor[statistics.Settings]())
 	status := schema(reflect.TypeFor[statistics.ImportStatus]())
 	priceMap := schema(reflect.TypeFor[map[string]statistics.Price]())
+	priceSchema := schemas["StatisticsPrice"].(map[string]interface{})
+	priceProperties := priceSchema["properties"].(map[string]interface{})
+	priceProperties["currency"] = map[string]interface{}{
+		"type":        "string",
+		"enum":        []string{statistics.CurrencyUSD, statistics.CurrencyRUB},
+		"default":     statistics.CurrencyUSD,
+		"description": "Currency of this model tariff. Omitted means USD.",
+	}
+	priceInputProperties := map[string]interface{}{
+		"input":    schema(reflect.TypeFor[float64]()),
+		"output":   schema(reflect.TypeFor[float64]()),
+		"cached":   schema(reflect.TypeFor[*float64]()),
+		"currency": priceProperties["currency"],
+	}
+	schemas["StatisticsPriceInput"] = map[string]interface{}{
+		"type": "object", "properties": priceInputProperties, "required": []string{"input", "output"},
+	}
+	priceMap["additionalProperties"] = map[string]interface{}{"$ref": "#/components/schemas/StatisticsPriceInput"}
+	settingsSchema := schemas["StatisticsSettings"].(map[string]interface{})
+	settingsProperties := settingsSchema["properties"].(map[string]interface{})
+	settingsProperties["currency"] = map[string]interface{}{
+		"type": "string", "enum": []string{statistics.CurrencyUSD, statistics.CurrencyRUB}, "default": statistics.CurrencyUSD,
+	}
+	settingsProperties["usdToRub"] = map[string]interface{}{
+		"type": "number", "format": "double", "minimum": 0, "exclusiveMinimum": true, "default": statistics.DefaultUSDToRubRate,
+	}
 	object := func(props map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{"type": "object", "properties": props}
 	}
@@ -91,8 +117,14 @@ func mergeStatisticsOpenAPI(doc map[string]interface{}) {
 	clear := operation("statisticsClear", "Permanently clear counters, retaining the selected trailing period", object(map[string]interface{}{"ok": map[string]interface{}{"type": "boolean"}}), "200")
 	clear["parameters"] = []interface{}{map[string]interface{}{"name": "keep", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"none", "day", "week", "month"}}}}
 	paths["/coddy/statistics"] = map[string]interface{}{"get": get, "delete": clear}
-	put := operation("statisticsSettingsPut", "Save the collection switch, the time zone and USD rates per million tokens; a field the body omits keeps its value, and a tariff without a cache rate reads the input rate", settings, "200")
-	put["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": object(map[string]interface{}{"enabled": map[string]interface{}{"type": "boolean"}, "timezone": str(), "prices": priceMap})}}}
+	put := operation("statisticsSettingsPut", "Save the collection switch, the time zone, display currency, USD/RUB rate and per-model USD/RUB tariffs; omitted fields keep their value, and a tariff without a cache rate reads the input rate", settings, "200")
+	put["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": object(map[string]interface{}{
+		"enabled":  map[string]interface{}{"type": "boolean"},
+		"timezone": str(),
+		"currency": map[string]interface{}{"type": "string", "enum": []string{statistics.CurrencyUSD, statistics.CurrencyRUB}, "default": statistics.CurrencyUSD},
+		"usdToRub": map[string]interface{}{"type": "number", "format": "double", "minimum": 0, "exclusiveMinimum": true, "default": statistics.DefaultUSDToRubRate, "description": "Number of rubles for one USD. Must be finite and positive."},
+		"prices":   priceMap,
+	})}}}
 	paths["/coddy/statistics/settings"] = map[string]interface{}{"put": put}
 	post := operation("statisticsImport", "Start or skip the background historical import", status, "202")
 	post["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": object(map[string]interface{}{"action": map[string]interface{}{"type": "string", "enum": []string{"start", "skip"}}})}}}

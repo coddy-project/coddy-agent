@@ -33,6 +33,9 @@ func TestProviderModelsWebUIFeature(t *testing.T) {
 		"an address naming no row goes back to the list and clears the name":                   {array, "an address naming no row goes back to the list and clears the name"},
 		"renaming the open row renames it in the address":                                      {array, "renaming the open row renames it in the address"},
 		"the models of a provider named coddy are backends and the profiles are not":           {selection, "the models of a provider named coddy are backends and the profiles are not"},
+		"Kimi catalog metadata is hidden for Codex models":                                     {section, "Kimi catalog metadata is hidden for Codex models"},
+		"Kimi catalog metadata stays visible for a Kimi provider with a custom name":           {section, "Kimi catalog metadata stays visible for a Kimi provider with a custom name"},
+		"editing a Codex model preserves hidden Kimi metadata":                                 {section, "editing a Codex model preserves hidden Kimi metadata"},
 	}
 	suite := godog.TestSuite{
 		Name: "provider_models_web_ui",

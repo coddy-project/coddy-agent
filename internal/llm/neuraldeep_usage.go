@@ -95,6 +95,45 @@ type NeuralDeepUsage struct {
 	// covers part of the catalogue rather than the chat class as a whole,
 	// so the account stays able to request and only these models do not.
 	BlockedModels []NeuralDeepUsageBlockedModel `json:"blocked_models"`
+	// Kimi carries the hub's optional Kimi subscription usage, in the same
+	// shape as the Kimi /usages endpoint.
+	Kimi json.RawMessage `json:"kimi"`
+}
+
+// DecodeNeuralDeepKimiUsage decodes the optional Kimi windows carried by a
+// NeuralDeep limits response. It returns false when the member is absent or
+// does not contain recognized Kimi windows.
+func DecodeNeuralDeepKimiUsage(raw json.RawMessage) (*KimiUsage, bool) {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil || root == nil {
+		return nil, false
+	}
+	windows := root
+	if wrapped, ok := root["usages"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(wrapped, &nested) != nil || nested == nil {
+			return nil, false
+		}
+		windows = nested
+	}
+	if !hasNeuralDeepKimiWindow(windows) {
+		return nil, false
+	}
+	return &KimiUsage{
+		Limit5H:    kimiUsageWindow(windows["limit_5h"]),
+		Limit7D:    kimiUsageWindow(windows["limit_7d"]),
+		MonthTotal: kimiUsageWindow(windows["limit_month_total"]),
+		MonthCode:  kimiUsageWindow(windows["limit_month_code"]),
+	}, true
+}
+
+func hasNeuralDeepKimiWindow(windows map[string]json.RawMessage) bool {
+	for _, key := range []string{"limit_5h", "limit_7d", "limit_month_total", "limit_month_code"} {
+		if _, ok := windows[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // NeuralDeepUsageBlockedModel is one model the key may not call right now,

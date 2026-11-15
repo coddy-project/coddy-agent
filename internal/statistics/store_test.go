@@ -9,6 +9,35 @@ import (
 	"time"
 )
 
+func TestStatisticsDisplayCurrencyDefaultsToUSDAtNinetyRubles(t *testing.T) {
+	settings, err := New(t.TempDir()).Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Currency != "USD" || settings.USDToRub != 90 {
+		t.Fatalf("display currency = %q at %g USD/RUB, want USD at 90", settings.Currency, settings.USDToRub)
+	}
+}
+
+func TestStatisticsLegacySettingsDefaultToUSDAtNinetyRubles(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "statistics")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"dataset":"legacy","timezone":"UTC","prices":{},"import":{"state":"skipped"}}`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := New(home).Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Currency != CurrencyUSD || settings.USDToRub != DefaultUSDToRubRate {
+		t.Fatalf("legacy display currency = %q at %g USD/RUB", settings.Currency, settings.USDToRub)
+	}
+}
+
 func TestStatisticsJournalRecoversAnInterruptedAppend(t *testing.T) {
 	s := New(t.TempDir())
 	at := time.Now().UTC()
