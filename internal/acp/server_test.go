@@ -16,6 +16,7 @@ type mockHandler struct {
 	promptResult *acp.SessionPromptResult
 	modeError    error
 	promptError  error
+	newError     error
 	cancelledID  string
 	closedID     string
 	closeNil     bool
@@ -32,6 +33,9 @@ func (m *mockHandler) HandleInitialize(_ context.Context, _ acp.InitializeParams
 }
 
 func (m *mockHandler) HandleSessionNew(_ context.Context, _ acp.SessionNewParams) (*acp.SessionNewResult, error) {
+	if m.newError != nil {
+		return nil, m.newError
+	}
 	if m.newResult != nil {
 		return m.newResult, nil
 	}
@@ -362,4 +366,35 @@ func TestMessageChunksCarryTheirMessageID(t *testing.T) {
 	if !strings.Contains(string(got), `"messageId":"msg_4"`) {
 		t.Fatalf("chunk = %s, want its message id", got)
 	}
+}
+
+// A client that says it renders the standard notice is told so at initialize,
+// which is what routes the same line to it as a notice instead of as the field
+// of a Coddy update.
+func TestSupportsNoticesFollowsTheClientCapability(t *testing.T) {
+	w := startWireServer(t, &mockHandler{})
+	w.initialize(t, `{"session":{"notices":{}}}`)
+	// The answer is written before the flag can be read, so the read below is
+	// not a race against the dispatcher.
+	if !w.srv.SupportsNotices() {
+		t.Fatal("a client that advertised session.notices is not read as rendering notices")
+	}
+
+	w2 := startWireServer(t, &mockHandler{})
+	w2.initialize(t, `{}`)
+	if w2.srv.SupportsNotices() {
+		t.Fatal("a client that advertised nothing is read as rendering notices")
+	}
+}
+
+// The system prompt a session lifecycle request carries is refused before it
+// can leave a session behind: an unsupported mode is invalid params.
+func TestUnsupportedSystemPromptModeAnswersInvalidParams(t *testing.T) {
+	w := startWireServer(t, &mockHandler{newError: acp.InvalidParams(`systemPrompt mode %q is not supported (append)`, "override")})
+	w.initialize(t, `{}`)
+	if err := w.send(`{"jsonrpc":"2.0","id":11,"method":"session/new","params":{"cwd":"/tmp",` +
+		`"systemPrompt":{"mode":"override","content":[{"type":"text","text":"x"}]}}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.awaitWritten(t, `"code":-32602`)
 }

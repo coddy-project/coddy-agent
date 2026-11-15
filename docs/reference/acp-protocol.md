@@ -121,6 +121,9 @@ Negotiate protocol version and exchange capabilities.
     "terminal": true,
     "elicitation": {
       "form": {}
+    },
+    "session": {
+      "notices": {}
     }
   },
   "clientInfo": {
@@ -144,7 +147,8 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
       "delete": {},
       "additionalDirectories": {},
       "resume": {},
-      "close": {}
+      "close": {},
+      "systemPrompt": {}
     },
     "promptCapabilities": {
       "image": false,
@@ -167,6 +171,8 @@ A client that renders form elicitation says so in `clientCapabilities.elicitatio
 
 `authMethods` is a list of objects tagged by `type` (`agent`, `env`, `terminal`), as ACP defines it. Coddy needs no sign-in of its own, so the list is always empty.
 
+A client that says it renders the standard notice - `clientCapabilities.session.notices` - is sent its live lines as `notice` updates, and Coddy's own updates then carry an empty `notice` field, so one line is never shown twice. A client that does not keeps reading the field, as before.
+
 ### `session/new`
 
 Create a new conversation session.
@@ -183,11 +189,19 @@ Create a new conversation session.
       "args": ["--stdio"],
       "env": []
     }
-  ]
+  ],
+  "systemPrompt": {
+    "mode": "append",
+    "content": [{ "type": "text", "text": "You are a code review specialist." }]
+  }
 }
 ```
 
 `additionalDirectories` names workspace roots the session works in beside `cwd`. Each path is absolute, and a request naming an entry that is not is refused; the list is the complete one: a request that omits it or sends an empty list starts the session with no extra roots. The roots are kept with the session, reported back on `session/list`, and treated as part of the workspace where Coddy decides whether a path is one the session may reach - the mention resolver and the checks that keep a confined turn inside its workspace.
+
+`systemPrompt` is the client's own system-level instructions for the session, accepted on `session/new`, `session/load` and `session/resume` and advertised as `sessionCapabilities.systemPrompt`. Coddy applies **append** mode only: the text follows its own instructions - under a `## Client system instructions` heading at the end of the system prompt - and never replaces them, so the tool guidance, the project rules and the safety text stay. `override` is not advertised, and a request that names it is refused with `-32602` before a session is created, loaded or resumed, as is an empty `content` or a block that is not text.
+
+The block is kept with the session in `session.json` (`acpSystemPrompt`): a client that reopens a session without resending it keeps the instructions it set, and one that sends a different block replaces them, which is written at once. It is read on every turn rather than folded into the history, so a compaction cannot lose it.
 
 **Response result:**
 
@@ -612,6 +626,8 @@ Tool call kinds are values of the ACP `ToolKind` enum, and Coddy sends no other:
 Coddy sends four `session/update` kinds the ACP specification does not
 define; a client that ignores unknown kinds keeps working.
 
+A context compaction is not one of them: it is an ordinary message row of the session, replayed with the rest of the history, and Coddy does not use the standard ID-addressed `compaction_update` entity. One shape on disk is what keeps the fold, the replay and every surface reading the same transcript.
+
 - **`turn_progress`** carries the turn clock and output tokens. Optional `tokensPerSecond` reports generation speed; `completed: true` marks the final update, including a stopped or failed turn; when present, the rate is the average across measured model calls. Saved averages replay on session load. Blocking (non-streaming) providers, ACP agent models and calls delivered in a single output chunk contribute no tokens or time to the speed average; output counts still include them. With no measurable call interval, live output counts remain available, but the rate is omitted and no generation caption is saved. When an average exists, its saved caption pairs total output tokens from all calls with the rate across measured calls only. The same calculation powers the console and web UI.
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
@@ -727,6 +743,22 @@ An editor that renders only the standard updates would show an answer nobody ask
 ```
 
 `coddy acp --remote` replays a woken turn of the server the same way on `session/load`; it does not follow the server's woken turns live.
+
+### `notice` - A line for the person, not the transcript
+
+The standard live notice, sent only to a client that advertised `clientCapabilities.session.notices` at initialize. It carries what a person should see now and what no transcript should keep: a settings change the agent made itself (`Model: qwen3.8-27b for this session`), a goal that paused because a usage limit was reached.
+
+```json
+{
+  "sessionUpdate": "notice",
+  "severity": "info",
+  "title": "Model: qwen3.8-27b for this session"
+}
+```
+
+`severity` is `info`, `warning` or `error` and is a presentation hint only. `title` stands alone; `description` adds a detail a client may show under it. A notice is not part of the history, so `session/load` never replays one: a client that attaches to a running turn sees the notices that arrive after it.
+
+The same line is carried by the `notice` field of the `session_settings` and `session_goal` updates, which every other surface reads. A client that advertised the capability gets one or the other, never both: its `session_settings` and `session_goal` updates arrive with an empty `notice` field, and the line follows as a `notice`.
 
 ### `session_info_update` - The session was renamed
 

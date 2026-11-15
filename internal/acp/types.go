@@ -117,7 +117,26 @@ type ClientCapabilities struct {
 	FS          *FSCapabilities          `json:"fs,omitempty"`
 	Terminal    bool                     `json:"terminal,omitempty"`
 	Elicitation *ElicitationCapabilities `json:"elicitation,omitempty"`
+	Session     *ClientSessionCaps       `json:"session,omitempty"`
 }
+
+// ClientSessionCaps names the session extensions the client renders. A nil
+// entry means the client did not advertise that extension, and the agent must
+// not send it: an update a client cannot draw is a line nobody reads.
+type ClientSessionCaps struct {
+	// Notices advertises the standard notice update, which Coddy then sends
+	// instead of the notice field of its own updates.
+	Notices *NoticeCapabilities `json:"notices,omitempty"`
+	// Compaction advertises the ID-addressed compaction entity. Coddy does not
+	// use it yet: a compaction is an ordinary message row, which replays.
+	Compaction *CompactionCapabilities `json:"compaction,omitempty"`
+}
+
+// NoticeCapabilities advertises the standard notice update.
+type NoticeCapabilities struct{}
+
+// CompactionCapabilities advertises the standard compaction updates.
+type CompactionCapabilities struct{}
 
 // FSCapabilities describes filesystem capabilities of the client.
 type FSCapabilities struct {
@@ -168,11 +187,13 @@ type SessionCaps struct {
 	AdditionalDirectories *SessionAdditionalDirectoriesCapabilities `json:"additionalDirectories,omitempty"`
 	Resume                *SessionResumeCapabilities                `json:"resume,omitempty"`
 	Close                 *SessionCloseCapabilities                 `json:"close,omitempty"`
+	SystemPrompt          *SessionSystemPromptCapabilities          `json:"systemPrompt,omitempty"`
 }
 
 // FullSessionCaps advertises every session capability Coddy implements:
-// listing, deleting, closing, resuming and the additionalDirectories fields
-// those requests and the listing rows carry.
+// listing, deleting, closing, resuming, the additionalDirectories fields those
+// requests and the listing rows carry, and a client-supplied system prompt in
+// append mode.
 func FullSessionCaps() *SessionCaps {
 	return &SessionCaps{
 		List:                  &SessionListCapabilities{},
@@ -180,6 +201,7 @@ func FullSessionCaps() *SessionCaps {
 		AdditionalDirectories: &SessionAdditionalDirectoriesCapabilities{},
 		Resume:                &SessionResumeCapabilities{},
 		Close:                 &SessionCloseCapabilities{},
+		SystemPrompt:          &SessionSystemPromptCapabilities{},
 	}
 }
 
@@ -234,6 +256,18 @@ type SessionNewParams struct {
 	// the session, on top of CWD. Each path must be absolute.
 	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
 	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
+	// SystemPrompt is the system-level instruction block the client asks for.
+	// Coddy applies it in append mode: the text follows its own instructions,
+	// it never replaces them.
+	SystemPrompt *SystemPrompt `json:"systemPrompt,omitempty"`
+}
+
+// SystemPrompt is a client's system-level instructions for a session (ACP:
+// systemPrompt). Content carries text blocks; any other type is refused, as
+// the specification asks until a capability allows one.
+type SystemPrompt struct {
+	Mode    string         `json:"mode"`
+	Content []ContentBlock `json:"content"`
 }
 
 // SessionNewResult is returned by session/new.
@@ -312,6 +346,10 @@ type SessionLoadParams struct {
 	// the session, on top of CWD. Each path must be absolute.
 	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
 	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
+	// SystemPrompt is the client's system-level instruction block for this
+	// session. A request that omits it keeps the block the session already
+	// carries; one that sends it replaces that block.
+	SystemPrompt *SystemPrompt `json:"systemPrompt,omitempty"`
 }
 
 // SessionLoadResult is returned by session/load after restoring state.
@@ -332,6 +370,9 @@ type SessionResumeParams struct {
 	// the extra roots off. Each path must be absolute.
 	AdditionalDirectories []string    `json:"additionalDirectories,omitempty"`
 	MCPServers            []MCPServer `json:"mcpServers,omitempty"`
+	// SystemPrompt is the client's system-level instruction block for this
+	// session, with the same rule as on session/load.
+	SystemPrompt *SystemPrompt `json:"systemPrompt,omitempty"`
 }
 
 // SessionResumeResult is returned by session/resume.
@@ -367,6 +408,13 @@ type SessionCloseResult struct{}
 
 // SessionCloseCapabilities advertises session/close.
 type SessionCloseCapabilities struct{}
+
+// SessionSystemPromptCapabilities advertises the systemPrompt field of the
+// session lifecycle requests. The empty marker means append mode, which is the
+// only mode Coddy accepts: a prompt that replaced its own instructions would
+// take away the tool guidance and the rules the agent runs on. Override would
+// be advertised as mode.override.
+type SessionSystemPromptCapabilities struct{}
 
 // ---- ACP session/list ----
 
@@ -496,6 +544,32 @@ const (
 	UpdateTypeSessionGoal             = "session_goal"
 	UpdateTypeGoalTurn                = "goal_turn"
 	UpdateTypeSessionInfoUpdate       = "session_info_update"
+	// UpdateTypeNotice is the standard live notice, a line for the person that
+	// is not part of the transcript. Coddy sends it only to a client that
+	// advertised clientCapabilities.session.notices.
+	UpdateTypeNotice = "notice"
+)
+
+// NoticeUpdate is the standard live notice (ACP: notice). It reports something
+// the person should see now - a settings change the agent made, a goal that
+// paused - without it becoming part of the conversation: a client that keeps a
+// transcript keeps none of it.
+type NoticeUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "notice"
+	// Severity is a presentation hint: "info", "warning" or "error".
+	Severity string `json:"severity"`
+	// Title is the plain-text line that stands alone; Description adds a detail
+	// a client may show under it or on demand.
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+// Notice severities ACP names. They are a presentation hint and nothing else:
+// a client draws them differently and decides what to do with them.
+const (
+	NoticeSeverityInfo    = "info"
+	NoticeSeverityWarning = "warning"
+	NoticeSeverityError   = "error"
 )
 
 // TurnOverride is a setting changed for a number of operator turns rather

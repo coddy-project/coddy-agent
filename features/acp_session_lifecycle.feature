@@ -38,6 +38,11 @@ Feature: ACP session lifecycle
     Then the agent answers that the session was not found
     And the client can load the created session again
 
+  Scenario: An editor's system instructions are kept with the session
+    Given an editor opens a session with the system instructions "Be a code review specialist."
+    When the client asks the session what its system instructions are
+    Then the session holds the system instructions "Be a code review specialist."
+
   Scenario: A question reaches a client that renders forms as an elicitation
     Given an ACP client that renders form elicitation has an active session
     When the agent asks "Pick a stack" offering "Go" and "Rust" and the client picks "Rust"

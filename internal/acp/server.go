@@ -58,6 +58,13 @@ type Server struct {
 	// Coddy-only session/request_question when it did not.
 	elicitationForm atomic.Bool
 
+	// sessionNotices records what the client said about notices in
+	// initialize's clientCapabilities.session.notices. A client that renders
+	// them is sent the standard notice update, and the notice field of the
+	// Coddy update that carries the same line is left empty, so no surface
+	// shows one line twice.
+	sessionNotices atomic.Bool
+
 	nextID atomic.Int64
 	log    *slog.Logger
 }
@@ -321,6 +328,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		// asked in the very first turn already knows whether to go out as an
 		// elicitation or as session/request_question.
 		s.elicitationForm.Store(p.ClientCapabilities.Elicitation != nil && p.ClientCapabilities.Elicitation.Form != nil)
+		s.sessionNotices.Store(p.ClientCapabilities.Session != nil && p.ClientCapabilities.Session.Notices != nil)
 		result, err := s.handler.HandleInitialize(ctx, p)
 		if err != nil {
 			return nil, rpcErrorFrom(err)
@@ -470,6 +478,14 @@ func (s *Server) SendSessionUpdate(sessionID string, update interface{}) error {
 		"sessionId": sessionID,
 		"update":    wireSessionUpdate(update),
 	})
+}
+
+// SupportsNotices reports whether this client said it renders the standard
+// notice update (initialize's clientCapabilities.session.notices). A surface
+// that reads true is sent a notice on its own instead of the notice field of
+// the Coddy update that carries the same line.
+func (s *Server) SupportsNotices() bool {
+	return s.sessionNotices.Load()
 }
 
 // RequestPermission sends a session/request_permission request and waits for the response.
