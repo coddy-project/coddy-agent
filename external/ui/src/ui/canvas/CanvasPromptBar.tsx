@@ -5,6 +5,7 @@ import { pickLabel, type CanvasPick } from "./pickPrompt";
 
 interface Props {
   text: string;
+  error?: string;
   onText: (text: string) => void;
   picks: CanvasPick[];
   onRemovePick: (id: string) => void;
@@ -35,6 +36,11 @@ export function CanvasPromptBar(props: Props) {
 
   return (
     <div className="canvas-bar" data-testid="canvas-bar">
+      {props.error ? (
+        <div className="canvas-send-error" role="alert">
+          {props.error}
+        </div>
+      ) : null}
       {props.picks.length > 0 ? (
         <div className="canvas-picks" aria-label={t("canvas.picks")}>
           {props.picks.map((p) => (

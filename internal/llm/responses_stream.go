@@ -139,6 +139,8 @@ func responsesAssistantOutputMessage(text string) responses.ResponseInputItemUni
 func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], onChunk func(StreamChunk), label string, encodeReasoning func([]json.RawMessage) string) (*Response, error) {
 	var fullContent, reasoning string
 	var toolCalls []ToolCall
+	var generatedImages []GeneratedImage
+	seenImages := make(map[string]bool)
 	streamingCalls := make(map[string]ToolCall)
 	var reasoningItems []json.RawMessage
 	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
@@ -151,7 +153,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 
 	// emitted flips once any chunk reached the caller; a stream that fails
 	// after that must not be retried, or the same deltas would stream twice.
-	// Complete passes no callback and never flips it.
+	// Native generation also flips it without a callback: replay may charge twice.
 	var emitted bool
 	emit := func(c StreamChunk) {
 		if onChunk == nil {
@@ -165,6 +167,30 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		outputTokens = int(u.OutputTokens)
 		cachedInputTokens = int(u.InputTokensDetails.CachedTokens)
 		reasoningTokens = int(u.OutputTokensDetails.ReasoningTokens)
+	}
+
+	// Keep completed images and partial prose, never uncommitted function calls.
+	partialWithoutTools := func() *Response {
+		if strings.TrimSpace(fullContent) == "" && strings.TrimSpace(reasoning) == "" && len(generatedImages) == 0 {
+			return nil
+		}
+		return &Response{
+			Content:            fullContent,
+			GeneratedImages:    generatedImages,
+			Reasoning:          reasoning,
+			ReasoningSignature: encodeReasoning(reasoningItems),
+			InputTokens:        inputTokens,
+			OutputTokens:       outputTokens,
+			CachedInputTokens:  cachedInputTokens,
+			ReasoningTokens:    reasoningTokens,
+		}
+	}
+
+	partialWithImages := func() *Response {
+		if len(generatedImages) == 0 {
+			return nil
+		}
+		return partialWithoutTools()
 	}
 
 	for stream.Next() {
@@ -191,6 +217,11 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 				emit(StreamChunk{ReasoningDelta: d})
 			}
 		case "response.output_item.added":
+			if ev.Item.Type == "image_generation_call" {
+				// Once native generation starts, replay may incur a second charge.
+				emitted = true
+				emit(StreamChunk{ImageGenerationStarted: true})
+			}
 			// The name of a tool call is known as soon as the model starts
 			// writing it, while its arguments are still streaming - which can
 			// take seconds. Announcing it here is what keeps the transcript from
@@ -210,6 +241,29 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 			}
 		case "response.output_item.done":
 			switch ev.Item.Type {
+			case "image_generation_call":
+				emitted = true
+				var item struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+					Result string `json:"result"`
+				}
+				if err := json.Unmarshal([]byte(ev.Item.RawJSON()), &item); err != nil {
+					return partialWithoutTools(), responsesStreamEventError(label, "invalid generated image item", "", "", true)
+				}
+				if seenImages[item.ID] {
+					continue
+				}
+				if item.ID == "" || item.Status != "completed" || len(generatedImages) >= maxGeneratedImages {
+					return partialWithoutTools(), responsesStreamEventError(label, "invalid or excessive generated image items", "", "", true)
+				}
+				img, err := decodeGeneratedImage(item.ID, item.Result)
+				if err != nil {
+					return partialWithoutTools(), responsesStreamEventError(label, err.Error(), "", "", true)
+				}
+				seenImages[item.ID] = true
+				generatedImages = append(generatedImages, img)
+				emit(StreamChunk{GeneratedImage: &img})
 			case "function_call":
 				tc := ToolCall{
 					ID:        ev.Item.CallID,
@@ -247,33 +301,14 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		case "error":
 			// The flat error event carries its code as a field of the event
 			// itself, so the event is the error object.
-			return nil, responsesStreamEventError(label, responsesFailureMessage(ev.Code, ev.Message),
+			return partialWithImages(), responsesStreamEventError(label, responsesFailureMessage(ev.Code, ev.Message),
 				ev.RawJSON(), label+" stream error", emitted)
 		case "response.failed":
 			// A failed response carries its explanation on the response
 			// object, not on the event.
-			return nil, responsesStreamEventError(label,
+			return partialWithImages(), responsesStreamEventError(label,
 				responsesFailureMessage(string(ev.Response.Error.Code), ev.Response.Error.Message),
 				ev.Response.Error.RawJSON(), label+" response failed", emitted)
-		}
-	}
-
-	// partialWithoutTools is what a cut answer hands back next to its error:
-	// the text and reasoning already delivered, never the tool calls, which
-	// must not run on the strength of an answer that never finished; nil when
-	// nothing worth keeping arrived.
-	partialWithoutTools := func() *Response {
-		if strings.TrimSpace(fullContent) == "" && strings.TrimSpace(reasoning) == "" {
-			return nil
-		}
-		return &Response{
-			Content:            fullContent,
-			Reasoning:          reasoning,
-			ReasoningSignature: encodeReasoning(reasoningItems),
-			InputTokens:        inputTokens,
-			OutputTokens:       outputTokens,
-			CachedInputTokens:  cachedInputTokens,
-			ReasoningTokens:    reasoningTokens,
 		}
 	}
 
@@ -282,6 +317,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
 			return &Response{
 				Content:            fullContent,
+				GeneratedImages:    generatedImages,
 				Reasoning:          reasoning,
 				ReasoningSignature: encodeReasoning(reasoningItems),
 				ToolCalls:          toolCalls,
@@ -312,7 +348,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 			// does, and drop the tool calls of an answer that never finished.
 			return partialWithoutTools(), wrapped
 		}
-		return nil, wrapped
+		return partialWithImages(), wrapped
 	}
 
 	if terminal == "" || incompleteReason != "" {
@@ -334,6 +370,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 	}
 	return &Response{
 		Content:            fullContent,
+		GeneratedImages:    generatedImages,
 		Reasoning:          reasoning,
 		ReasoningSignature: encodeReasoning(reasoningItems),
 		ToolCalls:          toolCalls,

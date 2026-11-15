@@ -1425,6 +1425,106 @@ test("attach button visible when llmModelMultimodal is true", () => {
   vi.unstubAllGlobals();
 });
 
+test("image control hidden when the model does not opt in", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={false}
+      imageGenOn={false}
+      onImageGenToggle={() => {}}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("image control hidden without a toggle handler", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("image control toggles the per-turn opt-in", () => {
+  stubMatchMediaMobile(false);
+  const onImageGenToggle = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      imageGenOn={false}
+      onImageGenToggle={onImageGenToggle}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-imagegen");
+  expect(chip.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(chip);
+  expect(onImageGenToggle).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
+});
+
+test("image control pressed when the opt-in is on", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      imageGenOn={true}
+      onImageGenToggle={() => {}}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-imagegen");
+  expect(chip.getAttribute("aria-pressed")).toBe("true");
+  expect(chip.className).toContain("is-on");
+  vi.unstubAllGlobals();
+});
+
 test("selecting a file shows attachment chip", async () => {
   stubMatchMediaMobile(false);
   render(
@@ -3727,3 +3827,39 @@ test.each(["Tab", "ArrowRight"])(
     expect(onSend).not.toHaveBeenCalled();
   },
 );
+
+test("image generation refuses queued sends without discarding the attachment", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  render(
+    <Composer
+      value="draw"
+      isEmpty={false}
+      generating
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal
+      imageGenOn
+      queueMode="steer"
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+    />,
+  );
+  const file = new File(["image"], "img.png", { type: "image/png" });
+  fireEvent.change(screen.getByTestId("composer-file-input"), {
+    target: { files: [file] },
+  });
+  await waitFor(() => screen.getByText("img.png"));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Tab",
+  });
+  expect(onQueue).not.toHaveBeenCalled();
+  expect(screen.getByText("img.png")).toBeVisible();
+  expect(
+    screen.getByText(
+      "Turn off Images to queue a message, or wait for the current turn to finish.",
+    ),
+  ).toBeVisible();
+});

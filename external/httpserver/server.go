@@ -501,6 +501,7 @@ type modelObj struct {
 	// takes no output cap.
 	MaxOutputTokens int  `json:"max_output_tokens,omitempty"`
 	Multimodal      bool `json:"multimodal,omitempty"`
+	ImageGeneration bool `json:"image_generation,omitempty"`
 	// SupportedParameters is the request parameter names the endpoint takes
 	// on this row (OpenRouter's supported_parameters), so a client knows what
 	// it may send instead of learning it from a 400. The structural fields
@@ -659,6 +660,7 @@ func (s *Server) directRow(cfg *config.Config, ent *config.ModelEntry, mid strin
 		ContextLength:       window,
 		MaxOutputTokens:     maxOutput,
 		Multimodal:          ent.Multimodal,
+		ImageGeneration:     ent.ImageGeneration,
 		SupportedParameters: supportedParametersFor(cfg, ent),
 		ReasoningLevels:     cfg.ReasoningChoicesFor(ent),
 		ReasoningDefault:    cfg.DefaultReasoningLevelFor(ent),
@@ -891,6 +893,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIValidationError(w, "invalid metadata", "metadata")
 		return
 	}
+	if imageGenerationFromHTTP(req.Metadata) && !httpModelIsCoddyProfile(model) {
+		writeOpenAIValidationError(w, "native image generation requires a chat profile", "metadata.image_generation")
+		return
+	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
 	if err != nil {
 		http.Error(w, errorJSON(err.Error()), http.StatusBadRequest)
@@ -1040,6 +1046,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			dropImageParts(prefix)
 		}
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(req.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata), ImageGeneration: imageGenerationFromHTTP(req.Metadata)}
+		if promptOpts.ImageGeneration {
+			taken, err := s.mgr.PrepareImageGenerationPrompt(ctx, sessionID, prompt, promptOpts)
+			if err != nil {
+				writeOpenAIValidationError(w, err.Error(), "metadata.image_generation")
+				return
+			}
+			if !taken.Handled {
+				prompt = taken.Prompt
+			}
+		}
+
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
 		// watch from a browser. The turn lock taken above comes first - beginComposerRelay
@@ -1067,7 +1085,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sessionID, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(req.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -1745,6 +1762,18 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(body.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata), ImageGeneration: imageGenerationFromHTTP(body.Metadata)}
+		if promptOpts.ImageGeneration {
+			taken, err := s.mgr.PrepareImageGenerationPrompt(ctx, sid, promptBlocks, promptOpts)
+			if err != nil {
+				writeOpenAIValidationError(w, err.Error(), "metadata.image_generation")
+				return
+			}
+			if !taken.Handled {
+				promptBlocks = taken.Prompt
+			}
+		}
+
 		// See the same block in handleChatCompletions: the relay is opened for every profile
 		// turn, after the turn lock taken above.
 		var bridge *Sender
@@ -1761,7 +1790,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sid, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(body.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		// A turn from the side panel of Coddy for Browser names the tab it
 		// is written from: the chat's browser tool acts there by default,
 		// for this turn alone.

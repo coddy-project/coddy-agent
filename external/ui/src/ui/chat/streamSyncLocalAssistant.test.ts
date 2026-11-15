@@ -48,3 +48,19 @@ describe("the end of a turn whose answer came in segments", () => {
     );
   });
 });
+
+it("an image-only assistant counts as a filled response", () => {
+  expect(
+    transcriptHasFilledAssistant(
+      [
+        {
+          id: "a",
+          type: "assistant_message",
+          content: "",
+          files: [{ name: "a.png", mimeType: "image/png", url: "/coddy/a" }],
+        },
+      ],
+      "a",
+    ),
+  ).toBe(true);
+});

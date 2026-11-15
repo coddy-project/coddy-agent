@@ -576,3 +576,27 @@
 .msg-system-stack-notice .msg-system-time {
   color: rgba(168, 208, 255, 0.55);
 }
+
+.msg-generated-image {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  margin: 12px 0 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.msg-generated-image:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.msg-generated-image-content {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: inherit;
+}

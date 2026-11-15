@@ -55,6 +55,9 @@ func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, m
 }
 
 func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	if ImageGenerationEnabled(ctx) {
+		return p.streamImageGeneration(ctx, messages, tools, nil)
+	}
 	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {

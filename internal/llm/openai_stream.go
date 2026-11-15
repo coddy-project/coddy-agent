@@ -104,6 +104,10 @@ func (s *sseScanner) Next() bool {
 		case "event":
 			event = string(value)
 		case "data":
+			if data.Len()+len(value)+1 > sseMaxScanSize {
+				s.err = fmt.Errorf("SSE frame exceeds %d bytes", sseMaxScanSize)
+				return false
+			}
 			data.Write(value)
 			data.WriteByte('\n')
 		case "error":
@@ -462,6 +466,9 @@ func newStreamServerError(obj []byte, emitted bool) error {
 
 // Stream implements Provider.Stream over the lenient SSE path.
 func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
+	if ImageGenerationEnabled(ctx) {
+		return p.streamImageGeneration(ctx, messages, tools, onChunk)
+	}
 	params := p.buildParams(messages, tools, true)
 	defer func() { retErr = withToolSchemaRequest(retErr, params, false) }()
 

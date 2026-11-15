@@ -23,6 +23,26 @@ test("schemaFieldLabel translates a mapped domain and path", () => {
   ).toBe("Белый список команд");
 });
 
+test("image generation settings are localized in both languages", () => {
+  for (const [locale, label] of [
+    ["en", "Image generation"],
+    ["ru", "Генерация изображений"],
+  ] as const) {
+    setLocale(locale);
+    expect(
+      schemaFieldLabel(
+        "models",
+        "image_generation",
+        "fallback",
+        "image_generation",
+      ),
+    ).toBe(label);
+    expect(schemaFieldDesc("models", "image_generation", "fallback")).not.toBe(
+      "fallback",
+    );
+  }
+});
+
 test("schemaFieldLabel resolves nested paths like output_limits.read", () => {
   setLocale("ru");
   expect(

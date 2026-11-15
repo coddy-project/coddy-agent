@@ -511,3 +511,38 @@ it("a notice the server wrote mid-turn does not drop the answer still streaming"
     "system_notice",
   ]);
 });
+
+it("keeps live assistant images when a matching server snapshot is stale", () => {
+  const server: TranscriptItem[] = [
+    { id: "server", type: "assistant_message", content: "hello" },
+  ];
+  const local: TranscriptItem[] = [
+    {
+      id: "local",
+      type: "assistant_message",
+      content: "hello",
+      files: [{ name: "a.png", mimeType: "image/png", url: "/coddy/a" }],
+    },
+  ];
+  expect(mergeTranscriptPreferLocalSuffix(server, local)[0]).toMatchObject({
+    files: [{ name: "a.png" }],
+  });
+});
+
+it("keeps persisted images when local text is ahead", () => {
+  const server: TranscriptItem[] = [
+    {
+      id: "server",
+      type: "assistant_message",
+      content: "hi",
+      files: [{ name: "a.png", mimeType: "image/png", url: "/coddy/a" }],
+    },
+  ];
+  const local: TranscriptItem[] = [
+    { id: "local", type: "assistant_message", content: "hi there" },
+  ];
+  expect(mergeTranscriptPreferLocalSuffix(server, local)[0]).toMatchObject({
+    content: "hi there",
+    files: [{ name: "a.png" }],
+  });
+});

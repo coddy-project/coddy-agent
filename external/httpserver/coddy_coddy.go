@@ -1598,7 +1598,7 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 		// A prompt's attachments, and the pictures a tool call returned (read
 		// on an image file, an MCP tool's image blocks), which stay on that
 		// call's result.
-		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
+		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool || m.Role == llm.RoleAssistant) && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {
 				name := strings.TrimSpace(part.Name)
@@ -1616,6 +1616,9 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				// the agent can write there, and the prompt tells it where - would
 				// make it serve whatever it points at.
 				if asset := recordedAsset(assetsDir, part.FilePath); sessionID != "" && asset != "" {
+					if m.Role == llm.RoleAssistant {
+						file["asset"] = asset
+					}
 					if part.ThumbnailPath != "" && isRegularFile(session.ThumbnailPathInAssets(assetsDir, asset)) {
 						file["preview_url"] = session.AssetThumbnailRoute(sessionID, asset)
 					}
@@ -1626,7 +1629,11 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				}
 				files = append(files, file)
 			}
-			item["files"] = files
+			if m.Role == llm.RoleAssistant {
+				item["images"] = files
+			} else {
+				item["files"] = files
+			}
 		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{

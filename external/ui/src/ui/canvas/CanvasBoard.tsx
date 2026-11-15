@@ -92,7 +92,7 @@ export interface CanvasChatProps {
   busy: boolean;
   /** Sends the prompt; giveBack puts the bar's text and picks back when the
    *  server never takes it. */
-  onSend: (text: string, giveBack: () => void) => void;
+  onSend: (text: string, giveBack: (reason?: string) => void) => void;
   onStop: () => void;
   /** The chat's unanswered permission and question prompts: the window
    *  covers the chat, so a turn waiting on one is answered here. */
@@ -216,6 +216,7 @@ export function CanvasBoard(props: CanvasBoardProps) {
   const [note, setNote] = useState("");
   const key = draftKey(sessionId, file);
   const initial = drafts.get(key) ?? { text: "", picks: [] };
+  const [sendError, setSendError] = useState("");
   const [text, setText] = useState(initial.text);
   const [picks, setPicks] = useState<CanvasPick[]>(initial.picks);
   const fittedFor = useRef<string>("");
@@ -447,10 +448,14 @@ export function CanvasBoard(props: CanvasBoardProps) {
     const prompt = composeCanvasPrompt(picks, text);
     if (!prompt) return;
     const sent = { text, picks };
+    setSendError("");
     setText("");
     setPicks([]);
     drafts.set(key, { text: "", picks: [] });
-    props.onSend(prompt, () => giveBackDraft(key, sent));
+    props.onSend(prompt, (reason) => {
+      giveBackDraft(key, sent);
+      if (reason) setSendError(reason);
+    });
     setMode("interact");
   };
 
@@ -882,6 +887,7 @@ export function CanvasBoard(props: CanvasBoardProps) {
       ) : null}
 
       <CanvasPromptBar
+        error={sendError}
         text={text}
         onText={setText}
         picks={picks}

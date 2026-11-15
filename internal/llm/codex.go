@@ -13,6 +13,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
 )
@@ -147,6 +148,9 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		return nil, err
 	}
 	params := p.buildParams(messages, tools)
+	if ImageGenerationEnabled(ctx) {
+		params.Tools = append(params.Tools, param.Override[responses.ToolUnionParam](json.RawMessage(`{"type":"image_generation"}`)))
+	}
 	// The request is the one ResponseService.NewStreaming sends; only the
 	// frames are read by codexEventDecoder instead of the SDK decoder.
 	var raw *http.Response

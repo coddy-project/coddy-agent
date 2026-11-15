@@ -232,6 +232,8 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	switch u := update.(type) {
 	case acp.MessageChunkUpdate:
 		return s.forwardTextChunk(u)
+	case acp.AssistantImagesUpdate:
+		return s.writeNamedEventJSON("assistant_images", u)
 	case acp.ToolCallUpdate:
 		return s.writeNamedEventJSON("tool_call", u)
 	case acp.ToolCallStatusUpdate:

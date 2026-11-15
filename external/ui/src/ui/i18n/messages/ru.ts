@@ -1,5 +1,6 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
   "settings.auth.removeTotp": "Отключить TOTP",
@@ -823,6 +824,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.multimodal.label": "Мультимодальная",
   "settings.schema.models.multimodal.desc":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. UI предложит прикрепление файлов для сообщений, отправляемых с этой моделью, а read покажет ей картинку из файла PNG, JPEG, GIF или WebP.",
+  "settings.schema.models.image_generation.label": "Генерация изображений",
+  "settings.schema.models.image_generation.desc":
+    "Если включено, модель может создавать изображения через нативный инструмент генерации изображений провайдера, а в поле ввода появляется переключатель генерации для каждого хода этой модели.",
   "settings.schema.models.reasoning_levels.label": "Уровни рассуждения",
   "settings.schema.models.reasoning_levels.desc":
     "Необязательное переопределение уровней рассуждения для этой модели (например, low, medium, high). Пусто — автоопределение по идентификатору модели; явный пустой список скрывает селектор уровней.",
@@ -2154,6 +2158,11 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoning": "Рассуждение",
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
+  "composer.imageGenerationQueueUnavailable":
+    'Отключите переключатель "Изображения", чтобы добавить сообщение в очередь, или дождитесь завершения текущего хода.',
+  "composer.imageGeneration": "Изображения",
+  "composer.imageGenerationTitle":
+    "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":

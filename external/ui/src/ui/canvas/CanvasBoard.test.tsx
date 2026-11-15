@@ -943,3 +943,18 @@ test("a board of an older server, with no trust, offers no Hold", async () => {
   await renderBoard();
   expect(screen.queryByTestId("canvas-hold")).toBeNull();
 });
+
+test("a refused send reports its reason in the bar and keeps the draft", async () => {
+  const onSend = vi.fn((_text: string, giveBack: (reason?: string) => void) =>
+    giveBack("Queue unavailable"),
+  );
+  await renderBoard({ onSend, busy: true });
+  fireEvent.change(screen.getByTestId("canvas-bar-field"), {
+    target: { value: "Keep this" },
+  });
+  fireEvent.click(screen.getByTestId("canvas-send"));
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent("Queue unavailable");
+  expect(screen.getByTestId("canvas-bar")).toContainElement(alert);
+  expect(screen.getByTestId("canvas-bar-field")).toHaveValue("Keep this");
+});

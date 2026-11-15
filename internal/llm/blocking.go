@@ -35,6 +35,9 @@ func (p *blockingProvider) Complete(ctx context.Context, messages []Message, too
 func (p *blockingProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
 	resp, err := p.inner.Complete(ctx, messages, tools)
 	if err != nil {
+		if resp != nil && len(resp.GeneratedImages) > 0 {
+			return resp, err
+		}
 		return nil, err
 	}
 	if resp == nil {
@@ -99,6 +102,13 @@ func replaySteps(resp *Response) []replayStep {
 		steps = append(steps, replayStep{
 			chunk:  StreamChunk{TextDelta: resp.Content},
 			record: func(d *Response) { d.Content = resp.Content },
+		})
+	}
+	for i := range resp.GeneratedImages {
+		img := resp.GeneratedImages[i]
+		steps = append(steps, replayStep{
+			chunk:  StreamChunk{GeneratedImage: &img},
+			record: func(d *Response) { d.GeneratedImages = append(d.GeneratedImages, img) },
 		})
 	}
 	for i := range resp.ToolCalls {

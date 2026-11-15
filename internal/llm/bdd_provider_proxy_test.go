@@ -455,6 +455,27 @@ func (s *providerProxyState) askCompletion(name string) error {
 	return nil
 }
 
+func (s *providerProxyState) askNativeImageGeneration(name string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	p, err := NewProvider(ProviderInput{Name: name, Type: row.typ, Model: "m", APIKey: "k", BaseURL: s.model.srv.URL + "/v1", ProxyURL: row.setting, RetryDisabled: true})
+	if err != nil {
+		s.fail(err)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	response, err := p.Complete(WithImageGeneration(ctx), []Message{{Role: RoleUser, Content: "draw a square"}}, nil)
+	if err != nil {
+		s.fail(err)
+	} else if response.Content != "pong" {
+		s.fail(fmt.Errorf("native Responses answer = %q", response.Content))
+	}
+	return nil
+}
+
 func (s *providerProxyState) askCompletionAndModels(name string) error {
 	if err := s.askCompletion(name); err != nil {
 		return err
@@ -1022,6 +1043,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with proxy "([^"]*)"$`, s.aProviderWithProxy)
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
+		sc.Step(`^"([^"]*)" is explicitly asked for native image generation$`, s.askNativeImageGeneration)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list and its account usage$`, s.askOpenAIEverything)
 		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)

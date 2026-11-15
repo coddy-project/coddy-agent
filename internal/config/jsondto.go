@@ -132,6 +132,7 @@ type ModelJSON struct {
 	Temperature      float64            `json:"temperature"`
 	MaxContextTokens int                `json:"max_context_tokens,omitempty"`
 	Multimodal       bool               `json:"multimodal,omitempty"`
+	ImageGeneration  bool               `json:"image_generation,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.

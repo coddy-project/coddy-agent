@@ -169,3 +169,19 @@ Feature: Each provider reaches its server the way its own proxy setting says
       | with proxy "inherit"    | 2           | 0   | 0      |
       | with proxy "none"       | 0           | 0   | 2      |
       | with a proxy of its own | 0           | 2   | 0      |
+
+  Scenario Outline: Native image generation follows the OpenAI provider proxy
+    Given the environment names a proxy for every request
+    And an "openai" provider "images" <setting>
+    When "images" is explicitly asked for native image generation
+    Then every answer comes back
+    And the environment's proxy carried <environment> requests
+    And the own proxy of "images" carried <own> requests
+    And the provider's servers were reached directly <direct> times
+
+    Examples:
+      | setting                 | environment | own | direct |
+      | without a proxy setting | 1           | 0   | 0      |
+      | with proxy "inherit"    | 1           | 0   | 0      |
+      | with proxy "none"       | 0           | 0   | 1      |
+      | with a proxy of its own | 0           | 1   | 0      |
