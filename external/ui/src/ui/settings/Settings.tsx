@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { type JsonSchema } from "./SchemaForm";
+import { createModelCascadeState } from "./applyModelsChange";
 import {
   deriveSettingsSections,
   knownSectionLabel,
@@ -244,6 +245,7 @@ export function Settings(props: {
     doc: copy.config ?? {},
     replaced: 0,
   }));
+  const modelCascade = useRef(createModelCascadeState()).current;
   // A save is on its way (Save, or Save and close).
   const [busy, setBusy] = useState(false);
   // A newer copy - the first read landing, the server's config reloaded by
@@ -825,6 +827,7 @@ export function Settings(props: {
               schema={schema}
               doc={doc}
               setDoc={setDoc}
+              modelCascade={modelCascade}
               onRestartOnboarding={props.onRestartOnboarding}
               // The address names a row of one section. For the render in
               // which the tab has not caught up with a new address yet,
@@ -896,6 +899,7 @@ export function Settings(props: {
               schema={{ type: "object", properties: {} } as JsonSchema}
               doc={doc}
               setDoc={setDoc}
+              modelCascade={modelCascade}
               onRestartOnboarding={props.onRestartOnboarding}
               {...(props.activeSessionId
                 ? { activeSessionId: props.activeSessionId }
