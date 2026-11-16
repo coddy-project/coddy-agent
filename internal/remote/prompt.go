@@ -84,6 +84,8 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	mode := st.mode
 	selected := st.modelID
 	reasoning := st.reasoning
+	serviceTier := st.serviceTier
+	settingsVersion := st.settingsVersion
 	defaultModel := h.defModel
 	models := h.models
 	h.mu.Unlock()
@@ -127,6 +129,21 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			body.Metadata = map[string]string{}
 		}
 		body.Metadata["reasoning"] = reasoning
+	}
+	if body.Metadata == nil {
+		body.Metadata = map[string]string{}
+	}
+	for _, model := range models {
+		if model.ID == effectiveModel && len(model.ServiceTierChoices) > 0 {
+			if !hasReasoningLevel(model.ServiceTierChoices, serviceTier) {
+				serviceTier = ""
+			}
+			body.Metadata["service_tier"] = serviceTier
+			break
+		}
+	}
+	if settingsVersion > 0 {
+		body.Metadata["settingsVersion"] = fmt.Sprint(settingsVersion)
 	}
 	if slug := planSlug(params.Meta); slug != "" {
 		if body.Metadata == nil {

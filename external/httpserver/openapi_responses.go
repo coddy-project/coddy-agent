@@ -42,6 +42,7 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 		"max_output_tokens": map[string]any{"type": "integer", "minimum": 1, "nullable": true},
 		"temperature":       map[string]any{"type": "number", "minimum": 0, "maximum": 2, "nullable": true},
 		"top_p":             map[string]any{"type": "number", "minimum": 0, "maximum": 1, "nullable": true},
+		"service_tier":      map[string]any{"type": "string", "nullable": true, "description": "Any string passes unchanged to OpenAI or Codex. Omitted or null sends no parameter."},
 		"reasoning":         obj(map[string]any{"effort": str()}),
 		"store":             map[string]any{"type": "boolean", "enum": []bool{false}, "default": false},
 		"inline_files":      array(ref("ResponsesInlineFile")),
@@ -68,7 +69,8 @@ func mergeResponsesOpenAPI(doc map[string]interface{}) {
 		"error": map[string]any{"type": "object", "nullable": true, "additionalProperties": true}, "incomplete_details": map[string]any{"type": "object", "nullable": true, "properties": map[string]any{"reason": enum("max_output_tokens")}},
 		"metadata": metadata, "store": map[string]any{"type": "boolean", "enum": []bool{false}}, "background": map[string]any{"type": "boolean", "enum": []bool{false}},
 		"instructions": map[string]any{"type": "string", "nullable": true}, "max_output_tokens": map[string]any{"type": "integer", "nullable": true},
-		"temperature": map[string]any{"type": "number", "nullable": true}, "top_p": map[string]any{"type": "number", "nullable": true}, "reasoning": map[string]any{"type": "object", "properties": map[string]any{"effort": map[string]any{"type": "string", "nullable": true}}},
+		"service_tier": map[string]any{"type": "string", "description": "Actual tier reported by the provider, when known. It can differ from the request."},
+		"temperature":  map[string]any{"type": "number", "nullable": true}, "top_p": map[string]any{"type": "number", "nullable": true}, "reasoning": map[string]any{"type": "object", "properties": map[string]any{"effort": map[string]any{"type": "string", "nullable": true}}},
 		"tools": array(ref("OpenAIResponsesFunctionTool")), "tool_choice": enum("auto", "none"), "parallel_tool_calls": map[string]any{"type": "boolean"}, "previous_response_id": map[string]any{"type": "string", "nullable": true},
 		"text": map[string]any{"type": "object", "properties": map[string]any{"format": map[string]any{"type": "object", "properties": map[string]any{"type": enum("text")}}}}, "truncation": enum("disabled"),
 	}, "required": []string{"id", "object", "created_at", "status", "model", "output", "usage", "error", "incomplete_details"}}

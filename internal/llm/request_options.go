@@ -11,6 +11,8 @@ import (
 // /v1/chat/completions - as opposed to the values configured on the model.
 // The zero value asks for nothing and leaves the configured values in place.
 type RequestOptions struct {
+	// ServiceTier is passed through without catalog validation.
+	ServiceTier *string
 	// TopP is the request's nucleus sampling value.
 	TopP *float64
 	// MaxTokens caps the output of this request; nil keeps the model's max_tokens.
@@ -34,6 +36,9 @@ type RequestOptions struct {
 // asked, so the caller refuses the request before anything reaches the
 // provider instead of the value being dropped on the way.
 func (o RequestOptions) Validate(providerType, model string) error {
+	if o.ServiceTier != nil && providerType != "openai" && providerType != "codex" {
+		return fmt.Errorf("service_tier is not supported by provider type %s", providerType)
+	}
 	if o.TopP != nil {
 		if providerType != "openai" {
 			return fmt.Errorf("top_p is not supported by provider type %s", providerType)
@@ -81,6 +86,7 @@ func (o RequestOptions) Validate(providerType, model string) error {
 // is the caller's own copy, so the configuration it was resolved from stays
 // untouched.
 func (o RequestOptions) Apply(in *ProviderInput) {
+	in.ServiceTier = o.ServiceTier
 	in.TopP = o.TopP
 	if o.MaxTokens != nil {
 		in.MaxTokens = *o.MaxTokens

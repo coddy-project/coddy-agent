@@ -78,7 +78,8 @@ type State struct {
 	SelectedToolset string
 	// SelectedReasoning overrides the reasoning level for LLM calls when non-empty.
 	// Resolved against the effective model's levels by EffectiveReasoning.
-	SelectedReasoning string
+	SelectedReasoning   string
+	SelectedServiceTier string
 
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
@@ -301,8 +302,9 @@ type State struct {
 	// (settings_state.go): overrides armed by --once / --count=N, what the
 	// running turn holds, what the last operator turn held. settingsMu guards
 	// it alone; it is never taken together with mu.
-	settingsMu sync.Mutex
-	turn       turnSettings
+	settingsMu       sync.Mutex
+	settingsChangeMu sync.Mutex
+	turn             turnSettings
 	// settingsRev is the number of the last change of a setting a model
 	// request reads (SettingsRevision).
 	settingsRev atomic.Uint64
@@ -2236,11 +2238,12 @@ func sameWireRow(a, b llm.Message) bool {
 // RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk
 // (no persistence callback). The permission-mode override is never restored:
 // it lasts as long as the process.
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory string) {
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, selectedServiceTier, agentMemory string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
 	s.SelectedReasoning = selectedReasoning
+	s.SelectedServiceTier = selectedServiceTier
 	s.AgentMemory = agentMemory
 	s.mu.Unlock()
 }

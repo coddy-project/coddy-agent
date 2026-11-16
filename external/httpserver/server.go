@@ -507,6 +507,7 @@ type modelObj struct {
 	// it may send instead of learning it from a 400. The structural fields
 	// every request carries (model, messages, stream) are left out.
 	SupportedParameters []string `json:"supported_parameters"`
+	ServiceTierChoices  []string `json:"service_tier_choices,omitempty"`
 	ReasoningLevels     []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault    string   `json:"reasoning_default,omitempty"`
 	// Default marks the row a session that selected no model runs on,
@@ -557,6 +558,9 @@ func supportedParametersFor(cfg *config.Config, ent *config.ModelEntry) []string
 		"top_p",
 	}
 	providerType := providerTypeOf(cfg, ent)
+	if providerType == "openai" || providerType == "codex" {
+		params = append(params, "service_tier")
+	}
 	if providerType == "codex" {
 		// A Codex backend accepts output-cap fields for OpenAI-client
 		// compatibility but ignores them (reported by X-Coddy-Ignored-Params),
@@ -663,6 +667,7 @@ func (s *Server) directRow(cfg *config.Config, ent *config.ModelEntry, mid strin
 		ImageGeneration:     ent.ImageGeneration,
 		SupportedParameters: supportedParametersFor(cfg, ent),
 		ReasoningLevels:     cfg.ReasoningChoicesFor(ent),
+		ServiceTierChoices:  llm.ModelServiceTierChoices(cfg, ent.Model),
 		ReasoningDefault:    cfg.DefaultReasoningLevelFor(ent),
 		Default:             defaultModel != "" && mid == defaultModel,
 		Toolset:             ent.Toolset,
@@ -772,6 +777,7 @@ type chatCompletionRequest struct {
 	// ReasoningEffort is OpenAI's reasoning_effort: a level the direct model
 	// offers, in place of its reasoning_default. A profile turn reads the level
 	// from metadata.reasoning instead.
+	ServiceTier     *string         `json:"service_tier,omitempty"`
 	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	// StreamOptions is OpenAI's stream_options; include_usage asks for the
@@ -1205,6 +1211,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// so a caller comparing model and level pairs can tell which ran.
 		meta["reasoning_effort"] = genOpts.ReasoningEffort
 	}
+	if directRes.ServiceTier != "" {
+		meta["service_tier"] = directRes.ServiceTier
+	}
 	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
 		// finish_reason tool_calls, max_tokens becomes length.
@@ -1237,6 +1246,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"model":    model,
 		"metadata": meta,
 		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
+	}
+	if directRes.ServiceTier != "" {
+		resp["service_tier"] = directRes.ServiceTier
 	}
 	if usage := completionUsageFromResponse(directRes).openAI(); usage != nil {
 		resp["usage"] = usage
@@ -1598,6 +1610,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !httpModelIsCoddyProfile(strings.TrimSpace(selector.Model)) {
 		s.handleDirectResponses(w, r, raw)
+		return
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	if _, present := fields["service_tier"]; present {
+		writeOpenAIValidationError(w, "service_tier is only supported for direct models; use metadata.service_tier for profiles", "service_tier")
 		return
 	}
 	var body struct {

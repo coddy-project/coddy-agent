@@ -1,6 +1,13 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
   "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
+  "composer.serviceTier": "Режим обслуживания",
+  "composer.serviceTier.provider": "По умолчанию у провайдера",
+  "composer.serviceTier.default": "Стандартный",
+  "composer.serviceTier.priority": "Быстрый",
+  "composer.serviceTier.ultrafast": "Сверхбыстрый",
+  "composer.serviceTier.flex": "Flex",
+
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
   "settings.auth.removeTotp": "Отключить TOTP",

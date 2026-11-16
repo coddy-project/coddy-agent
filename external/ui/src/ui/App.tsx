@@ -1,3 +1,9 @@
+import {
+  pickServiceTier,
+  readServiceTierCookie,
+  writeServiceTierCookie,
+  type ServiceTierControl,
+} from "./chat/serviceTier";
 import { browserPanelLaunch } from "./browserPanel/launch";
 import { panelTabForTurn } from "./browserPanel/bridge";
 import {
@@ -429,6 +435,7 @@ type ModelInfo = {
   multimodal?: boolean;
   /** The model opted in to native image output (models[].image_generation). */
   imageGeneration?: boolean;
+  serviceTierChoices?: string[];
   reasoningLevels?: string[];
   reasoningDefault?: string;
   /** The toolsets[] preset the model names (models[].toolset). */
@@ -1818,6 +1825,12 @@ export function App() {
     turnEpoch: providerUsageTurnEpoch,
   });
   const [llmReasoning, setLlmReasoning] = useState("");
+  const [serviceTier, setServiceTier] = useState(readServiceTierCookie);
+  const [sessionTierChoices, setSessionTierChoices] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
   /**
    * The opened session's own model and reasoning, as its settings snapshot
    * names them, with the levels the snapshot says it may hold. Held until the
@@ -1829,6 +1842,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /** The selection object already applied to the composer; see the effect below. */
@@ -1836,6 +1851,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /**
@@ -3279,6 +3296,7 @@ export function App() {
           max_context_tokens?: number;
           multimodal?: boolean;
           image_generation?: boolean;
+          service_tier_choices?: string[];
           reasoning_levels?: string[];
           reasoning_default?: string;
           toolset?: string;
@@ -3296,6 +3314,7 @@ export function App() {
             : {}),
           multimodal: !!d.multimodal,
           imageGeneration: !!d.image_generation,
+          serviceTierChoices: d.service_tier_choices ?? [],
           reasoningLevels: Array.isArray(d.reasoning_levels)
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
@@ -3310,6 +3329,7 @@ export function App() {
           multimodal: d.multimodal,
           imageGeneration: d.imageGeneration,
           reasoningLevels: d.reasoningLevels,
+          serviceTierChoices: d.serviceTierChoices,
           reasoningDefault: d.reasoningDefault,
         };
         if (d.maxContextTokens !== undefined) {
@@ -3372,6 +3392,17 @@ export function App() {
     // same chooser as every other path, with the session's value as the
     // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    setServiceTier(
+      pickServiceTier(
+        openSessionSelection.serviceTier,
+        openSessionSelection.tierChoices,
+      ),
+    );
+    setSessionTierChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices: openSessionSelection.tierChoices,
+    });
     const choices =
       nextModel === openSessionSelection.model
         ? openSessionSelection.choices
@@ -3959,6 +3990,8 @@ export function App() {
           ? snap.reasoning
           : (data.selectedReasoning || "").trim(),
         choices: snap?.reasoningChoices ?? [],
+        serviceTier: snap?.serviceTier ?? "",
+        tierChoices: snap?.serviceTierChoices ?? [],
       });
     }
     if (snap) {
@@ -4551,6 +4584,8 @@ export function App() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
+    setServiceTier(readServiceTierCookie());
+    setSessionTierChoices({ sid: "", model: "", choices: [] });
     setSessionReasoningChoices({ sid: "", model: "", choices: [] });
     // A new chat sends its level with the first message: that is its own.
     reasoningImpliedRef.current = false;
@@ -6051,6 +6086,7 @@ export function App() {
       if (imageGenForTurn) meta.image_generation = true;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
+      meta.service_tier = pickServiceTier(serviceTier, serviceTierChoices);
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
       // A toolset picked on the start screen goes with the messages of the
@@ -6757,6 +6793,12 @@ export function App() {
       return;
     }
     settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setServiceTier(snap.serviceTier);
+    setSessionTierChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.serviceTierChoices,
+    });
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
@@ -6958,6 +7000,27 @@ export function App() {
     pendingToolset,
     onToolsetChange,
   ]);
+
+  const serviceTierChoices =
+    sessionTierChoices.sid === sessionId.trim() &&
+    sessionTierChoices.model === llmModel
+      ? sessionTierChoices.choices
+      : (modelInfos.find((m) => m.id === llmModel)?.serviceTierChoices ?? []);
+  const serviceTierControl: ServiceTierControl | undefined =
+    serviceTierChoices.length
+      ? {
+          value: pickServiceTier(serviceTier, serviceTierChoices),
+          choices: serviceTierChoices,
+          onChange: (value) => {
+            setServiceTier(value);
+            writeServiceTierCookie(value);
+            if (sessionId.trim())
+              void patchSessionSettings(sessionId.trim(), {
+                selectedServiceTier: value,
+              });
+          },
+        }
+      : undefined;
 
   const onLlmReasoningChange = useCallback(
     (level: string) => {
@@ -8697,6 +8760,9 @@ export function App() {
             configuredPermissionMode={shownConfiguredPermissionMode}
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
+            }
+            serviceTierControl={
+              subagentTranscript ? undefined : serviceTierControl
             }
             toolsetControl={subagentTranscript ? undefined : toolsetControl}
             settingsOverrides={settingsOverrides}

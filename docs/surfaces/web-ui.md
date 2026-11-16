@@ -2682,3 +2682,21 @@ Other provider types hide the selector.
 ![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
 
 *The Anthropic-compatible provider offers its own SDK identity by default.*
+
+## Service tier
+
+![Service tier](../assets/service-tier/service-tier-dark.png)
+![Service tier](../assets/service-tier/service-tier-light.png)
+![Service tier](../assets/service-tier/service-tier-narrow.png)
+
+For supported models, the composer shows **Service tier** beside the model controls.
+Choose **Provider default**, **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+Provider default omits the parameter; Standard sends an explicit request for the standard tier.
+The menu shows your selection, which can differ from the tier the provider actually uses.
+Another client of the same session receives the change.
+A change during a turn applies to the next turn.
+
+The browser remembers your last selection for new chats.
+An existing chat keeps its saved selection.
+A model that does not offer the remembered value uses the provider default.
+Opening a chat or receiving another client's change does not replace the browser preference.

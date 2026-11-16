@@ -1,3 +1,4 @@
+import { type ServiceTierControl } from "./serviceTier";
 import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
@@ -136,6 +137,7 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   /** The toolset chip; absent while the configuration has no preset. */
+  serviceTierControl?: ServiceTierControl | undefined;
   toolsetControl?: ToolsetControl | undefined;
   settingsOverrides?: TurnOverride[];
   /** The session goal and what the composer's goal mark and popover can do
@@ -1035,6 +1037,7 @@ export function ChatScreen(props: {
                 {...(props.onPermissionModeChange
                   ? { onPermissionModeChange: props.onPermissionModeChange }
                   : {})}
+                serviceTierControl={props.serviceTierControl}
                 {...(props.toolsetControl
                   ? { toolsetControl: props.toolsetControl }
                   : {})}
@@ -1306,6 +1309,7 @@ export function ChatScreen(props: {
                   {...(props.onPermissionModeChange
                     ? { onPermissionModeChange: props.onPermissionModeChange }
                     : {})}
+                  serviceTierControl={props.serviceTierControl}
                   {...(props.toolsetControl
                     ? { toolsetControl: props.toolsetControl }
                     : {})}

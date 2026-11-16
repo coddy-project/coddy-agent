@@ -55,6 +55,7 @@ func (p *blockingProvider) Stream(ctx context.Context, messages []Message, tools
 	// no matching results. And a backend that ignores cancellation can answer after
 	// the user pressed Stop, where nothing may be published at all.
 	delivered := &Response{
+		ServiceTier:        resp.ServiceTier,
 		StopReason:         resp.StopReason,
 		InputTokens:        resp.InputTokens,
 		OutputTokens:       resp.OutputTokens,

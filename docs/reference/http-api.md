@@ -761,3 +761,26 @@ before authentication and whatever credential it carries: a sandboxed page sends
 neither a bearer it read from a file nor a relay's substituted credential may let it drive the
 server. A client that sends `Origin: null` by itself (a `file://` page) is refused the same way; one
 that sends no `Origin` is not affected.
+
+## Service tier
+
+Direct Chat Completions and Responses requests accept top-level `service_tier` for OpenAI and Codex providers.
+Coddy sends any string unchanged, including an empty or unknown string.
+An omitted value or `null` sends no parameter.
+Other JSON types return HTTP 400.
+This parameter affects one request only, including requests with `X-Coddy-Session-ID`.
+
+For example, a direct Responses request can contain `{"model":"openai/gpt-6-astra","input":"Hello","service_tier":"priority"}`.
+The response includes the actual `service_tier` only when the provider reports it.
+The final stream event or chunk carries that value too.
+HTTP 200 does not prove that the provider applied the requested tier.
+A different actual tier causes no extra error, retry, or change to the session preference.
+
+For `agent`, `plan`, and `ask`, use `metadata.service_tier` to change the session preference.
+Top-level `service_tier` returns HTTP 400 for these profiles.
+A direct request rejects `metadata.service_tier`.
+PATCH `/coddy/sessions/{id}` accepts `selectedServiceTier`.
+Session values must match `service_tier_choices` from GET `/v1/models`; empty or metadata `null` clears the selection.
+Session snapshots carry `serviceTier` and `serviceTierChoices`.
+The existing settings version prevents stale profile metadata from replacing a newer selection.
+A running turn keeps its tier until it ends.

@@ -3,6 +3,13 @@
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
   "messages.openGeneratedImage": "Open generated image {fileName}",
+  "composer.serviceTier": "Service tier",
+  "composer.serviceTier.provider": "Provider default",
+  "composer.serviceTier.default": "Standard",
+  "composer.serviceTier.priority": "Fast",
+  "composer.serviceTier.ultrafast": "Ultrafast",
+  "composer.serviceTier.flex": "Flex",
+
   "settings.section.httpserver.label": "Authentication",
   "settings.section.httpserver.desc": "Web sign-in protection",
   "settings.auth.removeTotp": "Remove TOTP",

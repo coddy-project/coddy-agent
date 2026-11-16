@@ -168,7 +168,7 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
 func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
-	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature, ServiceTier: req.ServiceTier}
 	if len(topP) > 0 {
 		opts.TopP = topP[0]
 	}
