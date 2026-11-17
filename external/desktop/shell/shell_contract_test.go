@@ -183,3 +183,15 @@ func TestManualReloadRestoresTheFrameRetryBudget(t *testing.T) {
 		t.Fatal("a manual reload does not reset the frame load retry budget")
 	}
 }
+
+func TestTitleBarPaddingSharesTheEmptyStripGesture(t *testing.T) {
+	requireShellSource(t, shellSource(t, "shell.js"),
+		`const titleBar = document.getElementById("coddy-desktop-tabs");`,
+		`for (const zone of [titleBar, dragZone, strip])`,
+		`body.frame === "system"`,
+		`root.style.setProperty("--window-left-inset",`,
+		`else delete root.dataset.frame;`,
+		`else delete root.dataset.framed;`,
+		`else root.style.removeProperty("--window-left-inset");`,
+	)
+}

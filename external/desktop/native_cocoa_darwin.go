@@ -27,6 +27,9 @@ import (
 const (
 	nsApplicationActivationPolicyRegular = 0
 
+	// The shell's .tabs height, held in sync by TestNativeFirstMouseRegionMatchesShell.
+	nativeTitleBarHeight = 38
+
 	nsWindowStyleMaskTitled              = 1 << 0
 	nsWindowStyleMaskClosable            = 1 << 1
 	nsWindowStyleMaskMiniaturizable      = 1 << 2
@@ -37,6 +40,8 @@ const (
 
 	nsWindowTitleVisible = 0
 	nsWindowTitleHidden  = 1
+
+	nsWindowCollectionBehaviorFullScreenNone = 1 << 9
 
 	nsViewWidthSizable  = 1 << 1
 	nsViewHeightSizable = 1 << 4
@@ -137,7 +142,9 @@ var (
 	autoreleasePoolPush func() uintptr
 	autoreleasePoolPop  func(pool uintptr)
 
-	controllerClass objc.Class
+	controllerClass          objc.Class
+	webviewClass             objc.Class
+	webviewDefaultFirstMouse func(objc.ID, objc.SEL, objc.ID) bool
 )
 
 // loadCocoa opens the frameworks the window needs and registers its delegate
@@ -268,7 +275,38 @@ func registerControllerClass() error {
 		return fmt.Errorf("desktop: registering the window delegate: %w", err)
 	}
 	controllerClass = registered
+	// WebKit may dynamically subclass the view. Bind the base implementation
+	// once: dispatching super from its dynamic class would enter our override again.
+	firstMouse := sel("acceptsFirstMouse:")
+	purego.RegisterFunc(&webviewDefaultFirstMouse, objc.Send[uintptr](class("WKWebView"), sel("instanceMethodForSelector:"), firstMouse))
+	webviewClass, err = objc.RegisterClass("CoddyNativeWebView", objc.GetClass("WKWebView"), nil, nil, []objc.MethodDef{
+		{Cmd: sel("acceptsFirstMouse:"), Fn: nativeAcceptsFirstMouse},
+	})
+	if err != nil {
+		return fmt.Errorf("desktop: registering the native web view: %w", err)
+	}
 	return nil
+}
+
+// AppKit normally uses a non-key WebView's first click only to activate its
+// window. Let the unified title strip receive that down so its existing page
+// gesture can move on the first press. Chat content and separate-frame windows
+// keep WebKit's first-click behavior; this adds no second drag route.
+func nativeAcceptsFirstMouse(self objc.ID, cmd objc.SEL, event objc.ID) bool {
+	window := self.Send(sel("window"))
+	if event != 0 && objc.Send[uint64](window, sel("styleMask"))&nsWindowStyleMaskFullSizeContentView != 0 {
+		point := objc.Send[nsPoint](event, sel("locationInWindow"))
+		point = objc.Send[nsPoint](self, sel("convertPoint:fromView:"), point, objc.ID(0))
+		bounds := objc.Send[nsRect](self, sel("bounds"))
+		y := point.Y - bounds.Origin.Y
+		if !boolOf(self, "isFlipped") {
+			y = bounds.Origin.Y + bounds.Size.Height - point.Y
+		}
+		if y >= 0 && y < nativeTitleBarHeight {
+			return true
+		}
+	}
+	return webviewDefaultFirstMouse(self, cmd, event)
 }
 
 var (
@@ -398,9 +436,11 @@ func decorate(window objc.ID, framed bool) {
 	}
 	window.Send(sel("setTitleVisibility:"), title)
 	window.Send(sel("setTitlebarAppearsTransparent:"), !framed)
+	// The green button is zoom, including macOS releases that default it to fullscreen.
+	window.Send(sel("setCollectionBehavior:"), uint64(nsWindowCollectionBehaviorFullScreenNone))
 	for _, button := range []int{0, 1, 2} { // close, miniaturise, zoom
 		if view := window.Send(sel("standardWindowButton:"), button); view != 0 {
-			view.Send(sel("setHidden:"), !framed)
+			view.Send(sel("setHidden:"), false)
 		}
 	}
 }

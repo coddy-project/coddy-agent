@@ -196,8 +196,10 @@ Closing the second window ends only that launch. Closing the original window end
 the desktop run. A macOS build with cgo uses Cocoa/WKWebView instead, which is
 what every macOS release archive is. The native window needs macOS 14 for
 isolated persistent WebKit stores and a graphical session. Auto falls back to a
-browser on older macOS versions. On X11 and native macOS the window carries no system frame: the strip is its
-title bar and holds the window's own buttons, a menu of the desktop's switches
+browser on older macOS versions. On X11 and native macOS the strip is the title bar by default. X11 draws window
+buttons at the right; native macOS keeps its round system buttons at the left,
+with green zooming instead of entering full screen. AppKit draws its corners and
+resize edges. The strip also holds a menu of the desktop's switches
 (open at login, the tray icon, start minimised, the system frame) and the
 chords
 .BR Ctrl+T ", " Ctrl+W ", " Ctrl+R " and " Ctrl+Tab ,
@@ -211,7 +213,7 @@ the browser if the required macOS version or graphical session is unavailable.
 chooses the browser (else
 .IR CODDY_DESKTOP_BROWSER ),
 .B \-\-frame
-keeps the system title bar, and
+keeps a separate system title bar and borders, and
 .B \-\-auth
 asks for the credential the configuration carries, which a window on loopback
 does not by default, and

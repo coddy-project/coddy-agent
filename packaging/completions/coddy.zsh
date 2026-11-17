@@ -128,7 +128,7 @@ _coddy() {
                     _arguments \
                         '--window[window backend]:backend:(auto browser native)' \
                         '--browser[browser to open the window with]:browser:_files' \
-                        '--frame[keep the system title bar and borders]' \
+                        '--frame[keep a separate system title bar (macOS always keeps its buttons)]' \
                         '--auth[ask for the credential the configuration carries]' \
                         '--new-chat[open a new chat in --cwd, asking a desktop already running]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \

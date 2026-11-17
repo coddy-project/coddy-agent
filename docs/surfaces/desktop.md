@@ -93,7 +93,7 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 | `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS build carries, release or source; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
-| `--frame` | keep the system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar |
+| `--frame` | keep a separate system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar; macOS keeps its system buttons |
 | `--log-level` | `debug`, `info`, `warn` or `error`, overriding the configuration |
 | `--auth` | ask for the credential the configuration carries. Without it the window asks for nothing (below) |
 | `-t`, `--test-config` | check the configuration file and exit, starting nothing |
@@ -119,7 +119,7 @@ log; the window and the rest keep running. The configuration on disk is not rewr
 | Next, previous | `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab`, which wrap at both ends |
 | Reorder | drag a tab to its new place in the row |
 | Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
-| Walk a long row | the two arrows beside the window's own buttons, which appear once the tabs are wider than the bar |
+| Walk a long row | the two arrows after the empty part of the strip, which appear once the tabs are wider than the bar |
 
 A middle click on **New chat**, a conversation in **History**, or a rail item such as **Settings**,
 **Scheduler**, **Docs** or **Swarm** opens that route in a new tab of this window instead of another
@@ -178,20 +178,25 @@ origin shares a single connection.
 
 ## The window itself
 
-On X11 and native macOS the window opens without the system frame, and the tab strip is its title
-bar. Browser windows on macOS, Windows and Wayland keep the system frame. The controls below apply
-to X11 and native macOS. The strip carries, from left to right: the menu of the desktop, the tabs, `+`, the empty space that drags the
-window, the two arrows that walk a row too long for the bar, and minimise, maximise and close at the
-right edge. On X11 the corners are rounded while the window floats and square while it fills the
-screen. macOS draws its native window corners.
+On X11 and native macOS the tab strip is the title bar by default. Browser windows on macOS,
+Windows and Wayland keep the system frame. From left to right the strip carries the desktop menu,
+the tabs, `+`, the empty space that drags the window, and the arrows that walk a row too long for
+the bar.
+
+On native macOS the round red, yellow and green system buttons stay at the top left. The menu and
+tabs leave room for their measured width. Green zooms or restores the window; it does not enter
+full screen. AppKit draws the corners and handles resizing at the edges, so the strip draws no
+extra window buttons or resize areas. On X11 the strip draws minimise, maximise and close at the
+right edge, with rounded corners while the window floats and square corners while it fills the
+screen.
 
 | Action | How |
 | --- | --- |
-| Move the window | drag the empty part of the strip |
+| Move the window | drag the empty part of the strip; on native macOS its padding also drags |
 | Resize the window | drag an edge or a corner; the pointer shows the direction |
-| Maximise or restore | double-click the empty part of the strip, or the middle button at the right |
-| Minimise, close | the buttons at the right edge |
-| The desktop menu | the button at the left edge of the strip |
+| Maximise or restore | double-click the empty part of the strip; on macOS use the green system button, on X11 the middle button at the right |
+| Minimise, close | macOS: yellow and red system buttons at the left; X11: the buttons at the right edge |
+| The desktop menu | the menu button before the tabs, after the system buttons on native macOS |
 
 A window the window manager has pinned - maximised, or tiled against an edge with `Meta`+`Left` -
 is let loose when you start dragging the strip, and put back under the pointer, the way dragging a
@@ -260,7 +265,7 @@ take another port.
 | **Open at login** | Linux and FreeBSD: write `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
 | **Show the tray icon** | publishes Coddy's mark in the system tray as a StatusNotifierItem on the session bus. A click on it brings the window back from behind another window or from the taskbar |
 | **Start minimised** | the next launch opens the window minimised, which is usually what a window opened at login wants |
-| **Show the system frame** | gives the window back the title bar and borders your desktop draws. The strip then stops drawing minimise, maximise and close, since the frame carries them. On X11 and native macOS; other browser windows always keep their frame |
+| **Show the system frame** | gives the window back the title bar and borders your desktop draws. On X11 the strip then stops drawing minimise, maximise and close. Native macOS keeps its system buttons in either mode. On X11 and native macOS; other browser windows always keep their frame |
 
 A switch moves only once the launcher has done the thing: a tray this session has no tray for, or
 an autostart folder that cannot be written, leaves the switch where it was and says why on the row.
@@ -373,8 +378,8 @@ column:
 | | Linux, FreeBSD (X11) | Linux, FreeBSD (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
 | The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on older macOS | yes |
-| No system frame, the strip as the title bar | yes | no | native only | no |
-| Rounded corners, drag by the strip, its own buttons | yes | no | native only | no |
+| The strip as the title bar | yes | no | native only, with system buttons at the left | no |
+| Rounded corners and drag by the strip | yes | no | native only; AppKit draws corners and resize edges | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
 | `Alt` for the letter and digit chords | yes | yes | yes | yes |
 | Tray icon | yes | yes | no | no |

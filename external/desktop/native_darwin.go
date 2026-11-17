@@ -18,6 +18,7 @@ import (
 
 	"github.com/ebitengine/purego/objc"
 
+	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -171,7 +172,7 @@ func createNativeWindow(opts Options, url, identifier string) (w *nativeWindow, 
 	configuration.Send(sel("setWebsiteDataStore:"), class("WKWebsiteDataStore").Send(sel("dataStoreForIdentifier:"), uuid))
 
 	contentView := window.Send(sel("contentView"))
-	webview := class("WKWebView").Send(sel("alloc")).Send(sel("initWithFrame:configuration:"),
+	webview := objc.ID(webviewClass).Send(sel("alloc")).Send(sel("initWithFrame:configuration:"),
 		objc.Send[nsRect](contentView, sel("bounds")), configuration)
 	if webview == 0 {
 		window.Send(sel("close"))
@@ -191,13 +192,15 @@ func createNativeWindow(opts Options, url, identifier string) (w *nativeWindow, 
 	if opts.StartMinimised {
 		window.Send(sel("miniaturize:"), objc.ID(0))
 	}
-	return &nativeWindow{
+	w = &nativeWindow{
 		object:    controller,
 		window:    window,
 		webview:   webview,
 		downloads: map[objc.ID]string{},
 		log:       opts.Log,
-	}, nil
+	}
+	w.refreshFrame()
+	return w, nil
 }
 
 // All Cocoa messages are queued onto the main thread. Returning from a shell
@@ -209,6 +212,7 @@ type nativeWindow struct {
 	window  objc.ID
 	webview objc.ID
 	closed  bool
+	chrome  shell.WindowFrame
 	// What each unfinished download was promised, so two of them in flight
 	// never agree on the same name.
 	downloads map[objc.ID]string
@@ -301,6 +305,36 @@ func (w *nativeWindow) ResizeBy(dir string, x, y int) error {
 }
 func (w *nativeWindow) WaitForWindow(time.Duration) bool { return w.Supported() }
 
+// Frame is a snapshot made on the Cocoa thread, safe for the shell's HTTP handler.
+func (w *nativeWindow) Frame() shell.WindowFrame {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.chrome
+}
+
+// refreshFrame measures the real standard buttons in the page's coordinate space.
+// The leading gap is also left after the group, rather than hard-coding a version's spacing.
+func (w *nativeWindow) refreshFrame() {
+	chrome := shell.WindowFrame{Kind: shell.FrameSystem}
+	left, right := 1e9, 0.0
+	for _, kind := range []int{0, 1, 2} {
+		button := w.window.Send(sel("standardWindowButton:"), kind)
+		if button == 0 {
+			continue
+		}
+		frame := objc.Send[nsRect](button, sel("frame"))
+		frame = objc.Send[nsRect](button.Send(sel("superview")), sel("convertRect:toView:"), frame, w.webview)
+		left = min(left, frame.Origin.X)
+		right = max(right, frame.Origin.X+frame.Size.Width)
+	}
+	if right > 0 {
+		chrome.LeftInset = int(right + left)
+	}
+	w.mu.Lock()
+	w.chrome = chrome
+	w.mu.Unlock()
+}
+
 // perform runs one shell request on Cocoa's main thread.
 func (w *nativeWindow) perform(action, x, y int) {
 	if w.isClosed() || w.window == 0 {
@@ -309,8 +343,10 @@ func (w *nativeWindow) perform(action, x, y int) {
 	switch action {
 	case nativeUndecorate:
 		decorate(w.window, false)
+		w.refreshFrame()
 	case nativeDecorate:
 		decorate(w.window, true)
+		w.refreshFrame()
 	case nativeMinimise:
 		w.window.Send(sel("miniaturize:"), objc.ID(0))
 	case nativeMaximise:
