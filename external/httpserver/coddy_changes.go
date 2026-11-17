@@ -3,11 +3,16 @@
 package httpserver
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,17 +25,26 @@ import (
 // changedFileDTO is one file of the session's working copy changes. Patch,
 // Before and After are pointers so an empty string still serialises: a binary
 // file legitimately has an empty patch, and the caller must be able to tell
-// that apart from a field it did not ask for.
+// that apart from a field it did not ask for. Digest, Image and the two sizes
+// describe the raw sides, so a viewer can fingerprint, size and render the
+// file without fetching its content; the beforeImage and afterImage pair
+// breaks the image flag down per side, since a file may change its kind.
 type changedFileDTO struct {
-	Path      string  `json:"path"`
-	Status    string  `json:"status"`
-	Additions int     `json:"additions"`
-	Deletions int     `json:"deletions"`
-	Binary    bool    `json:"binary"`
-	Truncated bool    `json:"truncated"`
-	Patch     *string `json:"patch,omitempty"`
-	Before    *string `json:"before,omitempty"`
-	After     *string `json:"after,omitempty"`
+	Path        string  `json:"path"`
+	Status      string  `json:"status"`
+	Additions   int     `json:"additions"`
+	Deletions   int     `json:"deletions"`
+	Binary      bool    `json:"binary"`
+	Truncated   bool    `json:"truncated"`
+	Digest      string  `json:"digest"`
+	Image       bool    `json:"image"`
+	BeforeImage bool    `json:"beforeImage"`
+	AfterImage  bool    `json:"afterImage"`
+	BeforeSize  int     `json:"beforeSize"`
+	AfterSize   int     `json:"afterSize"`
+	Patch       *string `json:"patch,omitempty"`
+	Before      *string `json:"before,omitempty"`
+	After       *string `json:"after,omitempty"`
 }
 
 // registerChangesRoutes adds the routes behind a chat's Edits view: what git
@@ -39,11 +53,16 @@ func (s *Server) registerChangesRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/changes", s.coddySessionChangesList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/changes/file", s.coddySessionChangeFile)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/changes/revert", s.coddySessionChangesRevert)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/changes/delete", s.coddySessionChangesDelete)
 }
 
-// decodeSide turns file bytes into text. textenc owns the encoding decision for
-// the whole tree, so a Windows-1251 source reads the same here as it does
-// through the file tools. Undecodable content is reported as binary.
+// decodeSide turns file bytes into LF text. textenc owns the encoding decision
+// for the whole tree, so a Windows-1251 source reads the same here as it does
+// through the file tools. Undecodable content is reported as binary. The line
+// endings are levelled after decoding, so the patch and the sides describe
+// content rather than platform - the same view the sides gave when they were
+// normalised upstream; the raw bytes stay in the WorkChange for everything
+// else (the digest, the sizes, the raw image serving).
 func decodeSide(data []byte) (text string, binary bool) {
 	if data == nil {
 		return "", false
@@ -55,16 +74,47 @@ func decodeSide(data []byte) (text string, binary bool) {
 	if err != nil {
 		return "", true
 	}
-	return decoded, false
+	return strings.ReplaceAll(decoded, "\r\n", "\n"), false
+}
+
+// changeDigest fingerprints what the row stands for: the status and both raw
+// sides, so identical content hashes the same on every read and a rewrite that
+// keeps the line counts still moves it. The sides are length-prefixed so no
+// pair of contents can collide across the before/after boundary.
+func changeDigest(change gitws.WorkChange) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(change.Status))
+	var lenBuf [8]byte
+	for _, side := range [][]byte{change.Before, change.After} {
+		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(side)))
+		_, _ = h.Write(lenBuf[:])
+		_, _ = h.Write(side)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // buildChangedFile renders one working copy change into its wire form.
 func buildChangedFile(change gitws.WorkChange, withPatch, withContent bool) changedFileDTO {
 	before, beforeBinary := decodeSide(change.Before)
 	after, afterBinary := decodeSide(change.After)
-	binary := beforeBinary || afterBinary
+	beforeImage := change.Before != nil && gitws.ImageMIME(change.Before) != ""
+	afterImage := change.After != nil && gitws.ImageMIME(change.After) != ""
+	// The row is binary when a side reads as binary or carries a recognized
+	// image: an image can be plain ASCII and still have no line diff to show.
+	binary := beforeBinary || afterBinary || beforeImage || afterImage
 
-	dto := changedFileDTO{Path: change.Path, Status: change.Status, Binary: binary}
+	dto := changedFileDTO{
+		Path:        change.Path,
+		Status:      change.Status,
+		Binary:      binary,
+		Digest:      changeDigest(change),
+		Image:       beforeImage || afterImage,
+		BeforeImage: beforeImage,
+		AfterImage:  afterImage,
+		BeforeSize:  len(change.Before),
+		AfterSize:   len(change.After),
+	}
+
 	if !binary {
 		dto.Additions, dto.Deletions = linediff.Stat(before, after)
 	}
@@ -177,6 +227,14 @@ func (s *Server) coddySessionChangesList(w http.ResponseWriter, r *http.Request)
 // so this route cannot be pointed at a file outside the change set. Only the
 // wanted file is read: the review window asks a file at a time, and reading
 // every changed blob per request would be a git process per file on each one.
+//
+// With raw=1 the route serves the exact bytes of one side instead of the JSON
+// document - how the viewer renders an image, since the decoded content
+// fields cannot carry binary data. side=before|after picks the side (before
+// by default), the Content-Type is the raster format the bytes carry, a side
+// the file does not have is 404, and a side that is not a supported image is
+// 400: the raw form exists for images alone. The side parameter is read only
+// for raw=1; without it the JSON answer ignores it entirely.
 func (s *Server) coddySessionChangeFile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	path := r.URL.Query().Get("path")
@@ -184,6 +242,7 @@ func (s *Server) coddySessionChangeFile(w http.ResponseWriter, r *http.Request) 
 		writeSubagentsError(w, http.StatusBadRequest, "path is required")
 		return
 	}
+	raw := r.URL.Query().Get("raw") == "1"
 	_, cwd := s.sessionWorkspace(w, r, id)
 	if cwd == "" {
 		return
@@ -210,20 +269,60 @@ func (s *Server) coddySessionChangeFile(w http.ResponseWriter, r *http.Request) 
 		writeSubagentsError(w, http.StatusNotFound, "file is not among the working copy changes")
 		return
 	}
+	if raw {
+		side := r.URL.Query().Get("side")
+		if side == "" {
+			side = "before"
+		}
+		if side != "before" && side != "after" {
+			writeSubagentsError(w, http.StatusBadRequest, `side must be "before" or "after"`)
+			return
+		}
+		data := change.Before
+		if side == "after" {
+			data = change.After
+		}
+		if data == nil {
+			writeSubagentsError(w, http.StatusNotFound, "file has no "+side+" side")
+			return
+		}
+		mime := gitws.ImageMIME(data)
+		if mime == "" {
+			writeSubagentsError(w, http.StatusBadRequest, "the "+side+" side is not a supported image")
+			return
+		}
+		// The bytes may be anything under an image signature, so the answer is
+		// wrapped the way the workspace file routes wrap content that is not
+		// what it looks like: no sniffing, a sandboxed CSP, and no caching,
+		// since the working copy can change under a cached copy.
+		w.Header().Set("Content-Type", mime)
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+		return
+	}
 	dto := buildChangedFile(*change, true, true)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":    "coddy.session_change",
-		"sessionId": id,
-		"path":      dto.Path,
-		"status":    dto.Status,
-		"additions": dto.Additions,
-		"deletions": dto.Deletions,
-		"binary":    dto.Binary,
-		"truncated": dto.Truncated,
-		"patch":     dto.Patch,
-		"before":    dto.Before,
-		"after":     dto.After,
+		"object":      "coddy.session_change",
+		"sessionId":   id,
+		"path":        dto.Path,
+		"status":      dto.Status,
+		"additions":   dto.Additions,
+		"deletions":   dto.Deletions,
+		"binary":      dto.Binary,
+		"truncated":   dto.Truncated,
+		"digest":      dto.Digest,
+		"image":       dto.Image,
+		"beforeImage": dto.BeforeImage,
+		"afterImage":  dto.AfterImage,
+		"beforeSize":  dto.BeforeSize,
+		"afterSize":   dto.AfterSize,
+		"patch":       dto.Patch,
+		"before":      dto.Before,
+		"after":       dto.After,
 	})
 }
 
@@ -236,6 +335,95 @@ type discardRequest struct {
 	// one that is not there at all.
 	Paths json.RawMessage `json:"paths"`
 	All   bool            `json:"all"`
+}
+
+// deleteRequest is the body of a delete: the files of the change set to
+// remove from the working copy. There is no "all" - deleting everything the
+// change set holds is a discard plus the tracked files, and nobody asks for
+// that by accident the way an empty "paths" might slip through.
+type deleteRequest struct {
+	// Raw, so a "paths" that is there but null or empty is told apart from
+	// one that is not there at all.
+	Paths json.RawMessage `json:"paths"`
+}
+
+// coddySessionChangesDelete handles POST /coddy/sessions/{id}/changes/delete.
+//
+// It removes the named files of the change set from the session's folder
+// without restoring HEAD: a file git does not hold goes away, and a tracked
+// file becomes the deletion the next read of the change set reports.
+func (s *Server) coddySessionChangesDelete(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	// Exactly one JSON object: whatever follows it would make a destructive
+	// request mean something other than what its first half says.
+	var req deleteRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		writeSubagentsError(w, http.StatusBadRequest, `body must be {"paths":[...]}`)
+		return
+	}
+	var paths []string
+	if len(req.Paths) > 0 {
+		if err := json.Unmarshal(req.Paths, &paths); err != nil || len(paths) == 0 {
+			writeSubagentsError(w, http.StatusBadRequest, `"paths" must name at least one file`)
+			return
+		}
+	} else {
+		writeSubagentsError(w, http.StatusBadRequest, `"paths" must name at least one file`)
+		return
+	}
+	st, cwd := s.sessionWorkspace(w, r, id)
+	if cwd == "" {
+		return
+	}
+	// Removing files under an agent that is mid-edit would leave the folder in
+	// a state neither side expects - this chat's agent, or that of any other
+	// chat working in the same folder, or in one inside or around it.
+	if s.sessionTurnActive(id) {
+		writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
+		return
+	}
+	if busy := s.turnInFolder(id, cwd); busy != "" {
+		writeSubagentsError(w, http.StatusConflict, "session "+busy+" has a turn in flight in this folder")
+		return
+	}
+	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, session.ErrSessionTurnBusy) {
+			status = http.StatusConflict
+		}
+		writeSubagentsError(w, status, err.Error())
+		return
+	}
+	defer unlock()
+
+	if err := gitws.Delete(cwd, paths); err != nil {
+		switch {
+		case errors.Is(err, gitws.ErrNotRepository):
+			writeSubagentsError(w, http.StatusBadRequest, "the session's folder is not a git repository")
+		case errors.Is(err, gitws.ErrNotChanged):
+			// The client asked for a file its list showed and git no longer
+			// reports: committed, or put back, since it last read.
+			writeSubagentsError(w, http.StatusConflict, err.Error())
+		default:
+			s.log.Error("delete working copy changes", "session", id, "error", err)
+			// A failure halfway may have removed some files already, so
+			// every window reads the folder again.
+			s.publishSessionChanges(id)
+			writeSubagentsError(w, http.StatusInternalServerError, "delete failed")
+		}
+		return
+	}
+	// Another window showing this session reads the new state as well.
+	s.publishSessionChanges(id)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.session_changes_deleted",
+		"sessionId": id,
+		"at":        time.Now().UTC().Format(time.RFC3339Nano),
+	})
 }
 
 // coddySessionChangesRevert handles POST /coddy/sessions/{id}/changes/revert.

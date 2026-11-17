@@ -32,6 +32,39 @@
   font-variant-numeric: tabular-nums;
 }
 
+.edits-viewed-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: mix-text(70%);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.edits-viewed-track,
+.edits-viewed-value {
+  fill: none;
+  stroke-width: 2;
+}
+
+.edits-viewed-track {
+  stroke: mix-text(18%);
+}
+
+.edits-viewed-value {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.edits-viewed-summary.is-complete {
+  color: var(--coddy-todo-completed);
+}
+
+.edits-viewed-summary.is-complete .edits-viewed-value {
+  stroke: var(--coddy-todo-completed);
+}
+
 /* Git's short status at the right end of a file's row: A, M or D. */
 .edits-tree-status {
   flex: none;
@@ -90,7 +123,7 @@
 /* The diffs keep from the edges of their column what the tree's column keeps
    (the filter's 10px), and the files stand as far apart. */
 .dv-scroll {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   min-height: 0;
   padding: 10px;
@@ -98,6 +131,11 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.dv-file-head-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* It takes the focus as the window opens, for the keys that scroll it; the
@@ -140,6 +178,10 @@
   overflow: hidden;
 }
 
+.dv-file.is-active {
+  border-color: var(--accent);
+}
+
 /* The card's 1px border, then 33px with the head's own line: as tall as the
    filter beside it, the card starting where the filter does. */
 .dv-file-head {
@@ -147,10 +189,12 @@
   top: 0;
   z-index: 1;
   box-sizing: border-box;
-  height: 33px;
+  height: auto;
+  min-height: 33px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 0 12px 0 4px;
   background: mix-text(5%);
   border-bottom: 1px solid mix-text(10%);
@@ -160,7 +204,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   padding: 2px 4px;
   text-align: left;
@@ -211,6 +255,8 @@
 
 .dv-file-stat {
   display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   flex: 0 0 auto;
   font-size: 11.5px;
@@ -225,8 +271,163 @@
    which close the row at its right end. */
 .dv-file-actions {
   display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
   flex: 0 0 auto;
+}
+
+.dv-source-rich,
+.dv-viewed,
+.dv-context-actions {
+  display: inline-flex;
+  align-items: center;
+}
+
+.dv-viewed {
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.dv-viewed input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.dv-file-menu-host {
+  position: relative;
+  display: inline-flex;
+}
+
+.dv-file-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.dv-file-menu--portal {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 100;
+}
+
+.dv-file-menu button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dv-file-menu button:hover:not(:disabled),
+.dv-file-menu button:focus-visible {
+  background: mix-text(8%);
+}
+
+.dv-file-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dv-file-menu .dv-file-menu-danger {
+  color: var(--coddy-danger);
+}
+
+.dv-icon-btn[aria-pressed="true"] {
+  color: var(--text);
+  background: mix-text(9%);
+}
+
+.dv-context-actions {
+  justify-content: center;
+  gap: 4px;
+  padding: 3px;
+}
+
+.dv-rich {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+.dv-rich-version {
+  margin: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.dv-rich-version:only-child {
+  grid-column: 1 / -1;
+}
+
+.dv-rich-version--before .dv-image-frame {
+  border-color: var(--coddy-danger);
+}
+
+.dv-rich-version--after .dv-image-frame {
+  border-color: var(--coddy-todo-completed);
+}
+
+.dv-rich--markdown .dv-rich-version {
+  border: 0;
+}
+
+.dv-rich-version figcaption {
+  margin-bottom: 8px;
+  color: mix-text(62%);
+  font-size: 12px;
+  text-align: center;
+}
+
+.dv-rich-version--before figcaption {
+  color: var(--coddy-danger);
+}
+
+.dv-rich-version--after figcaption {
+  color: var(--coddy-todo-completed);
+}
+
+.dv-rich--image img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 320px;
+  margin: 0 auto;
+}
+
+.dv-image-frame {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 2px solid;
+  border-radius: 8px;
+}
+
+.dv-image-dimensions {
+  display: block;
+  margin-top: 6px;
+  color: mix-text(62%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .dv-file-body {
@@ -296,6 +497,10 @@
   background: mix-text(3%);
 }
 
+.dv-gap:has(.dv-context-actions) {
+  height: auto;
+}
+
 /* Unified scrolls sideways the way a terminal diff does. Split cannot: a long
    line would paint over the other column, so inside a column it wraps instead.
    The pair stays one flex row, so the two sides stay level however tall it gets. */
@@ -340,4 +545,29 @@
 
 .dv-side--del .dv-num {
   color: var(--diff-del-no);
+}
+
+@media (max-width: 599px) {
+  .edits-viewed-summary-label {
+    display: none;
+  }
+
+  .dv-file-head {
+    height: auto;
+    min-height: 33px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+
+  .dv-file-title {
+    flex-basis: 100%;
+  }
+
+  .dv-file-stat {
+    margin-left: auto;
+  }
+
+  .dv-rich {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

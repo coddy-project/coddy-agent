@@ -19,6 +19,29 @@ export type SplitRow =
   | { kind: "gap" }
   | { kind: "pair"; left: ParsedDiffLine | null; right: ParsedDiffLine | null };
 
+function hunksContiguous(a: ParsedDiffHunk, b: ParsedDiffHunk): boolean {
+  const oldA = a.lines.flatMap((line) =>
+    line.oldNo === null ? [] : [line.oldNo],
+  );
+  const newA = a.lines.flatMap((line) =>
+    line.newNo === null ? [] : [line.newNo],
+  );
+  const oldB = b.lines.flatMap((line) =>
+    line.oldNo === null ? [] : [line.oldNo],
+  );
+  const newB = b.lines.flatMap((line) =>
+    line.newNo === null ? [] : [line.newNo],
+  );
+  return (
+    oldA.length > 0 &&
+    newA.length > 0 &&
+    oldB.length > 0 &&
+    newB.length > 0 &&
+    oldA.at(-1)! + 1 === oldB[0] &&
+    newA.at(-1)! + 1 === newB[0]
+  );
+}
+
 /** The fewest digits a file's number cells make room for. */
 const MIN_LINE_NUMBER_DIGITS = 2;
 
@@ -44,18 +67,20 @@ export function lineNumberDigits(hunks: ParsedDiffHunk[]): number {
 /** Every diff line in order, with a gap between hunks. */
 export function toUnifiedRows(hunks: ParsedDiffHunk[]): UnifiedRow[] {
   const rows: UnifiedRow[] = [];
+  let previous: ParsedDiffHunk | undefined;
   for (const hunk of hunks) {
     if (hunk.lines.length === 0) {
       continue;
     }
     // Never at either end: a leading or trailing separator would read as
     // content missing from the file rather than skipped between changes.
-    if (rows.length > 0) {
+    if (previous && !hunksContiguous(previous, hunk)) {
       rows.push({ kind: "gap" });
     }
     for (const line of hunk.lines) {
       rows.push({ kind: "line", line });
     }
+    previous = hunk;
   }
   return rows;
 }
@@ -71,14 +96,16 @@ export function toUnifiedRows(hunks: ParsedDiffHunk[]): UnifiedRow[] {
  */
 export function toSplitRows(hunks: ParsedDiffHunk[]): SplitRow[] {
   const rows: SplitRow[] = [];
+  let previous: ParsedDiffHunk | undefined;
   for (const hunk of hunks) {
     if (hunk.lines.length === 0) {
       continue;
     }
-    if (rows.length > 0) {
+    if (previous && !hunksContiguous(previous, hunk)) {
       rows.push({ kind: "gap" });
     }
 
+    previous = hunk;
     let dels: ParsedDiffLine[] = [];
     let adds: ParsedDiffLine[] = [];
     const flush = () => {

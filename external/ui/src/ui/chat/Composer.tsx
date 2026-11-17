@@ -2080,8 +2080,14 @@ export function Composer(props: {
       control();
       return;
     }
-    const insert = `/${name} `;
-    const next = props.value.slice(0, from) + insert + props.value.slice(to);
+    const after = props.value.slice(to);
+    // Exactly one separator between the chosen name and what follows the
+    // caret: when the draft already carries whitespace there, the inserted
+    // name takes no trailing space of its own and the caret lands before
+    // that whitespace.
+    const trailingSpace = /^\s/.test(after) ? "" : " ";
+    const insert = `/${name}${trailingSpace}`;
+    const next = props.value.slice(0, from) + insert + after;
     props.onChange(next);
     setSlashOpen(false);
     setSlashReplace(null);
