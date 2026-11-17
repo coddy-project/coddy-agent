@@ -1689,25 +1689,54 @@ it was under the window.
 On the left the tree lists the changed files and only them, git's uncommitted changes
 in the folders they sit in, each with git's letter at the end of its row (**A** added,
 **M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
-file picked there scrolls the diffs to it and stays put while the diffs above it are
-still loading, and as you scroll the tree marks the file at the top, scrolling itself
+file picked there scrolls the diffs to it, highlights its card with an accent frame and stays put while the diffs above it are
+still loading. Selecting a Viewed file unfolds its body without clearing the Viewed mark. As you scroll, the tree marks the file at the top, scrolling itself
 to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
-A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+A file section has a sticky header: the chevron and name, which fold the diff, then copy-path and **Expand all lines** beside the name. The source/rich switch for Markdown stands to the right of the counts or sizes. Images and other binary files have no source/rich switch.
+Git's `+a −b`, **Viewed** and a three-dot file-actions menu close the row. Checking **Viewed** folds the file and remembers its
+content digest in this browser; when the file changes, the digest changes and the mark is withdrawn,
+even if the line counts stayed the same. Unchecking it expands the file again, and reopening the window restores the collapsed state. The window header shows `viewed / total` with a circular progress indicator. On a phone only the compact counts are visible; the full summary remains in the accessible name and tooltip. It turns green when every listed file is viewed, and a changed digest immediately removes that file from the count. The line numbers stand in
 cells as wide as the file's longest number, so the code of every row, a removed or an added one
 included, starts at one edge; inside a change the removed lines come first, then the added ones,
-the way git writes them. Between hunks sits a wordless separator
-rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+the way git writes them. Between hunks and at the file ends, arrows reveal 10 more lines up, down,
+or in both directions; **Expand all lines** reveals the whole file with its diff and becomes **Collapse all lines**. Collapsing restores the original hunks and discards context revealed through either control without folding the file card. A patch the server
+truncated offers no context controls. When expansion makes two hunks contiguous, their separator disappears. In a folder with nothing to show it says
 so: clean, or not in a git repository.
+
+For any binary file, compact byte sizes with the exact count in the tooltip replace the line counts:
+green for an addition, red for a deletion, and old red beside new green for a modification.
+Each side renders by its own type, so an image replaced by text shows the old image beside the new
+text. Rich preview shows the image itself. A modified
+image has a red-framed **Before** beside a green-framed **After**; an added or deleted image shows
+only the version that exists. Its coloured version label and loaded width and height stand outside the image frame as `W … · H …`. Images scale down to 320px high without changing their proportions. Markdown rich preview renders only the new version through the
+ordinary Markdown component. On a phone the header wraps and before/after panels stack in one column.
+
+![The file controls for reviewing a source diff](../assets/session-changes-review-controls-dark-1280.png)
+
+*Source and rich diff, context expansion and Viewed in a file header*
+
+![The same file controls on a phone](../assets/session-changes-review-controls-dark-390.png)
+
+*The file header wraps on a phone*
+
+![The before and after versions of a modified image](../assets/session-changes-image-rich-dark-1280.png)
+
+*Rich image diff with exact byte sizes and framed before and after versions*
+
+![The image versions stacked on a phone](../assets/session-changes-image-rich-dark-390.png)
+
+*Before and after images use one column on a phone*
 
 ![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
 
 *The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
 
-**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
-menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+**Discard changes** and **Delete file** live in the file's three-dot menu, immediately right of
+**Viewed**, and each asks first in the shared confirmation dialog. The menu is portaled, so it also works while the file is folded. Discard puts that file back at
+`HEAD`; delete removes it from the working folder, leaving a tracked file reported as deleted.
+**Discard all** in the window menu discards every change. The discard confirmation says whether the file
 goes back to its last committed content or, new since that commit, is deleted; Escape
 there answers the question and leaves the window open. Then the page posts
 `.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
@@ -1715,8 +1744,8 @@ content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted
 with any folder it leaves empty, and files git ignores are never touched. A turn running in
 that folder, in this chat or in another one working there, refuses the discard
 (**409**); so does a file git no longer reports - committed or put
-back meanwhile - and then nothing of the request is applied. A commit is not offered:
-the window reads, and discarding is the one thing it writes.
+back meanwhile - and then nothing of the request is applied. Delete posts `.../changes/delete`
+with `{"paths":[...]}` under the same change-set and running-turn guards. A commit is not offered.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1736,6 +1765,8 @@ Automated checks:
 - **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
 - **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/contextExpansion.test.ts** (10-line expansion in every direction, overlap, file ends and expand all) and **viewedFiles.test.ts** (Viewed keyed by content digest)
+- **external/ui/src/ui/changes/richDiff.test.ts** (rich formats, authenticated image addresses and byte sizes)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
 - **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)

@@ -15,6 +15,7 @@ import type { SessionChanges } from "./types";
 import { t } from "../i18n/i18n";
 import { ConfirmProvider } from "../components/useConfirm";
 import { emitChangesSettled } from "./sessionChangesBus";
+import { setFileViewed, VIEWED_FILES_STORAGE_KEY } from "./viewedFiles";
 
 const PATCH = [
   "--- a/src/a.ts",
@@ -63,6 +64,7 @@ let scrolled: string[];
 
 beforeEach(() => {
   document.cookie = "coddy_diff_view=; Path=/; Max-Age=0";
+  window.localStorage.removeItem(VIEWED_FILES_STORAGE_KEY);
   scrolled = [];
   // jsdom implements neither, and both are how the window navigates and copies.
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
@@ -144,6 +146,7 @@ test("is framed and headed like the Files window", async () => {
   );
   expect(order.filter((id) => id !== "edits-totals")).toEqual([
     "edits-toggle-tree",
+    "edits-viewed-summary",
     "edits-more",
     "edits-expand",
     "edits-close",
@@ -387,6 +390,35 @@ test("a file picked in the tree is scrolled to and marked", async () => {
   expect(scrolled).toEqual([]);
   expect(row).toHaveClass("is-active");
   expect(row).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByTestId("dv-file-src/a.ts")).toHaveClass("is-active");
+  expect(screen.getByTestId("dv-file-docs/b.md")).not.toHaveClass("is-active");
+});
+
+// Choosing a Viewed file in the navigation is an explicit request to read it:
+// unfold its card and show its body without withdrawing the Viewed mark.
+test("a viewed file picked in the tree expands and its card is highlighted", async () => {
+  setFileViewed("/home/dev/shop", "src/a.ts", PATCH, true);
+  open();
+  const section = await screen.findByTestId("dv-file-src/a.ts");
+  await waitFor(() =>
+    expect(screen.getByTestId("dv-file-toggle-src/a.ts")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    ),
+  );
+  expect(section.querySelector(".dv-file-body")).toBeNull();
+  fireEvent.click(screen.getByTestId("edits-tree-file-src/a.ts"));
+  await waitFor(() => {
+    expect(section).toHaveClass("is-active");
+    expect(screen.getByTestId("dv-file-toggle-src/a.ts")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(section.querySelector(".dv-file-body")).not.toBeNull();
+  });
+  expect(
+    within(section).getByRole("checkbox", { name: "Viewed" }),
+  ).toBeChecked();
 });
 
 // The tree marks the file at the top of the diffs as the reader scrolls; a
@@ -519,19 +551,40 @@ test("Escape puts the menu away before the window", async () => {
 // discard, always in sight, and git's counts at the right end; the name folds
 // the diff, so there is no second chevron on the right.
 test("a file's head ends with its counts, after copy and discard, with one chevron", async () => {
+  fetchMock.mockImplementation(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/changes/file")) {
+      return jsonResponse({
+        patch: PATCH,
+        before: "keep\nold\ntail",
+        after: "keep\nnew\ntail",
+      });
+    }
+    return jsonResponse(SESSION);
+  });
   open();
   const section = await screen.findByTestId("dv-file-src/a.ts");
+  await screen.findByTestId("dv-expand-lines-src/a.ts");
   const head = section.querySelector(".dv-file-head") as HTMLElement;
   const parts = [...head.children].map((el) => el.className.split(" ")[0]);
-  expect(parts).toEqual(["dv-file-title", "dv-file-actions", "dv-file-stat"]);
+  expect(parts).toEqual([
+    "dv-file-title",
+    "dv-icon-btn",
+    "dv-icon-btn",
+    "dv-file-head-spacer",
+    "dv-file-stat",
+  ]);
   const actions = [...head.querySelectorAll(".dv-file-actions button")].map(
     (b) => b.getAttribute("data-testid"),
   );
-  expect(actions).toEqual(["dv-copy-src/a.ts", "dv-discard-src/a.ts"]);
+  expect(actions).toEqual([]);
+  expect(
+    head.querySelector('[data-testid="dv-file-actions-src/a.ts"]'),
+  ).not.toBeNull();
   expect(head.querySelectorAll(".coddy-chevron")).toHaveLength(1);
   // No status dot before the name: the tree says the status, the name is enough.
   expect(head.querySelector(".dv-file-badge")).toBeNull();
-  expect(head.querySelector(".dv-file-stat")?.textContent).toBe("+1−1");
+  expect(head.querySelector(".dv-file-stat")?.textContent).toBe("+1−1Viewed");
 });
 
 test("the header copies the file path", async () => {
@@ -589,6 +642,7 @@ test("a folder in no repository explains itself instead of showing an empty diff
 test("discarding a file asks first, then puts it back through the server", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
+  fireEvent.click(screen.getByTestId("dv-file-actions-src/a.ts"));
   fireEvent.click(screen.getByTestId("dv-discard-src/a.ts"));
   const dialog = await confirmDialog();
   expect(dialog.textContent || "").toContain("a.ts");
@@ -729,8 +783,29 @@ test("a first read that fails says why instead of an empty window", async () => 
   expect(note.textContent).toContain("server restarting");
 });
 
+test("a non-image binary file shows its notice rather than loading forever", async () => {
+  fetchMock.mockImplementation(async () =>
+    jsonResponse({
+      ...SESSION,
+      files: [
+        {
+          ...SESSION.files[0]!,
+          binary: true,
+          image: false,
+          additions: 0,
+          deletions: 0,
+        },
+      ],
+    }),
+  );
+  open();
+  await screen.findByText("Binary file: no line diff to show.");
+  expect(screen.queryByText("Loading the diff...")).toBeNull();
+});
+
 test("a file edited again with the same counts shows its new diff", async () => {
   let body = "new";
+  let digest = "digest-a";
   fetchMock.mockImplementation(async (input: unknown) => {
     const url = String(input);
     if (url.includes("/changes/file")) {
@@ -738,15 +813,112 @@ test("a file edited again with the same counts shows its new diff", async () => 
     }
     return jsonResponse({
       ...SESSION,
-      files: [SESSION.files[0]!],
+      files: [{ ...SESSION.files[0]!, digest }],
       totals: { files: 1, additions: 1, deletions: 1 },
     });
   });
   open();
   await waitFor(() => expect(document.body.textContent).toContain("new"));
+  const viewed = screen.getByRole("checkbox", { name: "Viewed" });
+  fireEvent.click(viewed);
+  await waitFor(() => expect(viewed).toBeChecked());
+  expect(document.body.querySelector(".dv-file-body")).toBeNull();
+  fireEvent.click(screen.getByTestId("dv-file-actions-src/a.ts"));
+  const collapsedMenu = screen.getByRole("menu", {
+    name: t("changes.viewer.fileActions"),
+  });
+  expect(collapsedMenu.parentElement).toBe(document.body);
+  fireEvent.keyDown(document, { key: "Escape" });
+  fireEvent.click(viewed);
+  await waitFor(() => expect(viewed).not.toBeChecked());
+  expect(document.body.querySelector(".dv-file-body")).not.toBeNull();
+  fireEvent.click(viewed);
+  await waitFor(() =>
+    expect(document.body.querySelector(".dv-file-body")).toBeNull(),
+  );
+  expect(screen.getByTestId("edits-viewed-summary")).toHaveTextContent(
+    "1 / 1 viewed",
+  );
+  expect(screen.getByTestId("edits-viewed-summary")).toHaveClass("is-complete");
   body = "rewritten";
+  digest = "digest-b";
   emitChangesSettled("s1");
+  await waitFor(() => expect(viewed).not.toBeChecked());
+  expect(screen.getByTestId("edits-viewed-summary")).toHaveTextContent(
+    "0 / 1 viewed",
+  );
+  expect(screen.getByTestId("edits-viewed-summary")).not.toHaveClass(
+    "is-complete",
+  );
+  fireEvent.click(screen.getByTestId("dv-file-toggle-src/a.ts"));
   await waitFor(() => expect(document.body.textContent).toContain("rewritten"));
+});
+
+test("file actions keep discard and delete behind a menu", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  fireEvent.click(screen.getByTestId("dv-file-actions-src/a.ts"));
+  const menu = screen.getByRole("menu", {
+    name: t("changes.viewer.fileActions"),
+  });
+  expect(
+    within(menu).getByRole("menuitem", {
+      name: t("changes.viewer.discardChanges"),
+    }),
+  ).toBeTruthy();
+  const deleteItem = within(menu).getByRole("menuitem", {
+    name: t("changes.viewer.deleteFile"),
+  });
+  fireEvent.click(deleteItem);
+  const dialog = await confirmDialog();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: t("changes.deleteYes") }),
+  );
+  await waitFor(() => {
+    const post = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/changes/delete"),
+    );
+    expect(post).toBeTruthy();
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({
+      paths: ["src/a.ts"],
+    });
+  });
+});
+
+test("Viewed files stay collapsed after a remount", async () => {
+  setFileViewed("/home/dev/shop", "src/a.ts", PATCH, true);
+  open();
+  const reopened = await screen.findByTestId("dv-file-src/a.ts");
+  await waitFor(() =>
+    expect(
+      within(reopened).getByRole("checkbox", { name: "Viewed" }),
+    ).toBeChecked(),
+  );
+  await waitFor(() =>
+    expect(reopened.querySelector(".dv-file-body")).toBeNull(),
+  );
+});
+
+test("the Viewed counter shows progress and turns complete when every file is viewed", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const summary = screen.getByTestId("edits-viewed-summary");
+  expect(summary).toHaveTextContent("0 / 2 viewed");
+  expect(summary).not.toHaveClass("is-complete");
+  fireEvent.click(
+    within(screen.getByTestId("dv-file-src/a.ts")).getByRole("checkbox", {
+      name: "Viewed",
+    }),
+  );
+  await waitFor(() => expect(summary).toHaveTextContent("1 / 2 viewed"));
+  expect(summary).not.toHaveClass("is-complete");
+  fireEvent.click(
+    within(screen.getByTestId("dv-file-docs/b.md")).getByRole("checkbox", {
+      name: "Viewed",
+    }),
+  );
+  await waitFor(() => expect(summary).toHaveTextContent("2 / 2 viewed"));
+  expect(summary).toHaveClass("is-complete");
 });
 
 test("new files git could not list can still be discarded", async () => {

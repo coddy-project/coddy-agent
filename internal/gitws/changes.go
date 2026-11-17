@@ -3,8 +3,10 @@ package gitws
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"image/gif"
 	"io"
 	"io/fs"
 	"os"
@@ -311,6 +313,11 @@ func underFolders(p string, folders []string) bool {
 // copy. It deliberately mirrors the shape the session change set uses, so the
 // HTTP layer can render every scope of the diff viewer through one DTO, but it
 // stays a gitws type: nothing below this package may depend on internal/session.
+//
+// Before and After are the bytes as they stand, line endings and all: a side's
+// CRLF is levelled only where a textual diff or a content comparison reads it,
+// so a caller hashing, sizing or serving a side gets the file itself. A binary
+// blob may carry the CRLF pair inside it and must reach the caller unaltered.
 type WorkChange struct {
 	Path   string // workspace-relative, OS separators
 	Status string // "added" | "modified" | "deleted"
@@ -485,7 +492,7 @@ func readUntracked(dir, rel string) (WorkChange, bool) {
 	return WorkChange{
 		Path:   filepath.FromSlash(rel),
 		Status: "added",
-		After:  normalizeEOL(content),
+		After:  content,
 	}, true
 }
 
@@ -638,11 +645,102 @@ func assembleChanges(dir string, records []changedRecord, head headBlobReader) (
 // text attribute and core.autocrlf is off (a default Linux checkout), and the
 // viewer would render an empty diff for it, so it is not a change at all. A
 // rename or copy keeps its record even with unchanged content - the move
-// itself is the change.
+// itself is the change. The levelling is a courtesy for text only: inside a
+// binary side the CRLF pair is just two bytes, so a side that is not text
+// compares as it stands and a binary file rewritten in exactly that pair is
+// still reported. The sides themselves always keep their bytes.
 func isLineEndingChurn(code byte, change WorkChange) bool {
-	return code == 'M' &&
-		change.Before != nil && change.After != nil &&
-		bytes.Equal(change.Before, change.After)
+	if code != 'M' || change.Before == nil || change.After == nil {
+		return false
+	}
+	before, after := change.Before, change.After
+	if textualSide(before) {
+		before = normalizeEOL(before)
+	}
+	if textualSide(after) {
+		after = normalizeEOL(after)
+	}
+	return bytes.Equal(before, after)
+}
+
+// textualSide reports a side the line-ending levelling may touch: text all the
+// way down. A NUL anywhere in the bytes marks it binary - a prefix-limited
+// sniff would miss a NUL sitting deep into a long file - and so does the
+// signature of a recognized binary format, since an image can be plain ASCII
+// yet a byte rewrite inside it is still a rewrite, not line-ending noise.
+func textualSide(b []byte) bool {
+	return bytes.IndexByte(b, 0) < 0 && ImageMIME(b) == ""
+}
+
+// ImageMIME names the raster format the bytes carry, or "" for anything that
+// is not one of the images the diff viewer renders: PNG, JPEG, GIF, WebP and
+// BMP. The formats are told by their signatures - the same ones
+// http.DetectContentType knows - except BMP, whose two letters open too many
+// ordinary text files to count, so a "BM" prefix also has to carry a header
+// whose own numbers agree with the file that follows, and GIF, whose "GIF89a"
+// prose prefix needs the block marker that follows the screen descriptor.
+func ImageMIME(data []byte) string {
+	switch {
+	case len(data) >= 8 && bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}):
+		return "image/png"
+	case len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF:
+		return "image/jpeg"
+	case isGIF(data):
+		return "image/gif"
+	case len(data) >= 12 && bytes.Equal(data[:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")):
+		return "image/webp"
+	case isBMP(data):
+		return "image/bmp"
+	}
+	return ""
+}
+
+// isGIF reports whether the bytes hold a structurally valid GIF: the GIF87a or
+// GIF89a signature, a header the GIF decoder accepts (signature plus the
+// seven-byte logical screen descriptor, which is all gif.DecodeConfig reads),
+// and a block marker - an image descriptor, an extension, or the trailer -
+// right where the stream puts one: after the descriptor and the global color
+// table when the packed field says it is there.
+func isGIF(data []byte) bool {
+	if len(data) < 14 {
+		return false
+	}
+	if _, err := gif.DecodeConfig(bytes.NewReader(data)); err != nil {
+		return false
+	}
+	pos := 13 // 6-byte signature + 7-byte logical screen descriptor
+	if data[10]&0x80 != 0 {
+		pos += 3 << (data[10]&0x07 + 1) // 3 * 2^(n+1) bytes of global color table
+	}
+	if pos >= len(data) {
+		return false
+	}
+	return data[pos] == 0x2C || data[pos] == 0x21 || data[pos] == 0x3B
+}
+
+// isBMP reports whether the bytes hold a structurally valid Windows bitmap:
+// the "BM" signature, a file-size field equal to the blob's real length, a
+// zeroed reserved word, a pixel-data offset inside the file and past the
+// headers, and a DIB header size the format actually defines.
+func isBMP(data []byte) bool {
+	// 14 bytes of file header, then at least the 12-byte BITMAPCOREHEADER.
+	if len(data) < 14+12 || data[0] != 'B' || data[1] != 'M' {
+		return false
+	}
+	if size := uint64(binary.LittleEndian.Uint32(data[2:6])); size != uint64(len(data)) {
+		return false
+	}
+	if binary.LittleEndian.Uint32(data[6:10]) != 0 { // reserved must be zero
+		return false
+	}
+	dibSize := binary.LittleEndian.Uint32(data[14:18])
+	switch dibSize {
+	case 12, 16, 40, 52, 56, 64, 108, 124: // the DIB header sizes BMP uses
+	default:
+		return false
+	}
+	off := binary.LittleEndian.Uint32(data[10:14])
+	return uint64(off) >= 14+uint64(dibSize) && uint64(off) < uint64(len(data))
 }
 
 // changedRecords lists what changed without reading any file content.
@@ -706,13 +804,13 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBl
 			// new rather than failing the whole scope.
 			change.Status = "added"
 		} else {
-			change.Before = normalizeEOL(before)
+			change.Before = before
 		}
 	}
 	if code != 'D' {
 		after, err := readWorktreeFile(dir, filepath.FromSlash(newPath))
 		if err == nil {
-			change.After = normalizeEOL(after)
+			change.After = after
 		} else if !os.IsNotExist(err) {
 			return change, err
 		} else {
@@ -748,8 +846,10 @@ func readWorktreeFile(dir, rel string) ([]byte, error) {
 // (LF, under the usual autocrlf setup) while the working file is what the OS
 // wrote (CRLF on Windows). git applies its line-ending filter when it diffs, so
 // it reports the one line that really changed; comparing the raw bytes does not,
-// and a one-line edit would render as a whole-file rewrite. Both sides are
-// levelled here so the diff describes content rather than platform.
+// and a one-line edit would render as a whole-file rewrite. The levelling
+// happens where a comparison or a textual diff reads the sides - a hash like
+// contentHash, a churn check, the unified diff - never on the stored bytes,
+// which a caller hashing, sizing or serving needs as they are.
 func normalizeEOL(b []byte) []byte {
 	if !bytes.Contains(b, crlf) {
 		return b

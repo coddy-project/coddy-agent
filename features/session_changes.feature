@@ -13,6 +13,19 @@ Feature: Reviewing and discarding the edits of a session's working copy
     Then no files are reported as changed
     And git is named as the version control
 
+  Scenario: A changed file carries a fingerprint of its content
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
+    And I ask what the working copy changed
+    Then "notes.txt" is reported with a content digest
+
+  Scenario: An image file is marked and its raw sides are served
+    Given the repository has "pic.png" committed as a PNG image
+    When "pic.png" is rewritten on disk with another PNG image
+    And I ask what the working copy changed
+    Then "pic.png" is reported as an image with its raw sizes
+    And the raw "before" side of "pic.png" is served as "image/png"
+    And the raw "after" side of "pic.png" is served as "image/png"
+
   Scenario: An edited file is reported with its line counts
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And I ask what the working copy changed
@@ -58,3 +71,19 @@ Feature: Reviewing and discarding the edits of a session's working copy
     And "extra.txt" no longer exists
     When I ask what the working copy changed
     Then no files are reported as changed
+
+  Scenario: Deleting a new file makes it go away
+    Given a client listening for server events
+    When the agent runs a turn that writes "extra.txt" as "fresh\n"
+    And I delete the changes of "extra.txt"
+    Then the client hears that the session's working copy changed
+    And "extra.txt" no longer exists
+    When I ask what the working copy changed
+    Then no files are reported as changed
+
+  Scenario: Deleting an edited tracked file leaves a deletion
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
+    And I delete the changes of "notes.txt"
+    Then "notes.txt" no longer exists
+    When I ask what the working copy changed
+    Then "notes.txt" is reported as "deleted"

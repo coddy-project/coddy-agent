@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { stylesSource } from "../../stylesSource";
+import { stylesPartial, stylesSource } from "../../stylesSource";
 
 const css = stylesSource();
 
@@ -19,6 +19,65 @@ test("on a narrow head the folder gives way and git's count stays whole", () => 
   expect(folder).toMatch(/text-overflow:\s*ellipsis/);
   expect(folder).toMatch(/overflow:\s*hidden/);
   expect(rule(".edits-totals")).toMatch(/flex:\s*none/);
+});
+
+test("rich previews and their controls collapse into one column on a phone", () => {
+  const css = stylesPartial("screens/edits");
+  expect(css).toContain(".dv-rich-version--before");
+  expect(css).toContain(".dv-rich-version--after");
+  expect(css).toMatch(
+    /\.dv-rich\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+  );
+  expect(css).toContain("grid-column: 1 / -1;");
+  expect(css).toContain(".dv-file-actions");
+});
+
+test("Markdown rich preview has no colored frame", () => {
+  expect(rule(".dv-rich--markdown .dv-rich-version")).toMatch(/border:\s*0/);
+});
+
+test("images scale down to a bounded height without distortion", () => {
+  const body = rule(".dv-rich--image img");
+  expect(body).toMatch(/width:\s*auto/);
+  expect(body).toMatch(/height:\s*auto/);
+  expect(body).toMatch(/max-width:\s*100%/);
+  expect(body).toMatch(/max-height:\s*320px/);
+});
+
+test("image version labels use the colour of their image frame", () => {
+  expect(rule(".dv-rich-version figcaption")).toMatch(/text-align:\s*center/);
+  expect(rule(".dv-rich-version--before figcaption")).toMatch(
+    /color:\s*var\(--coddy-danger\)/,
+  );
+  expect(rule(".dv-rich-version--after figcaption")).toMatch(
+    /color:\s*var\(--coddy-todo-completed\)/,
+  );
+});
+
+test("the image frame hugs the displayed image and stays centered", () => {
+  const body = rule(".dv-image-frame");
+  expect(body).toMatch(/width:\s*fit-content/);
+  expect(body).toMatch(/max-width:\s*100%/);
+  expect(body).toMatch(/margin:\s*0 auto/);
+});
+
+test("the file title does not push the copy button towards the centre", () => {
+  expect(rule(".dv-file-title")).toMatch(/flex:\s*0 1 auto/);
+  expect(rule(".dv-file-head-spacer")).toMatch(/flex:\s*1 1 auto/);
+  expect(rule(".dv-file.is-active")).toMatch(/border-color:\s*var\(--accent\)/);
+});
+
+test("a phone hides the long Viewed word but keeps the counts", () => {
+  const partial = stylesPartial("screens/edits");
+  expect(partial).toMatch(
+    /@media \(max-width: 599px\)[\s\S]*\.edits-viewed-summary-label\s*\{[^}]*display:\s*none/,
+  );
+});
+
+test("the Viewed progress ring turns green when every file is viewed", () => {
+  expect(rule(".edits-viewed-summary.is-complete .edits-viewed-value")).toMatch(
+    /stroke:\s*var\(--coddy-todo-completed\)/,
+  );
 });
 
 // Copy and discard stay in sight on every file: nothing hides them until the
@@ -61,8 +120,11 @@ test("the diffs keep the tree's distance from the edges of their column", () => 
 test("a file's head is as tall as the filter", () => {
   const input = /height:\s*([\d.]+)px/.exec(rule(".files-filter input"))![1]!;
   const head = rule(".dv-file-head");
+  expect(head).toMatch(/gap:\s*4px/);
   expect(head).toMatch(/box-sizing:\s*border-box/);
-  const height = parseFloat(/(?:^|[;\s])height:\s*([\d.]+)px/.exec(head)![1]!);
+  const height = parseFloat(
+    /(?:^|[;\s])min-height:\s*([\d.]+)px/.exec(head)![1]!,
+  );
   expect(rule(".dv-file")).toMatch(/border:\s*1px/);
   // The card's top border, then the head with its 1px line.
   expect(1 + height).toBe(parseFloat(input));
