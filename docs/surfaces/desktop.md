@@ -183,11 +183,14 @@ Windows and Wayland keep the system frame. From left to right the strip carries 
 the tabs, `+`, the empty space that drags the window, and the arrows that walk a row too long for
 the bar.
 
-On native macOS the round red, yellow and green system buttons stay at the top left. The menu and
-tabs leave room for their measured width. Green zooms or restores the window; it does not enter
-full screen. AppKit draws the corners and handles resizing at the edges, so the strip draws no
-extra window buttons or resize areas. On X11 the strip draws minimise, maximise and close at the
-right edge, with rounded corners while the window floats and square corners while it fills the
+On native macOS the round red, yellow and green system buttons stay at the top left, aligned with
+the menu icon, tab labels and `+`. The gap from green to the menu icon matches the left margin
+before red, measured from the system buttons at run time. With the strip as the title bar, green
+zooms or restores the window without entering full screen. A separate system frame restores
+macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window
+from the first press, including when another app has focus. AppKit draws the corners and handles
+resizing at the edges, so the strip draws no extra window buttons or resize areas. On X11 the
+strip draws minimise, maximise and close at the right edge, with rounded corners while the window floats and square corners while it fills the
 screen.
 
 | Action | How |
@@ -265,7 +268,7 @@ take another port.
 | **Open at login** | Linux and FreeBSD: write `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
 | **Show the tray icon** | publishes Coddy's mark in the system tray as a StatusNotifierItem on the session bus. A click on it brings the window back from behind another window or from the taskbar |
 | **Start minimised** | the next launch opens the window minimised, which is usually what a window opened at login wants |
-| **Show the system frame** | gives the window back the title bar and borders your desktop draws. On X11 the strip then stops drawing minimise, maximise and close. Native macOS keeps its system buttons in either mode. On X11 and native macOS; other browser windows always keep their frame |
+| **Show the system frame** | gives the window back the title bar and borders your desktop draws. On X11 the strip then stops drawing minimise, maximise and close. Native macOS keeps its system buttons in either mode and restores macOS's original full-screen behavior with a separate frame. On X11 and native macOS; other browser windows always keep their frame |
 
 A switch moves only once the launcher has done the thing: a tray this session has no tray for, or
 an autostart folder that cannot be written, leaves the switch where it was and says why on the row.

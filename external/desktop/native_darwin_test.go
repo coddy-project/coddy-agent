@@ -259,6 +259,10 @@ type nativePageReport struct {
 	Frame                                            shell.WindowFrame
 	Buttons                                          []nativeBarButton
 	DragX                                            float64
+	BarHeight                                        float64
+	BarItems, TabLabels                              []nativePageRect
+	TabCount, SelectedTab                            int
+	MenuOpen                                         bool
 	BarReady                                         bool
 	GestureEvents                                    [][]any
 	WindowActions                                    []map[string]any
@@ -390,89 +394,108 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if err != nil {
 		return fmt.Errorf("%w; native=%s", err, nativeWindowDiagnostics(ctx))
 	}
-	if err := nativeCheckFirstMouse(ctx, false); err != nil {
+	var focused bool
+	if err := nativeOnMain(ctx, func(w *nativeWindow) {
+		focused = boolOf(w.window, "isKeyWindow") && boolOf(nsApp(), "isActive")
+	}); err != nil {
 		return err
 	}
-	chrome, err := nativeObservedChrome(ctx)
-	if err != nil {
-		return err
+	if !focused {
+		return fmt.Errorf("focused gesture precondition failed; native=%s", nativeWindowDiagnostics(ctx))
 	}
-	if chrome.Visible != 3 {
-		return fmt.Errorf("frameless standard buttons visible=%d, want 3", chrome.Visible)
-	}
-	report, err = page("system frame information", 5*time.Second, nil)
-	if err != nil {
-		return err
-	}
-	if report.Frame.Kind != shell.FrameSystem || len(report.Buttons) != 2 || report.Buttons[0].X-chrome.ZoomRight <= 0 || report.Buttons[0].X-chrome.ZoomRight > chrome.LeftMargin+2 {
-		return fmt.Errorf("native frame answer=%+v, measured standard buttons=%+v", report.Frame, chrome)
-	}
-	fmt.Printf("native button layout: zoomRight=%.1f leftMargin=%.1f menuLeft=%.1f gap=%.1f\n", chrome.ZoomRight, chrome.LeftMargin, report.Buttons[0].X, report.Buttons[0].X-chrome.ZoomRight)
-	// Drive genuine AppKit events through WebKit and the real shell, without
-	// posting system-wide input or requiring Accessibility permission.
-	var other objc.ID
-	closeOther := func() error {
-		if other == 0 {
-			return nil
+	checkLayout := func(label string) error {
+		chrome, err := nativeObservedChrome(ctx)
+		if err != nil {
+			return err
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		return nativeOnMain(cleanupCtx, func(w *nativeWindow) {
-			if other != 0 {
-				other.Send(sel("close"))
-				other.Send(sel("release"))
-				other = 0
+		report, err = page(label, 5*time.Second, nil)
+		if err != nil {
+			return err
+		}
+		if chrome.Visible != 3 || report.Frame.Kind != shell.FrameSystem || len(chrome.Buttons) != 3 || len(report.BarItems) != 3 || len(report.Buttons) != 2 || report.BarHeight != 38 {
+			return fmt.Errorf("%s: native=%+v page=%+v", label, chrome, report)
+		}
+		if chrome.CollectionBehavior != nsWindowCollectionBehaviorFullScreenNone {
+			return fmt.Errorf("%s: frameless collectionBehavior=%d, want FullScreenNone", label, chrome.CollectionBehavior)
+		}
+		// Compare real AppKit frames in window coordinates with the actual SVGs
+		// and label in the page, not their larger button/tab containers.
+		centres := make([]float64, 0, 6)
+		for _, button := range chrome.Buttons {
+			centres = append(centres, button.Y+button.Height/2)
+		}
+		for _, item := range report.BarItems {
+			centres = append(centres, item.Y+item.Height/2)
+		}
+		low, high := centres[0], centres[0]
+		for _, centre := range centres {
+			low, high = math.Min(low, centre), math.Max(high, centre)
+		}
+		menu := report.BarItems[0]
+		gap := menu.X - chrome.ZoomRight
+		if high-low > 1 || math.Abs(gap-chrome.LeftMargin) > 2 || math.Abs(float64(report.Frame.LeftInset)-menu.X) > 1 {
+			return fmt.Errorf("%s: centres=%v menu icon gap=%.1f red margin=%.1f inset=%d icon left=%.1f", label, centres, gap, chrome.LeftMargin, report.Frame.LeftInset, menu.X)
+		}
+		for _, button := range report.Buttons {
+			if button.X <= chrome.ZoomRight || button.Right > float64(report.InnerWidth) || !button.Reachable || button.Label == "" {
+				return fmt.Errorf("%s: unreachable control %+v", label, button)
 			}
-		})
+		}
+		fmt.Printf("%s: centres=%v menu icon gap=%.1f red margin=%.1f inset=%d bar=%.0f\n", label, centres, gap, chrome.LeftMargin, report.Frame.LeftInset, report.BarHeight)
+		return nil
 	}
-	defer func() { err = errors.Join(err, closeOther()) }()
+	checkWidths := func(label string) error {
+		for _, width := range []int{1280, minWindowWidth} {
+			if err := nativeOnMain(ctx, func(w *nativeWindow) { f := w.frame(); f.W = width; w.setFrame(f) }); err != nil {
+				return err
+			}
+			if _, err := observe(fmt.Sprintf("%s width %d", label, width), nil, func(f nativeObservedFrame) bool { return f.Width == width }); err != nil {
+				return err
+			}
+			if _, err := page("viewport resized", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == width }); err != nil {
+				return err
+			}
+			if err := checkLayout(fmt.Sprintf("%s %d", label, width)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := checkWidths("unified layout"); err != nil {
+		return err
+	}
+	if err := nativeOnMain(ctx, func(w *nativeWindow) {
+		w.setFrame(windowRect{X: initial.X, Y: initial.Y, W: initial.Width, H: initial.Height})
+	}); err != nil {
+		return err
+	}
+	if _, err := observe("restore width for gestures", nil, func(f nativeObservedFrame) bool { return f.Width == initial.Width }); err != nil {
+		return err
+	}
+	if _, err := page("gesture viewport", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == initial.Width }); err != nil {
+		return err
+	}
+	if err := checkLayout("gesture layout"); err != nil {
+		return err
+	}
+	// Drive focused AppKit events through WebKit and the real shell, without
+	// posting system-wide input or requiring Accessibility permission.
 	for _, gesture := range []struct {
 		label  string
 		x, y   int
 		target string
-		nonKey bool
 	}{
-		{"empty-bar", int(report.DragX), 20, "drag", false},
-		{"bar-padding", int(report.DragX), 3, "coddy-desktop-tabs", false},
-		{"non-key-empty-bar", int(report.DragX), 20, "drag", true},
-		{"non-key-bar-padding", int(report.DragX), 3, "coddy-desktop-tabs", true},
+		{"empty-bar", int(report.DragX), 20, "drag"},
+		{"bar-padding", int(report.DragX), 3, "coddy-desktop-tabs"},
 	} {
 		before := initial
-		if gesture.nonKey {
-			if err := nativeOnMain(ctx, func(w *nativeWindow) {
-				other = class("NSWindow").Send(sel("alloc")).Send(sel("initWithContentRect:styleMask:backing:defer:"), nsRect{Origin: nsPoint{X: 30, Y: 30}, Size: nsSize{Width: 200, Height: 100}}, nsWindowStyleMaskTitled, nsBackingStoreBuffered, false)
-				other.Send(sel("setReleasedWhenClosed:"), false)
-				other.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
-			}); err != nil {
-				return err
-			}
-			var key, otherKey bool
-			if err := nativeOnMain(ctx, func(w *nativeWindow) {
-				key = boolOf(w.window, "isKeyWindow")
-				otherKey = boolOf(other, "isKeyWindow")
-				fmt.Printf("before non-key drag: targetKey=%t otherKey=%t active=%t\n", key, otherKey, boolOf(nsApp(), "isActive"))
-			}); err != nil {
-				return err
-			}
-			if key || !otherKey {
-				return fmt.Errorf("non-key precondition failed: target=%t other=%t", key, otherKey)
-			}
-		}
 		eventOffset, actionOffset := len(report.GestureEvents), len(report.WindowActions)
 		dragErr := nativeContinuousDrag(ctx, gesture.x, gesture.y)
-		if other != 0 {
-			_ = nativeOnMain(ctx, func(w *nativeWindow) {
-				fmt.Printf("after non-key drag: targetKey=%t active=%t\n", boolOf(w.window, "isKeyWindow"), boolOf(nsApp(), "isActive"))
-			})
-		}
-		if other != 0 {
-			dragErr = errors.Join(dragErr, closeOther())
-		}
 		if dragErr != nil {
 			return dragErr
 		}
 		moved, err := observe("real "+gesture.label+" drag", nil, func(f nativeObservedFrame) bool {
-			return math.Abs(float64(f.X-before.X-160)) <= 1 && math.Abs(float64(f.Y-before.Y-80)) <= 1
+			return f.X == before.X+160 && f.Y == before.Y+80
 		})
 		telemetry, telemetryErr := page("drag telemetry", time.Second, nil)
 		if err != nil {
@@ -521,40 +544,20 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if err != nil {
 		return err
 	}
-	if err := nativeCheckFirstMouse(ctx, true); err != nil {
+	chrome, err := nativeObservedChrome(ctx)
+	if err != nil {
 		return err
+	}
+	if chrome.CollectionBehavior != chrome.OriginalCollectionBehavior {
+		return fmt.Errorf("framed collectionBehavior=%d, want original=%d", chrome.CollectionBehavior, chrome.OriginalCollectionBehavior)
 	}
 	undecorated, err := observe("undecorate", handle.Undecorate, func(f nativeObservedFrame) bool { return f.Height < framed.Height })
 	if err != nil {
 		return err
 	}
 	initial = undecorated
-	chrome, err = nativeObservedChrome(ctx)
-	if err != nil {
+	if err := checkWidths("roundtrip unified layout"); err != nil {
 		return err
-	}
-	report, err = page("unified frame restored", 5*time.Second, func(r nativePageReport) bool { return r.Frame.Kind == shell.FrameSystem })
-	if err != nil {
-		return err
-	}
-	if err := nativeOnMain(ctx, func(w *nativeWindow) { f := w.frame(); f.W = minWindowWidth; w.setFrame(f) }); err != nil {
-		return err
-	}
-	_, err = observe("minimum width", nil, func(f nativeObservedFrame) bool { return f.Width == minWindowWidth })
-	if err != nil {
-		return err
-	}
-	report, err = page("minimum width controls", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == minWindowWidth })
-	if err != nil {
-		return err
-	}
-	for _, button := range report.Buttons {
-		if button.X <= chrome.ZoomRight || button.Right > float64(minWindowWidth) || !button.Reachable || button.Label == "" {
-			return fmt.Errorf("minimum width button is unreachable: %+v", button)
-		}
-	}
-	if len(report.Buttons) != 2 {
-		return fmt.Errorf("minimum width button count=%d", len(report.Buttons))
 	}
 	if err := nativeOnMain(ctx, func(w *nativeWindow) {
 		w.setFrame(windowRect{X: initial.X, Y: initial.Y, W: initial.Width, H: initial.Height})
@@ -562,6 +565,39 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		return err
 	}
 	if _, err = observe("restore width", nil, func(f nativeObservedFrame) bool { return f.Width == initial.Width }); err != nil {
+		return err
+	}
+	report, err = page("control viewport", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == initial.Width && r.TabCount == 1 })
+	if err != nil {
+		return err
+	}
+	click := func(rect nativePageRect) error {
+		return nativePointerGesture(ctx, int(rect.X+rect.Width/2), int(rect.Y+rect.Height/2), 0, 0, 1)
+	}
+	if err := click(report.BarItems[2]); err != nil {
+		return err
+	}
+	report, err = page("native + creates second tab", 5*time.Second, func(r nativePageReport) bool { return r.TabCount == 2 && r.SelectedTab == 1 })
+	if err != nil {
+		return err
+	}
+	if err := click(report.TabLabels[0]); err != nil {
+		return err
+	}
+	report, err = page("native tab press selects first tab", 5*time.Second, func(r nativePageReport) bool { return r.SelectedTab == 0 })
+	if err != nil {
+		return err
+	}
+	if err := click(report.BarItems[0]); err != nil {
+		return err
+	}
+	if _, err := page("native menu press opens menu", 5*time.Second, func(r nativePageReport) bool { return r.MenuOpen }); err != nil {
+		return err
+	}
+	if err := click(report.BarItems[0]); err != nil {
+		return err
+	}
+	if _, err := page("native menu press closes menu", 5*time.Second, func(r nativePageReport) bool { return !r.MenuOpen }); err != nil {
 		return err
 	}
 	if err := handle.BeginMove(initial.X+100, initial.Y+10); err != nil {
@@ -582,8 +618,14 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if err != nil {
 		return err
 	}
+	if err := checkLayout("zoomed layout"); err != nil {
+		return err
+	}
 	_, err = observe("restore", handle.ToggleMaximise, func(f nativeObservedFrame) bool { return f.Width == resized.Width && f.Height == resized.Height })
 	if err != nil {
+		return err
+	}
+	if err := checkLayout("restored layout"); err != nil {
 		return err
 	}
 	for _, label := range []string{"double-click zoom", "double-click restore"} {
@@ -791,11 +833,12 @@ for (const [path, download] of [['/download-anchor','native-download.txt'],['/at
 // A link whose response becomes a download cancels the document's pending
 // loads in WebKit (fetch rejects with "Load failed"): send the report again.
 let asked = 0, retries = 0;
+const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}};
 async function report() {
  for (;;) {
   try {
    const answer = await fetch('/report', {method:'POST', body:JSON.stringify({asked,retries,x:screenX,y:screenY,
-   outerWidth,outerHeight,innerWidth,innerHeight,frame:await (await fetch('/desktop/window')).json(),gestureEvents,windowActions,dragX:document.getElementById('drag').getBoundingClientRect().x+30,buttons:['menu-btn','new-tab'].map(id=>{const e=document.getElementById(id),r=e.getBoundingClientRect();return {x:r.x,right:r.right,label:e.getAttribute('aria-label'),reachable:e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}}),barReady:document.querySelector('.tab')!==null,visibility:document.visibilityState,notification,notificationClick})});
+   outerWidth,outerHeight,innerWidth,innerHeight,frame:await (await fetch('/desktop/window')).json(),gestureEvents,windowActions,dragX:document.getElementById('drag').getBoundingClientRect().x+30,buttons:['menu-btn','new-tab'].map(id=>{const e=document.getElementById(id),r=e.getBoundingClientRect();return {x:r.x,right:r.right,label:e.getAttribute('aria-label'),reachable:e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}}),barHeight:document.getElementById('coddy-desktop-tabs').getBoundingClientRect().height,barItems:['#menu-btn svg','.tab[aria-selected="true"] .label','#new-tab svg'].map(s=>document.querySelector(s)).filter(Boolean).map(rect),tabLabels:[...document.querySelectorAll('.tab .label')].map(rect),tabCount:document.querySelectorAll('.tab').length,selectedTab:[...document.querySelectorAll('.tab')].findIndex(e=>e.getAttribute('aria-selected')==='true'),menuOpen:!document.getElementById('menu').hidden,barReady:document.querySelector('.tab')!==null,visibility:document.visibilityState,notification,notificationClick})});
    asked = Number(await answer.text());
   } catch (error) { retries++; await new Promise(resolve => setTimeout(resolve, 50)); }
  }
@@ -804,7 +847,12 @@ report();
 </script>`
 
 func nativePointerGesture(ctx context.Context, x, y, dx, dy, clicks int) error {
-	for _, step := range []struct{ kind, dx, dy int }{{1, 0, 0}, {6, dx, dy}, {2, dx, dy}} {
+	steps := []struct{ kind, dx, dy int }{{1, 0, 0}}
+	if dx != 0 || dy != 0 {
+		steps = append(steps, struct{ kind, dx, dy int }{6, dx, dy})
+	}
+	steps = append(steps, struct{ kind, dx, dy int }{2, dx, dy})
+	for _, step := range steps {
 		done := make(chan struct{})
 		enqueueOnMain(func() {
 			defer close(done)
@@ -890,11 +938,7 @@ func nativeContinuousDrag(ctx context.Context, x, y int) (err error) {
 			point := nsPoint{X: screenPoint.X - frame.Origin.X, Y: screenPoint.Y - frame.Origin.Y}
 			timestamp := objc.Send[float64](class("NSProcessInfo").Send(sel("processInfo")), sel("systemUptime"))
 			event := class("NSEvent").Send(sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"), kind, point, uint64(0), timestamp, objc.Send[int64](w.window, sel("windowNumber")), objc.ID(0), int64(i+1), int64(1), float64(1))
-			if i == 0 {
-				local := objc.Send[nsPoint](w.webview, sel("convertPoint:fromView:"), point, objc.ID(0))
-				hit := w.webview.Send(sel("hitTest:"), local)
-				fmt.Printf("mouse down: targetKey=%t hit=%s acceptsFirst=%t webviewAcceptsFirst=%t\n", boolOf(w.window, "isKeyWindow"), goString(hit.Send(sel("className"))), objc.Send[bool](hit, sel("acceptsFirstMouse:"), event), objc.Send[bool](w.webview, sel("acceptsFirstMouse:"), event))
-			}
+
 			nsApp().Send(sel("sendEvent:"), event)
 			current := w.frame()
 			backwards = backwards || current.X < previous.X || current.Y < previous.Y
@@ -919,15 +963,21 @@ func nativeContinuousDrag(ctx context.Context, x, y int) (err error) {
 }
 
 type nativeChrome struct {
-	Visible               int
-	ZoomRight, LeftMargin float64
+	Visible                                        int
+	ZoomRight, LeftMargin                          float64
+	Buttons                                        []nativePageRect
+	CollectionBehavior, OriginalCollectionBehavior uint64
 }
 
 func nativeObservedChrome(ctx context.Context) (nativeChrome, error) {
 	result := make(chan nativeChrome, 1)
 	enqueueOnMain(func() {
 		w := activeWindow()
-		chrome := nativeChrome{}
+		chrome := nativeChrome{
+			CollectionBehavior:         objc.Send[uint64](w.window, sel("collectionBehavior")),
+			OriginalCollectionBehavior: w.originalCollectionBehavior,
+		}
+		top := objc.Send[nsRect](w.window, sel("frame")).Size.Height
 		for _, kind := range []int{0, 1, 2} {
 			button := w.window.Send(sel("standardWindowButton:"), kind)
 			if button == 0 {
@@ -938,6 +988,7 @@ func nativeObservedChrome(ctx context.Context) (nativeChrome, error) {
 			}
 			frame := objc.Send[nsRect](button, sel("frame"))
 			frame = objc.Send[nsRect](button.Send(sel("superview")), sel("convertRect:toView:"), frame, objc.ID(0))
+			chrome.Buttons = append(chrome.Buttons, nativePageRect{X: frame.Origin.X, Y: top - frame.Origin.Y - frame.Size.Height, Width: frame.Size.Width, Height: frame.Size.Height})
 			if kind == 0 {
 				chrome.LeftMargin = frame.Origin.X
 			}
@@ -953,6 +1004,10 @@ func nativeObservedChrome(ctx context.Context) (nativeChrome, error) {
 	case <-ctx.Done():
 		return nativeChrome{}, ctx.Err()
 	}
+}
+
+type nativePageRect struct {
+	X, Y, Width, Height float64
 }
 
 type nativeBarButton struct {
@@ -992,42 +1047,4 @@ func nativeWindowDiagnostics(ctx context.Context) string {
 	}
 	b, _ := json.Marshal(state)
 	return string(b)
-}
-
-func TestNativeFirstMouseRegionMatchesShell(t *testing.T) {
-	css, err := os.ReadFile("shell/shell.css")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rule := regexp.MustCompile(`(?s)\.tabs\s*\{([^}]*)\}`).FindStringSubmatch(string(css))
-	if len(rule) != 2 || !strings.Contains(rule[1], fmt.Sprintf("height: %dpx;", nativeTitleBarHeight)) {
-		t.Fatal("native first-mouse region must match the shell title bar height")
-	}
-}
-
-func nativeCheckFirstMouse(ctx context.Context, framed bool) error {
-	var checkErr error
-	if err := nativeOnMain(ctx, func(w *nativeWindow) {
-		for _, y := range []int{3, 20, 37, 38, 60} {
-			bounds := objc.Send[nsRect](w.webview, sel("bounds"))
-			point := nsPoint{X: 300, Y: float64(y)}
-			if !boolOf(w.webview, "isFlipped") {
-				point.Y = bounds.Size.Height - point.Y
-			}
-			point = objc.Send[nsPoint](w.webview, sel("convertPoint:toView:"), point, objc.ID(0))
-			timestamp := objc.Send[float64](class("NSProcessInfo").Send(sel("processInfo")), sel("systemUptime"))
-			event := class("NSEvent").Send(sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"), 1, point, uint64(0), timestamp, objc.Send[int64](w.window, sel("windowNumber")), objc.ID(0), int64(1), int64(1), float64(1))
-			var original func(objc.ID, objc.SEL, objc.ID) bool
-			purego.RegisterFunc(&original, objc.Send[uintptr](class("WKWebView"), sel("instanceMethodForSelector:"), sel("acceptsFirstMouse:")))
-			baseline := original(w.webview, sel("acceptsFirstMouse:"), event)
-			want := baseline || (!framed && y < nativeTitleBarHeight)
-			if got := objc.Send[bool](w.webview, sel("acceptsFirstMouse:"), event); got != want {
-				checkErr = fmt.Errorf("first mouse at y=%d framed=%t: got=%t want=%t superclass=%t", y, framed, got, want, baseline)
-				return
-			}
-		}
-	}); err != nil {
-		return err
-	}
-	return checkErr
 }

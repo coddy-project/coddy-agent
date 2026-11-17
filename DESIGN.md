@@ -1654,8 +1654,12 @@ over one **`<iframe>`** per chat, each frame the web UI of this same server.
   so the buttons beside it do not move under the pointer), and minimise,
   maximise and close at the right edge (**`#window-btns`**, only for a driven window without
   system chrome). Native macOS keeps its standard red/yellow/green buttons at the left; the shell
-  leaves their measured width before the menu. It draws no custom window buttons, resize edges or
-  corner radius there: AppKit owns them. The green button zooms, without entering full screen.
+  aligns their centres with the menu icon, tab labels and **`+`**. The 16px menu SVG sits 7px
+  inside its 30px button; the inset puts the icon one measured left margin after green. AppKit
+  owns the window buttons, resize edges and corner radius. In the unified strip, green zooms
+  without entering full screen; a separate system frame restores the window's original collection
+  behavior. The empty bar and its padding drag the window from the first press, also while another
+  app is in front.
   **`GET /desktop/window`** adds **`frame: "system"`** and **`left_inset`** for this optional
   capability; controls without it keep the ordinary **`supported`** answer. A tab is a button carrying the
   state dot of its chat, its label and a **`×`**; the one in front is marked by

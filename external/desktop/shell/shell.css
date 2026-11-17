@@ -527,5 +527,7 @@ body {
 }
 
 :root[data-frame="system"][data-framed="false"] .tabs {
-  padding-left: var(--window-left-inset, 0px);
+  /* The 16px menu SVG sits 7px inside its 30px button. The inset names
+     the icon, so its gap after green matches the gap before red. */
+  padding-left: calc(var(--window-left-inset, 0px) - 7px);
 }
