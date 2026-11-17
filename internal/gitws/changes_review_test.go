@@ -74,14 +74,18 @@ func TestWorktreeChangesTrackedSymlinksUseLinkText(t *testing.T) {
 				t.Fatalf("tracked symlink was skipped: %d", skipped)
 			}
 			got := byPath(changes)[path]
-			if got.Status != status || string(got.Before) != string(before) || string(got.After) != string(after) {
+			gotBefore := filepath.ToSlash(string(got.Before))
+			gotAfter := filepath.ToSlash(string(got.After))
+			wantBefore := filepath.ToSlash(string(before))
+			wantAfter := filepath.ToSlash(string(after))
+			if got.Status != status || gotBefore != wantBefore || gotAfter != wantAfter {
 				t.Fatalf("%s: got %+v, want status=%s before=%q after=%q", path, got, status, before, after)
 			}
 			detail, err := WorktreeChangeFor(dir, path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if detail == nil || detail.Status != status || string(detail.Before) != string(before) || string(detail.After) != string(after) {
+			if detail == nil || detail.Status != status || filepath.ToSlash(string(detail.Before)) != wantBefore || filepath.ToSlash(string(detail.After)) != wantAfter {
 				t.Fatalf("%s detail: %+v", path, detail)
 			}
 			if string(got.Before) == "secret" || string(got.After) == "secret" {
