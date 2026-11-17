@@ -4,8 +4,10 @@ package shell
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -163,5 +165,36 @@ func TestConcurrentResizeRequestsAreSerialized(t *testing.T) {
 	}
 	if got := window.peakConcurrency(); got != 1 {
 		t.Fatalf("ResizeBy ran %d times at once; the gesture requests were not serialized", got)
+	}
+}
+
+type systemFrameWindow struct{ *blockingResizeWindow }
+
+func (*systemFrameWindow) Frame() WindowFrame { return WindowFrame{Kind: FrameSystem, LeftInset: 83} }
+
+func TestWindowFrameInformation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		control WindowControl
+		want    string
+	}{
+		{"system", &systemFrameWindow{newBlockingResizeWindow()}, `{"supported":true,"frame":"system","left_inset":83}`},
+		{"ordinary", newBlockingResizeWindow(), `{"supported":true}`},
+		{"absent", nil, `{"supported":false}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRecorder()
+			Handler(tc.control).ServeHTTP(r, httptest.NewRequest("GET", Prefix+windowAction, nil))
+			var got, want map[string]any
+			if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(tc.want), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("window answer=%v, want %v", got, want)
+			}
+		})
 	}
 }

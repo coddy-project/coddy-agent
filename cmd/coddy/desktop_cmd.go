@@ -75,7 +75,7 @@ func runDesktopWindow(args []string) error {
 	browser := fs.String("browser", "", "browser to open the window with, by name on PATH or by path (else "+desktop.BrowserEnvVar+", else the first Chromium-family browser installed)")
 	logLevel := fs.String("log-level", "", "log level: debug|info|warn|error (default from config)")
 	newChat := fs.Bool("new-chat", false, "open a new chat in --cwd. A desktop already running is asked for the chat rather than a second one being started, which is what a row of the application menu naming a recent workspace does")
-	framed := fs.Bool("frame", false, "keep the system title bar and borders. Without it the window is a bare rectangle and the tab strip is its title bar: it carries the window's own buttons and is what you drag it by (X11 or native macOS; elsewhere the frame stays)")
+	framed := fs.Bool("frame", false, "keep the separate system title bar and borders. Without it the tab strip is the title bar: X11 draws window buttons at the right, native macOS keeps system buttons at the left (elsewhere the frame stays)")
 	keepAuth := fs.Bool("auth", false, "ask for the credential the configuration carries (a token, the sign-in form). By default the window asks for nothing: it binds loopback for the person who started it, and a form in a window they opened themselves proves nothing")
 	testConfig := config.AddCheckFlag(fs)
 

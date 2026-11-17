@@ -1657,19 +1657,26 @@ file, one stylesheet, one script, no React and no vite entry, because it is a fr
 SPA and a window backend has to reach it whether or not the SPA build has run. It draws a tab strip
 over one **`<iframe>`** per chat, each frame the web UI of this same server.
 
-- **The strip** is a 36px header with no padding above or below, and with no system frame it is the
+- **The strip** is a 38px header with 5px padding above and 8px at the sides, and with no system frame it is the
   window's title bar as well. Left to right: the menu (**`#menu-btn`**), the tabs (**`#strip`**,
   **`role="tablist"`**, scrolling sideways with no scrollbar when they do not fit), the **`+`** of a
   new chat (**`#new-tab`**), the empty space that drags the window (**`#drag`**), the two arrows
   that walk a row too long for the bar (**`#scroll-btns`**, drawn only while
   **`scrollWidth > clientWidth`**, each going dim at its end of the row rather than disappearing,
   so the buttons beside it do not move under the pointer), and minimise,
-  maximise and close at the right edge (**`#window-btns`**, drawn only while the window has no
-  system frame, so the two sets of buttons are never both there). A tab is a button carrying the
+  maximise and close at the right edge (**`#window-btns`**, only for a driven window without
+  system chrome). Native macOS keeps its standard red/yellow/green buttons at the left; the shell
+  aligns their centres with the menu icon, tab labels and **`+`**. The 16px menu SVG sits 7px
+  inside its 30px button; the inset puts the icon one measured left margin after green. AppKit
+  owns the window buttons, resize edges and corner radius. In the unified strip, green zooms
+  without entering full screen; a separate system frame restores the window's original collection
+  behavior. The empty bar and its padding drag the window.
+  **`GET /desktop/window`** adds **`frame: "system"`** and **`left_inset`** for this optional
+  capability; controls without it keep the ordinary **`supported`** answer. A tab is a button carrying the
   state dot of its chat, its label and a **`×`**; the one in front is marked by
   **`aria-selected`**, a lighter ground and a 2px rule along its bottom edge in
   **`--tab-active-line`**, and nothing else in the strip takes that colour. Dragging the empty
-  space moves the window and a double click maximises or restores it, which is what a title bar
+  space moves the window (on native macOS its padding does too) and a double click maximises or restores it, which is what a title bar
   does; a new chat is only the **`+`** or the chord.
 - **A tab's name** is the title of the chat behind it, read from **`GET /coddy/sessions`** and
   written with **`textContent`**, never **`innerHTML`**: it is operator and model text drawn into a

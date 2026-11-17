@@ -38,6 +38,8 @@ const (
 	nsWindowTitleVisible = 0
 	nsWindowTitleHidden  = 1
 
+	nsWindowCollectionBehaviorFullScreenNone = 1 << 9
+
 	nsViewWidthSizable  = 1 << 1
 	nsViewHeightSizable = 1 << 4
 
@@ -240,6 +242,7 @@ func boolOf(id objc.ID, name string) bool { return objc.Send[bool](id, sel(name)
 func registerControllerClass() error {
 	methods := []objc.MethodDef{
 		{Cmd: sel("windowWillClose:"), Fn: windowWillClose},
+		{Cmd: sel("windowDidResize:"), Fn: windowDidResize},
 		{Cmd: sel("quit:"), Fn: quitAction},
 		{Cmd: sel("applicationWillFinishLaunching:"), Fn: applicationWillFinishLaunching},
 		{Cmd: sel("handleQuitEvent:withReplyEvent:"), Fn: handleQuitEvent},
@@ -385,7 +388,8 @@ func desktopTop() float64 {
 // decorate puts the system frame on the window or takes it off. The window
 // keeps NSWindowStyleMaskTitled either way: a borderless window cannot become
 // the key window, which would leave the WKWebView unable to accept input.
-func decorate(window objc.ID, framed bool) {
+func (w *nativeWindow) decorate(framed bool) {
+	window := w.window
 	mask := nsWindowStyleMaskTitled | nsWindowStyleMaskClosable |
 		nsWindowStyleMaskMiniaturizable | nsWindowStyleMaskResizable
 	if !framed {
@@ -398,9 +402,16 @@ func decorate(window objc.ID, framed bool) {
 	}
 	window.Send(sel("setTitleVisibility:"), title)
 	window.Send(sel("setTitlebarAppearsTransparent:"), !framed)
+	// Only the unified strip pins green to zoom. A separate system frame
+	// regains the behavior AppKit gave this window before its first change.
+	behavior := w.originalCollectionBehavior
+	if !framed {
+		behavior = nsWindowCollectionBehaviorFullScreenNone
+	}
+	window.Send(sel("setCollectionBehavior:"), behavior)
 	for _, button := range []int{0, 1, 2} { // close, miniaturise, zoom
 		if view := window.Send(sel("standardWindowButton:"), button); view != 0 {
-			view.Send(sel("setHidden:"), !framed)
+			view.Send(sel("setHidden:"), false)
 		}
 	}
 }

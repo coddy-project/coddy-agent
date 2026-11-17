@@ -18,6 +18,7 @@ import (
 
 	"github.com/ebitengine/purego/objc"
 
+	"github.com/EvilFreelancer/coddy-agent/external/desktop/shell"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -160,7 +161,12 @@ func createNativeWindow(opts Options, url, identifier string) (w *nativeWindow, 
 	window.Send(sel("setTitle:"), nsString("Coddy"))
 	window.Send(sel("setMinSize:"), nsSize{Width: float64(minWindowWidth), Height: float64(minWindowHeight)})
 	window.Send(sel("setDelegate:"), controller)
-	decorate(window, opts.Framed)
+	w = &nativeWindow{
+		object: controller, window: window,
+		originalCollectionBehavior: objc.Send[uint64](window, sel("collectionBehavior")),
+		downloads:                  map[objc.ID]string{}, log: opts.Log,
+	}
+	w.decorate(opts.Framed)
 
 	configuration := class("WKWebViewConfiguration").Send(sel("alloc")).Send(sel("init"))
 	uuid := class("NSUUID").Send(sel("alloc")).Send(sel("initWithUUIDString:"), nsString(identifier))
@@ -191,13 +197,9 @@ func createNativeWindow(opts Options, url, identifier string) (w *nativeWindow, 
 	if opts.StartMinimised {
 		window.Send(sel("miniaturize:"), objc.ID(0))
 	}
-	return &nativeWindow{
-		object:    controller,
-		window:    window,
-		webview:   webview,
-		downloads: map[objc.ID]string{},
-		log:       opts.Log,
-	}, nil
+	w.webview = webview
+	w.refreshFrame()
+	return w, nil
 }
 
 // All Cocoa messages are queued onto the main thread. Returning from a shell
@@ -209,6 +211,9 @@ type nativeWindow struct {
 	window  objc.ID
 	webview objc.ID
 	closed  bool
+	chrome  shell.WindowFrame
+	// Captured once, before the first decoration change.
+	originalCollectionBehavior uint64
 	// What each unfinished download was promised, so two of them in flight
 	// never agree on the same name.
 	downloads map[objc.ID]string
@@ -301,6 +306,72 @@ func (w *nativeWindow) ResizeBy(dir string, x, y int) error {
 }
 func (w *nativeWindow) WaitForWindow(time.Duration) bool { return w.Supported() }
 
+// Frame is a snapshot made on the Cocoa thread, safe for the shell's HTTP handler.
+func (w *nativeWindow) Frame() shell.WindowFrame {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.chrome
+}
+
+// refreshFrame measures the real standard buttons in the page's coordinate space.
+// The leading gap is also left after the group, rather than hard-coding a version's spacing.
+func (w *nativeWindow) refreshFrame() {
+	w.alignStandardButtons()
+	chrome := shell.WindowFrame{Kind: shell.FrameSystem}
+	left, right := 1e9, 0.0
+	for _, kind := range []int{0, 1, 2} {
+		button := w.window.Send(sel("standardWindowButton:"), kind)
+		if button == 0 {
+			continue
+		}
+		frame := objc.Send[nsRect](button, sel("frame"))
+		frame = objc.Send[nsRect](button.Send(sel("superview")), sel("convertRect:toView:"), frame, w.webview)
+		left = min(left, frame.Origin.X)
+		right = max(right, frame.Origin.X+frame.Size.Width)
+	}
+	if right > 0 {
+		chrome.LeftInset = int(right + left)
+	}
+	w.mu.Lock()
+	w.chrome = chrome
+	w.mu.Unlock()
+}
+
+// stripCentreY is how far below the window's top edge the shell's strip has
+// its centre line: the 38px border box of .tabs with 5px padding above and a
+// 1px border below. The native test holds it to the page's real boxes.
+const stripCentreY = 21
+
+// alignStandardButtons centres the native buttons on the shell's visible row.
+// The 38px border-box strip has 5px top padding and a 1px bottom border, so
+// its menu and + centres are 21px from the top, aligned with the tab labels.
+// An empty UnifiedCompact toolbar reserves 40px on macOS 26; keep the page's
+// 38px strip and adjust only the real buttons, after AppKit lays them out.
+func (w *nativeWindow) alignStandardButtons() {
+	if objc.Send[uint64](w.window, sel("styleMask"))&nsWindowStyleMaskFullSizeContentView == 0 {
+		return
+	}
+	// Resolve pending titlebar constraints first; otherwise AppKit's next
+	// layout would reset the origins after an initial or decoration change.
+	root := w.window.Send(sel("contentView"))
+	for root.Send(sel("superview")) != 0 {
+		root = root.Send(sel("superview"))
+	}
+	root.Send(sel("layoutSubtreeIfNeeded"))
+	top := objc.Send[nsRect](w.window, sel("frame")).Size.Height
+	for _, kind := range []int{0, 1, 2} {
+		button := w.window.Send(sel("standardWindowButton:"), kind)
+		if button == 0 {
+			continue
+		}
+		parent := button.Send(sel("superview"))
+		frame := objc.Send[nsRect](parent, sel("convertRect:toView:"), objc.Send[nsRect](button, sel("frame")), objc.ID(0))
+		frame.Origin.Y = top - stripCentreY - frame.Size.Height/2
+		frame = objc.Send[nsRect](parent, sel("convertRect:fromView:"), frame, objc.ID(0))
+		button.Send(sel("setFrameOrigin:"), frame.Origin)
+	}
+}
+
 // perform runs one shell request on Cocoa's main thread.
 func (w *nativeWindow) perform(action, x, y int) {
 	if w.isClosed() || w.window == 0 {
@@ -308,13 +379,16 @@ func (w *nativeWindow) perform(action, x, y int) {
 	}
 	switch action {
 	case nativeUndecorate:
-		decorate(w.window, false)
+		w.decorate(false)
+		w.refreshFrame()
 	case nativeDecorate:
-		decorate(w.window, true)
+		w.decorate(true)
+		w.refreshFrame()
 	case nativeMinimise:
 		w.window.Send(sel("miniaturize:"), objc.ID(0))
 	case nativeMaximise:
 		w.window.Send(sel("zoom:"), objc.ID(0))
+		w.refreshFrame()
 	case nativeClose:
 		w.window.Send(sel("close"))
 	case nativeActivate:
@@ -335,6 +409,7 @@ func (w *nativeWindow) geometry(action, x, y int) {
 		pinned := objc.Send[bool](w.window, sel("isZoomed"))
 		if pinned {
 			w.window.Send(sel("zoom:"), objc.ID(0))
+			w.refreshFrame()
 		}
 		restored := w.frame()
 		plan := planDragStart(pinned, cur, restored, x)
@@ -452,6 +527,16 @@ func windowWillClose(_ objc.ID, _ objc.SEL, _ objc.ID) {
 		}
 		nsApp().Send(sel("stop:"), objc.ID(0))
 		wakeApplicationLoop()
+	})
+}
+
+// AppKit relays out its title bar on resizing and zooming; restore the
+// unified alignment after each layout, including a decoration roundtrip.
+func windowDidResize(_ objc.ID, _ objc.SEL, _ objc.ID) {
+	inDelegate("laying out the title bar", func() {
+		if w := activeWindow(); w != nil && !w.isClosed() && w.webview != 0 {
+			w.refreshFrame()
+		}
 	})
 }
 

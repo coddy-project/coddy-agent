@@ -1174,6 +1174,53 @@ func freePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
+type systemFrameControl struct{ *desktop.ShellWindow }
+
+func (*systemFrameControl) Frame() shell.WindowFrame {
+	return shell.WindowFrame{Kind: shell.FrameSystem, LeftInset: 83}
+}
+
+func (s *windowState) systemDrawsFrame() error {
+	handle := desktop.NewWindowHandle()
+	handle.Attach(&systemFrameControl{desktop.NewShellWindow()})
+	s.shellServer = httptest.NewServer(shell.Handler(handle))
+	return nil
+}
+func (s *windowState) systemFrameAnswer() error {
+	res, err := s.shellServer.Client().Get(s.shellServer.URL + "/desktop/window")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var answer map[string]any
+	if err = json.NewDecoder(res.Body).Decode(&answer); err != nil {
+		return err
+	}
+	if answer["supported"] != true || answer["frame"] != "system" || answer["left_inset"] != float64(83) {
+		return fmt.Errorf("system frame answer=%v", answer)
+	}
+	return nil
+}
+func (s *windowState) ordinaryFrameControl() error {
+	s.shellServer.Close()
+	return s.windowOnTheTabShell()
+}
+func (s *windowState) ordinaryFrameAnswer() error {
+	res, err := s.shellServer.Client().Get(s.shellServer.URL + "/desktop/window")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(body)) != `{"supported":true}` {
+		return fmt.Errorf("ordinary frame answer=%s", body)
+	}
+	return nil
+}
+
 func TestDesktopWindowFeature(t *testing.T) {
 	st := &windowState{}
 	suite := godog.TestSuite{
@@ -1188,6 +1235,10 @@ func TestDesktopWindowFeature(t *testing.T) {
 				return ctx, nil
 			})
 
+			sc.Step(`^a window whose frame is drawn by the system$`, st.systemDrawsFrame)
+			sc.Step(`^the strip is told the frame is system with 83 pixels on the left$`, st.systemFrameAnswer)
+			sc.Step(`^the window control has no system frame$`, st.ordinaryFrameControl)
+			sc.Step(`^the strip receives only the ordinary window support answer$`, st.ordinaryFrameAnswer)
 			sc.Step(`^a machine where Coddy has never opened a desktop window$`, st.neverOpenedBefore)
 			sc.Step(`^a machine where Coddy has opened a desktop window before$`, st.openedBefore)
 			sc.Step(`^a desktop window open on its own Coddy$`, st.windowOpen)
