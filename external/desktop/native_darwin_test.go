@@ -538,20 +538,26 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if err := checkWidths("unified layout"); err != nil {
 		return err
 	}
+	// The gestures run on a window smaller than any runner's screen. A window
+	// that fills the screen counts as zoomed, and a drag lets a zoomed window
+	// loose at its earlier size, which is a different gesture from a move.
+	gestureW, gestureH := min(initial.Width, 800), min(initial.Height, 500)
 	if err := nativeOnMain(ctx, func(w *nativeWindow) {
-		// The window keeps its place; only the width checkWidths took is given
-		// back. WindowServer's origin includes the menu bar, the desktop's
-		// coordinates start below it, so the observed X and Y are not reused.
+		// The window keeps its place. WindowServer's origin includes the menu
+		// bar, the desktop's coordinates start below it, so the observed X and
+		// Y are not reused.
 		f := w.frame()
-		f.W = initial.Width
+		f.W, f.H = gestureW, gestureH
 		w.setFrame(f)
 	}); err != nil {
 		return err
 	}
-	if _, err := observe("restore width for gestures", nil, func(f nativeObservedFrame) bool { return f.Width == initial.Width }); err != nil {
+	sized, err := observe("size for gestures", nil, func(f nativeObservedFrame) bool { return f.Width == gestureW && f.Height == gestureH })
+	if err != nil {
 		return err
 	}
-	if _, err := page("gesture viewport", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == initial.Width }); err != nil {
+	initial = sized
+	if _, err := page("gesture viewport", 5*time.Second, func(r nativePageReport) bool { return r.InnerWidth == gestureW }); err != nil {
 		return err
 	}
 	if err := checkLayout("gesture layout"); err != nil {
