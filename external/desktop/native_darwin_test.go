@@ -946,10 +946,20 @@ async function probeNotification(event) {
 }
 document.getElementById('notify').onclick = probeNotification;
 probeNotification({isTrusted:false});
-for (const [path, download] of [['/download-anchor','native-download.txt'],['/attachment',null]]) {
- const a=document.createElement('a'); a.href=path; if(download) a.download=download;
- document.body.appendChild(a); setTimeout(()=>a.click(),download ? 500 : 1000);
+// The shell opens its first chat in a frame right after it loads. A download
+// started while that frame is still loading can be cancelled by it on a slow
+// runner, so the links are followed once the first frame has finished.
+function startDownloads() {
+ for (const [path, download] of [['/download-anchor','native-download.txt'],['/attachment',null]]) {
+  const a=document.createElement('a'); a.href=path; if(download) a.download=download;
+  document.body.appendChild(a); setTimeout(()=>a.click(),download ? 500 : 1000);
+ }
 }
+(function waitForFirstFrame() {
+ const frame=document.querySelector('iframe');
+ if (frame && frame.contentDocument && frame.contentDocument.readyState==='complete') { startDownloads(); return; }
+ setTimeout(waitForFirstFrame,100);
+})();
 // A link whose response becomes a download cancels the document's pending
 // loads in WebKit (fetch rejects with "Load failed"): send the report again.
 let asked = 0, retries = 0;
