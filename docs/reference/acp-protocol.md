@@ -993,8 +993,10 @@ The option is available for Codex and for OpenAI providers using the official `h
 
 A supported model offers the `service_tier` select option in the `model_config` category.
 Use `session/set_config_option` with a value from that option.
-The empty value selects Auto and omits the parameter; `default` explicitly requests Standard.
-The option uses `priority` for Fast, `ultrafast` for Ultrafast, and `flex` for Flex where available.
+The option has no separate Auto or empty item. An unset session reports `default` as the current option and omits the request parameter.
+Selecting `default` explicitly requests Standard, including after Fast; `priority` requests Fast.
+The empty value remains a compatibility reset: it clears the session selection and omits the parameter.
+The option uses `ultrafast` for Ultrafast and `flex` for Flex where available. `gpt-6.2-sol` and `gpt-6.2-astra` offer only `default` and `priority`.
 The session stores the selection and publishes it through `config_option_update` and session settings.
 An unknown session value returns invalid params.
 A model change clears a selection that the new model cannot offer.

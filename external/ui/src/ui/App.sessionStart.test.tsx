@@ -258,7 +258,11 @@ test("a folder that cannot be applied brings the start screen back with the pick
     "folder not found: /projects/data",
   );
   expect(screen.getByTestId("draft").textContent).toBe("hello there");
-  expect(screen.getByTestId("chat-workspace").textContent).toBe(DATA_WORKSPACE);
+  await waitFor(() =>
+    expect(screen.getByTestId("chat-workspace").textContent).toBe(
+      DATA_WORKSPACE,
+    ),
+  );
   expect(rows()).toEqual([]);
   expect(responsesPosted).toBe(0);
 

@@ -680,6 +680,11 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
       String(c[0]).includes("/coddy/slash-commands"),
     ).length;
   await waitFor(() => expect(slashCalls()).toBe(1));
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeNull();
+  });
   fireEvent.change(ta, {
     target: {
       value: "/adfadsfgaf",

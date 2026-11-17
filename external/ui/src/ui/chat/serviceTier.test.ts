@@ -25,8 +25,8 @@ describe("service tier preference", () => {
     writeServiceTierCookie("");
     expect(readServiceTierCookie()).toBe("");
   });
-  it("names the empty choice Auto", () => {
-    expect(serviceTierLabelKey("")).toBe("composer.serviceTier.auto");
+  it("shows an unset session as Standard", () => {
+    expect(serviceTierLabelKey("")).toBe("composer.serviceTier.default");
     expect(serviceTierLabelKey("priority")).toBe(
       "composer.serviceTier.priority",
     );

@@ -4,7 +4,6 @@
 export const messagesEn: Record<string, string> = {
   "messages.openGeneratedImage": "Open generated image {fileName}",
   "composer.serviceTier": "Service tier",
-  "composer.serviceTier.auto": "Auto",
   "composer.serviceTier.default": "Standard",
   "composer.serviceTier.priority": "Fast",
   "composer.serviceTier.ultrafast": "Ultrafast",

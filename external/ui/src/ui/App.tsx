@@ -7018,11 +7018,14 @@ export function App() {
     sessionTierChoices.model === llmModel
       ? sessionTierChoices.choices
       : (modelInfos.find((m) => m.id === llmModel)?.serviceTierChoices ?? []);
+  const serviceTierMenuChoices = serviceTierChoices.filter(
+    (choice) => choice !== "",
+  );
   const serviceTierControl: ServiceTierControl | undefined =
-    serviceTierChoices.length
+    serviceTierMenuChoices.length
       ? {
-          value: pickServiceTier(serviceTier, serviceTierChoices),
-          choices: serviceTierChoices,
+          value: pickServiceTier(serviceTier, serviceTierChoices) || "default",
+          choices: serviceTierMenuChoices,
           onChange: (value) => {
             setServiceTier(value);
             writeServiceTierCookie(value);

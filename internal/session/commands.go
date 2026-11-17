@@ -52,7 +52,7 @@ const scopeHint = "[--once|--count=N]"
 
 // settingsCommands is the registry of settings commands, in menu order.
 var settingsCommands = []Command{
-	{Name: "service-tier", Setting: SettingServiceTier, arg: argRequired, Hint: "<tier|reset>", Description: "Set the service tier for this session; reset selects Auto"},
+	{Name: "service-tier", Setting: SettingServiceTier, arg: argRequired, Hint: "<tier|reset>", Description: "Set the service tier for this session; reset leaves Standard unset"},
 	{Name: "model", Setting: SettingModel, arg: argRequired, Hint: "<model id> " + scopeHint,
 		Description: "Switch the model for this session, or for the next turns with --once / --count=N"},
 	{Name: "reasoning", Aliases: []string{"effort"}, Setting: SettingReasoning, arg: argRequired, Hint: "<level|off|default> " + scopeHint,
@@ -129,7 +129,7 @@ func (c Command) Choices(cfg *config.Config, st *State) []string {
 		if len(choices) == 0 {
 			return nil
 		}
-		return append([]string{"reset"}, choices[1:]...)
+		return append([]string{"reset"}, choices...)
 	case SettingReasoning:
 		if cfg == nil || st == nil {
 			return nil

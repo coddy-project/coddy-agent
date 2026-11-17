@@ -31,5 +31,5 @@ export function pickServiceTier(
 }
 
 export function serviceTierLabelKey(value: string): string {
-  return "composer.serviceTier." + (value || "auto");
+  return "composer.serviceTier." + (value || "default");
 }

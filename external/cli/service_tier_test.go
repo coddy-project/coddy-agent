@@ -38,6 +38,14 @@ func TestServiceTierConsoleSelectionAndNewSession(t *testing.T) {
 	if !ok || sel.title != "Select service tier" {
 		t.Fatalf("modal=%T", a.modal)
 	}
+	if item := sel.list.SelectedItem(); item == nil || item.Value != "default" || item.Label != "Standard" {
+		t.Fatalf("unset selection=%+v, want Standard", item)
+	}
+	for _, item := range a.serviceTierOption().Options {
+		if item.Value == "" || item.Name == "Auto" {
+			t.Fatalf("legacy empty choice is still offered: %+v", item)
+		}
+	}
 	if !a.dispatchSlash("/service-tier priority") {
 		t.Fatal("tier selection not handled")
 	}

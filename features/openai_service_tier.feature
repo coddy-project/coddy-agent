@@ -7,3 +7,8 @@ Feature: OpenAI service tier
     When a direct Responses request asks for Ultrafast in that session
     Then the provider receives "ultrafast"
     And the response reports "default" while the session keeps "priority"
+
+  Scenario: Selecting Standard after Fast explicitly requests the default tier
+    Given an OpenAI session with the Fast tier
+    When a Responses request selects "default" in that session
+    Then the provider receives "default"

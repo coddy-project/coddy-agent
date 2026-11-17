@@ -2724,13 +2724,15 @@ The selector is available for Codex and for OpenAI providers using the official 
 ![Service tier](../assets/service-tier/service-tier-narrow.png)
 
 For supported models, the composer shows **Service tier** beside the model controls.
-Choose **Auto**, **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
-Auto omits the parameter; Standard sends an explicit request for the standard tier.
+Choose **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+An unset session shows one selected Standard item and omits the parameter; there is no separate Auto item.
+Explicitly selecting Standard sends `default`, including after Fast.
+`gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast.
 The menu shows your selection, which can differ from the tier the provider actually uses.
 Another client of the same session receives the change.
 A change during a turn applies to the next turn.
 
 The browser remembers your last selection for new chats.
 An existing chat keeps its saved selection.
-A model that does not offer the remembered value selects Auto.
+A model that does not offer the remembered value leaves the session unset and shows Standard.
 Opening a chat or receiving another client's change does not replace the browser preference.

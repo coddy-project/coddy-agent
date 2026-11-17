@@ -116,9 +116,13 @@ func TestServiceTierChoices(t *testing.T) {
 		provider, model string
 		want            []string
 	}{
-		{"openai", "gpt-6-astra", []string{"", "default", "priority", "ultrafast", "flex"}},
-		{"codex", "gpt-6.1-sol", []string{"", "default", "priority", "ultrafast"}},
-		{"codex", "gpt-6-luna", []string{"", "default", "priority"}},
+		{"openai", "gpt-6-astra", []string{"default", "priority", "ultrafast", "flex"}},
+		{"codex", "gpt-6.1-sol", []string{"default", "priority", "ultrafast"}},
+		{"codex", "gpt-6-luna", []string{"default", "priority"}},
+		{"codex", "gpt-6.2-sol", []string{"default", "priority"}},
+		{"codex", "gpt-6.2-astra", []string{"default", "priority"}},
+		{"openai", "gpt-6.2-sol", []string{"default", "priority"}},
+		{"openai", "gpt-6.2-astra", []string{"default", "priority"}},
 		{"openai", "gpt-6-unknown", nil},
 		{"anthropic", "gpt-6-astra", nil},
 		{"openai", "gpt-5.6", nil},

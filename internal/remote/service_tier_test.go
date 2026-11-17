@@ -73,6 +73,20 @@ func TestServiceTierRemoteOptionsAndSnapshots(t *testing.T) {
 	if err != nil || snap.ServiceTier != "" {
 		t.Fatalf("snapshot=%+v err=%v", snap, err)
 	}
+	options := h.configOptions(h.session(id))
+	for _, opt := range options {
+		if opt.ID != "service_tier" {
+			continue
+		}
+		if opt.CurrentValue != "default" {
+			t.Fatalf("unset remote option=%+v", opt)
+		}
+		for _, choice := range opt.Options {
+			if choice.Value == "" || choice.Name == "Auto" {
+				t.Fatalf("legacy empty choice is still offered: %+v", choice)
+			}
+		}
+	}
 	if _, err = h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: id, ConfigID: "service_tier", Value: "bad"}); err == nil {
 		t.Fatal("accepted unknown tier")
 	}

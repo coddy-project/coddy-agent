@@ -2,7 +2,6 @@
 export const messagesRu: Record<string, string> = {
   "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
   "composer.serviceTier": "Режим обслуживания",
-  "composer.serviceTier.auto": "Авто",
   "composer.serviceTier.default": "Стандартный",
   "composer.serviceTier.priority": "Быстрый",
   "composer.serviceTier.ultrafast": "Сверхбыстрый",

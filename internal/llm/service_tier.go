@@ -27,22 +27,22 @@ func ServiceTierSupported(providerType, baseURL string) bool {
 }
 
 // ServiceTierChoices lists documented session choices, not account entitlements.
-// The empty choice omits the parameter; default explicitly requests Standard.
+// An unset session still omits the parameter; default explicitly requests Standard.
 // Priority is the wire value for Fast on both supported transports.
 func ServiceTierChoices(providerType, model string) []string {
 	if providerType != "openai" && providerType != "codex" {
 		return nil
 	}
 	switch model {
-	case "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna":
+	case "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra":
 	default:
 		return nil
 	}
-	choices := []string{"", "default", "priority"}
+	choices := []string{"default", "priority"}
 	if model == "gpt-6-astra" || model == "gpt-6.1-sol" {
 		choices = append(choices, "ultrafast")
 	}
-	if providerType == "openai" {
+	if providerType == "openai" && model != "gpt-6.2-sol" && model != "gpt-6.2-astra" {
 		choices = append(choices, "flex")
 	}
 	return choices

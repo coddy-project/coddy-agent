@@ -1263,8 +1263,9 @@ Mario Zechner), commit `b1efcf7d7`. The Go implementation in
 
 Use `/service-tier` to open the service tier menu for a supported model.
 The footer shows the selected mode beside the model and reasoning level.
-Use the arrow keys and Enter to select an option.
-You can also enter `/service-tier priority` for Fast or `/service-tier reset` to let the provider choose.
+Use the arrow keys and Enter to select an option. An unset session shows Standard selected, with no separate Auto item.
+You can also enter `/service-tier default` to explicitly select Standard or `/service-tier priority` for Fast.
+`/service-tier reset` clears the selection, so Standard remains shown while the provider chooses.
 The same control works through `--remote`.
 A change during a turn applies to the next turn.
 

@@ -144,9 +144,15 @@ func PermissionModeOption(current string) acp.ConfigOption {
 
 // ServiceTierOption gives local and remote clients the same mode labels.
 func ServiceTierOption(current string, choices []string) acp.ConfigOption {
-	labels := map[string]string{"": "Auto", "default": "Standard", "priority": "Fast", "ultrafast": "Ultrafast", "flex": "Flex"}
+	labels := map[string]string{"default": "Standard", "priority": "Fast", "ultrafast": "Ultrafast", "flex": "Flex"}
+	if current == "" {
+		current = "default"
+	}
 	values := make([]acp.ConfigOptionValue, 0, len(choices))
 	for _, value := range choices {
+		if value == "" {
+			continue
+		}
 		name := labels[value]
 		if name == "" {
 			name = value

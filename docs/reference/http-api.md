@@ -784,6 +784,7 @@ Top-level `service_tier` returns HTTP 400 for these profiles.
 A direct request rejects `metadata.service_tier`.
 PATCH `/coddy/sessions/{id}` accepts `selectedServiceTier`.
 Session values must match `service_tier_choices` from GET `/v1/models`; empty or metadata `null` clears the selection.
+The choices contain no separate empty or Auto item; an unset session remains empty in the API and is shown as Standard by clients.
 Session snapshots carry `serviceTier` and `serviceTierChoices`.
 The existing settings version prevents stale profile metadata from replacing a newer selection.
 A running turn keeps its tier until it ends.

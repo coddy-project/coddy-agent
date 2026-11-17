@@ -142,6 +142,20 @@ func TestServiceTierRestoreAndResume(t *testing.T) {
 
 func TestServiceTierACPOption(t *testing.T) {
 	m, st, _ := serviceTierManager(t)
+	initial := BuildACPConfigOptions(m.Cfg(), st)
+	for _, opt := range initial {
+		if opt.ID != "service_tier" {
+			continue
+		}
+		if opt.CurrentValue != "default" {
+			t.Fatalf("unset current value=%q, want Standard", opt.CurrentValue)
+		}
+		for _, choice := range opt.Options {
+			if choice.Value == "" || choice.Name == "Auto" {
+				t.Fatalf("legacy empty choice is still offered: %+v", choice)
+			}
+		}
+	}
 	result, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: st.ID, ConfigID: "service_tier", Value: "fast"})
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +171,18 @@ func TestServiceTierACPOption(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("missing tier option")
+	}
+	result, err = m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: st.ID, ConfigID: "service_tier", Value: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range result.ConfigOptions {
+		if opt.ID == "service_tier" && opt.CurrentValue != "default" {
+			t.Fatalf("Standard after Fast=%q", opt.CurrentValue)
+		}
+	}
+	if got := st.GetSelectedServiceTier(); got != "default" {
+		t.Fatalf("Standard after Fast stored %q", got)
 	}
 	if _, err = m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: st.ID, ConfigID: "service_tier", Value: "unknown"}); err == nil {
 		t.Fatal("accepted unknown tier")
