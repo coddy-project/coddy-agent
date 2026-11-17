@@ -2510,18 +2510,18 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin worktree"
+	want := "service-tier model reasoning think nothink agent plan ask permissions compact goal export plugin worktree"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}
 	if items[0]["kind"] != "setting" || items[len(items)-1]["kind"] != "action" {
 		t.Fatalf("kinds = %v / %v", items[0]["kind"], items[len(items)-1]["kind"])
 	}
-	if items[0]["hint"] != "<model id> [--once|--count=N]" {
-		t.Fatalf("model hint = %v", items[0]["hint"])
+	if items[1]["hint"] != "<model id> [--once|--count=N]" {
+		t.Fatalf("model hint = %v", items[1]["hint"])
 	}
-	if items[9]["name"] != "goal" || items[9]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]" {
-		t.Fatalf("goal command = %v", items[9])
+	if items[10]["name"] != "goal" || items[10]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]" {
+		t.Fatalf("goal command = %v", items[10])
 	}
 	for _, it := range items {
 		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {

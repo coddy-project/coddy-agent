@@ -152,6 +152,17 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 			ch.Reasoning = &level
 		}
 	}
+	if v, ok := m["service_tier"]; ok {
+		var tier string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &tier); err != nil {
+				return err
+			}
+		}
+		if tier != st.GetSelectedServiceTier() || ch.Model != nil {
+			ch.ServiceTier = &tier
+		}
+	}
 	// A toolset picked before the chat had a session rides in with its first
 	// message; the setter refuses a name the configuration does not have.
 	if v, ok := m["toolset"]; ok && string(v) != "null" {

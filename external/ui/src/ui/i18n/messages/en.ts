@@ -3,6 +3,12 @@
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
   "messages.openGeneratedImage": "Open generated image {fileName}",
+  "composer.serviceTier": "Service tier",
+  "composer.serviceTier.default": "Standard",
+  "composer.serviceTier.priority": "Fast",
+  "composer.serviceTier.ultrafast": "Ultrafast",
+  "composer.serviceTier.flex": "Flex",
+
   "settings.section.httpserver.label": "Authentication",
   "settings.section.httpserver.desc": "Web sign-in protection",
   "settings.auth.removeTotp": "Remove TOTP",
@@ -2095,6 +2101,9 @@ export const messagesEn: Record<string, string> = {
   "composer.imageGeneration": "Images",
   "composer.imageGenerationTitle":
     "Ask the model for native image output on send (metadata.image_generation)",
+  "composer.imageGenerationEnable": "Images",
+  "composer.imageGenerationEnableTitle":
+    "Enable image generation for this model in Settings",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",

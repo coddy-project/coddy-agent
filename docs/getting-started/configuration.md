@@ -816,3 +816,31 @@ The setting applies to blocking and streaming requests and model listing,
 including the unsaved provider preview. Other provider types ignore it.
 In Settings, open a provider, expand **Advanced settings** and choose **User-Agent**.
 Save the provider to apply the choice to new calls.
+
+## OpenAI service tiers
+
+Service tiers are offered only for Codex and OpenAI providers whose effective API base is `https://api.openai.com/v1` (with or without a trailing slash). An empty `api_base` uses `OPENAI_BASE_URL` when set, otherwise the official endpoint. A forward `proxy` does not change this decision. OpenAI-compatible endpoints such as Ollama do not offer tiers.
+
+Service tiers are session preferences, not provider or model YAML settings.
+Coddy offers them for these exact model IDs on `openai` and `codex` providers:
+`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-sol`, and `gpt-6-luna`.
+These choices describe documented modes, not account entitlements.
+
+| Choice | Request value | Availability in Coddy |
+|---|---|---|
+| Auto | Parameter omitted | All listed models |
+| Standard | `default` | All listed models |
+| Fast | `priority` | All listed models |
+| Ultrafast | `ultrafast` | `gpt-6-astra` and `gpt-6.1-sol` |
+| Flex | `flex` | Listed models on `openai` only |
+
+Session inputs also accept `fast` as an alias for `priority`.
+Direct HTTP requests to supported endpoints pass any string unchanged, including `auto` and `fast`.
+An omitted parameter leaves the provider's behavior unchanged.
+
+The probe through CLI Proxy API at `http://localhost:8317/v1` returned HTTP 200 and actual `default` for all tested tiers.
+It also accepted an unknown string.
+This result applies to that proxy path; it does not establish the behavior of direct OpenAI access.
+The available subscription backend also returned actual `default` for requests for accelerated tiers.
+Live use of Fast and Ultrafast remains unverified.
+Account access, model availability, and provider policy can affect the actual tier.

@@ -956,7 +956,7 @@ Functional regression checklist:
 
 *An image in a chat with the Images toggle enabled*
 
-For a model that supports native image output, enable **Image generation** on its row in **Settings → Logical models** and save. This sets `models[].image_generation`; it is off by default and is independent of `multimodal`, which controls image input. The composer then offers an **Images** toggle, initially off. Turn it on and ask for an image. It stays on for subsequent sends in that chat until switched off; changing the chat or model clears it. Each enabled send carries `metadata.image_generation`. Image-enabled messages cannot be queued while a turn is running; the draft stays in the composer. After a reload, Retry is unavailable when the original image choice is unknown and the selected model supports image generation.
+For a model that supports native image output, enable **Image generation** on its row in **Settings → Logical models** and save. This sets `models[].image_generation`; it is off by default and is independent of `multimodal`, which controls image input. A selected logical model without it gets an **Images** CTA in the composer, which opens that model's row in Settings. With the flag on, the composer offers an **Images** toggle, initially off. Turn it on and ask for an image. It stays on for subsequent sends in that chat until switched off; changing the chat or model clears it. Each enabled send carries `metadata.image_generation`. Image-enabled messages cannot be queued while a turn is running; the draft stays in the composer. After a reload, Retry is unavailable when the original image choice is unknown and the selected model supports image generation.
 
 The chat path supports `openai` API-key and `codex` providers when the model is explicitly enabled and the provider supports the Responses image generation tool. Codex has been tested against a fake backend; live account entitlement has not been verified. Coddy refuses image generation on direct model requests. Coddy sends the native tool with the conversation and saves returned images as session assets on the assistant message. Images appear in the answer and remain available after reloading the chat. Provider support and account access are required; enabling the setting alone does not guarantee an image. A generated assistant image is not automatically included as visual context in later prompts. To ask for an edit, download the image and reattach it as input with a multimodal model.
 
@@ -2714,3 +2714,25 @@ Other provider types hide the selector.
 ![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
 
 *The Anthropic-compatible provider offers its own SDK identity by default.*
+
+## Service tier
+
+The selector is available for Codex and for OpenAI providers using the official `https://api.openai.com/v1` API base (with or without a trailing slash), not compatible endpoints such as Ollama. With an empty `api_base`, `OPENAI_BASE_URL` applies when set; otherwise the official endpoint is used. A forward `proxy` does not change this decision.
+
+![Service tier](../assets/service-tier/service-tier-dark.png)
+![Service tier](../assets/service-tier/service-tier-light.png)
+![Service tier](../assets/service-tier/service-tier-narrow.png)
+
+For supported models, the composer shows **Service tier** beside the model controls.
+Choose **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+An unset session shows one selected Standard item and omits the parameter; there is no separate Auto item.
+Explicitly selecting Standard sends `default`, including after Fast.
+`gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast.
+The menu shows your selection, which can differ from the tier the provider actually uses.
+Another client of the same session receives the change.
+A change during a turn applies to the next turn.
+
+The browser remembers your last selection for new chats.
+An existing chat keeps its saved selection.
+A model that does not offer the remembered value leaves the session unset and shows Standard.
+Opening a chat or receiving another client's change does not replace the browser preference.

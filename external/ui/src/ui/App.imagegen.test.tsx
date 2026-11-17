@@ -199,6 +199,35 @@ test("a model without the opt-in offers no image control", async () => {
   expect(posted[0]!.metadata?.image_generation).toBeUndefined();
 });
 
+test("a model without the opt-in offers a CTA to its settings row", async () => {
+  await mountHome();
+  const cta = screen.getByTestId("composer-imagegen-cta");
+  fireEvent.click(cta);
+  expect(window.location.hash).toBe("#/settings/models?id=fake%2Falpha-model");
+});
+
+test("an opted-in model shows the toggle, not the CTA", async () => {
+  imageGeneration = true;
+  await mountHome();
+  expect(screen.getByTestId("composer-imagegen")).toBeInTheDocument();
+  expect(screen.queryByTestId("composer-imagegen-cta")).toBeNull();
+});
+
+test("a config reload replaces the CTA with the toggle once the model opts in", async () => {
+  await mountHome();
+  expect(screen.getByTestId("composer-imagegen-cta")).toBeInTheDocument();
+  imageGeneration = true;
+  act(() => {
+    eventsController!.enqueue(
+      new TextEncoder().encode("event: config_reloaded\ndata: {}\n\n"),
+    );
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId("composer-imagegen")).toBeInTheDocument(),
+  );
+  expect(screen.queryByTestId("composer-imagegen-cta")).toBeNull();
+});
+
 test("the control appears for an opted-in model and stays off", async () => {
   imageGeneration = true;
   await mountHome();

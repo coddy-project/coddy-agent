@@ -198,11 +198,12 @@ func (h *Handler) patchJSON(ctx context.Context, path string, in interface{}) er
 // ---- models ----
 
 type modelRow struct {
-	ID               string   `json:"id"`
-	OwnedBy          string   `json:"owned_by"`
-	Multimodal       bool     `json:"multimodal,omitempty"`
-	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	ID                 string   `json:"id"`
+	OwnedBy            string   `json:"owned_by"`
+	Multimodal         bool     `json:"multimodal,omitempty"`
+	ServiceTierChoices []string `json:"service_tier_choices,omitempty"`
+	ReasoningLevels    []string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault   string   `json:"reasoning_default,omitempty"`
 	// Default marks the row the server runs a session that selected no model on.
 	Default bool `json:"default,omitempty"`
 	// Toolset is the toolsets[] preset the model names.
@@ -251,12 +252,13 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 			defModel = row.ID
 		}
 		models = append(models, remoteModel{
-			ID:               row.ID,
-			OwnedBy:          row.OwnedBy,
-			Multimodal:       row.Multimodal,
-			ReasoningLevels:  row.ReasoningLevels,
-			ReasoningDefault: row.ReasoningDefault,
-			Toolset:          row.Toolset,
+			ID:                 row.ID,
+			OwnedBy:            row.OwnedBy,
+			Multimodal:         row.Multimodal,
+			ReasoningLevels:    row.ReasoningLevels,
+			ServiceTierChoices: row.ServiceTierChoices,
+			ReasoningDefault:   row.ReasoningDefault,
+			Toolset:            row.Toolset,
 		})
 	}
 	// The presets the server names: what a session it has not created yet
@@ -345,11 +347,12 @@ type messagesResponse struct {
 	// MessagesRev is the revision of the history these messages were read at:
 	// a follower of the session's running turn passes it back as since_rev,
 	// so the relay leaves out what the transcript already holds.
-	MessagesRev       uint64 `json:"messagesRev"`
-	SelectedModelID   string `json:"selectedModelId,omitempty"`
-	SelectedReasoning string `json:"selectedReasoning,omitempty"`
-	Model             string `json:"model,omitempty"`
-	Mode              string `json:"mode,omitempty"`
+	MessagesRev         uint64 `json:"messagesRev"`
+	SelectedModelID     string `json:"selectedModelId,omitempty"`
+	SelectedReasoning   string `json:"selectedReasoning,omitempty"`
+	SelectedServiceTier string `json:"selectedServiceTier,omitempty"`
+	Model               string `json:"model,omitempty"`
+	Mode                string `json:"mode,omitempty"`
 	// Settings is the session's settings snapshot: what a surface entering
 	// the session shows, its permission mode included (#362).
 	Settings *acp.SessionSettings `json:"settings,omitempty"`

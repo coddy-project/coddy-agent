@@ -77,7 +77,8 @@ type SubagentSpec struct {
 	SelectedModelID string
 	// SelectedReasoning is the child's reasoning level, or empty for its
 	// model's default.
-	SelectedReasoning string
+	SelectedReasoning   string
+	SelectedServiceTier string
 	// Title is pinned as the session title (the task label).
 	Title string
 	// Role is the definition body the child's system prompt carries.
@@ -216,15 +217,23 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		mode = ModeAsk
 	}
 	state := &State{
-		ID:                id,
-		CWD:               cwd,
-		Mode:              mode,
-		Skills:            loadedSkills,
-		SelectedModelID:   strings.TrimSpace(spec.SelectedModelID),
-		SelectedReasoning: strings.TrimSpace(spec.SelectedReasoning),
-		PermissionMode:    strings.TrimSpace(spec.PermissionMode),
-		contextWindows:    m,
-		childRun:          true,
+		ID:                  id,
+		CWD:                 cwd,
+		Mode:                mode,
+		Skills:              loadedSkills,
+		SelectedModelID:     strings.TrimSpace(spec.SelectedModelID),
+		SelectedReasoning:   strings.TrimSpace(spec.SelectedReasoning),
+		SelectedServiceTier: spec.SelectedServiceTier,
+		PermissionMode:      strings.TrimSpace(spec.PermissionMode),
+		contextWindows:      m,
+		childRun:            true,
+	}
+	if prior != nil {
+		state.SelectedServiceTier = InheritedServiceTier(active, ResolveModelID(active, prior.Meta.SelectedModelID), state.EffectiveModelID(active), prior.Meta.SelectedServiceTier)
+	} else if spec.SelectedServiceTier == "" {
+		if parent := m.getSession(parentID); parent != nil {
+			state.SelectedServiceTier = InheritedServiceTier(active, parent.EffectiveModelID(active), state.EffectiveModelID(active), parent.EffectiveServiceTier(active))
+		}
 	}
 	// The child metadata is attached before the state is visible anywhere:
 	// every reader that finds the live entry must already see a read-only

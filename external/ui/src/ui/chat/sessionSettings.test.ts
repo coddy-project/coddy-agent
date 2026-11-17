@@ -13,6 +13,8 @@ const snapshot = {
   version: 7,
   model: "nd/qwen3.8-27b",
   reasoning: "off",
+  serviceTier: "",
+  serviceTierChoices: [],
   reasoningChoices: ["low", "medium", "high", "off"],
   mode: "plan",
   permissionMode: "bypass",

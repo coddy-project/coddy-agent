@@ -592,9 +592,11 @@ type SessionSettings struct {
 	SessionID string `json:"sessionId"`
 	// Version orders snapshots of one session that reach a client down more
 	// than one connection; a client keeps the highest it has seen.
-	Version   uint64 `json:"version"`
-	Model     string `json:"model"`
-	Reasoning string `json:"reasoning,omitempty"`
+	Version            uint64   `json:"version"`
+	Model              string   `json:"model"`
+	Reasoning          string   `json:"reasoning,omitempty"`
+	ServiceTier        string   `json:"serviceTier"`
+	ServiceTierChoices []string `json:"serviceTierChoices,omitempty"`
 	// ReasoningChoices are the levels the session's model offers, "off"
 	// last where its provider can turn thinking off.
 	ReasoningChoices         []string       `json:"reasoningChoices,omitempty"`

@@ -293,6 +293,13 @@ textarea#composer {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+/* A model without the image_generation opt-in gets a CTA instead of the
+   toggle: the accent text marks it as a link, and it opens the model's row in
+   Settings. */
+.composer-tab.mode-imagegen-cta {
+  color: var(--accent);
+}
+
 /* The permission chip (#292). Ask is the quiet default; a session that no
    longer asks says so from the composer, bypass in the danger tone. */
 .composer-tab.mode-permission.perm-accept_edits {

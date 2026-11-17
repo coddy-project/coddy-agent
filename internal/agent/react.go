@@ -3393,11 +3393,15 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 		return llmTransport{}, err
 	}
 	provider = a.withChildFallbacks(provider, modelID, mk)
+	tier := ""
+	if in.ServiceTier != nil {
+		tier = *in.ServiceTier
+	}
 	return llmTransport{
 		provider:  provider,
 		streaming: rm.Stream,
 		model:     modelID,
-		key:       modelID + "|" + reasoning,
+		key:       modelID + "|" + reasoning + "|" + tier,
 		rev:       rev,
 		agent:     rm.ProviderType == "acp",
 		in:        in,
@@ -3485,7 +3489,14 @@ func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.E
 // transportKey names what a model request is built for: the model and the
 // reasoning level. The transport is rebuilt only when it changes.
 func (a *Agent) transportKey() string {
-	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg)
+	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg) + "|" + a.serviceTier()
+}
+
+func (a *Agent) serviceTier() string {
+	if st := sessionStatePtr(a.state); st != nil {
+		return st.EffectiveServiceTier(a.cfg)
+	}
+	return ""
 }
 
 // childProviderInput applies what a system child's spec says about its
@@ -3590,6 +3601,9 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		// cache by a stable per-conversation id; every other provider ignores
 		// it. The session id is that stable value.
 		SessionID: a.state.GetID(),
+	}
+	if st := sessionStatePtr(a.state); st != nil {
+		in.ServiceTier = st.ServiceTierForProvider(a.cfg, rm)
 	}
 	// What the provider's model listing says the model takes, read on the
 	// manager's cache: an OpenRouter-style aggregator gets the reasoning level

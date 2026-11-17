@@ -21,6 +21,8 @@ export type SessionSettings = {
   sessionId: string;
   version: number;
   model: string;
+  serviceTier: string;
+  serviceTierChoices: string[];
   reasoning: string;
   reasoningChoices: string[];
   mode: string;
@@ -73,6 +75,10 @@ export function parseSessionSettings(raw: unknown): SessionSettings | null {
     sessionId,
     version: typeof o.version === "number" ? o.version : 0,
     model: str(o.model),
+    serviceTier: str(o.serviceTier),
+    serviceTierChoices: Array.isArray(o.serviceTierChoices)
+      ? o.serviceTierChoices.filter((v): v is string => typeof v === "string")
+      : [],
     reasoning: str(o.reasoning),
     reasoningChoices: Array.isArray(o.reasoningChoices)
       ? o.reasoningChoices.filter((v): v is string => typeof v === "string")

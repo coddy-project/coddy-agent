@@ -17,7 +17,8 @@ import (
 // file under CODDY_HOME so each surface (console, web, telegram) carries its
 // own memory instead of sharing the configured default.
 type consoleState struct {
-	LastModel string `json:"last_model,omitempty"`
+	LastServiceTier string `json:"last_service_tier,omitempty"`
+	LastModel       string `json:"last_model,omitempty"`
 }
 
 func consoleStatePath(home string) string {
@@ -126,7 +127,12 @@ func (a *App) rememberModel(id string) {
 // model it was created with, and the caller tells the operator with
 // reportInitialModelError once the console has adopted the session - an update
 // sent from here would carry a session the console is not on yet.
-func (a *App) applyInitialModel(ctx context.Context, res *acp.SessionNewResult) error {
+func (a *App) applyInitialModel(ctx context.Context, res *acp.SessionNewResult) (err error) {
+	defer func() {
+		if err == nil && res != nil {
+			err = a.applyInitialServiceTier(ctx, res)
+		}
+	}()
 	if res == nil {
 		return nil
 	}

@@ -950,9 +950,9 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		return
 	}
 	// The workspace skill, the standard delivery, and the built-in commands:
-	// the eight settings commands, compact (while compaction is enabled),
+	// the nine settings commands, compact (while compaction is enabled),
 	// goal, export, plugin and worktree (always).
-	if want := 14 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+	if want := 15 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
 		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}

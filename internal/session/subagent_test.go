@@ -2226,3 +2226,24 @@ func TestSameDirectory(t *testing.T) {
 		t.Fatal("two spellings of one folder differ on Windows")
 	}
 }
+
+func TestServiceTierSubagentResumeKeepsChildPreference(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	cfg := m.Cfg()
+	cfg.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai"}}
+	cfg.Models = []config.ModelEntry{{Model: "openai/gpt-6-astra"}}
+	cfg.Agent.Model = "openai/gpt-6-astra"
+	parent := newParent(t, m, root)
+	parent.SetSelectedServiceTier("priority")
+	spec := resumableChild(t, m, parent, root)
+	parent.SetSelectedServiceTier("default")
+	spec.Resume = true
+	spec.TaskID = "bg_2"
+	child, err := m.CreateSubagentSession(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.GetSelectedServiceTier() != "priority" {
+		t.Fatalf("child preference=%q", child.GetSelectedServiceTier())
+	}
+}

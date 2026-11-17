@@ -1,6 +1,12 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
   "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
+  "composer.serviceTier": "Режим обслуживания",
+  "composer.serviceTier.default": "Стандартный",
+  "composer.serviceTier.priority": "Быстрый",
+  "composer.serviceTier.ultrafast": "Сверхбыстрый",
+  "composer.serviceTier.flex": "Flex",
+
   "settings.section.httpserver.label": "Аутентификация",
   "settings.section.httpserver.desc": "Защита входа через браузер",
   "settings.auth.removeTotp": "Отключить TOTP",
@@ -2163,6 +2169,9 @@ export const messagesRu: Record<string, string> = {
   "composer.imageGeneration": "Изображения",
   "composer.imageGenerationTitle":
     "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
+  "composer.imageGenerationEnable": "Изображения",
+  "composer.imageGenerationEnableTitle":
+    "Включите генерацию изображений для этой модели в настройках",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":
