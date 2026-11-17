@@ -63,6 +63,7 @@ func TestWorktreeChangesTrackedSymlinksUseLinkText(t *testing.T) {
 		if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		target := filepath.ToSlash(outside)
 		assertChange := func(path, status string, before, after []byte) {
 			t.Helper()
 			changes, skipped, err := WorktreeChanges(dir)
@@ -92,7 +93,7 @@ func TestWorktreeChangesTrackedSymlinksUseLinkText(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		mustGit(t, dir, "add", "added-link")
-		assertChange("added-link", "added", nil, []byte(outside))
+		assertChange("added-link", "added", nil, []byte(target))
 
 		if err := os.Symlink(outside, filepath.Join(dir, "deleted-link")); err != nil {
 			t.Fatal(err)
@@ -102,6 +103,6 @@ func TestWorktreeChangesTrackedSymlinksUseLinkText(t *testing.T) {
 		if err := os.Remove(filepath.Join(dir, "deleted-link")); err != nil {
 			t.Fatal(err)
 		}
-		assertChange("deleted-link", "deleted", []byte(outside), nil)
+		assertChange("deleted-link", "deleted", []byte(target), nil)
 	})
 }
