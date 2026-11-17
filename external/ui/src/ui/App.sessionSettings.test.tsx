@@ -533,7 +533,7 @@ test("the tier cookie seeds a new chat but cannot replace an opened session", as
   await pickOnStartPage(tierChip, "Fast");
   expect(document.cookie).toContain("coddy_service_tier=priority");
   await navigate(S_HIGH_BYPASS);
-  expect(tierChip()).toHaveTextContent("Provider default");
+  expect(tierChip()).toHaveTextContent("Auto");
   expect(document.cookie).toContain("coddy_service_tier=priority");
   expect((await send("next")).service_tier).toBe("");
 });
@@ -551,7 +551,7 @@ test("tier selections and another client's reset follow the server snapshot", as
     sessionId: S_HIGH_BYPASS,
     settings: snapshot(S_HIGH_BYPASS),
   });
-  await waitFor(() => expect(tierChip()).toHaveTextContent("Provider default"));
+  await waitFor(() => expect(tierChip()).toHaveTextContent("Auto"));
   expect(document.cookie).toContain("coddy_service_tier=default");
   expect((await send("next")).service_tier).toBe("");
 });

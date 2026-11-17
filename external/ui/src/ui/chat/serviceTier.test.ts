@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   pickServiceTier,
   readServiceTierCookie,
+  serviceTierLabelKey,
   writeServiceTierCookie,
 } from "./serviceTier";
 
@@ -23,5 +24,11 @@ describe("service tier preference", () => {
     expect(readServiceTierCookie()).toBe("default");
     writeServiceTierCookie("");
     expect(readServiceTierCookie()).toBe("");
+  });
+  it("names the empty choice Auto", () => {
+    expect(serviceTierLabelKey("")).toBe("composer.serviceTier.auto");
+    expect(serviceTierLabelKey("priority")).toBe(
+      "composer.serviceTier.priority",
+    );
   });
 });

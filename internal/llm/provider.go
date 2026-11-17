@@ -440,7 +440,9 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		op.tempSet = p.TemperatureSet
 		op.topP = p.TopP
-		op.serviceTier = p.ServiceTier
+		if ServiceTierSupported(p.Type, p.BaseURL) {
+			op.serviceTier = p.ServiceTier
+		}
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":
@@ -468,7 +470,9 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through CODDY_CODEX_BASE_URL.
 		cp := newCodexProvider(p.Model, p.AuthPath, !p.NoCLILogin, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
-		cp.serviceTier = p.ServiceTier
+		if ServiceTierSupported(p.Type, p.BaseURL) {
+			cp.serviceTier = p.ServiceTier
+		}
 		inner = cp
 	case "devin":
 		// A Devin session token reaches the Devin API server only: api_base is

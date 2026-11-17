@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -638,10 +639,7 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 		if err != nil {
 			return nil, err
 		}
-		value := params.Value
-		if value == "fast" {
-			value = "priority"
-		}
+		value := llm.NormalizeServiceTier(params.Value)
 		if value != "" && !hasReasoningLevel(snap.ServiceTierChoices, value) {
 			return nil, acp.InvalidParams("unknown service tier: %q", value)
 		}

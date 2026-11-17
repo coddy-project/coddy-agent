@@ -4,7 +4,7 @@
 export const messagesEn: Record<string, string> = {
   "messages.openGeneratedImage": "Open generated image {fileName}",
   "composer.serviceTier": "Service tier",
-  "composer.serviceTier.provider": "Provider default",
+  "composer.serviceTier.auto": "Auto",
   "composer.serviceTier.default": "Standard",
   "composer.serviceTier.priority": "Fast",
   "composer.serviceTier.ultrafast": "Ultrafast",
@@ -2102,6 +2102,9 @@ export const messagesEn: Record<string, string> = {
   "composer.imageGeneration": "Images",
   "composer.imageGenerationTitle":
     "Ask the model for native image output on send (metadata.image_generation)",
+  "composer.imageGenerationEnable": "Images",
+  "composer.imageGenerationEnableTitle":
+    "Enable image generation for this model in Settings",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",

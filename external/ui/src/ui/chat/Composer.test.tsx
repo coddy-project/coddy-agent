@@ -377,12 +377,9 @@ test("Tab key selects first slash command from picker", async () => {
     target: { value: "/gen", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
@@ -443,12 +440,9 @@ test("Tab keeps one space between the chosen skill and the text after the caret"
     target: { value: "/gen hello", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
@@ -574,12 +568,9 @@ test("Tab completes a skill name while a turn runs", async () => {
     target: { value: "/nd-", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-nd-search");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {

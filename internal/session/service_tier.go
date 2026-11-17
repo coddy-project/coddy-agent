@@ -65,7 +65,7 @@ func InheritedServiceTier(cfg *config.Config, source, target, tier string) strin
 
 // ServiceTierForProvider returns the held mode only for the same provider and model.
 func (s *State) ServiceTierForProvider(cfg *config.Config, rm *config.ResolvedLLM) *string {
-	if cfg == nil || rm == nil {
+	if cfg == nil || rm == nil || !llm.ServiceTierSupported(rm.ProviderType, rm.BaseURL) {
 		return nil
 	}
 	source := cfg.FindModelEntry(s.EffectiveModelID(cfg))

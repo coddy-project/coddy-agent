@@ -162,3 +162,30 @@ func TestServiceTierACPOption(t *testing.T) {
 		t.Fatal("accepted unknown tier")
 	}
 }
+
+func TestServiceTierEndpointSessionAndFallback(t *testing.T) {
+	m, st, cfg := serviceTierManager(t)
+	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "ollama", Type: "openai", APIBase: "http://localhost:11434/v1"})
+	cfg.Models = append(cfg.Models, config.ModelEntry{Model: "ollama/gpt-6-astra"})
+	tier := "priority"
+	if _, err := m.ApplySessionSettings(context.Background(), st.ID, SettingsChange{ServiceTier: &tier}); err != nil {
+		t.Fatal(err)
+	}
+	if got := InheritedServiceTier(cfg, "openai/gpt-6-astra", "ollama/gpt-6-astra", tier); got != "" {
+		t.Fatalf("fallback inherited %q", got)
+	}
+	rm := &config.ResolvedLLM{ProviderName: "openai", ProviderType: "openai", Model: "gpt-6-astra", BaseURL: "http://localhost:11434/v1"}
+	if got := st.ServiceTierForProvider(cfg, rm); got != nil {
+		t.Fatalf("fallback sent %q", *got)
+	}
+	model := "ollama/gpt-6-astra"
+	if _, err := m.ApplySessionSettings(context.Background(), st.ID, SettingsChange{Model: &model}); err != nil {
+		t.Fatal(err)
+	}
+	if st.SessionServiceTier(cfg) != "" {
+		t.Fatal("local model retained tier")
+	}
+	if _, err := m.ApplySessionSettings(context.Background(), st.ID, SettingsChange{ServiceTier: &tier}); err == nil {
+		t.Fatal("local model accepted tier")
+	}
+}

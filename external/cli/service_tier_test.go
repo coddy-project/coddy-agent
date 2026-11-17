@@ -13,8 +13,16 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
+// openaiTierEndpoint upgrades the shared stub provider to the official OpenAI
+// endpoint: the service tier contract admits only codex and api.openai.com/v1,
+// so a fixture at any other base URL gets no service_tier option at all.
+func openaiTierEndpoint(a *App) {
+	a.config().Providers[0].APIBase = "https://api.openai.com/v1"
+}
+
 func TestServiceTierConsoleSelectionAndNewSession(t *testing.T) {
 	a := newReasoningApp(t)
+	openaiTierEndpoint(a)
 	a.config().Models = append(a.config().Models, config.ModelEntry{Model: "stub/gpt-6-astra"})
 	result, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: a.sessionID, ConfigID: "model", Value: "stub/gpt-6-astra"})
 	if err != nil {
@@ -81,6 +89,7 @@ func TestConfigSelectorsApplyOnlyTheirSetting(t *testing.T) {
 	for _, kind := range []string{"service_tier", "toolset"} {
 		t.Run(kind, func(t *testing.T) {
 			a := newReasoningApp(t)
+			openaiTierEndpoint(a)
 			a.config().Models = append(a.config().Models, config.ModelEntry{Model: "stub/gpt-6-astra"})
 			a.config().Toolsets = []config.Toolset{{Name: "limited", Tools: []string{"read"}}}
 			result, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: a.sessionID, ConfigID: "model", Value: "stub/gpt-6-astra"})

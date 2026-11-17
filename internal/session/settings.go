@@ -336,10 +336,7 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 		if model == "" {
 			model = st.SessionModelID(cfg)
 		}
-		v := *ch.ServiceTier
-		if v == "fast" {
-			v = "priority"
-		}
+		v := llm.NormalizeServiceTier(*ch.ServiceTier)
 		if v != "" && !containsLevel(llm.ModelServiceTierChoices(cfg, model), v) {
 			return nil, fmt.Errorf("service tier %q is not offered by model %q", v, model)
 		}

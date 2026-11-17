@@ -12,6 +12,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -113,10 +114,7 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 			}
 			h.mu.Unlock()
 		}
-		value := *ch.ServiceTier
-		if value == "fast" {
-			value = "priority"
-		}
+		value := llm.NormalizeServiceTier(*ch.ServiceTier)
 		if value != "" && !hasReasoningLevel(choices, value) {
 			return acp.SessionSettings{}, acp.InvalidParams("unknown service tier: %q", value)
 		}

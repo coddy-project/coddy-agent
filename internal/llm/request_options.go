@@ -35,8 +35,12 @@ type RequestOptions struct {
 // Validate reports the first option a provider of providerType and API model cannot send as
 // asked, so the caller refuses the request before anything reaches the
 // provider instead of the value being dropped on the way.
-func (o RequestOptions) Validate(providerType, model string) error {
-	if o.ServiceTier != nil && providerType != "openai" && providerType != "codex" {
+func (o RequestOptions) Validate(providerType, model string, baseURL ...string) error {
+	base := ""
+	if len(baseURL) > 0 {
+		base = baseURL[0]
+	}
+	if o.ServiceTier != nil && !ServiceTierSupported(providerType, base) {
 		return fmt.Errorf("service_tier is not supported by provider type %s", providerType)
 	}
 	if o.TopP != nil {

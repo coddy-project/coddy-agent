@@ -474,6 +474,8 @@ export function Composer(props: {
   /** Per-turn image control: while on, sends ask the model for native image output (metadata.image_generation). */
   imageGenOn?: boolean;
   onImageGenToggle?: () => void;
+  /** Opens the selected model's row in Settings so image_generation can be enabled. */
+  onImageGenEnable?: () => void;
   /** Optional shared attachment state for composer layout transitions. */
   attachedFiles?: File[];
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
@@ -3854,6 +3856,24 @@ export function Composer(props: {
                   </div>
                 ) : null}
 
+                {props.serviceTierControl ? (
+                  <div className="mode">
+                    <button
+                      type="button"
+                      className="composer-tab mode-btn"
+                      aria-label={t("composer.serviceTier")}
+                      title={t("composer.serviceTier")}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen === "service_tier"}
+                      onClick={(e) =>
+                        toggleMenu("service_tier", e.currentTarget)
+                      }
+                    >
+                      {t(serviceTierLabelKey(props.serviceTierControl.value))}
+                    </button>
+                  </div>
+                ) : null}
+
                 {props.onPermissionModeChange ? (
                   <div className="mode">
                     <button
@@ -3876,23 +3896,6 @@ export function Composer(props: {
                   </div>
                 ) : null}
 
-                {props.serviceTierControl ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      className="composer-tab mode-btn"
-                      aria-label={t("composer.serviceTier")}
-                      title={t("composer.serviceTier")}
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen === "service_tier"}
-                      onClick={(e) =>
-                        toggleMenu("service_tier", e.currentTarget)
-                      }
-                    >
-                      {t(serviceTierLabelKey(props.serviceTierControl.value))}
-                    </button>
-                  </div>
-                ) : null}
                 {props.toolsetControl ? (
                   <div className="mode">
                     <button
@@ -3923,6 +3926,23 @@ export function Composer(props: {
                       onClick={props.onImageGenToggle}
                     >
                       {t("composer.imageGeneration")}
+                    </button>
+                  </div>
+                ) : null}
+
+                {!props.llmModelImageGen &&
+                props.onImageGenEnable &&
+                (props.llmModels ?? []).includes(props.llmModel ?? "") ? (
+                  <div className="mode">
+                    <button
+                      type="button"
+                      className="composer-tab mode-btn mode-imagegen-cta"
+                      aria-label={t("composer.imageGenerationEnableTitle")}
+                      title={t("composer.imageGenerationEnableTitle")}
+                      data-testid="composer-imagegen-cta"
+                      onClick={props.onImageGenEnable}
+                    >
+                      {t("composer.imageGenerationEnable")}
                     </button>
                   </div>
                 ) : null}

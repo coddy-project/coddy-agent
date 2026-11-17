@@ -1,6 +1,30 @@
 package llm
 
-import "github.com/EvilFreelancer/coddy-agent/internal/config"
+import (
+	"os"
+	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+)
+
+// ServiceTierSupported identifies the transport, not the forward proxy.
+func ServiceTierSupported(providerType, baseURL string) bool {
+	if providerType == "codex" {
+		return true
+	}
+	if providerType != "openai" {
+		return false
+	}
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		if value, ok := os.LookupEnv("OPENAI_BASE_URL"); ok {
+			baseURL = value
+		} else {
+			baseURL = "https://api.openai.com/v1/"
+		}
+	}
+	return baseURL == "https://api.openai.com/v1" || baseURL == "https://api.openai.com/v1/"
+}
 
 // ServiceTierChoices lists documented session choices, not account entitlements.
 // The empty choice omits the parameter; default explicitly requests Standard.
@@ -37,5 +61,17 @@ func ModelServiceTierChoices(cfg *config.Config, modelID string) []string {
 	if provider == nil {
 		return nil
 	}
+	if !ServiceTierSupported(provider.Type, provider.APIBase) {
+		return nil
+	}
 	return ServiceTierChoices(provider.Type, ent.APIModel())
+}
+
+// NormalizeServiceTier maps the operator's alias to the wire value; "fast" is
+// how the tier is named on every surface, "priority" is what the wire takes.
+func NormalizeServiceTier(value string) string {
+	if value == "fast" {
+		return "priority"
+	}
+	return value
 }

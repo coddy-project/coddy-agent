@@ -819,6 +819,8 @@ Save the provider to apply the choice to new calls.
 
 ## OpenAI service tiers
 
+Service tiers are offered only for Codex and OpenAI providers whose effective API base is `https://api.openai.com/v1` (with or without a trailing slash). An empty `api_base` uses `OPENAI_BASE_URL` when set, otherwise the official endpoint. A forward `proxy` does not change this decision. OpenAI-compatible endpoints such as Ollama do not offer tiers.
+
 Service tiers are session preferences, not provider or model YAML settings.
 Coddy offers them for these exact model IDs on `openai` and `codex` providers:
 `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-sol`, and `gpt-6-luna`.
@@ -826,14 +828,14 @@ These choices describe documented modes, not account entitlements.
 
 | Choice | Request value | Availability in Coddy |
 |---|---|---|
-| Provider default | Parameter omitted | All listed models |
+| Auto | Parameter omitted | All listed models |
 | Standard | `default` | All listed models |
 | Fast | `priority` | All listed models |
 | Ultrafast | `ultrafast` | `gpt-6-astra` and `gpt-6.1-sol` |
 | Flex | `flex` | Listed models on `openai` only |
 
 Session inputs also accept `fast` as an alias for `priority`.
-Direct HTTP requests pass any string unchanged, including `auto` and `fast`.
+Direct HTTP requests to supported endpoints pass any string unchanged, including `auto` and `fast`.
 An omitted parameter leaves the provider's behavior unchanged.
 
 The probe through CLI Proxy API at `http://localhost:8317/v1` returned HTTP 200 and actual `default` for all tested tiers.

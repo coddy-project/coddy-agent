@@ -765,7 +765,9 @@ that sends no `Origin` is not affected.
 
 ## Service tier
 
-Direct Chat Completions and Responses requests accept top-level `service_tier` for OpenAI and Codex providers.
+For OpenAI providers, the effective API base must be `https://api.openai.com/v1` (with or without a trailing slash); other endpoints, including Ollama, reject a direct request carrying this field. An empty `api_base` follows `OPENAI_BASE_URL` when set, otherwise the official endpoint. A forward `proxy` is not an API base. Codex uses its own transport.
+
+Direct Chat Completions and Responses requests accept top-level `service_tier` for eligible OpenAI and Codex providers.
 Coddy sends any string unchanged, including an empty or unknown string.
 An omitted value or `null` sends no parameter.
 Other JSON types return HTTP 400.

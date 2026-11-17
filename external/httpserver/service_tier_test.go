@@ -105,6 +105,28 @@ func TestServiceTierDirectRequests(t *testing.T) {
 
 }
 
+func TestResponsesServiceTierUnsupportedProviderError(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.activeCfg().Providers = []config.ProviderConfig{{Name: "openai", Type: "anthropic"}}
+	srv.makeLLMFromYAML = func(_ *config.Config, _ string, _ llm.RequestOptions) (llm.Provider, error) {
+		t.Fatal("provider must not be called for an unsupported tier")
+		return nil, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(`{"model":"openai/gpt-4o","input":"hi","service_tier":"priority"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusBadRequest || gjson.GetBytes(data, "error.param").String() != "service_tier" {
+		t.Fatalf("status=%d body=%s", res.StatusCode, data)
+	}
+}
+
 func TestServiceTierProfileTopLevelRefused(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())
@@ -232,5 +254,67 @@ func TestServiceTierParallelDirectRequests(t *testing.T) {
 			}
 			wg.Wait()
 		})
+	}
+}
+
+func TestServiceTierOllamaDirectRefused(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	cfg := srv.activeCfg()
+	cfg.Providers = []config.ProviderConfig{{Name: "openai", Type: "openai", APIBase: "http://localhost:11434/v1"}}
+	cfg.Models = append(cfg.Models, config.ModelEntry{Model: "openai/gpt-6-astra"})
+	srv.makeLLMFromYAML = func(_ *config.Config, _ string, _ llm.RequestOptions) (llm.Provider, error) {
+		t.Error("provider called")
+		return nil, fmt.Errorf("unexpected call")
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	for _, tc := range []struct{ path, input string }{{"responses", `"input":"hi"`}, {"chat/completions", `"messages":[{"role":"user","content":"hi"}]`}} {
+		res, err := http.Post(ts.URL+"/v1/"+tc.path, "application/json", strings.NewReader(`{"model":"openai/gpt-6-astra",`+tc.input+`,"service_tier":"priority"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", tc.path, res.StatusCode, body)
+		}
+	}
+}
+
+func TestServiceTierModelsEndpoint(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	cfg := srv.activeCfg()
+	cfg.Providers = []config.ProviderConfig{{Name: "official", Type: "openai", APIBase: "https://api.openai.com/v1"}, {Name: "local", Type: "openai", APIBase: "http://localhost:11434/v1"}}
+	cfg.Models = []config.ModelEntry{{Model: "official/gpt-6-astra"}, {Model: "local/gpt-6-astra"}}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", res.StatusCode, body)
+	}
+	rows := gjson.GetBytes(body, "data").Array()
+	found := map[string]bool{}
+	for _, row := range rows {
+		id := row.Get("id").String()
+		if id != "official/gpt-6-astra" && id != "local/gpt-6-astra" {
+			continue
+		}
+		found[id] = true
+		got := len(row.Get("service_tier_choices").Array()) > 0
+		if got != (id == "official/gpt-6-astra") {
+			t.Errorf("%s choices=%s", id, row.Get("service_tier_choices"))
+		}
+	}
+	if len(found) != 2 {
+		t.Fatalf("missing models: %s", body)
 	}
 }

@@ -194,7 +194,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 }
 
 func responsesOptionParam(err error) string {
-	for _, field := range []string{"temperature", "top_p", "reasoning"} {
+	for _, field := range []string{"temperature", "top_p", "reasoning", "service_tier"} {
 		if strings.Contains(err.Error(), field) {
 			return field
 		}

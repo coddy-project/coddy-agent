@@ -125,6 +125,8 @@ export function ChatScreen(props: {
   /** The per-turn image control's state; passed through to the composer. */
   imageGenOn?: boolean;
   onImageGenToggle?: () => void;
+  /** Opens the selected model's row in Settings so image_generation can be enabled. */
+  onImageGenEnable?: () => void;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
@@ -1010,6 +1012,7 @@ export function ChatScreen(props: {
                       llmModelImageGen: props.llmModelImageGen,
                       imageGenOn: props.imageGenOn,
                       onImageGenToggle: props.onImageGenToggle,
+                      onImageGenEnable: props.onImageGenEnable,
                       ...(props.llmReasoningLevelsByModel !== undefined
                         ? {
                             llmReasoningLevelsByModel:
@@ -1278,6 +1281,7 @@ export function ChatScreen(props: {
                         llmModelImageGen: props.llmModelImageGen,
                         imageGenOn: props.imageGenOn,
                         onImageGenToggle: props.onImageGenToggle,
+                        onImageGenEnable: props.onImageGenEnable,
                         ...(props.llmReasoningLevelsByModel !== undefined
                           ? {
                               llmReasoningLevelsByModel:

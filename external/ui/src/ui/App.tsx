@@ -6700,6 +6700,18 @@ export function App() {
     [imageGenScope],
   );
 
+  // A model without the opt-in gets a CTA instead of the toggle: it opens the
+  // model's own row in Settings -> Logical models, where image_generation is
+  // enabled. After a save, configEpoch refreshes the model catalog and the
+  // per-turn Images toggle replaces the CTA.
+  const onImageGenEnable = useCallback(() => {
+    const model = llmModel.trim();
+    if (!model) {
+      return;
+    }
+    setSettingsSectionHash("models", { item: model });
+  }, [llmModel]);
+
   // Every configured model's levels: /goal --reasoning completes the levels
   // of the model its --model names.
   const llmReasoningLevelsByModel = useMemo(() => {
@@ -8743,6 +8755,7 @@ export function App() {
                   llmModelImageGen,
                   imageGenOn,
                   onImageGenToggle,
+                  onImageGenEnable,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {

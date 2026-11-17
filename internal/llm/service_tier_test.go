@@ -61,7 +61,7 @@ func TestServiceTierTransport(t *testing.T) {
 						t.Fatal(err)
 					}
 					value, present := got["service_tier"]
-					if requested == nil {
+					if requested == nil || transport == "openai" {
 						if present {
 							t.Fatalf("unexpected tier %v", value)
 						}
@@ -166,7 +166,7 @@ func TestServiceTierFailureKeepsRequest(t *testing.T) {
 				}
 			}
 			for _, tier := range requests {
-				if tier != "priority" {
+				if tier != "<nil>" {
 					t.Fatalf("retry changed tier: %v", requests)
 				}
 			}

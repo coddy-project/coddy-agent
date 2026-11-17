@@ -2,7 +2,7 @@
 export const messagesRu: Record<string, string> = {
   "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
   "composer.serviceTier": "Режим обслуживания",
-  "composer.serviceTier.provider": "По умолчанию у провайдера",
+  "composer.serviceTier.auto": "Авто",
   "composer.serviceTier.default": "Стандартный",
   "composer.serviceTier.priority": "Быстрый",
   "composer.serviceTier.ultrafast": "Сверхбыстрый",
@@ -2170,6 +2170,9 @@ export const messagesRu: Record<string, string> = {
   "composer.imageGeneration": "Изображения",
   "composer.imageGenerationTitle":
     "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
+  "composer.imageGenerationEnable": "Изображения",
+  "composer.imageGenerationEnableTitle":
+    "Включите генерацию изображений для этой модели в настройках",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":
