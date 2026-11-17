@@ -334,8 +334,12 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if !handle.WaitForWindow(time.Second) {
 		return errors.New("native window is not controllable")
 	}
+	var windowNumber int64
+	if err := nativeOnMain(ctx, func(w *nativeWindow) { windowNumber = objc.Send[int64](w.window, sel("windowNumber")) }); err != nil {
+		return err
+	}
 	readFrame := func() (nativeObservedFrame, error) {
-		cmd := nativeTestCommand(ctx, os.Getenv("CODDY_NATIVE_WINDOW_PROBE"), fmt.Sprint(os.Getpid()))
+		cmd := nativeTestCommand(ctx, os.Getenv("CODDY_NATIVE_WINDOW_PROBE"), fmt.Sprint(os.Getpid()), fmt.Sprint(windowNumber))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return nativeObservedFrame{}, fmt.Errorf("observe native window: %w: %s", err, out)
@@ -404,11 +408,11 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		return fmt.Errorf("focused gesture precondition failed; native=%s", nativeWindowDiagnostics(ctx))
 	}
 	checkLayout := func(label string) error {
-		chrome, err := nativeObservedChrome(ctx)
+		report, err = page(label, 5*time.Second, nil)
 		if err != nil {
 			return err
 		}
-		report, err = page(label, 5*time.Second, nil)
+		chrome, err := nativeObservedChrome(ctx)
 		if err != nil {
 			return err
 		}
@@ -444,6 +448,73 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		fmt.Printf("%s: centres=%v menu icon gap=%.1f red margin=%.1f inset=%d bar=%.0f\n", label, centres, gap, chrome.LeftMargin, report.Frame.LeftInset, report.BarHeight)
 		return nil
 	}
+	checkLifecycle := func(label string, check func(string) error) error {
+		var keyLost, keyRegained bool
+		var other objc.ID
+		if err := nativeOnMain(ctx, func(w *nativeWindow) {
+			other = class("NSWindow").Send(sel("alloc")).Send(sel("initWithContentRect:styleMask:backing:defer:"), nsRect{Size: nsSize{Width: 200, Height: 200}}, nsWindowStyleMaskTitled, nsBackingStoreBuffered, false)
+			other.Send(sel("setReleasedWhenClosed:"), false)
+			other.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
+			keyLost = boolOf(other, "isKeyWindow") && !boolOf(w.window, "isKeyWindow")
+		}); err != nil {
+			return err
+		}
+		defer func() {
+			_ = nativeOnMain(ctx, func(w *nativeWindow) {
+				other.Send(sel("close"))
+				other.Send(sel("release"))
+				nsApp().Send(sel("setAppearance:"), objc.ID(0))
+			})
+		}()
+		if !keyLost {
+			return fmt.Errorf("%s: second test window did not take key status", label)
+		}
+		if err := check(label + " key lost"); err != nil {
+			return err
+		}
+		if err := nativeOnMain(ctx, func(w *nativeWindow) {
+			other.Send(sel("orderOut:"), objc.ID(0))
+			w.window.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
+			keyRegained = boolOf(w.window, "isKeyWindow") && !boolOf(other, "isKeyWindow")
+		}); err != nil {
+			return err
+		}
+		if !keyRegained {
+			return fmt.Errorf("%s: target window did not regain key status", label)
+		}
+		if err := check(label + " key regained"); err != nil {
+			return err
+		}
+		if _, err := observe(label+" miniaturise", handle.Minimise, func(f nativeObservedFrame) bool { return !f.OnScreen }); err != nil {
+			return err
+		}
+		if _, err := observe(label+" deminiaturise", handle.Activate, func(f nativeObservedFrame) bool { return f.OnScreen }); err != nil {
+			return err
+		}
+		if err := check(label + " deminiaturised"); err != nil {
+			return err
+		}
+		for _, name := range []string{"NSAppearanceNameAqua", "NSAppearanceNameDarkAqua", ""} {
+			var applied bool
+			if err := nativeOnMain(ctx, func(w *nativeWindow) {
+				var appearance objc.ID
+				if name != "" {
+					appearance = class("NSAppearance").Send(sel("appearanceNamed:"), nsString(name))
+				}
+				nsApp().Send(sel("setAppearance:"), appearance)
+				applied = (name == "" || appearance != 0) && nsApp().Send(sel("appearance")) == appearance
+			}); err != nil {
+				return err
+			}
+			if !applied {
+				return fmt.Errorf("%s: application appearance %q was not applied", label, name)
+			}
+			if err := check(label + " appearance " + name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	checkWidths := func(label string) error {
 		for _, width := range []int{1280, minWindowWidth} {
 			if err := nativeOnMain(ctx, func(w *nativeWindow) { f := w.frame(); f.W = width; w.setFrame(f) }); err != nil {
@@ -461,11 +532,19 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		}
 		return nil
 	}
+	if err := checkLifecycle("unified lifecycle", checkLayout); err != nil {
+		return err
+	}
 	if err := checkWidths("unified layout"); err != nil {
 		return err
 	}
 	if err := nativeOnMain(ctx, func(w *nativeWindow) {
-		w.setFrame(windowRect{X: initial.X, Y: initial.Y, W: initial.Width, H: initial.Height})
+		// The window keeps its place; only the width checkWidths took is given
+		// back. WindowServer's origin includes the menu bar, the desktop's
+		// coordinates start below it, so the observed X and Y are not reused.
+		f := w.frame()
+		f.W = initial.Width
+		w.setFrame(f)
 	}); err != nil {
 		return err
 	}
@@ -478,6 +557,15 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if err := checkLayout("gesture layout"); err != nil {
 		return err
 	}
+	if err := nativeOnMain(ctx, func(w *nativeWindow) {
+		focused = boolOf(w.window, "isKeyWindow") && boolOf(nsApp(), "isActive") && objc.Send[uint64](w.window, sel("occlusionState"))&2 != 0
+	}); err != nil {
+		return err
+	}
+	if !focused {
+		return fmt.Errorf("focused visible gesture precondition failed after lifecycle; page visibility=%s; native=%s", report.Visibility, nativeWindowDiagnostics(ctx))
+	}
+	fmt.Printf("before gestures: page visibility=%s native=%s\n", report.Visibility, nativeWindowDiagnostics(ctx))
 	// Drive focused AppKit events through WebKit and the real shell, without
 	// posting system-wide input or requiring Accessibility permission.
 	for _, gesture := range []struct {
@@ -499,7 +587,7 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		})
 		telemetry, telemetryErr := page("drag telemetry", time.Second, nil)
 		if err != nil {
-			return fmt.Errorf("%w; pointer events=%v; window actions=%v", err, telemetry.GestureEvents[eventOffset:], telemetry.WindowActions[actionOffset:])
+			return fmt.Errorf("%w; pointer events=%v; window actions=%v; native=%s", err, telemetry.GestureEvents[eventOffset:], telemetry.WindowActions[actionOffset:], nativeWindowDiagnostics(ctx))
 		}
 		if telemetryErr != nil {
 			return telemetryErr
@@ -551,6 +639,30 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 	if chrome.CollectionBehavior != chrome.OriginalCollectionBehavior {
 		return fmt.Errorf("framed collectionBehavior=%d, want original=%d", chrome.CollectionBehavior, chrome.OriginalCollectionBehavior)
 	}
+	checkFramed := func(label string) error {
+		// Wait for WebKit's report to yield to AppKit's pending layout.
+		if _, err := page(label, 5*time.Second, nil); err != nil {
+			return err
+		}
+		chrome, err := nativeObservedChrome(ctx)
+		if err != nil {
+			return err
+		}
+		if chrome.Visible != 3 || len(chrome.Buttons) != 3 || chrome.TitlebarHeight <= 0 {
+			return fmt.Errorf("%s: invalid framed chrome %+v", label, chrome)
+		}
+		for _, button := range chrome.Buttons {
+			centre := button.Y + button.Height/2
+			if math.Abs(centre-chrome.TitlebarHeight/2) > 1 {
+				return fmt.Errorf("%s: framed button centre=%.1f, standard titlebar centre=%.1f", label, centre, chrome.TitlebarHeight/2)
+			}
+		}
+		fmt.Printf("%s: standard titlebar centre=%.1f buttons=%+v\n", label, chrome.TitlebarHeight/2, chrome.Buttons)
+		return nil
+	}
+	if err := checkLifecycle("framed lifecycle", checkFramed); err != nil {
+		return err
+	}
 	undecorated, err := observe("undecorate", handle.Undecorate, func(f nativeObservedFrame) bool { return f.Height < framed.Height })
 	if err != nil {
 		return err
@@ -560,7 +672,12 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		return err
 	}
 	if err := nativeOnMain(ctx, func(w *nativeWindow) {
-		w.setFrame(windowRect{X: initial.X, Y: initial.Y, W: initial.Width, H: initial.Height})
+		// The window keeps its place; only the width checkWidths took is given
+		// back. WindowServer's origin includes the menu bar, the desktop's
+		// coordinates start below it, so the observed X and Y are not reused.
+		f := w.frame()
+		f.W = initial.Width
+		w.setFrame(f)
 	}); err != nil {
 		return err
 	}
@@ -716,7 +833,10 @@ int main(int argc, const char **argv) {
    double nextArea = [bounds[@"Width"] doubleValue] * [bounds[@"Height"] doubleValue];
    if (nextArea > area) { largest = report; area = nextArea; }
   }
-  if (!largest) return 1;
+  if (!largest) {
+   if (argc == 3) { printf("{\"OnScreen\":false}"); return 0; }
+   return 1;
+  }
   NSData *json = [NSJSONSerialization dataWithJSONObject:largest options:0 error:nil];
   fwrite(json.bytes, 1, json.length, stdout);
   return 0;
@@ -964,7 +1084,7 @@ func nativeContinuousDrag(ctx context.Context, x, y int) (err error) {
 
 type nativeChrome struct {
 	Visible                                        int
-	ZoomRight, LeftMargin                          float64
+	ZoomRight, LeftMargin, TitlebarHeight          float64
 	Buttons                                        []nativePageRect
 	CollectionBehavior, OriginalCollectionBehavior uint64
 }
@@ -977,7 +1097,9 @@ func nativeObservedChrome(ctx context.Context) (nativeChrome, error) {
 			CollectionBehavior:         objc.Send[uint64](w.window, sel("collectionBehavior")),
 			OriginalCollectionBehavior: w.originalCollectionBehavior,
 		}
-		top := objc.Send[nsRect](w.window, sel("frame")).Size.Height
+		frame := objc.Send[nsRect](w.window, sel("frame"))
+		top := frame.Size.Height
+		chrome.TitlebarHeight = top - objc.Send[nsRect](w.window, sel("contentRectForFrameRect:"), frame).Size.Height
 		for _, kind := range []int{0, 1, 2} {
 			button := w.window.Send(sel("standardWindowButton:"), kind)
 			if button == 0 {
@@ -1031,7 +1153,7 @@ func nativeWindowDiagnostics(ctx context.Context) string {
 	var state map[string]any
 	err := nativeOnMain(ctx, func(w *nativeWindow) {
 		screen := w.window.Send(sel("screen"))
-		state = map[string]any{"frame": objc.Send[nsRect](w.window, sel("frame")), "windowNumber": objc.Send[int64](w.window, sel("windowNumber")), "screenFrame": objc.Send[nsRect](screen, sel("frame")), "backingScaleFactor": objc.Send[float64](screen, sel("backingScaleFactor")), "appActive": boolOf(nsApp(), "isActive")}
+		state = map[string]any{"frame": objc.Send[nsRect](w.window, sel("frame")), "windowNumber": objc.Send[int64](w.window, sel("windowNumber")), "screenFrame": objc.Send[nsRect](screen, sel("frame")), "backingScaleFactor": objc.Send[float64](screen, sel("backingScaleFactor")), "appActive": boolOf(nsApp(), "isActive"), "firstResponder": goString(w.window.Send(sel("firstResponder")).Send(sel("className"))), "occlusionState": objc.Send[uint64](w.window, sel("occlusionState"))}
 		for _, name := range []string{"isKeyWindow", "isMainWindow", "isVisible", "isMiniaturized", "isZoomed"} {
 			state[name] = boolOf(w.window, name)
 		}

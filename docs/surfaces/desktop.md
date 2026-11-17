@@ -187,10 +187,9 @@ On native macOS the round red, yellow and green system buttons stay at the top l
 the menu icon, tab labels and `+`. The gap from green to the menu icon matches the left margin
 before red, measured from the system buttons at run time. With the strip as the title bar, green
 zooms or restores the window without entering full screen. A separate system frame restores
-macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window
-from the first press, including when another app has focus. AppKit draws the corners and handles
-resizing at the edges, so the strip draws no extra window buttons or resize areas. On X11 the
-strip draws minimise, maximise and close at the right edge, with rounded corners while the window floats and square corners while it fills the
+macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window.
+AppKit draws the corners and handles resizing at the edges, so the strip draws no extra window
+buttons or resize areas. On X11 the strip draws minimise, maximise and close at the right edge, with rounded corners while the window floats and square corners while it fills the
 screen.
 
 | Action | How |
