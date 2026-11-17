@@ -387,6 +387,137 @@ func TestDiscardAcceptsSlashPaths(t *testing.T) {
 	})
 }
 
+// Delete removes the named files without restoring HEAD: a file git does not
+// hold simply goes away, and a tracked file becomes the deletion git then
+// reports.
+func TestDeleteRemovesTheNamedFiles(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := commitRepo(t, map[string]string{
+			"keep.txt":   "same\n",
+			"edit.txt":   "old\n",
+			"staged.txt": "old staged\n",
+		})
+		writeFile(t, dir, "edit.txt", "new\n")
+		writeFile(t, dir, "staged.txt", "new staged\n")
+		mustGit(t, dir, "add", "staged.txt")
+		writeFile(t, dir, "fresh/deep/new.txt", "untracked\n")
+		writeFile(t, dir, "other.txt", "other\n")
+
+		if err := Delete(dir, []string{"edit.txt", "staged.txt", "fresh/deep/new.txt"}); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		mustNotExist(t, dir, "edit.txt")
+		mustNotExist(t, dir, "staged.txt")
+		mustNotExist(t, dir, "fresh/deep/new.txt")
+		// The folders that only held the deleted file go with it.
+		mustNotExist(t, dir, "fresh")
+		// The modified tracked file is not put back at HEAD: it is gone, and
+		// git reports it as a deletion.
+		changes, _, err := WorktreeChanges(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byStatus := make(map[string]string, len(changes))
+		for _, c := range changes {
+			byStatus[filepath.ToSlash(c.Path)] = c.Status
+		}
+		if byStatus["edit.txt"] != "deleted" {
+			t.Fatalf("edit.txt status = %q, want deleted (all: %v)", byStatus["edit.txt"], changes)
+		}
+		if byStatus["staged.txt"] != "deleted" {
+			t.Fatalf("staged.txt status = %q, want deleted (all: %v)", byStatus["staged.txt"], changes)
+		}
+		if _, ok := byStatus["fresh/deep/new.txt"]; ok {
+			t.Fatalf("the deleted untracked file is still reported: %v", changes)
+		}
+		// What was not named keeps its state.
+		if got := readFile(t, dir, "other.txt"); got != "other\n" {
+			t.Fatalf("other.txt = %q, it was not named and must stay", got)
+		}
+		if got := readFile(t, dir, "keep.txt"); got != "same\n" {
+			t.Fatalf("keep.txt = %q", got)
+		}
+	})
+}
+
+// Delete names the files it removes; an empty selection is refused rather
+// than read as "everything".
+func TestDeleteRequiresPaths(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := commitRepo(t, map[string]string{"a.txt": "old\n"})
+		writeFile(t, dir, "a.txt", "new\n")
+		writeFile(t, dir, "loose.txt", "x\n")
+
+		if err := Delete(dir, nil); err == nil {
+			t.Fatal("Delete(nil) must fail")
+		}
+		if err := Delete(dir, []string{}); err == nil {
+			t.Fatal("Delete([]) must fail")
+		}
+		if got := readFile(t, dir, "a.txt"); got != "new\n" {
+			t.Fatalf("a refused call touched a.txt: %q", got)
+		}
+		if got := readFile(t, dir, "loose.txt"); got != "x\n" {
+			t.Fatalf("a refused call touched loose.txt: %q", got)
+		}
+	})
+}
+
+// The same selection safety as a discard: one path outside the change set -
+// unchanged, ignored, outside the folder or missing - refuses the whole call
+// before a single file is deleted.
+func TestDeleteRefusesPathsOutsideTheChangeSet(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := commitRepo(t, map[string]string{
+			".gitignore": "*.log\n",
+			"keep.txt":   "same\n",
+			"edit.txt":   "old\n",
+		})
+		writeFile(t, dir, "edit.txt", "new\n")
+		writeFile(t, dir, "debug.log", "ignored\n")
+		outside := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-outside.txt")
+		if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(outside) })
+
+		for _, paths := range [][]string{
+			{"keep.txt"},
+			{"debug.log"},
+			{"../" + filepath.Base(outside)},
+			{"missing.txt"},
+			{""},
+			{"edit.txt", "keep.txt"},
+		} {
+			if err := Delete(dir, paths); !errors.Is(err, ErrNotChanged) {
+				t.Fatalf("Delete(%q) = %v, want ErrNotChanged", paths, err)
+			}
+		}
+		if got := readFile(t, dir, "edit.txt"); got != "new\n" {
+			t.Fatalf("a refused call touched edit.txt: %q", got)
+		}
+		if got := readFile(t, dir, "debug.log"); got != "ignored\n" {
+			t.Fatalf("a refused call touched debug.log: %q", got)
+		}
+		if b, err := os.ReadFile(outside); err != nil || string(b) != "outside\n" {
+			t.Fatalf("a refused call touched a file outside the folder: %q, %v", b, err)
+		}
+	})
+}
+
+func TestDeleteOutsideARepository(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "a.txt", "a\n")
+		if err := Delete(dir, []string{"a.txt"}); !errors.Is(err, ErrNotRepository) {
+			t.Fatalf("Delete in a plain folder = %v, want ErrNotRepository", err)
+		}
+		if got := readFile(t, dir, "a.txt"); got != "a\n" {
+			t.Fatalf("a plain folder was touched: %q", got)
+		}
+	})
+}
+
 // git treats a repository nested in the folder as one opaque entry: it is
 // never read file by file, and a discard leaves everything in it alone.
 func TestANestedRepositoryIsOneEntry(t *testing.T) {

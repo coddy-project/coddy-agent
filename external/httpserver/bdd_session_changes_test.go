@@ -8,6 +8,7 @@ package httpserver
 // the uncommitted changes.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,13 +32,26 @@ import (
 )
 
 type changedFileRow struct {
-	Path      string `json:"path"`
-	Status    string `json:"status"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
-	Binary    bool   `json:"binary"`
-	Patch     string `json:"patch"`
+	Path        string `json:"path"`
+	Status      string `json:"status"`
+	Additions   int    `json:"additions"`
+	Deletions   int    `json:"deletions"`
+	Binary      bool   `json:"binary"`
+	Digest      string `json:"digest"`
+	Image       bool   `json:"image"`
+	BeforeImage bool   `json:"beforeImage"`
+	AfterImage  bool   `json:"afterImage"`
+	BeforeSize  int    `json:"beforeSize"`
+	AfterSize   int    `json:"afterSize"`
+	Patch       string `json:"patch"`
 }
+
+// pngHead and pngWork are two image fixtures of different bytes and lengths,
+// so a byte-exact raw answer and an exact size are both observable.
+var (
+	pngHead = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 'h', 'e', 'a', 'd'}
+	pngWork = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 'w', 'o', 'r', 'k', '!'}
+)
 
 type sessionChangesState struct {
 	root      string
@@ -194,6 +208,22 @@ func (s *sessionChangesState) committed(name, content string) error {
 	return s.git("-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "add "+name)
 }
 
+// pngCommitted commits the image fixture as it is, bytes and all.
+func (s *sessionChangesState) pngCommitted(name string) error {
+	if err := os.WriteFile(filepath.Join(s.workspace, name), pngHead, 0o644); err != nil {
+		return err
+	}
+	if err := s.git("add", "--", name); err != nil {
+		return err
+	}
+	return s.git("-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "add "+name)
+}
+
+// pngRewritten puts the other image fixture over the committed one.
+func (s *sessionChangesState) pngRewritten(name string) error {
+	return os.WriteFile(filepath.Join(s.workspace, name), pngWork, 0o644)
+}
+
 // changedOnDisk edits a file the way an editor next to the agent would.
 func (s *sessionChangesState) changedOnDisk(name, content string) error {
 	return os.WriteFile(filepath.Join(s.workspace, name), []byte(gherkinText(content)), 0o644)
@@ -325,6 +355,27 @@ func (s *sessionChangesState) discard(body string) error {
 	return nil
 }
 
+// deleteChanges asks the server to remove the named files of the change set
+// from the working copy without restoring HEAD.
+func (s *sessionChangesState) deleteChanges(body string) error {
+	req, err := http.NewRequest(http.MethodPost,
+		s.ts.URL+"/coddy/sessions/"+s.sessionID+"/changes/delete", strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST delete returned %d", res.StatusCode)
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
+}
+
 func (s *sessionChangesState) noFilesChanged() error {
 	if len(s.files) != 0 {
 		return fmt.Errorf("want no changed files, got %d: %+v", len(s.files), s.files)
@@ -404,6 +455,61 @@ func (s *sessionChangesState) fileGone(name string) error {
 	return nil
 }
 
+func (s *sessionChangesState) reportedWithDigest(name string) error {
+	for _, f := range s.files {
+		if f.Path != name {
+			continue
+		}
+		if len(f.Digest) != 64 {
+			return fmt.Errorf("%s digest = %q, want a SHA-256 hex fingerprint", name, f.Digest)
+		}
+		return nil
+	}
+	return fmt.Errorf("%s is not in the change set: %+v", name, s.files)
+}
+
+func (s *sessionChangesState) reportedAsImage(name string) error {
+	for _, f := range s.files {
+		if f.Path != name {
+			continue
+		}
+		if !f.Image {
+			return fmt.Errorf("%s is not marked as an image: %+v", name, f)
+		}
+		if f.BeforeSize != len(pngHead) || f.AfterSize != len(pngWork) {
+			return fmt.Errorf("%s sizes = %d/%d, want %d/%d", name, f.BeforeSize, f.AfterSize, len(pngHead), len(pngWork))
+		}
+		return nil
+	}
+	return fmt.Errorf("%s is not in the change set: %+v", name, s.files)
+}
+
+func (s *sessionChangesState) rawSideServed(side, name, mime string) error {
+	res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sessionID + "/changes/file?path=" + name + "&side=" + side + "&raw=1")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET raw %s side of %s returned %d", side, name, res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != mime {
+		return fmt.Errorf("Content-Type = %q, want %q", ct, mime)
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	want := pngHead
+	if side == "after" {
+		want = pngWork
+	}
+	if !bytes.Equal(body, want) {
+		return fmt.Errorf("raw %s side of %s = %x, want %x", side, name, body, want)
+	}
+	return nil
+}
+
 func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	s := &sessionChangesState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -416,7 +522,9 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running coddy HTTP server whose workspace is a git repository$`, s.startGitServer)
 	sc.Step(`^the repository has "([^"]+)" committed as "([^"]*)"$`, s.committed)
+	sc.Step(`^the repository has "([^"]+)" committed as a PNG image$`, s.pngCommitted)
 	sc.Step(`^"([^"]+)" is changed on disk to "([^"]*)"$`, s.changedOnDisk)
+	sc.Step(`^"([^"]+)" is rewritten on disk with another PNG image$`, s.pngRewritten)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)
 	sc.Step(`^a client listening for server events$`, s.listenForServerEvents)
 	sc.Step(`^the client hears that the session's working copy changed$`, s.hearWorkingCopyMoved)
@@ -426,11 +534,17 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 		return s.discard(`{"paths":["` + name + `"]}`)
 	})
 	sc.Step(`^I discard every change$`, func() error { return s.discard(`{"all":true}`) })
+	sc.Step(`^I delete the changes of "([^"]+)"$`, func(name string) error {
+		return s.deleteChanges(`{"paths":["` + name + `"]}`)
+	})
 
 	sc.Step(`^git is named as the version control$`, s.gitIsNamed)
 	sc.Step(`^no files are reported as changed$`, s.noFilesChanged)
 	sc.Step(`^(\d+) files? (?:is|are) reported as changed with (\d+) additions? and (\d+) deletions?$`, s.countAndStats)
 	sc.Step(`^"([^"]+)" is reported as "([^"]+)"$`, s.reportedAs)
+	sc.Step(`^"([^"]+)" is reported with a content digest$`, s.reportedWithDigest)
+	sc.Step(`^"([^"]+)" is reported as an image with its raw sizes$`, s.reportedAsImage)
+	sc.Step(`^the raw "([^"]+)" side of "([^"]+)" is served as "([^"]+)"$`, s.rawSideServed)
 	sc.Step(`^the diff removes "([^"]+)" and adds "([^"]+)"$`, s.diffReplaces)
 	sc.Step(`^the diff removes "([^"]+)" before it adds "([^"]+)" and "([^"]+)"$`, s.diffRemovesFirst)
 	sc.Step(`^"([^"]+)" contains "([^"]*)"$`, s.fileContains)

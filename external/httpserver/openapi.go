@@ -24,7 +24,7 @@ func openAPISpec() map[string]interface{} {
 			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix; a provider row named **`coddy`** gives its rows **`owned_by`** **`coddy`** too, so tell a profile by its **`id`**). " +
 				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** runs one provider call with the client's messages and function tools; Coddy does not execute those tools. " +
 				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
-				"**`metadata.service_tier`** sets a persistent session choice from **`service_tier_choices`**; empty or null clears it. A running turn keeps its tier. Direct requests use top-level **`service_tier`**. **`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`**, or **`off`** where the model's provider can turn thinking off (null/empty clears). **`metadata.toolset`** (optional, agent/plan/ask only) picks a **`toolsets[]`** preset for the session, or **`default`** for every tool of the mode; a name the configuration does not have is **400**. Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`**, off included). " +
+				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`**, or **`off`** where the model's provider can turn thinking off (null/empty clears). **`metadata.toolset`** (optional, agent/plan/ask only) picks a **`toolsets[]`** preset for the session, or **`default`** for every tool of the mode; a name the configuration does not have is **400**. Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`**, off included). " +
 				"These values change the session only where they differ from it, quietly (no transcript notice); **`metadata.settingsVersion`**, the **version** of the last settings snapshot the client applied, makes the server ignore them when a newer snapshot has been published since (the model was switched from another surface). " +
 				"An **input** that starts with settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/toolset`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**, each with **`--once`** or **`--count=N`**) applies them first; when nothing else is left no turn runs and the answer is a one-line notice. " +
 				"Profile JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed profile turns over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
@@ -2394,7 +2394,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary": "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session, empty to go back to the configured agent model), **selectedServiceTier** (a value from the model’s **service_tier_choices**, empty to clear), **selectedReasoning** (reasoning level; one of the effective model's **`reasoning_levels`**, **`off`** where the provider can turn thinking off, empty to clear), **selectedToolset** (a **`toolsets[].name`** preset the session is offered its tools by, or **`default`** for every tool of the mode; kept in **`session.json`**), **mode** (**agent**, **plan**, **ask**), **permissionMode** (**ask**, **accept_edits**, **bypass**; persisted as **`session.json.sessionPermissionMode`**, so it survives a restart; a change for the session also becomes the mode new sessions start in), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session, empty to go back to the configured agent model), **selectedReasoning** (reasoning level; one of the effective model's **`reasoning_levels`**, **`off`** where the provider can turn thinking off, empty to clear), **selectedToolset** (a **`toolsets[].name`** preset the session is offered its tools by, or **`default`** for every tool of the mode; kept in **`session.json`**), **mode** (**agent**, **plan**, **ask**), **permissionMode** (**ask**, **accept_edits**, **bypass**; persisted as **`session.json.sessionPermissionMode`**, so it survives a restart; a change for the session also becomes the mode new sessions start in), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
 						"With **turns** > 0 the settings of the request change for that many turns instead of for the session (the **`--count=N`** of a command). Settings go through the same setter as every other surface: the answer carries the whole **settings** snapshot, and every client watching the session hears **event: session_settings**. " +
 						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
 						"**titleIfUnpinned** marks **title** as a suggestion rather than a rename: the describe call that names a new chat sends it, and the title is then stored only while the session has no pinned title of its own, so a name written during that first turn (in the chat header, or by the agent's **session_describe** tool) is not overwritten by an answer that was already in flight. The response reports the title the session kept. " +
@@ -2418,17 +2418,16 @@ func openAPISpec() map[string]interface{} {
 											"type":  "array",
 											"items": map[string]string{"type": "string"},
 										},
-										"archived":            map[string]string{"type": "boolean"},
-										"pinned":              map[string]string{"type": "boolean"},
-										"selectedModelId":     map[string]string{"type": "string"},
-										"selectedReasoning":   map[string]string{"type": "string"},
-										"selectedServiceTier": map[string]string{"type": "string", "description": "Session service tier from service_tier_choices. Empty clears the selection."},
-										"selectedToolset":     map[string]string{"type": "string"},
-										"mode":                map[string]interface{}{"type": "string", "enum": []string{"agent", "plan", "ask"}},
-										"permissionMode":      map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}},
-										"turns":               map[string]interface{}{"type": "integer", "minimum": 0, "maximum": session.MaxOverrideTurns},
-										"titleIfUnpinned":     map[string]string{"type": "boolean"},
-										"markActivityRead":    map[string]string{"type": "boolean"},
+										"archived":          map[string]string{"type": "boolean"},
+										"pinned":            map[string]string{"type": "boolean"},
+										"selectedModelId":   map[string]string{"type": "string"},
+										"selectedReasoning": map[string]string{"type": "string"},
+										"selectedToolset":   map[string]string{"type": "string"},
+										"mode":              map[string]interface{}{"type": "string", "enum": []string{"agent", "plan", "ask"}},
+										"permissionMode":    map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}},
+										"turns":             map[string]interface{}{"type": "integer", "minimum": 0, "maximum": session.MaxOverrideTurns},
+										"titleIfUnpinned":   map[string]string{"type": "boolean"},
+										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
 								},
 							},
@@ -2549,6 +2548,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "The working copy changes of the session's folder, as git reports them: every tracked file that differs from **`HEAD`** (staged or not) and every new file git does not ignore, whoever made the change - the agent, a shell command or an editor next to it. Nothing is recorded per turn. " +
 						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
 						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"Each row carries a **`digest`**, a SHA-256 fingerprint of its status and both raw sides, plus **`image`** (a raster image told by its bytes) broken down per side as **`beforeImage`** and **`afterImage`**, and **`beforeSize`** and **`afterSize`** - the exact byte lengths of the two sides - so a viewer can fingerprint, size and render the file without fetching its content. " +
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
 						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
 						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
@@ -2676,7 +2676,8 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Read one changed file of the session's folder",
 					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
-						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file.",
+						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file. " +
+						"With **`raw=1`** the route serves the exact bytes of one side instead of the JSON document: **`side`** picks **`before`** (default) or **`after`**, the Content-Type is the raster format the bytes carry (PNG, JPEG, GIF, WebP, BMP), a side the file does not have is **404**, and a side that is not a supported image is **400** - the raw form exists for images alone.",
 					"operationId": "coddySessionChangeFile",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2689,13 +2690,33 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Path relative to the session's folder, as listed by GET .../changes.",
 						},
+						map[string]interface{}{
+							"name": "side", "in": "query", "required": false,
+							"description": "Which side of the change raw=1 serves; ignored without raw=1.",
+							"schema": map[string]interface{}{
+								"type":    "string",
+								"enum":    []interface{}{"before", "after"},
+								"default": "before",
+							},
+						},
+						map[string]interface{}{
+							"name": "raw", "in": "query", "required": false,
+							"description": "Serve the raw bytes of one image side instead of the JSON document.",
+							"schema": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"1"},
+							},
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "One changed file",
+							"description": "One changed file, or its raw bytes when raw=1",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": sessionChangeFileSchema(),
+								},
+								"image/*": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
 								},
 							},
 						},
@@ -2746,6 +2767,63 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Changes discarded",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"at":        map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/changes/delete": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Delete files of the change set from the session's folder",
+					"description": "Removes the named files, as **GET .../changes** lists them, from the working copy without restoring **`HEAD`**: a file git does not hold (new, or only added to the index) goes away, and a tracked file becomes the deletion the next **GET .../changes** reports; a folder left empty by that goes with it. Files git ignores are never touched. " +
+						"The body is **`{\"paths\":[...]}`** with at least one path; an empty, malformed or ambiguous body (an empty or null list, an unknown key, anything after the object) is **400** and nothing is deleted. There is no **`all`**: removing everything the change set holds is a discard plus the tracked files, and nobody asks for that by accident the way an empty **`paths`** might slip through. " +
+						"A path git does not report any more (committed, or put back meanwhile) is **409** and nothing of the request is applied. A folder in no repository is **400**. " +
+						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the delete holds the session turn lock. " +
+						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session reads its working copy again.",
+					"operationId": "coddySessionChangesDelete",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"minItems":    1,
+											"description": "Files to delete, relative to the session's folder.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Files deleted",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2984,7 +3062,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **serviceTier**, **serviceTierChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. **event: session_goal** (**`{object:\"coddy.session_goal\", sessionId, goal, version, notice}`**, **goal** null once cleared) follows every change of a session's goal from any surface, in the shape of **GET /coddy/sessions/{id}/goal**. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder or **POST /coddy/sessions/{id}/changes/delete** deleted files of it, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. **event: session_goal** (**`{object:\"coddy.session_goal\", sessionId, goal, version, notice}`**, **goal** null once cleared) follows every change of a session's goal from any surface, in the shape of **GET /coddy/sessions/{id}/goal**. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),
@@ -4719,7 +4797,6 @@ func openAPISpec() map[string]interface{} {
 							"description": "The request parameter names the two endpoints accept on this row, in both dialects (OpenRouter's supported_parameters convention): what a client may send instead of learning it from a **400**. The structural fields every request carries (`model`, `messages`, `input`, `stream`) are left out, and `store` is unlisted because only `store: false` passes. " +
 								"A profile row (`agent`, `plan`, `ask`) takes `attachments`, `inline_files`, `metadata` and `stream_options`; a direct row takes `metadata`, `stream_options` and the generation parameters its provider type accepts - `max_tokens` and `max_completion_tokens` (chat dialect), `max_output_tokens` (Responses), `temperature`, `instructions`, `tools`, `tool_choice`, `top_p` (only behind a `type: openai` provider), `inline_files` (only on a multimodal row) and `reasoning_effort` plus `reasoning` (only when the row lists `reasoning_levels`) - minus temperature on `type: codex` models (their output caps are accepted but not enforced and are reported by `X-Coddy-Ignored-Params`), and everything on a model served by an `acp` agent, which refuses a direct completion wholesale.",
 						},
-						"service_tier_choices": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Session choices, including empty for provider default. Does not restrict direct service_tier strings."},
 						"reasoning_levels": map[string]interface{}{
 							"type":        "array",
 							"items":       map[string]string{"type": "string"},
@@ -4943,7 +5020,6 @@ func openAPISpec() map[string]interface{} {
 							"maximum":     2,
 							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles reject it.",
 						},
-						"service_tier": map[string]interface{}{"type": "string", "nullable": true, "description": "Direct OpenAI and Codex models only. Pass any string unchanged, including empty. Omitted or null sends no parameter. Profiles use metadata.service_tier."},
 						"reasoning_effort": map[string]interface{}{
 							"type":        "string",
 							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning level at all (a Claude model that thinks by default still thinks, at its own default effort), which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**), Anthropic `output_config.effort` for the Claude models with adaptive thinking, or Codex `reasoning.effort`. The agent/plan/ask profiles reject this field and take `metadata.reasoning` instead.",
@@ -4959,11 +5035,10 @@ func openAPISpec() map[string]interface{} {
 				"ChatCompletionResponse": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"service_tier": map[string]string{"type": "string", "description": "Actual tier reported by the provider. It can differ from the request. Omitted if unknown."},
-						"id":           map[string]string{"type": "string"},
-						"object":       map[string]string{"type": "string", "example": "chat.completion"},
-						"created":      map[string]string{"type": "integer", "format": "int64"},
-						"model":        map[string]string{"type": "string"},
+						"id":      map[string]string{"type": "string"},
+						"object":  map[string]string{"type": "string", "example": "chat.completion"},
+						"created": map[string]string{"type": "integer", "format": "int64"},
+						"model":   map[string]string{"type": "string"},
 						"usage": map[string]interface{}{
 							"type":        "object",
 							"description": "Provider-reported counters for this request; omitted when the provider returned no counts.",
@@ -5565,6 +5640,30 @@ func sessionChangeFileSchema() map[string]interface{} {
 			"truncated": map[string]string{
 				"type":        "boolean",
 				"description": "The patch was cut short at 256 KB; the line counts still cover the whole file.",
+			},
+			"digest": map[string]string{
+				"type":        "string",
+				"description": "SHA-256 fingerprint of the status and both raw sides, hex-encoded: identical content hashes the same on every read, and a rewrite that keeps the line counts still moves it.",
+			},
+			"image": map[string]string{
+				"type":        "boolean",
+				"description": "A side of the file is a raster image (PNG, JPEG, GIF, WebP or BMP, told by its bytes); see beforeImage / afterImage for which. Image sides can be fetched as exact bytes through GET .../changes/file with raw=1.",
+			},
+			"beforeImage": map[string]string{
+				"type":        "boolean",
+				"description": "The HEAD side is a raster image.",
+			},
+			"afterImage": map[string]string{
+				"type":        "boolean",
+				"description": "The working copy side is a raster image.",
+			},
+			"beforeSize": map[string]string{
+				"type":        "integer",
+				"description": "Exact length of the HEAD side in bytes, 0 when the file is new.",
+			},
+			"afterSize": map[string]string{
+				"type":        "integer",
+				"description": "Exact length of the working copy side in bytes, 0 when the file is gone.",
 			},
 			"patch": map[string]string{
 				"type":        "string",

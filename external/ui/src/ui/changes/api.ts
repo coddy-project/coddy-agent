@@ -107,3 +107,15 @@ export async function discardSessionChanges(
   });
   return res ? parseJson<{ sessionId: string }>(res) : offline();
 }
+
+export async function deleteSessionChanges(
+  sessionId: string,
+  path: string,
+): Promise<ChangesApiResult<{ sessionId: string }>> {
+  const res = await request(`${basePath(sessionId)}/delete`, {
+    method: "POST",
+    headers: { ...headers(sessionId), "Content-Type": "application/json" },
+    body: JSON.stringify({ paths: [path] }),
+  });
+  return res ? parseJson<{ sessionId: string }>(res) : offline();
+}
