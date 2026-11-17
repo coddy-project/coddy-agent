@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,6 +138,9 @@ func nativeWindowIntegration() error {
 	defer cancel()
 	handle := NewWindowHandle()
 	reports := make(chan nativePageReport, 64)
+	// Set once WebKit fetches the anchor's file: by then that click is a
+	// download of its own, which the next link can no longer cancel.
+	var anchorAsked atomic.Bool
 	// The driver asks for every page report: /report answers with the number
 	// of the next ask, and the page then sends the report for it. No fresh
 	// report waits on a page timer, which WebKit throttles while it considers
@@ -186,8 +190,12 @@ func nativeWindowIntegration() error {
 				_, _ = w.Write([]byte(strings.Replace(recorder.Body.String(), "</body>", nativePageProbe+"</body>", 1)))
 			})
 			mux.HandleFunc("/download-anchor", func(w http.ResponseWriter, _ *http.Request) {
+				anchorAsked.Store(true)
 				w.Header().Set("Content-Type", "text/plain")
 				_, _ = w.Write([]byte("anchor download"))
+			})
+			mux.HandleFunc("/download-anchor-asked", func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprint(w, anchorAsked.Load())
 			})
 			mux.HandleFunc("/attachment", func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "text/plain")
@@ -955,11 +963,20 @@ probeNotification({isTrusted:false});
 // The shell opens its first chat in a frame right after it loads. A download
 // started while that frame is still loading can be cancelled by it on a slow
 // runner, so the links are followed once the first frame has finished.
+// Both links navigate this document, and a second navigation cancels the
+// first while WebKit is still deciding it: on a busy runner the anchor's
+// download was lost. The attachment link is followed once the server has
+// been asked for the anchor's file.
 function startDownloads() {
- for (const [path, download] of [['/download-anchor','native-download.txt'],['/attachment',null]]) {
-  const a=document.createElement('a'); a.href=path; if(download) a.download=download;
-  document.body.appendChild(a); setTimeout(()=>a.click(),download ? 500 : 1000);
- }
+ const link=(path,download)=>{const a=document.createElement('a'); a.href=path; if(download) a.download=download; document.body.appendChild(a); return a};
+ const anchor=link('/download-anchor','native-download.txt'), attachment=link('/attachment');
+ setTimeout(()=>anchor.click(),500);
+ (async function followAttachment() {
+  for (;;) {
+   await new Promise(resolve=>setTimeout(resolve,100));
+   try { if (await (await fetch('/download-anchor-asked')).text()==='true') { attachment.click(); return; } } catch (error) {}
+  }
+ })();
 }
 (function waitForFirstFrame() {
  const frame=document.querySelector('iframe');
