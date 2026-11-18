@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -42,9 +43,14 @@ type Handler struct {
 	hc   *http.Client
 	log  *slog.Logger
 
-	mu        sync.Mutex
-	sender    acp.UpdateSender
-	sessions  map[string]*sessionState
+	mu       sync.Mutex
+	sender   acp.UpdateSender
+	sessions map[string]*sessionState
+	// closed holds the ids this client closed on the connection: the server
+	// keeps those sessions, so a prompt answering -32002 is how the closed
+	// session stays closed here until a load, a resume or a new turn of the
+	// operator's reopens it. Guarded by mu.
+	closed    map[string]bool
 	preferred string
 	// nextOrigin is the origin the next HandleSessionNew asks the server to
 	// record on a session it creates (SetNextSessionOrigin).
@@ -86,10 +92,12 @@ type sessionState struct {
 	// createOrigin is the origin the server is asked to record when the first
 	// prompt creates this session (X-Coddy-Session-Origin); empty for a
 	// session that exists on the server already.
-	createOrigin string
-	mode         string
-	modelID      string
-	reasoning    string
+	createOrigin       string
+	mode               string
+	modelID            string
+	reasoning          string
+	serviceTier        string
+	serviceTierChoices []string
 	// permissionMode mirrors the server session's permission mode, and
 	// settingsVersion the last settings snapshot adopted (settings.go).
 	permissionMode  string
@@ -135,12 +143,13 @@ type remoteTurn struct {
 }
 
 type remoteModel struct {
-	ID               string
-	OwnedBy          string
-	Multimodal       bool
-	ReasoningLevels  []string
-	ReasoningDefault string
-	Toolset          string
+	ID                 string
+	OwnedBy            string
+	Multimodal         bool
+	ServiceTierChoices []string
+	ReasoningLevels    []string
+	ReasoningDefault   string
+	Toolset            string
 }
 
 // NewHandler validates options and returns a disconnected handler; the first
@@ -252,6 +261,7 @@ func (h *Handler) HandleInitialize(_ context.Context, params acp.InitializeParam
 				List:   &acp.SessionListCapabilities{},
 				Delete: &acp.SessionDeleteCapabilities{},
 				Resume: &acp.SessionResumeCapabilities{},
+				Close:  &acp.SessionCloseCapabilities{},
 			},
 			PromptCapabilities: &acp.PromptCapabilities{EmbeddedContext: true},
 		},
@@ -260,7 +270,7 @@ func (h *Handler) HandleInitialize(_ context.Context, params acp.InitializeParam
 			Title:   acp.AgentTitle + " (remote)",
 			Version: version.Get(),
 		},
-		AuthMethods: []string{},
+		AuthMethods: []acp.AuthMethod{},
 	}, nil
 }
 
@@ -302,14 +312,20 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 			st.pendingReplay = msgs.Messages
 			st.pendingUILog = msgs.UILog
 			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
-			if msgs.SelectedModelID != "" {
-				st.modelID = msgs.SelectedModelID
-			}
-			st.reasoning = msgs.SelectedReasoning
-			if msgs.Mode != "" {
-				st.mode = msgs.Mode
+			if msgs.Settings == nil {
+				if msgs.SelectedModelID != "" {
+					st.modelID = msgs.SelectedModelID
+				}
+				st.reasoning = msgs.SelectedReasoning
+				st.serviceTier = msgs.SelectedServiceTier
+				if msgs.Mode != "" {
+					st.mode = msgs.Mode
+				}
 			}
 			h.mu.Unlock()
+			if msgs.Settings != nil {
+				h.mirrorSettings(id, *msgs.Settings)
+			}
 			if msgs.Goal != nil {
 				h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
 			}
@@ -325,6 +341,9 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	h.log.Info("remote session created", "id", id, "remote", h.opts.BaseURL)
+	// A session a close put away comes back when the operator opens it again
+	// under the same id.
+	h.reopenSession(id)
 	// A reopened session may have a background subagent already waiting.
 	h.offerDetachedPromptsFor(id)
 	return &acp.SessionNewResult{
@@ -382,6 +401,58 @@ func (h *Handler) HandleSessionDelete(ctx context.Context, params acp.SessionDel
 	return &acp.SessionDeleteResult{}, nil
 }
 
+// HandleSessionClose lets go of the local mirror of a remote session. The
+// server keeps the session and its bundle: closing is a statement about what
+// this client holds, not about what exists on the server, so the two halves are
+// the cancel the session would have got from session/cancel and the mirror this
+// process drops. The id is remembered, because the mirror is built on demand
+// and a prompt would otherwise start a fresh turn on a session the client just
+// put away; loading or resuming it clears that. Like the server's own close it
+// is idempotent, so a session this client never opened answers with the same
+// empty object.
+func (h *Handler) HandleSessionClose(ctx context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	id := strings.TrimSpace(params.SessionID)
+	if id == "" {
+		return nil, acp.InvalidParams("session/close: sessionId is required")
+	}
+	// The turn the server is running for this session is cancelled off the
+	// caller's goroutine, as session/cancel does, and tracked so a surface
+	// about to exit can wait for it.
+	h.cancelWG.Add(1)
+	go func() {
+		defer h.cancelWG.Done()
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := h.cancelSession(cctx, id); err != nil {
+			h.log.Debug("session/close cancel", "session", id, "error", err)
+		}
+	}()
+	h.mu.Lock()
+	delete(h.sessions, id)
+	if h.closed == nil {
+		h.closed = map[string]bool{}
+	}
+	h.closed[id] = true
+	h.mu.Unlock()
+	return &acp.SessionCloseResult{}, nil
+}
+
+// reopenSession marks a closed session live again, which a load, a resume or a
+// session/new of the same id does.
+func (h *Handler) reopenSession(id string) {
+	h.mu.Lock()
+	delete(h.closed, id)
+	h.mu.Unlock()
+}
+
+// closedSession reports whether this client closed session id and nothing has
+// reopened it since.
+func (h *Handler) closedSession(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.closed[id]
+}
+
 // openRemoteSession fetches a session's transcript and installs its settings on
 // the local mirror, which is everything a load and a resume share: the two
 // differ only in whether the transcript is then replayed to the client.
@@ -390,6 +461,8 @@ func (h *Handler) openRemoteSession(ctx context.Context, sessionID string) (*mes
 		return nil, nil, err
 	}
 	id := strings.TrimSpace(sessionID)
+	// Opening a session is what reopens it after a close.
+	h.reopenSession(id)
 	msgs, err := h.sessionMessages(ctx, id)
 	if err != nil {
 		return nil, nil, err
@@ -405,6 +478,7 @@ func (h *Handler) openRemoteSession(ctx context.Context, sessionID string) (*mes
 			st.modelID = msgs.SelectedModelID
 		}
 		st.reasoning = msgs.SelectedReasoning
+		st.serviceTier = msgs.SelectedServiceTier
 		if msgs.Mode != "" {
 			st.mode = msgs.Mode
 		}
@@ -539,6 +613,11 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 		}
 		h.mu.Lock()
 		st.modelID = params.Value
+		for _, model := range h.models {
+			if model.ID == params.Value && !hasReasoningLevel(model.ServiceTierChoices, st.serviceTier) {
+				st.serviceTier = ""
+			}
+		}
 		h.mu.Unlock()
 		// Persist for the remote UI too; a session that has not run yet does
 		// not exist server-side, so a 404 here is expected and harmless.
@@ -552,6 +631,26 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 			})
 		}
 		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
+	case "service_tier":
+		if err := h.ensureModels(ctx); err != nil {
+			return nil, err
+		}
+		snap, err := h.SessionSettings(params.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		value := llm.NormalizeServiceTier(params.Value)
+		if value != "" && !hasReasoningLevel(snap.ServiceTierChoices, value) {
+			return nil, acp.InvalidParams("unknown service tier: %q", value)
+		}
+		if _, err := h.ApplySessionSettings(ctx, params.SessionID, session.SettingsChange{ServiceTier: &value, Source: "remote"}); err != nil {
+			return nil, err
+		}
+		options := h.configOptions(st)
+		if sender := h.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.ConfigOptionUpdate{SessionUpdate: acp.UpdateTypeConfigOptionUpdate, ConfigOptions: options})
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: options}, nil
 	case "reasoning":
 		if err := h.ensureModels(ctx); err != nil {
 			return nil, err
@@ -826,6 +925,7 @@ func (h *Handler) modelConfigOptions(st *sessionState) []acp.ConfigOption {
 	current := st.modelID
 	reasoning := st.reasoning
 	choices, choicesModel := st.reasoningChoices, st.choicesModel
+	tier, tiers := st.serviceTier, st.serviceTierChoices
 	models := h.models
 	if current == "" {
 		current = h.defModel
@@ -863,6 +963,20 @@ func (h *Handler) modelConfigOptions(st *sessionState) []acp.ConfigOption {
 		CurrentValue: current,
 		Options:      values,
 	})
+	for _, model := range models {
+		if model.ID != current {
+			continue
+		}
+		if choicesModel != current {
+			tiers = model.ServiceTierChoices
+		}
+		if len(tiers) > 0 {
+			if !hasReasoningLevel(tiers, tier) {
+				tier = ""
+			}
+			out = append(out, session.ServiceTierOption(tier, tiers))
+		}
+	}
 	for _, model := range models {
 		levels := model.ReasoningLevels
 		if choicesModel == model.ID && len(choices) > 0 {

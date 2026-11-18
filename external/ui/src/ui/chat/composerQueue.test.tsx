@@ -197,3 +197,38 @@ test("a queued message with images shows a paperclip and their count, not the im
     "After turn",
   );
 });
+
+// While a tip is up, .composer-panel draws the shadow - so the queue and the
+// banners must stay outside it, or they would be covered by it.
+test("the queue and the banners stay outside the composer's shadow panel", () => {
+  renderGenerating({
+    value: "",
+    queued: [{ id: "q_1", text: "first correction" }],
+  });
+
+  const panel = screen.getByTestId("composer-panel");
+  expect(panel.querySelector(".composer-card")).not.toBeNull();
+  expect(panel.querySelector("[data-testid='composer-queue']")).toBeNull();
+  expect(screen.getByTestId("composer-queue")).toBeInTheDocument();
+});
+
+test("the edit banner stays outside the composer's shadow panel", () => {
+  render(
+    <Composer
+      value="draft"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      editingMessage={{ snippet: "the old text", onCancel: () => {} }}
+    />,
+  );
+
+  const panel = screen.getByTestId("composer-panel");
+  expect(
+    panel.querySelector("[data-testid='composer-edit-banner']"),
+  ).toBeNull();
+  expect(screen.getByTestId("composer-edit-banner")).toBeInTheDocument();
+});

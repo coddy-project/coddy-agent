@@ -334,7 +334,8 @@ func (p *opencodeResponsesProvider) Stream(ctx context.Context, messages []Messa
 	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](newCodexEventDecoder(raw), reqErr)
 	defer func() { _ = stream.Close() }()
 
-	return consumeResponsesStream(stream, onChunk, "opencode", p.encodeReasoningItems)
+	response, streamErr := consumeResponsesStream(stream, onChunk, "opencode", p.encodeReasoningItems)
+	return response, withToolSchemaRequest(streamErr, params, false)
 }
 
 // opencodeReasoningEffort maps a coddy reasoning level onto one the gateway

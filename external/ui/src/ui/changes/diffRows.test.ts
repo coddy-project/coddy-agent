@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { parseDiffPatch } from "../messages/parseDiff";
 import { lineNumberDigits, toSplitRows, toUnifiedRows } from "./diffRows";
+import { expandDiffContext } from "./contextExpansion";
 
 function hunksOf(patch: string) {
   return parseDiffPatch(patch, "f.txt").hunks;
@@ -45,6 +46,27 @@ describe("toUnifiedRows", () => {
     expect(rows[0]!.kind).toBe("line");
     expect(rows[rows.length - 1]!.kind).toBe("line");
     expect(rows[2]!.kind).toBe("gap");
+  });
+
+  test("drops the separator when expansion makes two hunks contiguous", () => {
+    const before = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
+    const after = before
+      .replace("line 5", "five")
+      .replace("line 45", "forty-five");
+    const expanded = expandDiffContext(
+      "@@ -5 +5 @@\n-line 5\n+five\n@@ -45 +45 @@\n-line 45\n+forty-five",
+      before,
+      after,
+      { gaps: {}, all: true },
+    );
+    expect(
+      toUnifiedRows(expanded.hunks).some((row) => row.kind === "gap"),
+    ).toBe(false);
+    expect(toSplitRows(expanded.hunks).some((row) => row.kind === "gap")).toBe(
+      false,
+    );
   });
 });
 

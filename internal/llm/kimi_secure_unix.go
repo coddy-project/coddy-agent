@@ -1,4 +1,4 @@
-//go:build linux || android || darwin
+//go:build linux || android || darwin || freebsd
 
 package llm
 

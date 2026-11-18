@@ -142,9 +142,10 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 *A provider's form ends with what the provider advertises: a plus files an id under Logical models, a check marks one already there and takes it out again, an amber id is one the provider no longer advertises.*
 
 - A provider's form (**Settings → LLM providers → row**) is three blocks: **Provider settings** (id, type, endpoint, key, sign-in, the usage switch), **Advanced settings** (the credential command, the proxy, the request timeout), folded until its chevron is clicked, and **Models**.
+- Renaming a provider id rewrites its logical model ids and updates `agent.model`, `memory.model`, `compaction.model`, `supervisor.model` and both fallback chains. Renaming a logical model id updates the same references. Deleting a provider removes its logical models, clears selectors that referenced them and drops their ids from `memory.fallback_models` and `compaction.fallback_models`. Models and references of other providers stay unchanged.
 - **Models** lists what the provider advertises, fetched through **`POST /coddy/providers/models`** with the row exactly as the form holds it, so an unsaved row, a sign-in that exists only on disk and a provider the document does not have yet all list their models the way a saved row does (issue #335). The list is fetched when the form opens and again when the row becomes another provider, once its id or type has stopped changing; an edit to the endpoint, the key or the proxy waits for the refresh icon beside the **Models** title, which fetches at once with the row as it now stands. An automatic fetch never sends the credential command, so a command is not run half-typed: the refresh icon is the only fetch that runs it.
 - Each row is the model id, its context window right of it (**`131k`**, the exact count in its tooltip), and a toggle. The window is the one the provider reports; for a model it reports no window for, it is the one Coddy's models catalog (below) has for the id. A plus adds **`provider/id`** to **Logical models** in the same unsaved document and writes that window into the new model's **Context window**; when the catalog has the same window for the id, its number for **Max tokens** comes with it, and **Multimodal** switched on for a model that reads images. A check says the model is there, and clicking it takes the model out again. Nothing reaches `config.yaml` until **Save all**. An id Logical models lists under this provider that the provider no longer advertises shows in amber, checked, the reason in its tooltip. A line under the title appears only when there is nothing to list: while fetching, on an error, for an empty answer, or for a row without an id and a type. Past eight models a filter field narrows the list.
-- The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, each with a context window, a max tokens to start from and whether it reads images. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads it for a model the provider reports no window for or the same window as the catalog, as Anthropic's listing does, and takes both numbers or neither, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
+- The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, with its available context window, starting max tokens, and known image input and output modalities. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads the modality metadata independently of the window. It takes the context and max-token numbers together only when the provider reports no window or the same window as the catalog, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
 - The open row is part of the address: **`#/settings/providers?id=demo`**, **`#/settings/models?id=demo%2Fqwen3.8-27b`**. Opening a row writes it, going back removes it, renaming the row rewrites it, and editing the address opens the row it names. The search adds `&field=<anchor>` for the setting it took you to ([Settings: search](#settings-search)). An address naming a row that does not exist shows the list and drops the name. While a row is open, the drawer's head reads **Provider settings** (or **Model settings**) behind a back arrow that returns to the list, on a desktop and on a phone alike.
 - **Settings → Logical models → row** is four blocks: **Model** (the provider, the model id, the context window, multimodal input), **Generation** (max tokens, temperature, streamed responses), **Reasoning** (the levels and the default) and **Tools** (the toolset a session on this model is offered its tools by). **Provider** is a combobox over the document's `providers[].name` rows (a name not listed yet can still be typed) and **Model id** a plain field; the two compose into `provider/id` on the first slash. Picking an id out of what the provider advertises happens in the provider's own form.
 - **Context window (tokens)** asks the provider too. Left at 0, the model measures against the window the provider's listing reports (else 128000), so the field shows that number as its placeholder, for example **`131072, reported by demo`**, and writes nothing. The refresh icon beside it asks again and writes the number into `max_context_tokens`, which pins it; a note under the field says when the provider reports no window for the id or the request failed.
@@ -160,13 +161,13 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 *A toolset: the allowlist of the tools a small local model needs, and a denylist applied after it.*
 
-- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`); for the others it would change nothing.
+- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`, `openai`); for the others it would change nothing.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
-- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the four blocks of the logical-model form, its toolset and the Toolsets tab in English and in Russian, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
+- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`**, **`SettingsSection.providers.test.tsx`** and **`applyProvidersChange.test.ts`** (the form blocks, provider and model cascades through every selector and fallback chain, the Toolsets tab, the reported window and the usage switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance**, **Sessions** and **System** (a read-only page, see [System](#system-settings-tab)); where the models come from (**LLM providers**, **Logical models**, **Toolsets**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Metrics**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last. **Metrics** (the Prometheus exporter) is offered only by a binary built with the `metrics` tag; any other binary leaves the tab out, and a save from its form keeps the `metrics` section in `config.yaml` as it was.
+- The tabs read in groups: **Appearance**, **Sessions** and **System** (a read-only page, see [System](#system-settings-tab)); where the models come from (**LLM providers**, **Logical models**, **Toolsets**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Metrics**, **Browser**, **Authentication**, **Prompts**). **Authentication** manages the web sign-in account and the second step ([Settings: Authentication](#settings-authentication)). **Prompts** holds the prompt templates and the instruction files and is always last. **Metrics** (the Prometheus exporter) is offered only by a binary built with the `metrics` tag; any other binary leaves the tab out, and a save from its form keeps the `metrics` section in `config.yaml` as it was.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
 - A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
@@ -238,6 +239,32 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 ## Settings: boolean switch fields
 
+**ReAct loop → Prompt suggestions** controls the dim next-prompt hint in an empty composer.
+It is enabled by default. After a turn, Coddy repeats that turn's own request: the
+main system prompt, the complete history with tool calls and results, the tool
+definitions and the same model and reasoning level, with the suggestion instruction
+appended as a request-only user message. A provider that caches prompts therefore
+reads the history back from its cache instead of paying for it again. Tools
+are never executed and nothing enters the transcript. Two turns get no suggestion
+at all: one that ended while this tab was hidden, since its composer shows the
+hint to nobody, and one the provider did not serve from its cache, since the side
+call would then read the whole history at the input price. **Tab** or **Right** copies
+the suggestion into the draft. The suggestion stays as the placeholder while
+you edit. Clearing the draft shows the same suggestion again, including after accepting
+and editing it. Sending a message, starting another turn or switching context retires it.
+Set `agent.prompt_suggestions: false`
+in `config.yaml`, or turn the switch off and save, to stop generating suggestions in both
+the web UI and consoles connected to this server, including `--remote` clients.
+The change applies without restarting Coddy.
+
+![The same suggestion after editing and clearing the draft](../assets/web-ui/prompt-suggestion-restored-dark-1280.png)
+
+*The same suggestion after editing and clearing the draft, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestion-restored-dark-390.png).*
+
+![Prompt suggestions enabled in ReAct loop settings](../assets/web-ui/prompt-suggestions-on-dark-1280.png)
+
+*Prompt suggestions enabled by default in ReAct loop settings, dark theme, 1280px. [Narrow view at 390px](../assets/web-ui/prompt-suggestions-on-dark-390.png).*
+
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control and a label cell on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, the **Gateways → Telegram** flags) and the **Skills → Skill auto-discovery** row.
 - The label sits level with the switch (vertical centres match within 1px, 8px gap), and the field's description is the (i) right after the label, as on every other field.
 - The label is a real **`<label for>`**: clicking the text toggles the switch; clicking the (i) only opens the description. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
@@ -256,6 +283,26 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 - The event also reads again the copy of the configuration the **Settings** drawer keeps (see [Settings: opening and saving](#settings-opening-and-saving)). An open form takes it only while it holds no edits of its own: refetching under unsaved edits would discard work, so those stay, and the **Reload** control in the form is the deliberate way to drop them.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+## Settings: Authentication
+
+The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config section) manages the web sign-in account in one place - the same account `coddy serve set-password` writes on the server, and nothing here needs the bearer token. Every control applies to the settings document except the enrollment calls, which write `config.yaml` on the server at once.
+
+- **Account.** The **Enabled** switch, **Login**, write-only **Password** and **Session duration (hours)** stand in one column. An empty password keeps the stored hash; typing replaces it. The field placeholders name `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, and the Account hint explains that environment credentials take precedence. The session duration defaults to 24 hours; zero uses a browser-session cookie and hides **Keep me signed in**. The server still expires such a session after 30 days.
+- **Two-step verification.** A **Require one-time code** switch starts enrollment: **`POST /coddy/auth/totp/setup`** answers a fresh 160-bit secret, its canonical `otpauth://` URI and a QR picture (`data:image/png;base64,…`). The QR stands above the fields at every width and keeps its space during a refresh. The secret may be pasted in Base32 or Base16 (an ambiguous string reads as Base32), and the QR always carries the canonical Base32 form. The eye, **Copy secret key** and **Refresh secret key** controls sit inside the secret input. A bar and a fixed-width seconds counter stand beside **App code**; typing the six-digit code and pressing **Submit** sends **`POST /coddy/auth/totp/enable`**, which writes `totp_secret` and a first set of backup codes into `config.yaml` and answers the codes once. Enrollment needs the session cookie of the same origin, so a bearer token or another site cannot drive it.
+- **Backup codes.** A separate **Backup codes** fieldset shows the number left unused and, once after issue, the codes with a reminder to save them. **Copy** and **Download** (`coddy-backup-codes.txt`) are offered while the codes are on screen; the server keeps SHA-256 hashes, so a later visit cannot show them again. **Generate new codes** asks for confirmation, then calls `POST /coddy/auth/backup-codes/regenerate` and invalidates the old set. **Edit secret** reopens enrollment, and **Remove TOTP** asks for confirmation before clearing the secret and codes. The config document reports `totp_configured`, `backup_codes_configured`, `backup_codes_count` and `backup_codes_generation`; a stored set whose generation no longer matches is not shown.
+
+![Authentication enrollment with QR code and secret fields](../assets/web-ui/authentication-enrollment-dark-1280.png)
+
+*Enrollment in Settings → Authentication.*
+
+![Backup codes in a separate settings fieldset on desktop](../assets/web-ui/authentication-backup-codes-dark-1280.png)
+
+![Backup codes in a separate settings fieldset on a phone](../assets/web-ui/authentication-backup-codes-dark-390.png)
+
+*One-time backup codes in their own fieldset at 1280 and 390 px.*
+
+Sign-in itself is described under [Sign-in](#sign-in-httpserverlogin); the API is under [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional) and [One-time codes](../operate/remote.md#one-time-codes).
+
 ## Sign-in (`httpserver.login`)
 
 Off unless the server has an account, and a server without one renders exactly as it always did.
@@ -267,6 +314,7 @@ Off unless the server has an account, and a server without one renders exactly a
 - **What decides:** **`AuthGate`** (**`external/ui/src/ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) calls **`GET /coddy/auth/me`** once on boot. **`login_required`** without **`authenticated`** renders **`SignInScreen`** instead of the app; anything else renders the app. While the answer is outstanding it renders a bare **`.auth-boot`** ground rather than the app, so the transcript is never shown and then yanked away.
 - **A server that cannot answer** - a network error, or a **404** from a `coddy serve` built before this existed - is read as "no sign-in here", so an older server keeps working with a newer page.
 - **The screen** (**`SignInScreen.tsx`**, **`.auth-screen`** / **`.auth-shell`** / **`.auth-card`**) is the whole page, not a dialog over a blurred transcript: there is nothing behind it to look at. The wordmark sits above the card, centred and outside it; the card holds the title, user, password, one error line (**`role="alert"`**), and a submit button disabled until both fields are filled, with no explanatory line under the title. Every string is a dictionary key (**`auth.signIn.*`**), and the card uses theme tokens only, so all eight themes and both languages carry it.
+- **The second step.** When the account asks for a one-time code, a correct password answers **`{second_factor, challenge}`** and the card turns into **Two-step verification** (**Step 2 of 2**): one code field, a countdown of the current authenticator period, **Verify and sign in**, and **Use a backup code** / **Use an authenticator code** to switch the field between the 6-digit code and a backup code. **Keep me signed in** on the password step requests the persistent cookie for the configured duration; leaving it unchecked uses a browser-session cookie. A zero duration hides the checkbox. **Back to login** drops the challenge. The verify call is the one that creates the session. Every completed verify attempt consumes the challenge, so a refused code returns the reader to the password step; a network error before an answer keeps it for an intentional retry.
 - **The wordmark** is the rectangular logo (**`src/assets/coddy-logo-wordmark.svg`**, and **`-light.svg`** on the light theme), inlined into the bundle rather than fetched, so the screen paints in one request. Its alt text is localized (**`auth.signIn.logoAlt`**).
 - **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
 - **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/coddy/*`** call (the **`/coddy/auth/*`** routes excepted) and the gate re-reads the state.
@@ -372,7 +420,7 @@ Desktop layout
 
 - **Brand** is **typography only** (**Coddy** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
-- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**), and so does **New Chat** (**`data-testid="nav-new-chat"`**): a plus under the brand in the narrow rail, a plus after it in the top bar and a labelled row above **History** in the wide rail.
+- Left rail opens **chat history** from **History** under the brand. The **Coddy** menu opens [Statistics](../features/statistics.md); **New Chat** (**`data-testid="nav-new-chat"`**) starts a chat: a plus under the brand in the narrow rail, after it in the top bar and a labelled row above **History** in the wide rail.
 - **Brand**, **History**, **Scheduler** (when linked), **Settings**, and each row in the **History** list use real fragment **`href`** values (**`#/`**, **`#/history`**, **`#/scheduler`**, **`#/scheduler/new`** (new job editor), **`#/settings`**, **`#/s/<sessionId>`**) so **middle-click** or **Ctrl/Cmd-click** opens a **new browser tab** on the same origin while another tab can keep streaming.
 - Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**. On the stacked shell the panel keeps the same band as the Scheduler's and Settings' drawers: 10 px from the sides, under the top strip, and 14 px from the foot or the screen's own bottom inset where there is one. The close control in its head and Escape are the ways back to the conversation.
 - Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
@@ -580,7 +628,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *A refresh that failed keeps the cached list under a warning*
 
-- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
+- **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled. With the checkbox enabled, every turn carries **`metadata.worktree: true`**, which adds a turn-only system instruction to work in a dedicated worktree on a separate feature branch and not to create or switch branches in the main checkout. Without the checkbox that instruction is absent, so branch work in the main checkout remains allowed.
 - **History folder grouping** uses the main checkout path returned as `repoRoot` on each git session row. A conversation in `main` and conversations in its worktrees appear under one project heading, while each session keeps its own cwd. See [Git worktrees](../features/worktrees.md).
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
@@ -845,7 +893,7 @@ Select text anywhere in the transcript - an answer, a prompt, a tool card - and 
 
 Context ring and breakdown popover
 
-- **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
+- **Hover** on **`.composer-context-tip-host`** shows the percentage and tokens in the current window, followed by its maximum. When the server reports neither a breakdown nor a percentage, the tooltip says the context usage is unavailable; it never substitutes cumulative session tokens.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet as the slash / **`@`** pickers, over a dimming scrim of its own (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**; the pickers' backdrop is transparent). **Escape** or **Close** dismisses; hover tooltip returns when closed.
 - Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
@@ -900,6 +948,18 @@ Functional regression checklist:
 | Press Stop again before the accepted batch is read | Full cancellation wins, and the unread accepted batch is retained without automatic continuation. |
 | Press Stop during a saved-plan run, direct completion, permission resume or supervisor command | The server uses full cancellation; it does not acknowledge a queue continuation. |
 
+## Generating images in chat
+
+![Native image generation from opt-in to chat](../assets/diagrams/chat-image-generation.png)
+
+![A generated image in a chat with the Images toggle enabled](../assets/web-ui/chat-image-generation-dark-1280.png)
+
+*An image in a chat with the Images toggle enabled*
+
+For a model that supports native image output, enable **Image generation** on its row in **Settings → Logical models** and save. This sets `models[].image_generation`; it is off by default and is independent of `multimodal`, which controls image input. A selected logical model without it gets an **Images** CTA in the composer, which opens that model's row in Settings. With the flag on, the composer offers an **Images** toggle, initially off. Turn it on and ask for an image. It stays on for subsequent sends in that chat until switched off; changing the chat or model clears it. Each enabled send carries `metadata.image_generation`. Image-enabled messages cannot be queued while a turn is running; the draft stays in the composer. After a reload, Retry is unavailable when the original image choice is unknown and the selected model supports image generation.
+
+The chat path supports `openai` API-key and `codex` providers when the model is explicitly enabled and the provider supports the Responses image generation tool. Codex has been tested against a fake backend; live account entitlement has not been verified. Coddy refuses image generation on direct model requests. Coddy sends the native tool with the conversation and saves returned images as session assets on the assistant message. Images appear in the answer and remain available after reloading the chat. Provider support and account access are required; enabling the setting alone does not guarantee an image. A generated assistant image is not automatically included as visual context in later prompts. To ask for an edit, download the image and reattach it as input with a multimodal model.
+
 ## Composer file attachments (multimodal)
 
 ![A sent image restored as a thumbnail from the session bundle](../assets/composer-attachment-thumbnail-dark-1280.png)
@@ -915,7 +975,7 @@ Functional regression checklist:
   - In the composer the card's **remove** control (**`composer.removeAttachment`**) sits in its top-right corner and fades in on hover; it stays in the tab order and is visible on **`:focus-visible`**, and removing never opens the viewer. The picture the viewer opens is the local object URL - the file itself, at full size. The **pencil** in the top-left corner (**`composer.markupAttachment`**) opens the picture in the markup editor; Done replaces the attachment with the marked-up PNG, Cancel leaves it as it was.
   - The **sent user bubble** first renders an optimistic **`previewUrl`** blob in the card, then replaces it with the backend **`files[].preview_url`** after persistence; the blob URL is revoked at that point. What the card opens is **`files[].url`**, the original bytes from the session bundle; a message sent before that field existed opens its **`preview_url`** instead of losing the click. Reloading the dialog restores both through **`GET /coddy/sessions/{id}/messages`**.
 - **Attachment-only send** is valid while the selected model is multimodal: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`. If the user switches to a non-multimodal model, existing chips remain visible with **`.composer-attachment-chip--disabled`**, attachment-only Send becomes disabled, and a text send omits and retains those files.
-- The HTTP handler independently filters **`inline_files`** against the effective YAML model. This keeps a custom or stale client from forwarding or persisting files when **`multimodal`** is false.
+- The HTTP handler independently refuses a non-empty **`inline_files`** with **400** and **`error.param`** **`inline_files`** when the effective YAML model has **`multimodal`** false, before the provider or session assets are touched. This keeps a custom or stale client from silently losing the files.
 - Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon (or thumbnail for images). Each file is copied into memory as it is attached (**`chat/attachmentCopy.ts`**): a dropped or pasted file can be only a path on disk, and a screenshot tool such as Spectacle deletes its temporary file at the next capture, which used to leave the earlier picture impossible to show or send. A file that cannot be read is taken off with a hint naming it, and the others stay.
 - On send, **`App.tsx`** reads each file as a data URL via **`FileReader`** and includes **`inline_files: [{name, data_url}]`** in the **`POST /v1/responses`** body.
 - **Agent / plan / ask turns**: when the effective model is multimodal, the server writes each file to **`~/.coddy/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<coddy_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. A text file also goes to the model written out, up to its first 64 KB; a file that is neither a picture nor text (a PDF, an archive) is only named, never written out as text. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
@@ -1363,18 +1423,19 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **files**, its **background
-tasks** and its **edits**. Files and background tasks are a row of buttons at the top
-of the chat: **Files**, and **Tasks** at the right edge. They are icons at every
-width, as a phone always showed them: Files is its icon alone, in a square the size of
-the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
+A chat has four views beside the conversation: its **files**, its **terminal**, its
+**background tasks** and its **edits**. Files, Terminal and Tasks are a row of buttons
+at the top of the chat, with Tasks at the right edge. They are icons at every
+width, as a phone always showed them: Files and Terminal are their icons alone, each in
+a square the size of the top bar's buttons. Tasks is a dot in the same square until the chat has tasks; then
 the button widens and shows how many run out of how many there are next to the dot,
 which is lit while work is in flight. Every button has
 its full name in a tooltip, the Files one with its key. A
 button opens its view, and pressed again puts it away; the button of the view on show brightens, its
 text, border and ground, the way a pointed-at one does, and the accent is kept for
-tasks that run. The background tasks open in the dock beside the chat, the files in a window
-over the chat. The edits have no button in the header: git's count on [the plate over
+tasks that run. The background tasks open in the dock beside the chat, the files in a
+window over the chat, and the terminal in a window of its own that stands over both.
+The edits have no button in the header: git's count on [the plate over
 the composer](#the-plate-over-the-composer) opens them. Each icon beside a word (the
 Tasks dot, the repository and the branch on the plate) sits on
 the middle of its lowercase letters, not of the capitals: the words are mostly
@@ -1387,6 +1448,42 @@ lowercase, and centred on the line the icon reads a pixel high.
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
+
+## Terminal window
+
+The **Terminal** icon in the chat header opens a shell in a window of its own, over
+the conversation. It is not a view of the dock: opening the files or the background
+tasks does not close it, Escape does not take it away, and nothing dims the chat
+behind it, so a command can be watched while the conversation goes on.
+
+On a desktop it is a **small window you move and resize**. Drag its head to move it,
+any of its eight edges and corners to resize it, and use **Maximize** in the head (or
+a double click on the head) to send it to the edges of the browser window and back.
+Where it stood and whether it was maximized are remembered in this browser, and a
+window remembered from a larger screen opens inside a smaller one instead of off it.
+On a tablet or a phone it is **the whole screen**: there is no room for a window to be
+dragged around, so the head carries no Maximize.
+
+The shell starts in that chat's workspace and belongs to the chat: closing the window
+and opening it again keeps `cd`, environment changes and the output already printed.
+Enter runs a command from the prompt, with no separate Run button; a command is one
+line. Up and Down walk the last 100 commands of this chat, kept in this browser across
+closing and reopening the window, and the shell's own history is on as well, so
+`history` lists what was typed here. **Restart** stops that shell and starts a clean
+one.
+
+It works the same on Linux, macOS and Windows, where the shell is PowerShell or
+`cmd.exe` and its output is read in the console code page, so text that is not ASCII
+arrives as text rather than as mojibake. PowerShell prints its own prompt before each
+command it reads, so there the transcript is the shell's rather than Coddy's. What it is **not** is a terminal device: a
+program that draws a screen (an editor, `top`) has nothing to draw on, and what a
+command prints is shown as text with its colour codes stripped. The last 512 KiB of
+output is kept.
+
+A shell that ends stays on screen with the reason it stopped, and the next command you
+run starts a fresh one. The server stops every shell when its HTTP surface shuts down,
+and a sweep of its own stops one that nobody has read or written for 30 minutes, so a
+chat whose terminal was opened once does not keep a process for the life of the server.
 
 ## Canvas
 
@@ -1592,25 +1689,54 @@ it was under the window.
 On the left the tree lists the changed files and only them, git's uncommitted changes
 in the folders they sit in, each with git's letter at the end of its row (**A** added,
 **M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
-file picked there scrolls the diffs to it and stays put while the diffs above it are
-still loading, and as you scroll the tree marks the file at the top, scrolling itself
+file picked there scrolls the diffs to it, highlights its card with an accent frame and stays put while the diffs above it are
+still loading. Selecting a Viewed file unfolds its body without clearing the Viewed mark. As you scroll, the tree marks the file at the top, scrolling itself
 to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
-A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+A file section has a sticky header: the chevron and name, which fold the diff, then copy-path and **Expand all lines** beside the name. The source/rich switch for Markdown stands to the right of the counts or sizes. Images and other binary files have no source/rich switch.
+Git's `+a −b`, **Viewed** and a three-dot file-actions menu close the row. Checking **Viewed** folds the file and remembers its
+content digest in this browser; when the file changes, the digest changes and the mark is withdrawn,
+even if the line counts stayed the same. Unchecking it expands the file again, and reopening the window restores the collapsed state. The window header shows `viewed / total` with a circular progress indicator. On a phone only the compact counts are visible; the full summary remains in the accessible name and tooltip. It turns green when every listed file is viewed, and a changed digest immediately removes that file from the count. The line numbers stand in
 cells as wide as the file's longest number, so the code of every row, a removed or an added one
 included, starts at one edge; inside a change the removed lines come first, then the added ones,
-the way git writes them. Between hunks sits a wordless separator
-rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+the way git writes them. Between hunks and at the file ends, arrows reveal 10 more lines up, down,
+or in both directions; **Expand all lines** reveals the whole file with its diff and becomes **Collapse all lines**. Collapsing restores the original hunks and discards context revealed through either control without folding the file card. A patch the server
+truncated offers no context controls. When expansion makes two hunks contiguous, their separator disappears. In a folder with nothing to show it says
 so: clean, or not in a git repository.
+
+For any binary file, compact byte sizes with the exact count in the tooltip replace the line counts:
+green for an addition, red for a deletion, and old red beside new green for a modification.
+Each side renders by its own type, so an image replaced by text shows the old image beside the new
+text. Rich preview shows the image itself. A modified
+image has a red-framed **Before** beside a green-framed **After**; an added or deleted image shows
+only the version that exists. Its coloured version label and loaded width and height stand outside the image frame as `W … · H …`. Images scale down to 320px high without changing their proportions. Markdown rich preview renders only the new version through the
+ordinary Markdown component. On a phone the header wraps and before/after panels stack in one column.
+
+![The file controls for reviewing a source diff](../assets/session-changes-review-controls-dark-1280.png)
+
+*Source and rich diff, context expansion and Viewed in a file header*
+
+![The same file controls on a phone](../assets/session-changes-review-controls-dark-390.png)
+
+*The file header wraps on a phone*
+
+![The before and after versions of a modified image](../assets/session-changes-image-rich-dark-1280.png)
+
+*Rich image diff with exact byte sizes and framed before and after versions*
+
+![The image versions stacked on a phone](../assets/session-changes-image-rich-dark-390.png)
+
+*Before and after images use one column on a phone*
 
 ![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
 
 *The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
 
-**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
-menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+**Discard changes** and **Delete file** live in the file's three-dot menu, immediately right of
+**Viewed**, and each asks first in the shared confirmation dialog. The menu is portaled, so it also works while the file is folded. Discard puts that file back at
+`HEAD`; delete removes it from the working folder, leaving a tracked file reported as deleted.
+**Discard all** in the window menu discards every change. The discard confirmation says whether the file
 goes back to its last committed content or, new since that commit, is deleted; Escape
 there answers the question and leaves the window open. Then the page posts
 `.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
@@ -1618,8 +1744,8 @@ content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted
 with any folder it leaves empty, and files git ignores are never touched. A turn running in
 that folder, in this chat or in another one working there, refuses the discard
 (**409**); so does a file git no longer reports - committed or put
-back meanwhile - and then nothing of the request is applied. A commit is not offered:
-the window reads, and discarding is the one thing it writes.
+back meanwhile - and then nothing of the request is applied. Delete posts `.../changes/delete`
+with `{"paths":[...]}` under the same change-set and running-turn guards. A commit is not offered.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1639,6 +1765,8 @@ Automated checks:
 - **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
 - **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/contextExpansion.test.ts** (10-line expansion in every direction, overlap, file ends and expand all) and **viewedFiles.test.ts** (Viewed keyed by content digest)
+- **external/ui/src/ui/changes/richDiff.test.ts** (rich formats, authenticated image addresses and byte sizes)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
 - **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
@@ -1699,7 +1827,7 @@ Automated checks:
 *The Devin usage section as a bottom sheet on a phone*
 
 - When the selected model's provider reports account usage (today
-  `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
+  `neuraldeep`, `codex`, `devin` and `openai`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
   limits under the context window: the provider and plan (with the row
   next to the brand, **`Codex · codex-work · Plus`**, unless the row is
@@ -2556,10 +2684,10 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user clicks **Less**
   - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
-- Token usage survives restart
-  - Given a session has non zero token usage
+- Context usage survives restart
+  - Given a session has a saved context breakdown
   - When the user reloads the page
-  - Then the context ring's tooltip shows the persisted Input, Output and Total
+  - Then the context ring's tooltip shows the saved window usage and maximum
 
 - Memory subagent in the Tasks panel (Playwright MCP)
   - Given **`memory.enable: true`** on the **`coddy serve`** process and at least one Markdown file under global or workspace memory so recall can run
@@ -2586,3 +2714,25 @@ Other provider types hide the selector.
 ![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
 
 *The Anthropic-compatible provider offers its own SDK identity by default.*
+
+## Service tier
+
+The selector is available for Codex and for OpenAI providers using the official `https://api.openai.com/v1` API base (with or without a trailing slash), not compatible endpoints such as Ollama. With an empty `api_base`, `OPENAI_BASE_URL` applies when set; otherwise the official endpoint is used. A forward `proxy` does not change this decision.
+
+![Service tier](../assets/service-tier/service-tier-dark.png)
+![Service tier](../assets/service-tier/service-tier-light.png)
+![Service tier](../assets/service-tier/service-tier-narrow.png)
+
+For supported models, the composer shows **Service tier** beside the model controls.
+Choose **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+An unset session shows one selected Standard item and omits the parameter; there is no separate Auto item.
+Explicitly selecting Standard sends `default`, including after Fast.
+`gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast.
+The menu shows your selection, which can differ from the tier the provider actually uses.
+Another client of the same session receives the change.
+A change during a turn applies to the next turn.
+
+The browser remembers your last selection for new chats.
+An existing chat keeps its saved selection.
+A model that does not offer the remembered value leaves the session unset and shows Standard.
+Opening a chat or receiving another client's change does not replace the browser preference.

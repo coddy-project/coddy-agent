@@ -26,12 +26,22 @@ export function apiImageRequest(
  * broken one. The token never goes into a URL.
  */
 export function useApiImageSrc(url: string | undefined): string | undefined {
+  return useApiImageState(url).src;
+}
+
+export function useApiImageState(url: string | undefined): {
+  src: string | undefined;
+  loading: boolean;
+  failed: boolean;
+} {
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const request = url ? apiImageRequest(url) : null;
   const target = request?.url ?? "";
-  const [loaded, setLoaded] = useState<{ target: string; src: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    target: string;
+    src?: string;
+    failed: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!url || !target) return;
@@ -46,9 +56,11 @@ export function useApiImageSrc(url: string | undefined): string | undefined {
         // that one goes as the plain path and is mapped there once.
         const objectUrl = await lease.promise;
         if (cancelled) return;
-        setLoaded({ target: req.url, src: objectUrl });
+        setResult({ target: req.url, src: objectUrl, failed: false });
       } catch {
-        // Aborted, or unreadable: the image stays without a src.
+        if (!cancelled) {
+          setResult({ target: req.url, failed: true });
+        }
       }
     })();
     return () => {
@@ -57,7 +69,14 @@ export function useApiImageSrc(url: string | undefined): string | undefined {
     };
   }, [url, target, env]);
 
-  if (!url) return undefined;
-  if (!request) return url;
-  return loaded?.target === target ? loaded.src : undefined;
+  if (!url) return { src: undefined, loading: false, failed: false };
+  if (!request) return { src: url, loading: false, failed: false };
+  if (result?.target !== target) {
+    return { src: undefined, loading: true, failed: false };
+  }
+  return {
+    src: result.src,
+    loading: !result.failed && !result.src,
+    failed: result.failed,
+  };
 }

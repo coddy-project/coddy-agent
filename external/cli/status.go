@@ -178,6 +178,10 @@ func statusVerbForTool(toolName string) string {
 		return "Running a subagent"
 	case "preview_server":
 		return "Starting a preview server"
+	case "preview_publish":
+		return "Publishing a preview"
+	case "preview_unpublish":
+		return "Taking a published preview down"
 	case "plan_write", "plan_exit":
 		return "Updating the plan"
 	case "plan_read", "plan_list":

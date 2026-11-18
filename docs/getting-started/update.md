@@ -16,6 +16,8 @@ CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**, plus Linux
 | **`coddy_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
 | **`coddy_X.Y.Z_android_arm64.tar.gz`** | Android arm64, under Termux ([Android](android.md)) |
 | **`coddy_X.Y.Z_android_amd64.tar.gz`** | Android x86_64, under Termux |
+| **`coddy_X.Y.Z_freebsd_amd64.tar.gz`** | FreeBSD x86_64 ([FreeBSD](freebsd.md)) |
+| **`coddy_X.Y.Z_freebsd_arm64.tar.gz`** | FreeBSD arm64 |
 | **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
 | **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
@@ -24,9 +26,9 @@ CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**, plus Linux
 | **`coddy_X.Y.Z_linux_amd64.rpm`** | Fedora, RHEL, openSUSE and derivatives, x86_64 |
 | **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE and derivatives, arm64 |
 
-The Linux, Android and macOS archives carry the man page and the bash and zsh completions beside the binary; the packages install the same files where the system expects them - see [Install](install.md#linux-packages-deb-rpm). Every release also publishes **`coddy.rb`**, the Homebrew cask for the two macOS archives of that tag, and commits the same file to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), which is where **`brew install coddy-project/coddy-agent/coddy`** and **`brew upgrade`** read it.
+The Linux, FreeBSD, Android and macOS archives carry the man page and the bash and zsh completions beside the binary; the packages install the same files where the system expects them - see [Install](install.md#linux-packages-deb-rpm). Every release also publishes **`coddy.rb`**, the Homebrew cask for the two macOS archives of that tag, and commits the same file to the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), which is where **`brew install coddy-project/coddy-agent/coddy`** and **`brew upgrade`** read it.
 
-Each binary is built with the whole tag set - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`** and **`browser`** - the same as **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`** and the default Docker image. See [Build from source](../contributing/build.md#release-binaries-ci) for the release pipeline.
+Each binary is built with the whole tag set - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`**, **`browser`** and **`desktop`** - the same as **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** and the default Docker image. See [Build from source](../contributing/build.md#release-binaries-ci) for the release pipeline.
 
 ## Which file is replaced
 
@@ -39,7 +41,7 @@ This differs from **`make install`**, which always copies to **`~/.local/bin`** 
 
 ## The man page and the completions beside it
 
-The Linux, Android and macOS archives carry **`coddy.1`**, **`coddy.bash`** and **`coddy.zsh`** beside the binary, and the install script puts them into the **`share`** directory of the binary's prefix (**`~/.local/bin`** -> **`~/.local/share`**, **`/usr/local/bin`** -> **`/usr/local/share`**; see [Install](install.md)). **`coddy update`** refreshes every one of those files it finds there, right after the executable, so **`man coddy`** and Tab completion describe the release that is running. A completer left at the previous release keeps offering commands the binary no longer has - that is how a completer went on listing **`http`** and **`gateway`** without **`serve`** after the binary had moved on ([issue #188](https://github.com/coddy-project/coddy-agent/issues/188)).
+The Linux, FreeBSD, Android and macOS archives carry **`coddy.1`**, **`coddy.bash`** and **`coddy.zsh`** beside the binary, and the install script puts them into the **`share`** directory of the binary's prefix (**`~/.local/bin`** -> **`~/.local/share`**, **`/usr/local/bin`** -> **`/usr/local/share`**; see [Install](install.md)). **`coddy update`** refreshes every one of those files it finds there, right after the executable, so **`man coddy`** and Tab completion describe the release that is running. A completer left at the previous release keeps offering commands the binary no longer has - that is how a completer went on listing **`http`** and **`gateway`** without **`serve`** after the binary had moved on ([issue #188](https://github.com/coddy-project/coddy-agent/issues/188)).
 
 Nothing is created: a file that was never installed (**`--no-shell-setup`**, a binary copied by hand) is left alone, and an executable outside a **`bin`** directory - a build tree, a bare download - has no **`share`** directory to pair with. A release from before the archives carried those files leaves the installed copies as they are and says so. A file it cannot write is reported after the binary is installed, and the command exits non-zero.
 
@@ -67,6 +69,8 @@ sudo coddy update -y
 Ownership is asked of the package database, not guessed from the path, so a binary you copied out of **`/usr/bin`** keeps updating itself, a distribution's own rebuild of Coddy is recognised like ours, and a build under **`~/.local/bin`** is untouched by any of this.
 
 A release published before this pipeline has archives but no packages. Root is told exactly that and pointed back at the package manager, rather than being handed an archive that would overwrite the packaged file.
+
+**FreeBSD** has no such check, because there is no FreeBSD package or port of Coddy to own a file: **`coddy update`** replaces whatever executable it is running as. Install it into your own prefix - which is what the install script does - rather than over something **`pkg`** put in **`/usr/local/bin`**. See [FreeBSD](freebsd.md).
 
 ## Commands
 

@@ -238,11 +238,14 @@ func tapGit(t *testing.T, env []string, tap string, args ...string) string {
 
 func TestHomebrewCaskLinksOnlyWhatTheArchiveCarries(t *testing.T) {
 	// The cask links files out of the macOS archive by name, so every file it
-	// names has to be a member of the archive the release job packs.
+	// names has to be a member of the archive the release packs. Every archive
+	// of a release but Windows' is packed by one `build_target` in the release
+	// workflow, the two darwin ones included, so that line is what the cask is
+	// measured against.
 	workflow := readRepoFile(t, "../../.github/workflows/release-binaries.yaml")
 	m := regexp.MustCompile(`tar -C "\$bindir" -czf "\$DIST/\$\{stem\}\.tar\.gz" ([^\n]+)`).FindStringSubmatch(workflow)
 	if m == nil {
-		t.Fatal("release-binaries.yaml: no `tar -C \"$bindir\" -czf` line packing the macOS archive")
+		t.Fatal("release-binaries.yaml: no `tar -C \"$bindir\" -czf \"$DIST/${stem}.tar.gz\"` line packing the macOS archive")
 	}
 	members := map[string]bool{}
 	for _, name := range strings.Fields(m[1]) {

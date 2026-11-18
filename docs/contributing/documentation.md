@@ -6,7 +6,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 
 | Folder | What lives there | Page type |
 |--------|------------------|-----------|
-| `docs/getting-started/` | Install, configure, update, troubleshoot, the changelog | Guides, read once in order |
+| `docs/getting-started/` | Install, configure, update, troubleshoot | Guides, read once in order |
 | `docs/surfaces/` | One page per way of talking to the agent: console, web UI, editors, Telegram | Surface pages |
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
 | `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export, the built-in documentation | Feature pages |
@@ -50,7 +50,7 @@ The paired workflow rule carries the same contract as step 10. Cursor and Claude
 
 ## Translations
 
-The documentation is translated into Russian. `docs/ru/<group>/<page>.md` is the translation of `docs/<group>/<page>.md`, under the same name and path, and `docs/ru/README.md` translates the hub. `docs/ru/nav.yaml` holds the translated title and summary of every group and page, and `docs/ru/config-descriptions.yaml` the translated descriptions of the configuration schema that the Russian field tables print; each entry of both keeps the English text it translates under `en:`. The changelog is generated in both languages (the release notes stay as published). The design records, the assets and the pages the map keeps at the root of the repository are not translated: a Russian page embeds the same screenshots. Every surface shows the language it knows the reader uses ([Built-in documentation](../features/built-in-docs.md#languages)), so a translation that lags behind its English page is a bug somebody reads.
+The documentation is translated into Russian. `docs/ru/<group>/<page>.md` is the translation of `docs/<group>/<page>.md`, under the same name and path, and `docs/ru/README.md` translates the hub. `docs/ru/nav.yaml` holds the translated title and summary of every group and page, and `docs/ru/config-descriptions.yaml` the translated descriptions of the configuration schema that the Russian field tables print; each entry of both keeps the English text it translates under `en:`. The design records, the assets and the pages the map keeps at the root of the repository are not translated: a Russian page embeds the same screenshots. Every surface shows the language it knows the reader uses ([Built-in documentation](../features/built-in-docs.md#languages)), so a translation that lags behind its English page is a bug somebody reads.
 
 A change to an English page carries the same change into its translation, in the same pull request:
 
@@ -69,8 +69,8 @@ The writing rules for both languages, the glossary of Russian terms and the comm
 
 Capture the real surface, never a mockup and never a re-used older image that no longer matches.
 
-- **Web UI**: `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"`, `coddy serve` on a disposable `CODDY_HOME` at a presentable path, Playwright at 1280x800 in the Dark theme as the default, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and the paired UI verification rule ([Cursor](../../.cursor/rules/ui-verification.mdc), [Claude Code](../../.claude/rules/ui-verification.md)) describe the stand.
-- **Console**: a real Konsole window on an isolated Xvfb display, driven with XTEST (`demo-videos/rig/stage_konsole.sh` in the demo-videos repository), cropped to the used rows. States a real model would not reproduce on demand are captured the other way, without Konsole: a script drives `coddy cli` in a pty, emulates the screen with **pyte** and renders the cell grid to PNG through headless chromium, standing its own HTTP endpoint so it needs neither a provider nor a key - `examples/cli/capture_usage.py` for the usage footer, `examples/cli/capture_subagent.py` for a delegated run with a loaded skill, `examples/cli/capture_tasks.py` for the status line of a running turn and the `/tasks` overlay, `examples/cli/capture_settings.py` for the footer after the session settings commands.
+- **Web UI**: `make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`, `coddy serve` on a disposable `CODDY_HOME` at a presentable path, Playwright at 1280x800 in the Dark theme as the default, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and the paired UI verification rule ([Cursor](../../.cursor/rules/ui-verification.mdc), [Claude Code](../../.claude/rules/ui-verification.md)) describe the stand.
+- **Console**: a real Konsole window running the actual `coddy` process on an isolated Xvfb display, driven with XTEST (`demo-videos/rig/stage_konsole.sh` in the demo-videos repository), cropped to the used rows. Never substitute a mockup, a generated image, a manually composed terminal, a pyte cell-grid rendering or an HTML recreation. Match the Konsole color scheme to the theme being documented.
 - **Naming and placement**: `docs/assets/<page-or-feature>/<state>-<theme>-<width>.png` when a page needs more than a couple of images, otherwise `docs/assets/<feature>-<state>-<theme>-<width>.png` at the top level. Kebab-case, no issue or pull request numbers, under 1 MB.
 - **On the page**: an image line followed by a one-line caption in italics, placed next to the paragraph that explains what the image shows. One image per view and state; a table with two images side by side when the page compares them.
 
@@ -120,16 +120,13 @@ GitHub renders an inline player only for a file uploaded as a GitHub attachment:
 | `docs/reference/config.md` | `docsgen:config` | `internal/config/config.schema.json` descriptions and the loader's defaults (`config.DocDefaults`) |
 | `docs/reference/cli.md` | `docsgen:cli` | `coddy --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
-| `docs/getting-started/changelog.md` | whole file | the GitHub Releases, only with `make docs-changelog` |
 | `docs/ru/README.md`, `docs/ru/reference/config.md`, `docs/ru/reference/cli.md` | the same blocks | `docs/ru/nav.yaml`, the schema with `docs/ru/config-descriptions.yaml`, the same `--help` screens |
-| `docs/ru/getting-started/changelog.md` | whole file | the English changelog, a Russian title and introduction over the release notes |
 | the links of every page under `docs/ru/` | targets only | the English page's links made right for the translation's folder |
 
 ```bash
 make docs            # regenerate everything (builds the full-tag binary first, which needs Node for the ui tag)
 make docs-fast       # everything but the CLI reference, no binary and no Node needed
 make docs-check      # regenerate into memory and fail on drift, missing pages, broken links, unused assets
-make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh)
 make docs-stamp PAGES="docs/ru/features/mcp.md"  # record that a translation follows its English page
 ```
 

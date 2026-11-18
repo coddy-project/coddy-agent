@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Coddy">
+  <!--
+    The application's icon: Coddy's mark, drawn for the sizes a desktop
+    actually uses it at.
+
+    It is not the favicon. That one leaves six units of air on every side of a
+    52-unit plate and draws the ring at radius 10.25 with a 2.85 stroke, which
+    is right in a browser tab beside a title; in an application menu at 32 or
+    48 pixels the air eats a fifth of the icon and the ring thins to about a
+    pixel, which reads as a smudge rather than as a mark. Here the plate fills
+    the square and the ring is drawn at radius 13.6 with a 4.2 stroke, so the
+    mark survives being drawn small. The colours and the shape are the same
+    ones; nothing of the brand moves.
+  -->
+  <defs>
+    <linearGradient id="plate" x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c1c22"/>
+      <stop offset="1" stop-color="#101014"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="14" y1="14" x2="50" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5f3ff"/>
+      <stop offset="0.5" stop-color="#ddd6fe"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="core" x1="20" y1="20" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c4b5fd" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0.5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="38%" r="60%">
+      <stop offset="0" stop-color="#9333ea" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(32 32)">
+    <rect x="-31" y="-31" width="62" height="62" rx="15" fill="url(#plate)"/>
+    <rect x="-31" y="-31" width="62" height="62" rx="15" fill="url(#glow)"/>
+    <rect x="-30.5" y="-30.5" width="61" height="61" rx="14.5" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <g transform="rotate(90)">
+      <circle
+        r="13.6"
+        fill="none"
+        stroke="url(#ring)"
+        stroke-width="4.2"
+        stroke-linecap="round"
+        stroke-dasharray="64.5 21.0"
+        stroke-dashoffset="10.5"
+      />
+      <circle
+        r="7.6"
+        fill="none"
+        stroke="url(#core)"
+        stroke-width="3"
+      />
+    </g>
+  </g>
+</svg>

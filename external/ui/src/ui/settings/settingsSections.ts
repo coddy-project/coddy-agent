@@ -2,6 +2,7 @@ import type { JsonSchema } from "./SchemaForm";
 import { translate } from "../i18n/i18n";
 
 export type SectionKind =
+  | "statistics"
   | "array"
   | "object"
   | "group"
@@ -10,7 +11,8 @@ export type SectionKind =
   | "subagents"
   | "appearance"
   | "sessions"
-  | "status";
+  | "status"
+  | "authentication";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
 export const MCP_SECTION_ID = "mcp_servers";
@@ -36,6 +38,8 @@ export type SectionDescriptor = {
  * sections keep their server-provided title and description.
  */
 const SECTION_LABEL_KEYS = {
+  httpserver: "settings.section.httpserver.label",
+  statistics: "stats.title",
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
   status: "settings.section.status.label",
@@ -69,6 +73,7 @@ const SECTION_LABEL_KEYS = {
  * switch re-renders the tiles.
  */
 const SECTION_DESC_KEYS = {
+  httpserver: "settings.section.httpserver.desc",
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
   status: "settings.section.status.desc",
@@ -185,7 +190,15 @@ export function deriveSettingsSections(
   // sessions the Sessions tab manages and the status route exist only on an
   // agent.
   const relay = opts.relay === true || schema?.["x-coddy-relay"] === true;
-  const head = relay ? [appearance] : [appearance, sessionsManager, status];
+  const statistics: SectionDescriptor = {
+    id: "statistics",
+    label: labelFor("statistics"),
+    description: translate("stats.settings.description"),
+    kind: "statistics",
+  };
+  const head = relay
+    ? [appearance]
+    : [appearance, sessionsManager, status, statistics];
   if (!schema || schema.type !== "object" || !schema.properties) {
     return head;
   }
@@ -225,6 +238,16 @@ export function deriveSettingsSections(
         kind: "group",
         childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
       };
+      return;
+    }
+    if (key === "httpserver") {
+      out.push({
+        id: key,
+        label: labelFor(key, sub),
+        description: descFor(key, sub),
+        kind: "authentication",
+        schemaKey: key,
+      });
       return;
     }
     if (key === "skills") {
@@ -304,6 +327,14 @@ export function deriveSettingsSections(
 export type DrawnText = { label?: string; desc?: string };
 
 export const SETTINGS_TEXTS = {
+  authAccount: {
+    label: "settings.auth.account",
+    desc: "settings.auth.environment",
+  },
+  authPassword: { desc: "settings.auth.passwordHint" },
+  authTtl: { desc: "settings.auth.ttlHint" },
+  authAuthenticator: { label: "settings.auth.authenticator" },
+  authBackupCodes: { label: "settings.auth.backupCodes" },
   proxyIgnoreSystem: {
     label: "settings.providerProxy.ignoreSystem",
     desc: "settings.providerProxy.ignoreSystemDesc",
@@ -359,6 +390,14 @@ export const SETTINGS_TEXTS = {
     desc: "subagents.catalog.description",
   },
   providerModels: { label: "settings.providerModels.legend" },
+  statisticsEnable: { label: "stats.enable", desc: "stats.enable.hint" },
+  statisticsCounters: { label: "stats.counters", desc: "stats.counters.hint" },
+  statisticsTimezone: { label: "stats.timezone", desc: "stats.timezone.hint" },
+  statisticsExchangeRate: {
+    label: "stats.exchange.heading",
+    desc: "stats.exchange.hint",
+  },
+  statisticsPrices: { label: "stats.prices", desc: "stats.prices.hint" },
   systemInstallation: { label: "system.installation" },
   systemSubsystems: { label: "system.subsystems" },
   systemDisk: { label: "system.disk" },

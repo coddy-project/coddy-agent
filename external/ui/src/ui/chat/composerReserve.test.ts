@@ -40,6 +40,18 @@ test("the reserve never drops under its floor", () => {
   ).toBe(140);
 });
 
+test("the desktop reserve leaves five fewer pixels above the composer", () => {
+  expect(
+    composerReserveFor({
+      blockHeight: 166,
+      blockPaddingTop: 18,
+      rowGap: 10,
+      contentEndAboveBlockEnd: 0,
+      endGapReductionPx: 5,
+    }),
+  ).toBe(163);
+});
+
 // The block's empty padding counts only above its card. A usage banner rises
 // over the composer inside the block, before the card's wrapper: the banner is
 // then the first visible edge, and the wrapper's padding lies under it.

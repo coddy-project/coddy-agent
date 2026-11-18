@@ -90,7 +90,7 @@ func TestSnapshotIsCanonical(t *testing.T) {
 		t.Fatal("models.json is not in the format make models-catalog writes; run it again")
 	}
 	for id, v := range table {
-		if v[0] <= 0 || v[1] < 0 || v[2] != 0 && v[2] != 1 {
+		if v[0] < 0 || v[1] < 0 || v[0] == 0 && (v[1] != 0 || v[3] == 0) || v[2] != 0 && v[2] != 1 || v[3] < 0 || v[3] > 2 {
 			t.Errorf("%s: %v is not a window, a max_tokens and an image flag", id, v)
 		}
 	}

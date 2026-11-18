@@ -1,0 +1,121 @@
+# nfpm recipe for the Linux packages of the desktop application (deb and rpm).
+#
+# It carries no binary: the window is a verb of the ordinary one (`coddy
+# desktop`), which the release build already has, so this package installs
+# what makes an application an application on a Linux desktop - an entry in
+# /usr/share/applications, so Coddy is in the menu and the launcher, and its
+# icon in the hicolor theme that entry names - and depends on `coddy` for the
+# program. It stays a package of its own rather than files added to the
+# agent's because a server that only runs `coddy serve` has no use for a menu
+# entry.
+#
+# Like the agent's package it enables nothing, creates no system account and
+# writes nothing under /etc; the window's own state lives in the invoking
+# user's ~/.coddy, and the autostart entry of the menu's "Open at login" is
+# written into that user's own autostart folder.
+#
+# Staged by scripts/build-desktop-packages.sh; run `make deb-desktop` or
+# `make rpm-desktop`.
+#
+# https://nfpm.goreleaser.com/configuration/
+
+name: coddy-desktop
+arch: ${PKG_ARCH}
+platform: linux
+version: ${PKG_VERSION}
+version_schema: none
+release: "1"
+section: devel
+priority: optional
+maintainer: Pavel Rykov <paul@drteam.rocks>
+vendor: Coddy project
+homepage: https://coddy.dev
+license: MIT
+description: |
+  Coddy as a desktop window, with tabs.
+  The menu entry and the icon for `coddy desktop`, which runs Coddy's HTTP
+  surface on a loopback port this machine remembers and opens a window on a
+  tab strip over it, one chat per tab. The program itself is the coddy
+  package. On an X11 session the window has no system frame: the strip is its
+  title bar, with the window's own buttons, a menu of the desktop's switches
+  and an optional icon in the system tray.
+
+# The window is opened with a Chromium-family browser already on the machine
+# (Chrome, Chromium, Edge, Brave, Vivaldi, Yandex Browser), in a profile of
+# its own; Firefox has no --app and cannot carry one. Naming one as a
+# dependency would be wrong - any of them does, and CODDY_DESKTOP_BROWSER
+# names another - so it is a recommendation, which apt and zypper offer and
+# dnf records.
+recommends:
+  - chromium
+
+# The program the menu entry starts, and not just any version of it: `coddy
+# desktop` is a verb this release added, and an older `coddy` answers it with
+# an unknown command - a launcher entry that fails silently. deb and rpm spell
+# the relation differently, so each is set on its own.
+overrides:
+  deb:
+    depends:
+      - coddy (>= ${PKG_VERSION})
+  rpm:
+    depends:
+      - coddy >= ${PKG_VERSION}
+
+contents:
+  # The menu entry: this is what puts Coddy in the application launcher.
+  - src: coddy-desktop.desktop
+    dst: /usr/share/applications/coddy-desktop.desktop
+    file_info:
+      mode: 0644
+
+  # The icon that entry names, in the theme every desktop reads. The scalable
+  # one is what a current desktop draws; the raster is for anything that does
+  # not render SVG.
+  - src: coddy-desktop.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/coddy-desktop.svg
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  # The two sizes a menu and a task bar actually draw.
+  - src: coddy-desktop-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: LICENSE
+    dst: /usr/share/doc/coddy-desktop/LICENSE
+    file_info:
+      mode: 0644
+
+  # Debian policy expects the licence at this exact path.
+  - src: LICENSE
+    dst: /usr/share/doc/coddy-desktop/copyright
+    file_info:
+      mode: 0644
+
+deb:
+  fields:
+    Bugs: https://github.com/coddy-project/coddy-agent/issues
+
+rpm:
+  summary: Coddy as a desktop window, with tabs

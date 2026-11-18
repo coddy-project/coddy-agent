@@ -7,6 +7,10 @@ Feature: The agent and the person work on a page on the canvas
   reports what the page did, and the agent reads it with canvas_inspect instead of asking the
   person to open a console.
 
+  A board that came with the checkout is repository content: its pages run only once the person
+  trusts the board, as MCP servers, hooks and subagent definitions of a checkout wait for a
+  trust decision. A page Coddy put on a board runs at once.
+
   Scenario: The agent puts a page on the canvas
     Given a chat whose agent is a scripted model, in a workspace with a shop page in "site"
     And a browser following the server's events
@@ -34,7 +38,17 @@ Feature: The agent and the person work on a page on the canvas
     Given a chat whose agent is a scripted model, in a workspace with a shop page in "site"
     And the workspace has an Obsidian canvas "design/shop.canvas" with a note linked to the shop page
     When the person asks "open the design board"
+    And the person trusts the pages of the board
     Then the canvas of the chat is "design/shop.canvas" with the shop page as a live frame, the note and the edge
     And the frame's address serves the page with the bridge under a sandbox policy
     When the person moves the note on the canvas
     Then "design/shop.canvas" holds the note at its new place and every key Coddy does not know
+
+  Scenario: A board that came with the checkout waits for the person before its pages run
+    Given a chat whose agent is a scripted model, in a workspace with a shop page in "site"
+    And the workspace has an Obsidian canvas "design/shop.canvas" with a note linked to the shop page
+    When the person asks "open the design board"
+    Then the canvas lists the shop page as held, with no address
+    When the person trusts the pages of the board
+    Then the canvas lists the shop page as a live frame
+    And the frame's address serves the page with the bridge under a sandbox policy

@@ -1,6 +1,9 @@
 package platform
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // escape is the byte that opens every ANSI escape sequence.
 const escape = 0x1b
@@ -126,4 +129,49 @@ func collapseBlankRuns(s string) string {
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+// SplitPartialRune separates the bytes of a read that are safe to decode now
+// from a UTF-8 sequence the read cut in half, which belongs with whatever
+// arrives next.
+//
+// Decoding has to happen per read, because a stream is not decoded twice: the
+// bytes already shown must not change meaning when more arrive. A sequence
+// split across two reads would otherwise reach DecodeOutput as broken UTF-8 and
+// be read as the Windows console code page, turning a line of text into
+// mojibake for good.
+//
+// Nothing is held back unless the rest of the input is valid UTF-8. Bytes in a
+// legacy code page are complete characters already, and a trailing 0xE0 there
+// is a letter, not the start of a sequence that has yet to arrive.
+func SplitPartialRune(b []byte) (head, carry []byte) {
+	if utf8.Valid(b) {
+		return b, nil
+	}
+	for i := 1; i <= 4 && i <= len(b); i++ {
+		c := b[len(b)-i]
+		if c&0xC0 == 0x80 {
+			continue // inside a sequence; keep walking back to its lead byte
+		}
+		if c&0x80 != 0 && utf8RuneLen(c) > i && utf8.Valid(b[:len(b)-i]) {
+			return b[:len(b)-i], b[len(b)-i:]
+		}
+		break
+	}
+	return b, nil
+}
+
+// utf8RuneLen reports how many bytes the sequence opened by lead spans, and 0
+// when the byte opens no sequence at all.
+func utf8RuneLen(lead byte) int {
+	switch {
+	case lead&0xE0 == 0xC0:
+		return 2
+	case lead&0xF0 == 0xE0:
+		return 3
+	case lead&0xF8 == 0xF0:
+		return 4
+	default:
+		return 0
+	}
 }

@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -410,9 +411,10 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
 			Catalog       *struct {
-				ContextWindow int  `json:"context_window"`
-				MaxTokens     int  `json:"max_tokens"`
-				Multimodal    bool `json:"multimodal"`
+				ContextWindow int   `json:"context_window"`
+				MaxTokens     int   `json:"max_tokens"`
+				Multimodal    bool  `json:"multimodal"`
+				ImageOutput   *bool `json:"image_output"`
 			} `json:"catalog"`
 		} `json:"models"`
 	}
@@ -427,7 +429,7 @@ func (w *providerModelsWorld) readModels(res *http.Response) error {
 		w.models = append(w.models, m.ID)
 		w.ctx[m.ID] = m.ContextWindow
 		if m.Catalog != nil {
-			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal}
+			w.catalog[m.ID] = &models.Limits{ContextWindow: m.Catalog.ContextWindow, MaxTokens: m.Catalog.MaxTokens, Multimodal: m.Catalog.Multimodal, ImageOutput: m.Catalog.ImageOutput}
 		}
 	}
 	return nil
@@ -471,8 +473,20 @@ func (w *providerModelsWorld) wantCatalog(id string) error {
 	if !ok {
 		return fmt.Errorf("the models catalog does not list %q any more: pick another model for this scenario", id)
 	}
-	if got := w.catalog[id]; got == nil || *got != want {
+	if got := w.catalog[id]; got == nil || !reflect.DeepEqual(*got, want) {
 		return fmt.Errorf("catalog for %q = %+v, want %+v", id, got, want)
+	}
+	return nil
+}
+
+func (w *providerModelsWorld) wantCatalogModalitiesWithoutLimits(id string) error {
+	want, ok := models.Lookup(id)
+	if !ok {
+		return fmt.Errorf("model %q missing from catalog", id)
+	}
+	got := w.catalog[id]
+	if got == nil || got.ContextWindow != 0 || got.MaxTokens != 0 || got.Multimodal != want.Multimodal || !reflect.DeepEqual(got.ImageOutput, want.ImageOutput) {
+		return fmt.Errorf("catalog for %q = %+v, want modalities from %+v without limits", id, got, want)
 	}
 	return nil
 }
@@ -555,6 +569,7 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
 			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
 			sc.Step(`^the gateway answers with the window, max_tokens and image support the models catalog has for "([^"]*)"$`, w.wantCatalog)
+			sc.Step(`^the gateway answers with catalog modalities but no catalog limits for "([^"]*)"$`, w.wantCatalogModalitiesWithoutLimits)
 			sc.Step(`^the gateway answers with nothing from the models catalog for "([^"]*)"$`, w.wantNoCatalog)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 			sc.Step(`^the model list reports the context window (\d+) for "([^"]*)"$`, w.modelListReportsWindow)

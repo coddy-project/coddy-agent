@@ -29,7 +29,7 @@ func testEnv(t *testing.T, files ...string) (*tooling.Env, string) {
 	if err := os.MkdirAll(bundle, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &tooling.Env{CWD: ws, SessionID: "sess_tools", SessionDir: bundle}, bundle
+	return &tooling.Env{CWD: ws, SessionID: "sess_tools", SessionDir: bundle, ConfigHome: t.TempDir()}, bundle
 }
 
 // current is the chat's canvas as the tools left it.
@@ -260,5 +260,42 @@ func TestShowOpensACanvasFileAsTheChatsCanvas(t *testing.T) {
 	}
 	if b := current(t, env, bundle); len(b.Frames) != 2 || b.File != "design.canvas" {
 		t.Fatalf("board %+v", b)
+	}
+}
+
+// A board that came with the workspace runs no page the person did not trust:
+// opening it says so, and inspecting it reads no report for a page that waits.
+func TestTheToolsSayWhichPagesOfACheckoutsBoardWait(t *testing.T) {
+	env, _ := testEnv(t, "site/index.html", "site/about.html")
+	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":0,"y":0,"width":390,"height":844}],"edges":[]}`
+	if err := os.WriteFile(filepath.Join(env.CWD, "design.canvas"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := call(t, ShowTool(), env, map[string]any{"path": "design.canvas"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "aaaaaaaaaaaaaaaa  site/index.html  phone 390x844  (waits for the person)") || !strings.Contains(out, "trusts the board's pages") {
+		t.Fatalf("opening a checkout's board does not say its page waits:\n%s", out)
+	}
+	out, err = call(t, InspectTool(), env, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "waits for the person") || strings.Contains(out, "No browser has reported") {
+		t.Fatalf("inspect of a waiting page:\n%s", out)
+	}
+	// The page the agent shows on that board runs; the one that came with it
+	// still waits.
+	out, err = call(t, ShowTool(), env, map[string]any{"path": "site/about.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "site/index.html  phone 390x844  (waits for the person)") || strings.Contains(out, "site/about.html  desktop 1280x800  (waits") {
+		t.Fatalf("after canvas_show of another page:\n%s", out)
+	}
+	env.CanvasProjectTrust = "allow"
+	if out, _ = call(t, InspectTool(), env, map[string]any{}); strings.Contains(out, "waits for the person") {
+		t.Fatalf("under allow a page still waits:\n%s", out)
 	}
 }

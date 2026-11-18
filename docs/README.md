@@ -16,8 +16,8 @@ Install Coddy, give it a model, run it for the first time and keep it updated.
 - [Docker](getting-started/docker.md) - The GHCR image, docker compose, volumes and environment, the bundled UI on port 12345.
 - [Homebrew](getting-started/homebrew.md) - The cask against the formula, which Homebrew repository takes what, the homebrew/core submission.
 - [Android (Termux)](getting-started/android.md) - The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device.
+- [FreeBSD](getting-started/freebsd.md) - The FreeBSD archives, running the server without systemd, the desktop window, and where the BSD kernel interfaces differ from Linux.
 - [Troubleshooting](getting-started/troubleshooting.md) - What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build.
-- [Changelog](getting-started/changelog.md) - Release notes of every published version, generated from GitHub Releases.
 
 ## Surfaces
 
@@ -25,6 +25,7 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 
 - [Console (TUI)](surfaces/console.md) - Bare coddy in a terminal, the layout, keys, slash commands, the local shell, print mode and remote mode.
 - [Web UI](surfaces/web-ui.md) - The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages.
+- [Desktop window](surfaces/desktop.md) - coddy desktop, the web interface as an application window with chats as tabs, the port it remembers, the keys, and what each platform gives the window.
 - [Editors (ACP)](surfaces/editors.md) - Zed, VS Code, Obsidian and scripts as ACP clients of coddy acp, and what they share with the other surfaces.
 - [Telegram gateway](surfaces/gateway.md) - The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
 - [Pachca gateway](surfaces/pachca.md) - The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits.
@@ -67,7 +68,9 @@ What the agent can do and how each capability is configured.
 - [Built-in documentation](features/built-in-docs.md) - This documentation inside the binary - the web UI's reader, F1 in the console, coddy docs, the agent's coddy_docs tools and @coddy:<page> mentions - searched with BM25, with no site involved.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
+- [Statistics](features/statistics.md) - Retained token activity, model and skill usage, background history import, time zones, estimated costs, cleanup, exports and swarm summaries.
 - [Preview server](features/preview-server.md) - Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
+- [Published previews](features/published-previews.md) - Handing somebody a finished build through your own authenticated edge - one static origin on a fixed address over one artifact root, preview_publish and preview_unpublish, what the copy leaves behind, and a reverse-proxy configuration for Caddy, Nginx and Traefik.
 - [Canvas](features/canvas.md) - Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
 - [Long-term memory](features/memory.md) - The on-demand memory subagent the model delegates to through spawn_agent, what it recalls and saves, its tools, the storage layout, configuration and cost.

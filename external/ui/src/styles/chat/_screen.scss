@@ -526,8 +526,10 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  /* Match native scrollbar gutters so the docked composer does not paint over the scroll track */
-  --coddy-chat-scrollbar-gutter: 14px;
+  /* Match the scrollbar gutters so the docked composer does not paint over the
+     scroll track. The root asks for a thin bar, which Chromium reserves 10px
+     for on each edge (the platform's own took 15). */
+  --coddy-chat-scrollbar-gutter: 10px;
 }
 
 .chat-scroll {

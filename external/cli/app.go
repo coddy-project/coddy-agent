@@ -162,6 +162,15 @@ type App struct {
 	curShell      *shellBox
 	lastShell     *shellBox
 
+	// The follow-up prompt suggestion (prompt_suggestion.go): the suggestion
+	// on screen, its generation (a turn's late answer is dropped), and the
+	// cancel of a prediction still running. UI-goroutine state only.
+	suggestion       *activeSuggestion
+	suggestionGen    uint64
+	suggestionCancel context.CancelFunc
+	// A successful remote response may precede its server-idle notification.
+	suggestionWaiting bool
+
 	sessionID string
 	modeID    string
 	modelID   string
@@ -311,7 +320,7 @@ func (a *App) buildTree() {
 	a.plan = newPlanWidget(a.theme)
 	a.queue = newQueueWidget(a.theme)
 	a.queuePreference = session.QueueMode(a.config().Agent.QueueMode)
-	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
+	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted), PlaceholderColor: a.theme.FgFn(roleDim)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnAlternateSubmit = func(text string) bool {
 		if text == "" || (!a.turnActive && !a.remoteTurnActive) {
@@ -321,6 +330,7 @@ func (a *App) buildTree() {
 		return true
 	}
 	a.editor.OnChange = a.onEditorChange
+	a.editor.OnPlaceholderAccepted = func(string) { a.suggestionAccepted() }
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
@@ -458,6 +468,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
 		a.resetGoal()
+		a.clearSuggestion()
 	}
 	a.sessionID = id
 	if switched {
@@ -523,6 +534,15 @@ func (a *App) refreshFooterModel() {
 		}
 	}
 	a.foot.SetModel(a.modelID, reasoning)
+	a.foot.serviceTier = ""
+	if opt := a.serviceTierOption(); opt != nil {
+		for _, value := range opt.Options {
+			if value.Value == opt.CurrentValue {
+				a.foot.serviceTier = value.Name
+				break
+			}
+		}
+	}
 }
 
 func (a *App) populateHeader() {
@@ -955,6 +975,9 @@ func (a *App) onSubmit(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	// The suggestion's life ends here: what was sent is compared with it and
+	// the outcome reported, whether it was taken, retyped, or ignored.
+	a.settleSuggestion(text)
 	// The address a Devin sign-in waits for is no prompt, nor history.
 	if a.feedLoginPaste(text) {
 		return
@@ -994,7 +1017,10 @@ func (a *App) submitPrompt(text string) {
 		SessionID:  a.sessionID,
 		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
 		ImageParts: a.imagePartsFor(text),
-	}, &session.PromptRunOpts{Lang: docs.TurnLangFromEnv(os.Getenv)}, nil)
+	}, &session.PromptRunOpts{
+		StatisticsSource: "console",
+		Lang:             docs.TurnLangFromEnv(os.Getenv),
+	}, nil)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it
@@ -1013,6 +1039,8 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 	a.turnSpeed = nil
 	a.startSpinner()
 	a.turnActive = true
+	// A turn running again retires the suggestion of the turn before it.
+	a.clearSuggestion()
 	// A running turn is when tasks appear: read them on the fast cadence.
 	a.armTasksPoll()
 	sessionID := params.SessionID
@@ -1253,26 +1281,9 @@ func (a *App) openToolsetSelector() {
 		a.appendStatus(roleDim, "No toolsets are configured: add one under toolsets in config.yaml")
 		return
 	}
-	items := make([]tui.SelectItem, 0, len(opt.Options))
-	selected := 0
-	for i, o := range opt.Options {
-		items = append(items, tui.SelectItem{Value: o.Value, Label: tui.SanitizeText(o.Name), Description: o.Description})
-		if o.Value == opt.CurrentValue {
-			selected = i
-		}
-	}
-	sel := newSelectorModal(a.theme, "Select toolset", items, 10, a.screen.RequestRender)
-	sel.list.SetSelectedIndex(selected)
-	sel.OnDone = func(item *tui.SelectItem) {
-		a.closeModal()
-		if item == nil {
-			a.screen.RequestRender()
-			return
-		}
-		value := item.Value
+	a.openConfigSelector("Select toolset", opt, func(value string) {
 		a.applySettings(session.SettingsChange{Toolset: &value})
-	}
-	a.openModal(sel)
+	})
 }
 
 func (a *App) openReasoningSelector() {
@@ -1293,17 +1304,7 @@ func (a *App) openReasoningSelector() {
 			selected = i
 		}
 	}
-	sel := newSelectorModal(a.theme, "Select reasoning", items, 10, a.screen.RequestRender)
-	sel.list.SetSelectedIndex(selected)
-	sel.OnDone = func(item *tui.SelectItem) {
-		a.closeModal()
-		if item == nil {
-			a.screen.RequestRender()
-			return
-		}
-		a.setReasoning(item.Value)
-	}
-	a.openModal(sel)
+	a.openValueSelector("Select reasoning", items, selected, a.setReasoning)
 }
 
 func (a *App) setReasoning(level string) {
@@ -1543,6 +1544,7 @@ func (a *App) resetTranscript() {
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 	a.resetGoal()
+	a.clearSuggestion()
 }
 
 // newSession starts a fresh session (used by /new). Switches serialize: a
@@ -1655,19 +1657,20 @@ func (a *App) refreshServerCommands(cmds []acp.AvailableCommand) {
 	a.slashServer = items
 }
 
+// pasteTarget is a modal that takes a pasted body. Implementing it is how a
+// modal with a text field opts in: one that does not drops the paste, so a
+// paste never leaks into the editor hidden behind the modal.
+type pasteTarget interface{ InsertPaste(string) }
+
 // handlePaste routes bracketed-paste bodies: the editor when no modal is
-// open, the question modal's custom editor when it is typing, and dropped
-// otherwise (pastes must never leak into a hidden editor behind a modal).
+// open, the modal itself when it takes text, and nowhere otherwise.
 func (a *App) handlePaste(body []byte) {
 	if a.modal == nil {
 		a.editor.InsertPaste(string(body))
 		return
 	}
-	if qm, ok := a.modal.(*questionModal); ok {
-		qm.InsertPaste(string(body))
-	}
-	if dm, ok := a.modal.(*docsModal); ok {
-		dm.InsertPaste(string(body))
+	if target, ok := a.modal.(pasteTarget); ok {
+		target.InsertPaste(string(body))
 	}
 }
 

@@ -249,10 +249,17 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 	}
 }
 
-// ProcessAlive reports whether one process is still running. On Windows this is
-// the same question ProcessGroupAlive answers - there is no group to probe, only
-// the process object and its creation time - so the two share an implementation.
+// ProcessAlive reports whether one process is still running. A caller that only
+// needs liveness may not have a creation time; read the current one and let the
+// strict probe confirm that the same process is still there. ProcessGroupAlive
+// keeps refusing a missing identity because its answer authorizes taskkill.
 func ProcessAlive(pid int, startedAt time.Time) bool {
+	if startedAt.IsZero() {
+		startedAt = ProcessStartedAt(pid)
+		if startedAt.IsZero() {
+			return false
+		}
+	}
 	return ProcessGroupAlive(pid, startedAt)
 }
 

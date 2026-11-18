@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -274,6 +275,22 @@ func runServe(args []string) error {
 		return nil
 	}
 
+	// The per-home owner is claimed before a session manager exists. A second
+	// serve therefore fails here instead of opening another manager, scheduler
+	// and MCP set on different public ports. The endpoint itself does not
+	// depend on httpserver.enable or the configured public port.
+	runtimeOwner, err := claimRuntimeOwner(paths.Home, httpserver.Available)
+	if err != nil {
+		return err
+	}
+	if runtimeOwner != nil {
+		defer func() {
+			if err := runtimeOwner.Close(); err != nil {
+				log.Warn("closing the local runtime IPC", "error", err)
+			}
+		}()
+	}
+
 	if err := rt.Init(serve.Options{
 		CLI:                cli,
 		AdjustConfig:       applyProcessOverrides,
@@ -285,6 +302,16 @@ func runServe(args []string) error {
 	}); err != nil {
 		return err
 	}
+	all = runtimeIPCSubsystems(all, rt, subsystemDeps{
+		httpListenAddr:  httpListenAddr,
+		swarmListenAddr: swarmListenAddr,
+		home:            paths.Home,
+		httpAuthTokens:  httpTokens,
+		httpLogin:       outOfBandLogin(),
+		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
+		adjust:          applyProcessOverrides,
+		metrics:         wiring,
+	}, runtimeOwner)
 	// The registry counts for the whole process, whether or not the listener
 	// is enabled: enabling it later shows what happened before.
 	defer wiring.Start()()
@@ -509,6 +536,20 @@ func metricsDescriptor() serve.Subsystem {
 	}
 }
 
+// unbuiltSections names the settings sections this binary cannot run, so the
+// settings screen of any HTTP surface it serves - the configured one or the
+// desktop window's - hides what turning on could never start.
+func unbuiltSections(deps subsystemDeps) []string {
+	var unbuilt []string
+	if !deps.metrics.Subsystem().Available {
+		unbuilt = append(unbuilt, "metrics")
+	}
+	if !browser.Available {
+		unbuilt = append(unbuilt, "browser")
+	}
+	return unbuilt
+}
+
 // subsystems describes every surface this binary knows about, available or not.
 //
 // A descriptor exists even when its build tag is missing, so a configuration
@@ -516,13 +557,7 @@ func metricsDescriptor() serve.Subsystem {
 // starting a daemon that quietly does less than it was told to.
 func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 	metrics := deps.metrics.Subsystem()
-	var unbuilt []string
-	if !metrics.Available {
-		unbuilt = append(unbuilt, "metrics")
-	}
-	if !browser.Available {
-		unbuilt = append(unbuilt, "browser")
-	}
+	unbuilt := unbuiltSections(deps)
 	return []serve.Subsystem{
 		{
 			Kind:          serve.KindHTTP,
@@ -540,20 +575,24 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context, cfg *config.Config) error {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
+				withdrawMirror := func() {}
 				withdrawPrompts := func() {}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
+					ExtraLogin: deps.httpLogin, Mirror: rt, DetachedPrompts: rt, Wakes: rt,
 					UnbuiltSections: unbuilt, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
-							rt.SetTurnMirror(nil)
+							withdrawMirror()
 							withdrawPrompts()
 							return
 						}
-						rt.SetTurnMirror(s)
+						// The mirror is a set rather than a slot: under `coddy
+						// desktop` this server shares the mirroring with the
+						// window's loopback server.
+						withdrawMirror = rt.AddTurnMirror(s)
 						// A detached subagent's prompt is shown in the chat of
 						// its parent session, in the browser and in a console
 						// attached over --remote alike.
@@ -682,8 +721,48 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				return nil
 			},
 		},
+		{
+			// The published-preview origin: a read-only static server over the
+			// artifact root, on an address that does not move, so a reverse
+			// proxy has a stable upstream to send an authenticated visitor to.
+			// It is auxiliary - it serves copies of finished work and runs no
+			// turn, so it is never a reason to keep a process up on its own -
+			// and it is in every build, since it carries no build tag.
+			Kind:      serve.KindPreviewPublish,
+			ConfigKey: "tools.preview_publish.enable",
+			Available: true,
+			Auxiliary: true,
+			Enabled:   func(c *config.Config) bool { return c.Tools.PreviewPublish.Enable },
+			// Its listener is what a proxy is talking through, so a new
+			// address takes a fresh process; everything else about it - the
+			// root, the public address, the lifetime - is read when it starts.
+			RestartKey:  func(c *config.Config) string { return c.Tools.PreviewPublish.ListenAddr() },
+			Fingerprint: previewPublishFingerprint,
+			Run: func(ctx context.Context, cfg *config.Config) error {
+				s := cfg.Tools.PreviewPublish.ToolSettings(cfg.Paths.Home)
+				return preview.ServePublished(ctx, preview.PublishOptions{
+					Root:       s.Root,
+					ListenAddr: cfg.Tools.PreviewPublish.ListenAddr(),
+					PublicURL:  s.PublicURL,
+					Log:        logger.Component(rt.Log, "preview.publish"),
+				})
+			},
+		},
 		metrics,
 	}
+}
+
+// previewPublishFingerprint is everything a rebuilt origin would read
+// differently, apart from its listen address, which RestartKey answers. The
+// lifetime and the size bound are not in it: they are read by the publishing
+// tool, not by the origin, and rebinding the port because somebody edited a
+// number the listener never looks at is a blip for nothing.
+func previewPublishFingerprint(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	s := c.Tools.PreviewPublish.ToolSettings(c.Paths.Home)
+	return s.Root + "\x00" + s.PublicURL
 }
 
 // swarmFingerprint is everything a rebuilt relay would read differently, apart
@@ -798,6 +877,13 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 				auth = "bearer token"
 			}
 			_, _ = fmt.Fprintf(w, "  metrics     http://%s/metrics  (%s)\n", cfg.Metrics.ListenAddr(), auth)
+		case serve.KindPreviewPublish:
+			// Where the bytes are served from and where a visitor reads them,
+			// which are the same address only when nothing fronts the origin.
+			_, _ = fmt.Fprintf(w, "  previews    http://%s  (published at %s)\n",
+				cfg.Tools.PreviewPublish.ListenAddr(),
+				config.PreviewPublicURL(cfg.Tools.PreviewPublish.PublicURL,
+					cfg.Tools.PreviewPublish.ResolvedHost(), cfg.Tools.PreviewPublish.ResolvedPort()))
 		}
 	}
 }

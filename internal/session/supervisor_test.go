@@ -1084,6 +1084,7 @@ func TestGoalCommandQueuedDuringATurnRunsAtTheBoundary(t *testing.T) {
 // command that starts no turn takes its pictures away with it.
 func TestGoalCommandQueuedWithPicturesRunsAtTheBoundary(t *testing.T) {
 	h := newGoalHarness(t)
+	h.mgr.Cfg().Models[0].Multimodal = true
 	pictures := []acp.ImagePartRef{{DataURL: "data:image/png;base64,iVBORw0KGgo=", Name: "shot.png"}}
 	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
 		for _, text := range []string{"/goal ship it", "/goal pause"} {

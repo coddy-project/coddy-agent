@@ -29,8 +29,16 @@ import type { DiffView } from "./diffViewPrefs";
 import { fetchSessionChangeFile } from "./api";
 import { treeOrder } from "./fileTree";
 import type { ChangedFile } from "./types";
+import { isFileViewed, setFileViewed } from "./viewedFiles";
 import { useDiscard } from "./useDiscard";
 import { useWorkingCopy } from "./workingCopy";
+import { ViewedProgress } from "./ViewedProgress";
+
+function changeRevision(file: ChangedFile, patch: string | undefined): string {
+  return (
+    file.digest ?? patch ?? `${file.status}:${file.additions}:${file.deletions}`
+  );
+}
 
 /** How many patches are in flight at once. Enough to fill a screen quickly
  *  without opening a request per file in a large change set. */
@@ -38,6 +46,8 @@ const PATCH_CONCURRENCY = 4;
 
 interface PatchState {
   patch?: string;
+  before?: string | undefined;
+  after?: string | undefined;
   error?: string;
   truncated?: boolean;
 }
@@ -72,7 +82,7 @@ function usePatches(
     if (!sessionId.trim()) {
       return;
     }
-    const queue = files.filter((f) => !f.binary).map((f) => f.path);
+    const queue = files.filter((f) => !f.binary || f.image).map((f) => f.path);
     let cancelled = false;
     let next = 0;
 
@@ -93,7 +103,12 @@ function usePatches(
           copy.set(
             path,
             res.ok
-              ? { patch: res.data.patch, truncated: res.data.truncated }
+              ? {
+                  patch: res.data.patch,
+                  before: res.data.before,
+                  after: res.data.after,
+                  truncated: res.data.truncated,
+                }
               : { error: res.message },
           );
           return copy;
@@ -161,6 +176,7 @@ export function EditsView(props: {
   const [expandedWindow, setExpandedWindow] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState("");
+  const [, setViewedVersion] = useState(0);
   // A file picked in the tree, scrolled to once the diffs are on screen (on a
   // phone the tree gives way to them first).
   const [jump, setJump] = useState<{ path: string; seq: number } | null>(null);
@@ -174,6 +190,7 @@ export function EditsView(props: {
   const wc = useWorkingCopy(sessionId, { enabled: true });
   const changes = wc.changes;
   const discard = useDiscard(sessionId);
+  const restoredViewedWorkspace = useRef("");
 
   // Two columns of code need width the stacked shell does not have, so the
   // narrow layout reads every diff inline and hides the choice rather than
@@ -208,6 +225,34 @@ export function EditsView(props: {
   }, []);
 
   const patches = usePatches(sessionId, changes.files);
+  const viewedCount = changes.files.filter((file) =>
+    isFileViewed(
+      workspacePath,
+      file.path,
+      changeRevision(file, patches.get(file.path)?.patch),
+    ),
+  ).length;
+
+  useEffect(() => {
+    if (
+      !workspacePath ||
+      changes.files.length === 0 ||
+      restoredViewedWorkspace.current === workspacePath ||
+      !changes.files.every((file) => file.digest || patches.has(file.path))
+    ) {
+      return;
+    }
+    restoredViewedWorkspace.current = workspacePath;
+    const viewed = changes.files
+      .filter((file) => {
+        const revision = changeRevision(file, patches.get(file.path)?.patch);
+        return isFileViewed(workspacePath, file.path, revision);
+      })
+      .map((file) => file.path);
+    if (viewed.length > 0) {
+      setCollapsed((current) => new Set([...current, ...viewed]));
+    }
+  }, [workspacePath, changes.files, patches]);
 
   // The diffs read in the order the tree lists their files, so the mark that
   // follows the scroll walks the tree from top to bottom.
@@ -234,6 +279,12 @@ export function EditsView(props: {
   const pick = (path: string) => {
     pickedRef.current = path;
     setActive(path);
+    setCollapsed((current) => {
+      if (!current.has(path)) return current;
+      const next = new Set(current);
+      next.delete(path);
+      return next;
+    });
     if (onPhone()) setTreeOpen(false);
     setJump((prev) => ({ path, seq: (prev?.seq ?? 0) + 1 }));
   };
@@ -389,6 +440,7 @@ export function EditsView(props: {
           </div>
         </div>
         <div className="files-actions">
+          <ViewedProgress viewed={viewedCount} total={changes.files.length} />
           <div className="files-more-host">
             <button
               type="button"
@@ -539,14 +591,19 @@ export function EditsView(props: {
             ) : (
               files.map((file) => {
                 const state = patches.get(file.path);
+                const revision = changeRevision(file, state?.patch);
                 return (
                   <DiffFileSection
                     key={file.path}
+                    sessionId={props.sessionId}
                     file={{
                       ...file,
+                      before: state?.before,
+                      after: state?.after,
                       truncated: state?.truncated ?? file.truncated,
                     }}
                     patch={state?.patch ?? ""}
+                    active={onShow === file.path}
                     loading={!state}
                     error={state?.error ?? ""}
                     collapsed={collapsed.has(file.path)}
@@ -557,6 +614,12 @@ export function EditsView(props: {
                     onDiscard={() =>
                       void discard.discardFile(file.path, file.status)
                     }
+                    onDelete={() => void discard.deleteFile(file.path)}
+                    viewed={isFileViewed(workspacePath, file.path, revision)}
+                    onViewedChange={(viewed) => {
+                      setFileViewed(workspacePath, file.path, revision, viewed);
+                      setViewedVersion((version) => version + 1);
+                    }}
                   />
                 );
               })

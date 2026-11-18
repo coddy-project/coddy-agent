@@ -3,10 +3,32 @@
 
 @use "../abstracts" as *;
 
-/* Desktop main padding (shell with side rail) */
+/* Desktop chat column (shell with side rail). The column is the whole height
+   of the window, so the transcript's scroller - and the scrollbar with it -
+   runs from the top kerb to the bottom one instead of stopping 14px short at
+   both ends. The 14px the column used to keep clear its contents keep: the
+   sticky head pads itself by them above the chat header, the docked block by
+   them under the composer's card (the stacked shell pads it the same way), so
+   the header, the card and the rail stand exactly where they did and only the
+   text passing behind them reaches the edge. The block's padding is also what
+   ChatScreen measures for `contentEndAboveBlockEnd`, so a transcript parked at
+   its end keeps its two row gaps over the card. */
 @media (min-width: 1200px) {
   .main {
-    padding: 14px 0;
+    padding: 0;
+  }
+
+  /* The start screen is no scroller and takes no part in this. */
+  .main.is-empty {
+    padding: 24px 0 14px;
+  }
+
+  .chat-scroll-sticky-head {
+    padding-top: 14px;
+  }
+
+  .chat-bottom {
+    padding-bottom: 14px;
   }
 
   :root {

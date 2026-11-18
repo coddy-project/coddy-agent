@@ -70,3 +70,21 @@ func BenchmarkDirectCompletion(b *testing.B) {
 		benchmarkDirectCompletion(b, func(i int) string { return fmt.Sprintf("sess_bench_%d", i) })
 	})
 }
+
+func BenchmarkDirectRequestOptionsOutputCap(b *testing.B) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai"}, {Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "local/llama-3.1-8b"}, {Model: "codex/gpt-5.5"}},
+	}
+	for _, model := range []string{"local/llama-3.1-8b", "codex/gpt-5.5"} {
+		b.Run(model, func(b *testing.B) {
+			for b.Loop() {
+				maxTokens := 256
+				_, err := directRequestOptions(cfg, model, chatCompletionRequest{MaxTokens: &maxTokens})
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

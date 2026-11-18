@@ -115,7 +115,7 @@ A **turn** is one run of the agent on a session, on any surface of the process, 
 
 A prompt counts while the call that asked it waits, a subagent's included. One whose stream ended before an answer waits in no call, so it counts again only when it is resumed. A turn that waits for a prompt is not hung, and the waiting prompts tell `CoddyTurnLongRunning` apart from a stuck turn.
 
-The quota families are read from the cache the session manager keeps for the usage panels of the surfaces, so a scrape asks no provider anything, and the numbers are as old as the last read the surfaces made (a turn's end reads them again). They exist for the provider types that have a usage reader: `neuraldeep`, `codex` and `devin`, with `providers[].usage_limits_panel` on. `window` is one of `session`, `day`, `week`, `acu` and `window-<seconds>`, with `-secondary` after a second window of the same length. A snapshot whose last read failed is left out rather than reported with old numbers.
+The quota families are read from the cache the session manager keeps for the usage panels of the surfaces, so a scrape asks no provider anything, and the numbers are as old as the last read the surfaces made (a turn's end reads them again). They exist for the provider types that have a usage reader: `neuraldeep`, `codex`, `devin` and `openai`, with `providers[].usage_limits_panel` on. `window` is one of `session`, `day`, `week`, `acu` and `window-<seconds>`, with `-secondary` after a second window of the same length. A snapshot whose last read failed is left out rather than reported with old numbers.
 
 ### Labels and their budget
 

@@ -30,6 +30,51 @@ func metadataResponse(cfg *config.Config, yamlSel string) map[string]string {
 	return out
 }
 
+// profileModelForImageCheck resolves the model a profile request would use,
+// without applying its metadata. The boolean is false when malformed metadata
+// must be reported by applyProfileSettings instead of an image capability
+// error taking precedence.
+func profileModelForImageCheck(cfg *config.Config, st *session.State, raw json.RawMessage) (string, bool) {
+	model := effectiveYAMLModel(cfg, st)
+	if len(raw) == 0 {
+		return model, true
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return "", false
+	}
+	if v, ok := m["settingsVersion"]; ok && len(v) > 0 && string(v) != "null" {
+		var version uint64
+		if err := json.Unmarshal(v, &version); err != nil {
+			var text string
+			if json.Unmarshal(v, &text) != nil {
+				return "", false
+			}
+			parsed, err := strconv.ParseUint(strings.TrimSpace(text), 10, 64)
+			if err != nil {
+				return "", false
+			}
+			version = parsed
+		}
+		if version > 0 && version < st.PublishedSettingsVersion() {
+			return model, true
+		}
+	}
+	v, ok := m["model"]
+	if !ok {
+		return model, true
+	}
+	var id string
+	if string(v) == "null" || json.Unmarshal(v, &id) != nil {
+		return "", false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" || cfg == nil || cfg.FindModelEntry(id) == nil {
+		return "", false
+	}
+	return id, true
+}
+
 // applyProfileSettings applies what a profile request says about the
 // session's settings - the mode its model field names, metadata.model,
 // metadata.reasoning and metadata.toolset - through the manager's setter, so every surface
@@ -107,6 +152,17 @@ func applyProfileSettings(ctx context.Context, mgr *session.Manager, st *session
 			ch.Reasoning = &level
 		}
 	}
+	if v, ok := m["service_tier"]; ok {
+		var tier string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &tier); err != nil {
+				return err
+			}
+		}
+		if tier != st.GetSelectedServiceTier() || ch.Model != nil {
+			ch.ServiceTier = &tier
+		}
+	}
 	// A toolset picked before the chat had a session rides in with its first
 	// message; the setter refuses a name the configuration does not have.
 	if v, ok := m["toolset"]; ok && string(v) != "null" {
@@ -158,10 +214,34 @@ func reasoningLevelOffered(cfg *config.Config, ent *config.ModelEntry, level str
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
 // coerceMetadataJSON returns an error when metadata is non-empty invalid JSON.
 func coerceMetadataJSON(raw json.RawMessage) error {
-	if len(raw) == 0 || json.Valid(raw) {
+	if len(raw) == 0 {
 		return nil
 	}
-	return errors.New("metadata is not valid JSON")
+	if !json.Valid(raw) {
+		return errors.New("metadata is not valid JSON")
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) == nil {
+		if v, ok := fields["image_generation"]; ok && string(v) != "true" && string(v) != "false" {
+			return errors.New("metadata.image_generation must be a boolean")
+		}
+	}
+	return nil
+}
+
+func imageGenerationFromHTTP(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return false
+	}
+	return string(fields["image_generation"]) == "true"
+}
+
+func nativeImageProviderError(cfg *config.Config, st *session.State, raw json.RawMessage) error {
+	if !imageGenerationFromHTTP(raw) {
+		return nil
+	}
+	return session.NativeImageGenerationError(cfg, effectiveYAMLModel(cfg, st))
 }
 
 func completionMetadataForbidden(raw json.RawMessage) bool {

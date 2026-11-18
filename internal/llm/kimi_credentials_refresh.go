@@ -38,6 +38,8 @@ const (
 	kimiUnauthorizedRecoveryWait = 100 * time.Millisecond
 )
 
+var errKimiRefreshRateLimited = errors.New("kimi credentials: refresh rate limited")
+
 // kimiNeedsRefresh mirrors the upstream rule: a forced call always
 // refreshes; otherwise a token refreshes once its remaining lifetime falls
 // below max(300s, expires_in/2). A token without an expiry never refreshes
@@ -289,6 +291,12 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 		if errors.Is(refreshErr, ErrKimiCredentialUnauthorized) {
 			return r.resolveUnauthorized(cred, intentPath)
 		}
+		if isDialFailure(refreshErr) || errors.Is(refreshErr, errKimiRefreshRateLimited) {
+			if err := r.store.removeIntent(intentPath); err != nil {
+				return "", fmt.Errorf("kimi credentials: cannot clear refresh intent: %w", err)
+			}
+			return "", refreshErr
+		}
 		// The server may have rotated even if the response was lost.
 		return "", fmt.Errorf("%w: %w", ErrKimiCredentialUncertain, refreshErr)
 	}
@@ -379,11 +387,12 @@ func (r *KimiCredentialRefresher) refreshRequest(ctx context.Context, refreshTok
 		TokenType    string  `json:"token_type"`
 		Error        string  `json:"error"`
 	}
-	status, err := kimiPostForDevice(ctx, r.client, endpoint, url.Values{
+	var headers http.Header
+	status, err := kimiPostForDeviceWithHeaders(ctx, r.client, endpoint, url.Values{
 		"client_id":     {kimiClientID},
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
-	}, &out, deviceID)
+	}, &out, deviceID, &headers)
 	if err != nil {
 		return KimiCredential{}, err
 	}
@@ -399,6 +408,9 @@ func (r *KimiCredentialRefresher) refreshRequest(ctx context.Context, refreshTok
 	}
 	if status == http.StatusUnauthorized || status == http.StatusForbidden || out.Error == "invalid_grant" {
 		return KimiCredential{}, fmt.Errorf("%w (status %d)", ErrKimiCredentialUnauthorized, status)
+	}
+	if status == http.StatusTooManyRequests {
+		return KimiCredential{}, fmt.Errorf("%w: %w", errKimiRefreshRateLimited, &httpStatusError{label: "kimi credentials: refresh", status: status, header: headers})
 	}
 	return KimiCredential{}, fmt.Errorf("kimi credentials: refresh failed (status %d)", status)
 }

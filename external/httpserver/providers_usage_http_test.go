@@ -24,7 +24,7 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 		Providers: []config.ProviderConfig{
 			{Name: "neuraldeep", Type: "neuraldeep"},
 			{Name: "nd-quiet", Type: "neuraldeep", UsageLimitsPanel: &off},
-			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
+			{Name: "stub", Type: "anthropic", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{{Model: "neuraldeep/qwen", MaxTokens: 100, MaxContextTokens: 1000}},
 		Agent:  config.Agent{Model: "neuraldeep/qwen"},
@@ -60,7 +60,7 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	if usage == nil || usage["provider"] != "neuraldeep" || usage["error"] != "unauthorized" {
 		t.Fatalf("no credential usage = %v", out["usage"])
 	}
-	if status, out = get("/coddy/providers/stub/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["provider"] != "stub" || out["providerType"] != "openai" {
+	if status, out = get("/coddy/providers/stub/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["provider"] != "stub" || out["providerType"] != "anthropic" {
 		t.Fatalf("unsupported: status=%d body=%v", status, out)
 	}
 	if _, has := out["disabled"]; has {
@@ -70,5 +70,19 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	// without a source and says why, so a client can tell the two apart.
 	if status, out = get("/coddy/providers/nd-quiet/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["disabled"] != true || out["provider"] != "nd-quiet" || out["providerType"] != "neuraldeep" {
 		t.Fatalf("switched-off panel: status=%d body=%v", status, out)
+	}
+	status, out = get("/coddy/providers/usage")
+	rows, _ := out["providers"].([]interface{})
+	if status != http.StatusOK || len(rows) != 3 {
+		t.Fatalf("all provider states: status=%d body=%v", status, out)
+	}
+	for i, name := range []string{"neuraldeep", "nd-quiet", "stub"} {
+		row, _ := rows[i].(map[string]interface{})
+		if row["provider"] != name {
+			t.Fatalf("provider order: %v", rows)
+		}
+	}
+	if rows[1].(map[string]interface{})["disabled"] != true {
+		t.Fatalf("disabled provider missing from limits: %v", rows[1])
 	}
 }

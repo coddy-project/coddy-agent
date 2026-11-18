@@ -1125,3 +1125,71 @@ func TestACPPoolWaitsForAnAgentBeingKilled(t *testing.T) {
 		t.Fatal("acquire never returned")
 	}
 }
+
+// An agent that names its tool beside its title (ACP's toolCall.name) gives a
+// row it can be recognised by: a title that is only the tool's bare name reads
+// as the tool the agent actually ran, not as the kind every other row shares.
+func TestACPProviderTitlesAnAgentToolByItsProgrammaticName(t *testing.T) {
+	in, _ := acpRow(t, acptest.Script{Turns: []acptest.Turn{{
+		Tools: []acptest.Tool{{
+			ID:     "t1",
+			Title:  "read",
+			Name:   "fs_read_file",
+			Kind:   "read",
+			Input:  map[string]string{"file_path": "README.md"},
+			Output: "# Readme",
+		}},
+		Text: []string{"done"},
+	}}})
+	tools := map[string]AgentToolCall{}
+	if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("hi")), nil, func(c StreamChunk) {
+		if c.AgentTool != nil {
+			tools[c.AgentTool.ID] = *c.AgentTool
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := tools["t1"]
+	if !ok {
+		t.Fatalf("no tool row in %#v", tools)
+	}
+	if got.ToolName != "fs_read_file" {
+		t.Errorf("ToolName = %q, want fs_read_file", got.ToolName)
+	}
+	if got.Title != "fs_read_file README.md" {
+		t.Errorf("Title = %q, want the tool name and what it works on", got.Title)
+	}
+}
+
+// A title the agent wrote itself is what a person reads: the programmatic name
+// never overrides it.
+func TestACPProviderKeepsAnAgentsOwnTitleOverTheToolName(t *testing.T) {
+	in, _ := acpRow(t, acptest.Script{Turns: []acptest.Turn{{
+		Tools: []acptest.Tool{{
+			ID:     "t1",
+			Title:  "Read the changelog",
+			Name:   "fs_read_file",
+			Kind:   "read",
+			Output: "changelog",
+		}},
+		Text: []string{"done"},
+	}}})
+	tools := map[string]AgentToolCall{}
+	if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("hi")), nil, func(c StreamChunk) {
+		if c.AgentTool != nil {
+			tools[c.AgentTool.ID] = *c.AgentTool
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := tools["t1"]
+	if !ok {
+		t.Fatalf("no tool row in %#v", tools)
+	}
+	if got.Title != "Read the changelog" {
+		t.Errorf("Title = %q, want the agent's own title", got.Title)
+	}
+	if got.ToolName != "fs_read_file" {
+		t.Errorf("ToolName = %q, want it kept beside the title", got.ToolName)
+	}
+}

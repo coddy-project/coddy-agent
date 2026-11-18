@@ -727,3 +727,27 @@ test("the live line says the session is being prepared until the turn talks to i
     "Waiting for the model",
   );
 });
+
+test("renders an image-only assistant row", () => {
+  render(
+    <MessageList
+      items={[
+        {
+          id: "a1",
+          type: "assistant_message",
+          content: "",
+          files: [
+            {
+              name: "result.png",
+              mimeType: "image/png",
+              url: "/coddy/sessions/s/assets/result.png",
+            },
+          ],
+        },
+      ]}
+    />,
+  );
+  expect(
+    screen.getByRole("button", { name: "Open generated image result.png" }),
+  ).toBeVisible();
+});

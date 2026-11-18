@@ -3,7 +3,7 @@
  * everything the Settings drawer draws. The index walks the served schema with
  * SchemaForm's own layout (layoutSchemaForm), the tabs' form groups and the
  * texts the overrides draw (overrideTexts), so a name is searched as it is
- * shown. The document is read only for the row names of the two lists.
+ * shown. The document is read for list row names and provider-specific fields.
  */
 import {
   defaultForSchema,
@@ -295,7 +295,7 @@ export type SettingsLandmark = {
   keyPath?: string;
   place: "before" | "after";
   /** The block's own predicate: false where the tab does not draw it. */
-  shown?: () => boolean;
+  shown?: (doc: PlainObject) => boolean;
   /** Present for a block of a list's row form; says whether this row draws it. */
   row?: (row: Record<string, unknown>) => boolean;
 };
@@ -312,6 +312,15 @@ function landmark(
 }
 
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
+  landmark("httpserver", "account", "authAccount", "before"),
+  landmark("httpserver", "authenticator", "authAuthenticator", "before"),
+  landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
+    shown: backupCodesShown,
+  }),
+  landmark("statistics", "enable", "statisticsEnable", "before"),
+  landmark("statistics", "timezone", "statisticsCounters", "before"),
+  landmark("statistics", "exchange_rate", "statisticsExchangeRate", "before"),
+  landmark("statistics", "prices", "statisticsPrices", "before"),
   landmark("appearance", "theme", "appearanceTheme", "before"),
   landmark("appearance", "simple", "appearanceSimple", "before"),
   landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
@@ -350,6 +359,10 @@ function asObject(v: unknown): PlainObject {
     : {};
 }
 
+function backupCodesShown(doc: PlainObject): boolean {
+  return asObject(asObject(doc.httpserver).login).totp_configured === true;
+}
+
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
@@ -365,17 +378,19 @@ function rowLabel(row: unknown, field: string): string {
 
 /**
  * What the index reads from the document: the trimmed row names of the two
- * lists and a provider's type. The index is rebuilt when this changes only.
+ * lists, a provider's type and whether the backup codes block is shown. The
+ * index is rebuilt when this changes only.
  */
 export function settingsIndexRowsKey(doc: PlainObject): string {
-  return JSON.stringify(
-    Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
+  return JSON.stringify({
+    rows: Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
       asArray(doc[key]).map((row) => [
         rowLabel(row, field),
         key === "providers" ? text(asObject(row)["type"]) : "",
       ]),
     ),
-  );
+    backupCodes: backupCodesShown(doc),
+  });
 }
 
 type Form = {
@@ -392,6 +407,7 @@ type Walk = {
   section: SectionDescriptor;
   form: Form;
   row: string | null;
+  doc: PlainObject;
 };
 
 type FieldFrame = {
@@ -409,7 +425,7 @@ type FieldFrame = {
 function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
-  const box = overrideTexts(form.domain, path, parent, schema);
+  const box = overrideTexts(form.domain, path, parent, schema, walk.doc);
   if (box === false) {
     return;
   }
@@ -422,6 +438,12 @@ function walkField(frame: FieldFrame): void {
       ? [texts.primary]
       : [texts.primary, texts.second];
   const anchor = fieldAnchor(form.domain, path);
+  const passwordHint =
+    form.domain === "httpserver.login" && path === "password"
+      ? translate(SETTINGS_TEXTS.authPassword.desc!)
+      : form.domain === "httpserver.login" && path === "session_ttl_hours"
+        ? translate(SETTINGS_TEXTS.authTtl.desc!)
+        : undefined;
   walk.out.push(
     makeSearchEntry({
       kind: box === null && isBlockField(schema) ? "block" : "field",
@@ -431,9 +453,10 @@ function walkField(frame: FieldFrame): void {
       list,
       fallbackAnchor: list,
       names,
-      descriptions: [texts.primaryDesc, texts.secondDesc].filter(
-        (d): d is string => !!d,
-      ),
+      descriptions: [
+        texts.primaryDesc ?? passwordHint,
+        texts.secondDesc,
+      ].filter((d): d is string => !!d),
       where,
       keyPath,
     }),
@@ -544,9 +567,10 @@ function landmarkEntries(
   section: SectionDescriptor,
   landmarks: readonly SettingsLandmark[],
   row: string | null,
+  doc: PlainObject,
 ): void {
   for (const l of landmarks) {
-    if (l.shown !== undefined && !l.shown()) {
+    if (l.shown !== undefined && !l.shown(doc)) {
       continue;
     }
     const text: DrawnText = SETTINGS_TEXTS[l.heading];
@@ -597,6 +621,24 @@ function tabForms(
       : null;
   };
   switch (section.kind) {
+    case "authentication": {
+      const schema = props[key]?.properties?.login;
+      return schema
+        ? {
+            forms: [
+              {
+                form: {
+                  domain: "httpserver.login",
+                  keyRoot: "httpserver.login",
+                  schema,
+                  groups: undefined,
+                },
+                value: asObject(asObject(doc[key]).login),
+              },
+            ],
+          }
+        : null;
+    }
     case "object":
       return one(section.id, key, objectSectionGroups(key));
     case "skills":
@@ -699,9 +741,9 @@ export function buildSettingsSearchIndex(input: {
     const blocks = (place: "before" | "after") =>
       landmarks.filter((l) => l.row === undefined && l.place === place);
 
-    landmarkEntries(out, section, blocks("before"), null);
+    landmarkEntries(out, section, blocks("before"), null, input.doc);
     for (const { form, value } of generated.forms) {
-      walkForm({ out, section, form, row: null }, value, tab);
+      walkForm({ out, section, form, row: null, doc: input.doc }, value, tab);
     }
     const key = section.schemaKey ?? section.id;
     for (const { label, row } of generated.rows
@@ -717,18 +759,26 @@ export function buildSettingsSearchIndex(input: {
           where: tab,
         }),
       );
-      walkForm({ out, section, form: generated.rows!, row: label }, row, [
-        ...tab,
-        label,
-      ]);
+      walkForm(
+        {
+          out,
+          section,
+          form: generated.rows!,
+          row: label,
+          doc: input.doc,
+        },
+        row,
+        [...tab, label],
+      );
       landmarkEntries(
         out,
         section,
         landmarks.filter((l) => l.row?.(row) === true),
         label,
+        input.doc,
       );
     }
-    landmarkEntries(out, section, blocks("after"), null);
+    landmarkEntries(out, section, blocks("after"), null, input.doc);
   }
   return out;
 }

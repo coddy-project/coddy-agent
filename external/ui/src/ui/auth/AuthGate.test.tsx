@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -60,6 +61,19 @@ function renderGate() {
 beforeEach(() => {
   initLocale("en");
   document.documentElement.dataset.theme = "dark";
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as MediaQueryList,
+  );
   resetAuthStateForTests();
   seen.length = 0;
   envMode = "local";
@@ -69,6 +83,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("AuthGate", () => {
@@ -85,6 +100,27 @@ describe("AuthGate", () => {
     expect(await screen.findByTestId("sign-in-screen")).toBeInTheDocument();
     expect(screen.queryByTestId("the-app")).not.toBeInTheDocument();
   });
+
+  it.each([
+    [undefined, true],
+    [true, true],
+    [false, false],
+  ])(
+    "shows the remember checkbox when allowed (%s)",
+    async (available, visible) => {
+      respond = () =>
+        jsonResponse(200, {
+          login_required: true,
+          authenticated: false,
+          remember_available: available,
+        });
+      renderGate();
+      await screen.findByTestId("sign-in-screen");
+      expect(
+        screen.queryByRole("checkbox", { name: "Keep me signed in" }) !== null,
+      ).toBe(visible);
+    },
+  );
 
   it("renders the app once the browser is signed in", async () => {
     respond = () =>
@@ -161,6 +197,53 @@ describe("SignInScreen", () => {
     );
   });
 
+  it("issues only one login request for a rapid double submit", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    hang = true;
+    const form = document.querySelector("form")!;
+
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+
+    expect(seen.filter((s) => s.url === "/coddy/auth/login")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Signing in…" })).toBeDisabled();
+  });
+
+  it("asks for a 24-hour cookie only when remember me is checked", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByLabelText("Keep me signed in"));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() =>
+      expect(seen.find((s) => s.url === "/coddy/auth/login")?.body).toBe(
+        JSON.stringify({
+          user: "operator",
+          password: "correct-horse",
+          remember: true,
+        }),
+      ),
+    );
+  });
+
   // A page embedded in another site (Telegram Web runs a Mini App in an
   // iframe) gets the cookie of a sign-in the server accepted, and the browser
   // does not send it back. A reload would only bring the form back with no
@@ -227,6 +310,315 @@ describe("SignInScreen", () => {
     expect(password).toHaveValue("");
     // ...and the app is still not rendered.
     expect(screen.queryByTestId("the-app")).not.toBeInTheDocument();
+  });
+
+  it("keeps the code field and enrollment material off the password step", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        second_factor: "totp",
+        authenticated: false,
+      });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    expect(screen.queryByTestId("sign-in-code")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("One-time code")).not.toBeInTheDocument();
+    expect(document.querySelector(".auth-enrollment-qr")).toBeNull();
+    expect(screen.queryByText(/secret|qr code/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+
+  it("shows the second step only after a password challenge and verifies the code", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    let signedIn = false;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      if (url === "/coddy/auth/login/verify") {
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        second_factor: "totp",
+        authenticated: signedIn,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Two-step verification" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Step 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    const code = screen.getByLabelText("One-time code");
+    expect(code).toHaveAttribute("autocomplete", "one-time-code");
+    expect(code).toHaveAttribute("inputmode", "numeric");
+    expect(code).toHaveAttribute("maxlength", "6");
+    expect(screen.getByTestId("sign-in-period")).toBeInTheDocument();
+    expect(document.querySelector(".auth-enrollment-qr")).toBeNull();
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const post = seen.find((s) => s.url === "/coddy/auth/login/verify");
+    expect(post?.body).toBe(
+      JSON.stringify({
+        challenge: "challenge-1",
+        code: "123456",
+      }),
+    );
+  });
+
+  it("clears a refused code and returns to the password step without retrying", async () => {
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      if (url === "/coddy/auth/login/verify") {
+        return jsonResponse(401, { error: "invalid or used challenge" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        second_factor: "totp",
+        authenticated: false,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.change(await screen.findByLabelText("One-time code"), {
+      target: { value: "000000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The code was not accepted. Enter your password to try again.",
+    );
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.queryByLabelText("One-time code")).not.toBeInTheDocument();
+    expect(
+      seen.filter((s) => s.url === "/coddy/auth/login/verify"),
+    ).toHaveLength(1);
+  });
+
+  it("accepts a formatted backup code and offers a way back to the authenticator", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    let signedIn = false;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      if (url === "/coddy/auth/login/verify") {
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: signedIn,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Use a backup code" }),
+    );
+
+    const backup = screen.getByLabelText("Backup code");
+    expect(backup).toHaveAttribute("autocomplete", "one-time-code");
+    expect(
+      screen.getByRole("button", { name: "Use an authenticator code" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use an authenticator code" }),
+    );
+    expect(screen.getByLabelText("One-time code")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use a backup code" }));
+    fireEvent.change(screen.getByLabelText("Backup code"), {
+      target: { value: "8F3K-92M Q7X" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(seen.find((s) => s.url === "/coddy/auth/login/verify")?.body).toBe(
+      JSON.stringify({ challenge: "challenge-1", code: "8F3K-92M Q7X" }),
+    );
+  });
+
+  it("back returns to the password step without preserving the challenge", async () => {
+    let challenge = 0;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        challenge += 1;
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: `challenge-${challenge}`,
+        });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: false,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByLabelText("One-time code");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to login" }));
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.queryByLabelText("One-time code")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "fresh-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByLabelText("One-time code")).toBeInTheDocument();
+    expect(seen.filter((s) => s.url === "/coddy/auth/login")).toHaveLength(2);
+    expect(
+      seen.filter((s) => s.url === "/coddy/auth/login/verify"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a challenge after status 0 so the reader can retry intentionally", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    let offline = true;
+    let signedIn = false;
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      if (url === "/coddy/auth/login/verify") {
+        if (offline) throw new Error("network down");
+        signedIn = true;
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: signedIn,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.change(await screen.findByLabelText("One-time code"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The server did not answer",
+    );
+    expect(screen.getByLabelText("One-time code")).toHaveValue("");
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(
+      seen.filter((s) => s.url === "/coddy/auth/login/verify"),
+    ).toHaveLength(1);
+
+    offline = false;
+    fireEvent.change(screen.getByLabelText("One-time code"), {
+      target: { value: "654321" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    const attempts = seen.filter((s) => s.url === "/coddy/auth/login/verify");
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.body).toBe(
+      JSON.stringify({ challenge: "challenge-1", code: "654321" }),
+    );
+  });
+
+  it("shrinks the authenticator period with its seconds label", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(5000);
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, {
+          second_factor: "totp",
+          challenge: "challenge-1",
+        });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: false,
+      });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByTestId("sign-in-period");
+
+    const fill = document.querySelector<HTMLElement>(".auth-period-fill")!;
+    expect(fill.style.width).toBe(`${(25 / 30) * 100}%`);
+    expect(screen.getByTestId("sign-in-period")).toHaveTextContent("25");
+    now.mockReturnValue(6000);
+    await waitFor(() => {
+      expect(parseFloat(fill.style.width)).toBeLessThan((25 / 30) * 100);
+      expect(screen.getByTestId("sign-in-period")).toHaveTextContent("24");
+    });
   });
 
   it("names the misconfiguration when the form has no account behind it", async () => {

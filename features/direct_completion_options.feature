@@ -34,3 +34,9 @@ Feature: A direct model applies the generation options of a chat completion requ
     Given a coddy server whose direct model "codex/gpt-5.5" is a codex model reasoning at "medium" by default
     When an OpenAI client streams "codex/gpt-5.5" with reasoning_effort "none"
     Then the provider received the reasoning level "none"
+
+  Scenario: A codex model accepts an output cap and reports that it is not enforced
+    Given a coddy server whose direct model "codex/gpt-5.5" is a codex model reasoning at "medium" by default
+    When an OpenAI client streams "codex/gpt-5.5" with max_tokens 256
+    Then the answer reports that "max_tokens" was ignored
+    And the Codex upstream request carried no output cap

@@ -232,6 +232,8 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	switch u := update.(type) {
 	case acp.MessageChunkUpdate:
 		return s.forwardTextChunk(u)
+	case acp.AssistantImagesUpdate:
+		return s.writeNamedEventJSON("assistant_images", u)
 	case acp.ToolCallUpdate:
 		return s.writeNamedEventJSON("tool_call", u)
 	case acp.ToolCallStatusUpdate:
@@ -486,7 +488,10 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 		unregisterQuestionWait(sid, rid)
 		s.notifyQuestionPending(sid, false)
 	}()
-	if err := s.writeNamedEventJSON("question", params); err != nil {
+	if err := s.writeNamedEventJSON("question", struct {
+		acp.QuestionRequestParams
+		SupportsError bool `json:"supportsError"`
+	}{params, true}); err != nil {
 		if _, merr := json.Marshal(params); merr != nil {
 			// Same rule as in RequestPermission: only a payload that never
 			// existed as an event aborts the wait.
@@ -497,11 +502,14 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 		// through POST /coddy/sessions/{id}/question, not through this stream.
 	}
 	select {
-	case res := <-ch:
-		if res == nil {
+	case reply := <-ch:
+		if reply.err != nil {
+			return nil, reply.err
+		}
+		if reply.result == nil {
 			return &acp.QuestionResult{}, nil
 		}
-		return res, nil
+		return reply.result, nil
 	case <-ctx.Done():
 		return &acp.QuestionResult{}, ctx.Err()
 	}

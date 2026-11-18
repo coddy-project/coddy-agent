@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -51,6 +52,7 @@ const scopeHint = "[--once|--count=N]"
 
 // settingsCommands is the registry of settings commands, in menu order.
 var settingsCommands = []Command{
+	{Name: "service-tier", Setting: SettingServiceTier, arg: argRequired, Hint: "<tier|reset>", Description: "Set the service tier for this session; reset leaves Standard unset"},
 	{Name: "model", Setting: SettingModel, arg: argRequired, Hint: "<model id> " + scopeHint,
 		Description: "Switch the model for this session, or for the next turns with --once / --count=N"},
 	{Name: "reasoning", Aliases: []string{"effort"}, Setting: SettingReasoning, arg: argRequired, Hint: "<level|off|default> " + scopeHint,
@@ -119,6 +121,15 @@ func (c Command) Choices(cfg *config.Config, st *State) []string {
 	switch c.Setting {
 	case SettingModel:
 		return configuredModelIDs(cfg)
+	case SettingServiceTier:
+		if cfg == nil || st == nil {
+			return nil
+		}
+		choices := llm.ModelServiceTierChoices(cfg, st.SessionModelID(cfg))
+		if len(choices) == 0 {
+			return nil
+		}
+		return append([]string{"reset"}, choices...)
 	case SettingReasoning:
 		if cfg == nil || st == nil {
 			return nil
@@ -295,6 +306,11 @@ func (l *CommandLine) add(cmd Command, value string, turns int) {
 	switch cmd.Setting {
 	case SettingModel:
 		target.Model = &v
+	case SettingServiceTier:
+		if v == "reset" {
+			v = ""
+		}
+		target.ServiceTier = &v
 	case SettingReasoning:
 		target.Reasoning = &v
 	case SettingToolset:
@@ -439,6 +455,9 @@ func changeValues(ch SettingsChange) map[string]string {
 	if ch.Model != nil {
 		values[SettingModel] = *ch.Model
 	}
+	if ch.ServiceTier != nil {
+		values[SettingServiceTier] = *ch.ServiceTier
+	}
 	if ch.Reasoning != nil {
 		v := *ch.Reasoning
 		if v == "" {
@@ -479,6 +498,11 @@ func FormatSettingsCommands(changes []SettingsChange) string {
 			switch name {
 			case SettingModel:
 				lines = append(lines, "/model "+v+flag)
+			case SettingServiceTier:
+				if v == "" {
+					v = "reset"
+				}
+				lines = append(lines, "/service-tier "+v+flag)
 			case SettingReasoning:
 				lines = append(lines, "/reasoning "+v+flag)
 			case SettingToolset:

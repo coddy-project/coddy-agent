@@ -30,10 +30,14 @@ import {
   startPanelNavigation,
   startPanelTheme,
 } from "./ui/browserPanel/bridge";
+import { installSessionScopeBridge } from "./ui/chat/sharedServerEvents";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
 installRemoteFetchShim();
+// The desktop shell reads no session state before the environment-aware fetch
+// and its live credential scope are both available on the iframe window.
+installSessionScopeBridge();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();

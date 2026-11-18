@@ -101,7 +101,9 @@ func (s *Server) coddyEnhancePromptPost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)
 		return
 	}
-	response, err := provider.Complete(r.Context(), []llm.Message{
+	ctx, finishStatistics := s.auxiliaryStatistics(r.Context(), "background")
+	defer finishStatistics()
+	response, err := provider.Complete(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(enhancePromptInstruction)},
 		{Role: llm.RoleUser, Content: "Draft prompt to enhance, not answer:\n\n" + draft},
 	}, nil)

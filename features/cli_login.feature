@@ -53,6 +53,21 @@ Feature: Setting up a model provider from the console
     And config.yaml names "custom/mini-1" as agent.model
     And the footer shows "(custom) mini-1"
 
+  Scenario: The picker accepts pasted provider credentials
+    Given a stand-in OpenAI-compatible server that lists the model "mini-1"
+    And a coddy console app with no model provider configured
+    When the console app starts
+    And the operator picks "OpenAI-compatible" in the provider picker
+    Then the screen shows "OpenAI-compatible: API base URL"
+    When the operator pastes the stand-in server's address and confirms it
+    Then the screen shows "OpenAI-compatible: API key"
+    When the operator pastes "sk-stand-in" and confirms it
+    Then the screen shows "OpenAI-compatible: which model"
+    When the operator confirms the highlighted row
+    Then config.yaml lists the provider "custom" with the model "custom/mini-1"
+    And config.yaml names "custom/mini-1" as agent.model
+    And the footer shows "(custom) mini-1"
+
   Scenario: An existing Kimi CLI login reaches model discovery
     Given a synthetic Kimi CLI login and a stand-in discovery proxy
     And a coddy console app with a Kimi provider using the stand-in proxy

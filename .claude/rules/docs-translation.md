@@ -28,7 +28,7 @@ locale), so a page that is current in one language and stale in the other is a b
 
 Not translated: `docs/plans/` (design records), `docs/assets/` (shared: a Russian page embeds the same
 files), and the pages the map lists from the repository root (`CONTRIBUTING.md`, `DESIGN.md`,
-`AGENTS.md`). The changelog is generated in both languages.
+`AGENTS.md`).
 
 ## A Russian page
 
@@ -59,7 +59,7 @@ files), and the pages the map lists from the repository root (`CONTRIBUTING.md`,
 ## Commands
 
 ```bash
-make docs                                   # both hubs, generated blocks, the Russian changelog, the links of docs/ru
+make docs                                   # both hubs, generated blocks and the links of docs/ru
 make docs-check                             # what CI runs: both trees, the map, parity, stamps, links, typography
 make docs-stamp PAGES="docs/ru/features/mcp.md"   # after the Russian page says what the English one says
 make docs-stamp PAGES="..." UNCHANGED=1     # the English change needs no translation (a fixed typo)
@@ -120,6 +120,7 @@ Glossary (English - Russian):
   pipeline `a | b` included; a pipe that carries data into stdin ("data piped into coddy") - канал;
   a relay of any kind (the swarm's, the composer's, the permission relay) - релей (never "ретранслятор");
 - memory - память; compaction - сжатие контекста; context window - окно контекста;
+- cache - кеш;
 - reasoning - рассуждение; reasoning level - уровень рассуждения;
 - provider - провайдер; model - модель; environment - окружение; remote mode - удалённый режим;
 - surface - интерфейс; console - консоль; web UI - веб-интерфейс; harness - харнес;

@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
+import { writeWorktreePref } from "./chat/workspaceCookies";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
@@ -30,6 +31,7 @@ type StoredSession = {
   /** The session's own model and level (the snapshot). */
   model: string;
   reasoning: string;
+  serviceTier?: string;
   /** Levels the session may hold: the menu's, plus off where it exists. */
   choices: string[];
   permissionMode: string;
@@ -52,8 +54,12 @@ let sessions: Record<string, StoredSession>;
 let version: number;
 let posted: Array<{ metadata?: Record<string, string> }>;
 let newChatModelOffersOff: boolean;
+let workspaceIsGitRepo: boolean;
+let workspaceIsWorktree: boolean;
 
 function resetSessions() {
+  workspaceIsGitRepo = false;
+  workspaceIsWorktree = false;
   sessions = {
     [S_HIGH_BYPASS]: {
       model: ALPHA,
@@ -126,6 +132,8 @@ function snapshot(sid: string) {
     model: s.model,
     reasoning: s.reasoning,
     reasoningChoices: s.choices,
+    serviceTier: s.serviceTier ?? "",
+    serviceTierChoices: ["", "default", "priority"],
     mode: "agent",
     permissionMode: s.permissionMode,
     configuredPermissionMode: "ask",
@@ -148,6 +156,7 @@ const fetchMock = vi.fn(
           // Levels configured, no default named; off is not a menu level.
           {
             id: ALPHA,
+            service_tier_choices: ["", "default", "priority"],
             owned_by: "fake",
             max_context_tokens: 128000,
             reasoning_levels: newChatModelOffersOff
@@ -187,7 +196,10 @@ const fetchMock = vi.fn(
         const body = JSON.parse(String(init.body)) as {
           permissionMode?: string;
           selectedReasoning?: string;
+          selectedServiceTier?: string;
         };
+        if (body.selectedServiceTier !== undefined)
+          sessions[sid]!.serviceTier = body.selectedServiceTier;
         if (body.permissionMode)
           sessions[sid]!.permissionMode = body.permissionMode;
         if (body.selectedReasoning !== undefined)
@@ -209,7 +221,11 @@ const fetchMock = vi.fn(
     if (path === "/coddy/config") return json({});
     if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
     if (path === "/coddy/workspace/context")
-      return json({ cwd: "/workspace", is_git_repo: false });
+      return json({
+        cwd: "/workspace",
+        is_git_repo: workspaceIsGitRepo,
+        is_worktree: workspaceIsWorktree,
+      });
     return json({}, 404);
   },
 );
@@ -219,6 +235,7 @@ beforeEach(() => {
   resetSessions();
   initLocale("en");
   localStorage.clear();
+  document.cookie = "coddy_service_tier=; Path=/; Max-Age=0";
   document.cookie = "coddy_llm_reasoning=; Path=/; Max-Age=0";
   document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
   history.replaceState(null, "", "/");
@@ -312,6 +329,32 @@ test("a model picked on the start page does not replace an existing session's", 
   // the interface's language, which the documentation answers in.
   expect(meta.surface).toBe("webui");
   expect(meta.lang).toBe("en");
+  expect(meta).not.toHaveProperty("worktree");
+});
+
+test("the enabled worktree preference is sent with the turn", async () => {
+  writeWorktreePref(true);
+  workspaceIsGitRepo = true;
+  await mountSession(S_NO_LEVEL);
+
+  const meta = await send("next");
+  expect(meta.worktree).toBe(true);
+});
+
+test("a stored worktree preference stays out of a folder without git", async () => {
+  writeWorktreePref(true);
+  await mountSession(S_NO_LEVEL);
+
+  const meta = await send("next");
+  expect(meta).not.toHaveProperty("worktree");
+});
+
+test("an existing worktree sends the checked state even without the preference", async () => {
+  writeWorktreePref(false);
+  workspaceIsGitRepo = true;
+  workspaceIsWorktree = true;
+  await mountSession(S_NO_LEVEL);
+  expect((await send("next")).worktree).toBe(true);
 });
 
 test("a level picked on the start page stays out of a session with no level of its own", async () => {
@@ -477,8 +520,45 @@ test("leaving a session for a new chat starts from the start page's defaults", a
   expect(reasoningChip()).toHaveTextContent("High");
   expect(permissionChip()).toHaveTextContent("Bypass");
 
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await settle();
   expect(reasoningChip()).toHaveTextContent("Low");
   expect(permissionChip()).toHaveTextContent("Ask first");
+});
+
+const tierChip = () => screen.getByRole("button", { name: "Service tier" });
+
+test("the tier cookie seeds a new chat but cannot replace an opened session", async () => {
+  await mountHome();
+  await pickOnStartPage(tierChip, "Fast");
+  expect(document.cookie).toContain("coddy_service_tier=priority");
+  await navigate(S_HIGH_BYPASS);
+  expect(tierChip()).toHaveTextContent("Standard");
+  expect(document.cookie).toContain("coddy_service_tier=priority");
+  expect((await send("next")).service_tier).toBe("");
+  fireEvent.click(tierChip());
+  expect(screen.queryByRole("menuitem", { name: "Auto" })).toBeNull();
+  expect(screen.getAllByRole("menuitem", { name: "Standard" })).toHaveLength(1);
+  expect(screen.getByRole("menuitem", { name: "Standard" })).toHaveClass(
+    "is-selected",
+  );
+  fireEvent.keyDown(document, { key: "Escape" });
+});
+
+test("tier selections and another client's reset follow the server snapshot", async () => {
+  await mountSession(S_HIGH_BYPASS);
+  await pickOnStartPage(tierChip, "Standard");
+  await waitFor(() =>
+    expect(sessions[S_HIGH_BYPASS]!.serviceTier).toBe("default"),
+  );
+  await settle();
+  expect(tierChip()).toHaveTextContent("Standard");
+  sessions[S_HIGH_BYPASS]!.serviceTier = "";
+  await pushEvent("session_settings", {
+    sessionId: S_HIGH_BYPASS,
+    settings: snapshot(S_HIGH_BYPASS),
+  });
+  await waitFor(() => expect(tierChip()).toHaveTextContent("Standard"));
+  expect(document.cookie).toContain("coddy_service_tier=default");
+  expect((await send("next")).service_tier).toBe("");
 });

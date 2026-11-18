@@ -99,7 +99,15 @@ export type CanvasChangedEvent = {
   sessionId: string;
   file: string;
   frameId: string;
-  reason: "added" | "shown" | "updated" | "removed" | "opened" | string;
+  reason:
+    | "added"
+    | "shown"
+    | "updated"
+    | "removed"
+    | "opened"
+    | "trusted"
+    | "untrusted"
+    | string;
   revision: number;
 };
 

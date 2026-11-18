@@ -144,7 +144,10 @@ type Tool struct {
 	Path string `json:"path,omitempty"`
 	// Kind is the call's kind (execute when empty); Input its rawInput,
 	// announced with it; Output the text its last update carries.
-	Kind   string            `json:"kind,omitempty"`
+	Kind string `json:"kind,omitempty"`
+	// Name is the programmatic tool name announced with the call (ACP's
+	// toolCall.name), for an agent that names its tool beside its title.
+	Name   string            `json:"name,omitempty"`
 	Input  map[string]string `json:"input,omitempty"`
 	Output string            `json:"output,omitempty"`
 	// Say are answer chunks written just before the call is announced: an
@@ -680,6 +683,9 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 		announce := map[string]interface{}{"sessionUpdate": "tool_call", "toolCallId": tool.ID, "title": tool.Title, "kind": kind, "status": "pending"}
 		if len(tool.Input) > 0 {
 			announce["rawInput"] = tool.Input
+		}
+		if tool.Name != "" {
+			announce["name"] = tool.Name
 		}
 		a.update(s.id, announce)
 		if tool.Path != "" {

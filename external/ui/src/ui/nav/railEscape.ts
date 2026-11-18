@@ -40,6 +40,7 @@ export type RailScreens = Record<RailScreenId, RailScreen>;
  * added to the rail has to take a place in it.
  */
 const RAIL_SCREEN_DEPTH: Record<RailScreenId, number> = {
+  statistics: -1,
   docs: 0,
   settings: 1,
   swarm: 2,

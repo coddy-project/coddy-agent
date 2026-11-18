@@ -54,6 +54,13 @@ Feature: The message queue over HTTP
     When the operator deletes that queued message
     Then the answer hands back the message with its image
 
+  Scenario: An image for a model that reads none is refused, not queued as text
+    Given a turn is running for that session
+    And the session model takes no images
+    When a follow-up is posted over HTTP with an inline image and text "inspect"
+    Then the queue refuses the image with "images_not_supported"
+    And reading the queue lists no messages
+
   @queue_interrupt
   Scenario: Stop can continue one admitted turn with every queued message
     Given a turn is running for that session

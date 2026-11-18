@@ -89,6 +89,9 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 		case session.SettingModel:
 			a.openModelSelector()
 			return true
+		case session.SettingServiceTier:
+			a.openServiceTierSelector()
+			return true
 		case session.SettingReasoning:
 			if cmd.Name == "reasoning" {
 				if a.busyWithLocalShell() {
@@ -154,6 +157,9 @@ func (a *App) applySettings(changes ...session.SettingsChange) {
 				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: err.Error()})
 				return
 			}
+			if ch.ServiceTier != nil {
+				a.rememberServiceTier(snap.ServiceTier)
+			}
 			_ = a.Sender().SendSessionUpdate(sessionID, settingsApplied{settings: snap})
 		}
 	}()
@@ -185,6 +191,7 @@ func (a *App) applySettingsSnapshot(snap acp.SessionSettings) {
 		a.modelID = snap.Model
 	}
 	a.reasoning = snap.Reasoning
+	a.adoptServiceTierOption(snap)
 	if snap.Mode != "" {
 		a.modeID = snap.Mode
 		a.foot.SetSession("", a.modeID)

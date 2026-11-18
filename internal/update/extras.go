@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// The Linux and macOS release archives carry the man page and the shell
-// completions beside the binary, and the install script puts them into the
+// Every release archive but the Windows one - Linux, FreeBSD, Android and
+// macOS - carries the man page and the shell completions beside the binary,
+// and the install script puts them into the
 // share directory of the binary's prefix: ~/.local/bin -> ~/.local/share,
 // /usr/local/bin -> /usr/local/share. A self-update that replaced only the
 // executable left those files describing the release before it, so the
