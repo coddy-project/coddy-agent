@@ -2096,14 +2096,6 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoning": "Reasoning",
   "composer.reasoningLevel": "Reasoning level",
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
-  "composer.imageGenerationQueueUnavailable":
-    "Turn off Images to queue a message, or wait for the current turn to finish.",
-  "composer.imageGeneration": "Images",
-  "composer.imageGenerationTitle":
-    "Ask the model for native image output on send (metadata.image_generation)",
-  "composer.imageGenerationEnable": "Images",
-  "composer.imageGenerationEnableTitle":
-    "Enable image generation for this model in Settings",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",

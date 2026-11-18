@@ -2164,14 +2164,6 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoning": "Рассуждение",
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
-  "composer.imageGenerationQueueUnavailable":
-    'Отключите переключатель "Изображения", чтобы добавить сообщение в очередь, или дождитесь завершения текущего хода.',
-  "composer.imageGeneration": "Изображения",
-  "composer.imageGenerationTitle":
-    "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
-  "composer.imageGenerationEnable": "Изображения",
-  "composer.imageGenerationEnableTitle":
-    "Включите генерацию изображений для этой модели в настройках",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":
