@@ -487,7 +487,7 @@ func TestDeferredMCPDialCutShortIsRetriedByTheNextTurn(t *testing.T) {
 	if configuredClient(st, "slow") != nil {
 		t.Fatal("a server that never answered was installed")
 	}
-	if !st.hasPendingMCPServers() {
+	if !mcpScheduledForNextTurn(st, "slow") {
 		t.Fatal("the server the first turn could not reach was dropped instead of parked")
 	}
 
@@ -693,6 +693,33 @@ func TestMCPSwitchDuringAFullReloadIsNotLost(t *testing.T) {
 	}
 }
 
+// Both a cut-short dial and a no-answer dial are retried at the next turn,
+// but only the latter counts against the one-more-try limit.
+func mcpScheduledForNextTurn(st *State, name string) bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	_, pending := st.mcpServersPending[name]
+	_, retry := st.mcpServersRetry[name]
+	return pending || retry
+}
+
+func TestMCPNoAnswerIsScheduledForTheNextTurn(t *testing.T) {
+	st := &State{}
+	if retry, _ := st.recordMCPDial("hang", errMCPNoAnswer); !retry {
+		t.Fatal("no-answer dial was not scheduled for retry")
+	}
+	if !mcpScheduledForNextTurn(st, "hang") || mcpScheduledForNextTurn(st, "other") {
+		t.Fatal("the no-answer server alone must be scheduled for the next turn")
+	}
+	st.moveMCPRetriesToPending()
+	if got := st.takeMCPServersPending(); len(got) != 1 || got[0] != "hang" {
+		t.Fatalf("next turn's pending servers = %v, want [hang]", got)
+	}
+	if retry, gaveUp := st.recordMCPDial("hang", errMCPNoAnswer); retry || !gaveUp {
+		t.Fatal("a second no-answer dial must not be retried")
+	}
+}
+
 // A new session no longer waits for a server that never answers its
 // handshake: its creation returns at the deadline and the server is parked
 // for the session's first turn.
@@ -710,10 +737,15 @@ func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
 	if configuredClient(st, "alpha") == nil {
 		t.Fatal("a hung neighbour kept the healthy server from starting")
 	}
-	if configuredClient(st, "hang") != nil || !st.hasPendingMCPServers() {
-		t.Fatalf("the hung server was not parked for the first turn: clients %+v", st.GetMCPClients())
+	if configuredClient(st, "hang") != nil || !mcpScheduledForNextTurn(st, "hang") {
+		t.Fatalf("the hung server was not scheduled for the first turn: clients %v", clientNames(st))
 	}
-	_ = mgr
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home, reloadHelperServer("alpha"), reloadHelperServer("hang"))
+	entered := make(chan []string, 1)
+	mgr.runner = namesRunner(entered)
+	if got := promptNames(t, mgr, st.GetID(), entered); len(got) != 2 || got[0] != "alpha" || got[1] != "hang" {
+		t.Fatalf("the first turn found %v, want [alpha hang]", got)
+	}
 }
 
 func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {
