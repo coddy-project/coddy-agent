@@ -1,3 +1,4 @@
+import { type ServiceTierControl } from "./serviceTier";
 import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
@@ -119,6 +120,13 @@ export function ChatScreen(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Whether the currently selected model opted in to native image output. */
+  llmModelImageGen?: boolean;
+  /** The per-turn image control's state; passed through to the composer. */
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
+  /** Opens the selected model's row in Settings so image_generation can be enabled. */
+  onImageGenEnable?: () => void;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
@@ -131,6 +139,7 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   /** The toolset chip; absent while the configuration has no preset. */
+  serviceTierControl?: ServiceTierControl | undefined;
   toolsetControl?: ToolsetControl | undefined;
   settingsOverrides?: TurnOverride[];
   /** The session goal and what the composer's goal mark and popover can do
@@ -1001,6 +1010,10 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      llmModelImageGen: props.llmModelImageGen,
+                      imageGenOn: props.imageGenOn,
+                      onImageGenToggle: props.onImageGenToggle,
+                      onImageGenEnable: props.onImageGenEnable,
                       ...(props.llmReasoningLevelsByModel !== undefined
                         ? {
                             llmReasoningLevelsByModel:
@@ -1028,6 +1041,7 @@ export function ChatScreen(props: {
                 {...(props.onPermissionModeChange
                   ? { onPermissionModeChange: props.onPermissionModeChange }
                   : {})}
+                serviceTierControl={props.serviceTierControl}
                 {...(props.toolsetControl
                   ? { toolsetControl: props.toolsetControl }
                   : {})}
@@ -1266,6 +1280,10 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        llmModelImageGen: props.llmModelImageGen,
+                        imageGenOn: props.imageGenOn,
+                        onImageGenToggle: props.onImageGenToggle,
+                        onImageGenEnable: props.onImageGenEnable,
                         ...(props.llmReasoningLevelsByModel !== undefined
                           ? {
                               llmReasoningLevelsByModel:
@@ -1297,6 +1315,7 @@ export function ChatScreen(props: {
                   {...(props.onPermissionModeChange
                     ? { onPermissionModeChange: props.onPermissionModeChange }
                     : {})}
+                  serviceTierControl={props.serviceTierControl}
                   {...(props.toolsetControl
                     ? { toolsetControl: props.toolsetControl }
                     : {})}

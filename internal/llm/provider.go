@@ -44,9 +44,9 @@ type ImagePart struct {
 type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content"`
-	// ImageParts, when non-empty, make this a multimodal user message. Only
-	// supported for RoleUser; ignored on other roles and by providers that do
-	// not support vision.
+	// ImageParts holds prompt attachments, tool-returned pictures and native
+	// assistant image output. Provider projections decide which input pictures
+	// a model reads; generated output keeps assistant ownership in storage.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
 	// Artifacts are downloadable session-owned files published by a completed
 	// share_file call. They are metadata only and never provider prompt content.
@@ -153,6 +153,11 @@ type AgentToolCall struct {
 	ID string `json:"id"`
 	// Title names the call by what it works on ("read notes.txt").
 	Title string `json:"title"`
+	// ToolName is the programmatic name of the tool the agent invoked, when it
+	// reported one (ACP's `toolCall.name`). A call whose title is only the
+	// tool's bare name is titled by this instead, so a row reads
+	// "fs_read_file" rather than "other". Empty when the agent named none.
+	ToolName string `json:"tool_name,omitempty"`
 	// Kind is the agent's tool kind (ACP: read, edit, delete, move, search,
 	// execute, think, fetch, other).
 	Kind string `json:"kind,omitempty"`
@@ -215,8 +220,12 @@ type ToolDefinition struct {
 
 // Response is the LLM's reply to a completion request.
 type Response struct {
-	Content   string
-	ToolCalls []ToolCall
+	GeneratedImages []GeneratedImage
+
+	// ServiceTier is the mode reported by the provider, never inferred from the request.
+	ServiceTier string
+	Content     string
+	ToolCalls   []ToolCall
 	// Reasoning is the exact (unmodified) reasoning text, when the provider returns one.
 	Reasoning string
 	// ReasoningSignature pairs with Reasoning for providers that sign reasoning blocks (Anthropic).
@@ -246,6 +255,9 @@ type Response struct {
 
 // StreamChunk is a single chunk streamed from the LLM.
 type StreamChunk struct {
+	GeneratedImage         *GeneratedImage
+	ImageGenerationStarted bool
+
 	TextDelta      string
 	ReasoningDelta string
 	// AgentTool is the state of a tool call the agent behind the provider
@@ -315,6 +327,8 @@ type ProviderInput struct {
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking
 	// token budget, or to output_config.effort for adaptive-thinking models.
 	ReasoningEffort string
+	// ServiceTier preserves explicit empty strings; nil omits the parameter.
+	ServiceTier *string
 	// SupportedParameters is what the provider's model listing says the model
 	// takes (supported_parameters, which OpenRouter-style aggregators publish),
 	// nil when nothing is known. An OpenAI-compatible request reads it to send
@@ -426,6 +440,9 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort, p.UserAgent)
 		op.tempSet = p.TemperatureSet
 		op.topP = p.TopP
+		if ServiceTierSupported(p.Type, p.BaseURL) {
+			op.serviceTier = p.ServiceTier
+		}
 		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":
@@ -452,7 +469,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through CODDY_CODEX_BASE_URL.
-		inner = newCodexProvider(p.Model, p.AuthPath, !p.NoCLILogin, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+		cp := newCodexProvider(p.Model, p.AuthPath, !p.NoCLILogin, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+		if ServiceTierSupported(p.Type, p.BaseURL) {
+			cp.serviceTier = p.ServiceTier
+		}
+		inner = cp
 	case "devin":
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.

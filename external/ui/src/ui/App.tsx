@@ -1,3 +1,9 @@
+import {
+  pickServiceTier,
+  readServiceTierCookie,
+  writeServiceTierCookie,
+  type ServiceTierControl,
+} from "./chat/serviceTier";
 import { browserPanelLaunch } from "./browserPanel/launch";
 import { panelTabForTurn } from "./browserPanel/bridge";
 import {
@@ -69,6 +75,7 @@ import {
   isNewerSettings,
   parseSessionSettings,
   permissionModeOfInfo,
+  statisticsOfInfo,
   toolsetsOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
@@ -147,6 +154,7 @@ import type {
 } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
+const StatisticsView = lazy(() => import("./statistics/StatisticsView"));
 import {
   phoneMaxWidthMediaQuery,
   shellStackMaxWidthMediaQuery,
@@ -425,6 +433,9 @@ type ModelInfo = {
   ownedBy?: string;
   maxContextTokens?: number | undefined;
   multimodal?: boolean;
+  /** The model opted in to native image output (models[].image_generation). */
+  imageGeneration?: boolean;
+  serviceTierChoices?: string[];
   reasoningLevels?: string[];
   reasoningDefault?: string;
   /** The toolsets[] preset the model names (models[].toolset). */
@@ -1383,6 +1394,10 @@ export function App() {
   const [settingsRoute, setSettingsRoute] = useState(
     () => initialRoute.branch === "settings",
   );
+  const [statisticsRoute, setStatisticsRoute] = useState(
+    initialRoute.branch === "statistics",
+  );
+  const statisticsReturnHashRef = useRef("");
   const [swarmRoute, setSwarmRoute] = useState(
     () => initialRoute.branch === "swarm",
   );
@@ -1756,6 +1771,7 @@ export function App() {
       .then((info: unknown) => {
         if (read === serverPermissionReadRef.current && isAppEnvironment()) {
           setServerToolsets(toolsetsOfInfo(info));
+          setServerCollectsStatistics(statisticsOfInfo(info));
         }
         return permissionModeOfInfo(info);
       })
@@ -1787,6 +1803,10 @@ export function App() {
   // mode picked there, else the configured one.
   const startPermissionMode =
     pendingPermissionMode || shownConfiguredPermissionMode;
+  // Whether this server records usage: with the collection off there is no
+  // page to offer, so the rail does not hold it (GET /coddy/info).
+  const [serverCollectsStatistics, setServerCollectsStatistics] =
+    useState(true);
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler(
@@ -1805,6 +1825,12 @@ export function App() {
     turnEpoch: providerUsageTurnEpoch,
   });
   const [llmReasoning, setLlmReasoning] = useState("");
+  const [serviceTier, setServiceTier] = useState(readServiceTierCookie);
+  const [sessionTierChoices, setSessionTierChoices] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
   /**
    * The opened session's own model and reasoning, as its settings snapshot
    * names them, with the levels the snapshot says it may hold. Held until the
@@ -1816,6 +1842,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /** The selection object already applied to the composer; see the effect below. */
@@ -1823,6 +1851,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /**
@@ -2786,10 +2816,21 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    setStatisticsRoute(p.branch === "statistics");
     // The Files and the edits windows have addresses of their own; any other
     // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
     if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
+    if (p.branch === "statistics") {
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionsOpen(false);
+      if (isStackedShell()) setTasksOpen(false);
+      return;
+    }
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -3299,6 +3340,8 @@ export function App() {
           owned_by?: string;
           max_context_tokens?: number;
           multimodal?: boolean;
+          image_generation?: boolean;
+          service_tier_choices?: string[];
           reasoning_levels?: string[];
           reasoning_default?: string;
           toolset?: string;
@@ -3315,6 +3358,8 @@ export function App() {
             ? { maxContextTokens: d.max_context_tokens }
             : {}),
           multimodal: !!d.multimodal,
+          imageGeneration: !!d.image_generation,
+          serviceTierChoices: d.service_tier_choices ?? [],
           reasoningLevels: Array.isArray(d.reasoning_levels)
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
@@ -3327,7 +3372,9 @@ export function App() {
           id: d.id,
           ownedBy: d.ownedBy,
           multimodal: d.multimodal,
+          imageGeneration: d.imageGeneration,
           reasoningLevels: d.reasoningLevels,
+          serviceTierChoices: d.serviceTierChoices,
           reasoningDefault: d.reasoningDefault,
         };
         if (d.maxContextTokens !== undefined) {
@@ -3390,6 +3437,17 @@ export function App() {
     // same chooser as every other path, with the session's value as the
     // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    setServiceTier(
+      pickServiceTier(
+        openSessionSelection.serviceTier,
+        openSessionSelection.tierChoices,
+      ),
+    );
+    setSessionTierChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices: openSessionSelection.tierChoices,
+    });
     const choices =
       nextModel === openSessionSelection.model
         ? openSessionSelection.choices
@@ -3977,6 +4035,8 @@ export function App() {
           ? snap.reasoning
           : (data.selectedReasoning || "").trim(),
         choices: snap?.reasoningChoices ?? [],
+        serviceTier: snap?.serviceTier ?? "",
+        tierChoices: snap?.serviceTierChoices ?? [],
       });
     }
     if (snap) {
@@ -4569,6 +4629,8 @@ export function App() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
+    setServiceTier(readServiceTierCookie());
+    setSessionTierChoices({ sid: "", model: "", choices: [] });
     setSessionReasoningChoices({ sid: "", model: "", choices: [] });
     // A new chat sends its level with the first message: that is its own.
     reasoningImpliedRef.current = false;
@@ -5536,7 +5598,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           ),
         );
@@ -5556,7 +5619,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           );
           return [
@@ -5630,6 +5694,7 @@ export function App() {
     text: string,
     opts?: {
       modeOverride?: string;
+      imageGenerationOverride?: boolean;
       runPlanSlug?: string;
       files?: File[];
       /**
@@ -5729,6 +5794,11 @@ export function App() {
           );
           setActiveDraftId("");
         }
+        setImageGenSelection((previous) =>
+          previous.on && previous.scope === imageGenScope
+            ? { ...previous, scope: `${sid}\0${llmModel}\0${llmModelImageGen}` }
+            : previous,
+        );
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -6054,8 +6124,14 @@ export function App() {
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
+      // The per-turn image control: only for a model the configuration
+      // opted in to native image output (models[].image_generation).
+      const imageGenForTurn =
+        (opts?.imageGenerationOverride ?? imageGenOn) && llmModelImageGen;
+      if (imageGenForTurn) meta.image_generation = true;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
+      meta.service_tier = pickServiceTier(serviceTier, serviceTierChoices);
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
       // A toolset picked on the start screen goes with the messages of the
@@ -6096,6 +6172,12 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
+      if (res.ok)
+        retryImageGenRef.current.set(sid.trim(), {
+          text,
+          model: llmModel,
+          enabled: imageGenForTurn,
+        });
       // The server took the session's first message, and with it the pick.
       if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
         setPendingPermissionMode("");
@@ -6350,7 +6432,8 @@ export function App() {
               !(
                 it.type === "assistant_message" &&
                 it.id === lastAssistantId &&
-                !it.content.trim()
+                !it.content.trim() &&
+                !it.files?.length
               ),
           );
           return [
@@ -6631,6 +6714,49 @@ export function App() {
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
+  // The model opted in to native image output: the composer offers the
+  // per-turn Images control only for one, and sends ask for it only then.
+  const llmModelImageGen = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    return row?.imageGeneration ?? false;
+  }, [modelInfos, llmModel]);
+
+  // The per-turn image control: while on, sends carry
+  // metadata.image_generation for a model opted in to native output.
+  const imageGenScope = `${sessionId.trim() || activeDraftId.trim()}\0${llmModel}\0${llmModelImageGen}`;
+  const [imageGenSelection, setImageGenSelection] = useState({
+    scope: imageGenScope,
+    on: false,
+  });
+  if (imageGenSelection.scope !== imageGenScope) {
+    setImageGenSelection({ scope: imageGenScope, on: false });
+  }
+  const imageGenOn =
+    imageGenSelection.scope === imageGenScope && imageGenSelection.on;
+  const retryImageGenRef = useRef(
+    new Map<string, { text: string; model: string; enabled: boolean }>(),
+  );
+  const onImageGenToggle = useCallback(
+    () =>
+      setImageGenSelection((v) => ({
+        scope: imageGenScope,
+        on: v.scope === imageGenScope ? !v.on : true,
+      })),
+    [imageGenScope],
+  );
+
+  // A model without the opt-in gets a CTA instead of the toggle: it opens the
+  // model's own row in Settings -> Logical models, where image_generation is
+  // enabled. After a save, configEpoch refreshes the model catalog and the
+  // per-turn Images toggle replaces the CTA.
+  const onImageGenEnable = useCallback(() => {
+    const model = llmModel.trim();
+    if (!model) {
+      return;
+    }
+    setSettingsSectionHash("models", { item: model });
+  }, [llmModel]);
+
   // Every configured model's levels: /goal --reasoning completes the levels
   // of the model its --model names.
   const llmReasoningLevelsByModel = useMemo(() => {
@@ -6724,6 +6850,12 @@ export function App() {
       return;
     }
     settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setServiceTier(snap.serviceTier);
+    setSessionTierChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.serviceTierChoices,
+    });
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
@@ -6925,6 +7057,30 @@ export function App() {
     pendingToolset,
     onToolsetChange,
   ]);
+
+  const serviceTierChoices =
+    sessionTierChoices.sid === sessionId.trim() &&
+    sessionTierChoices.model === llmModel
+      ? sessionTierChoices.choices
+      : (modelInfos.find((m) => m.id === llmModel)?.serviceTierChoices ?? []);
+  const serviceTierMenuChoices = serviceTierChoices.filter(
+    (choice) => choice !== "",
+  );
+  const serviceTierControl: ServiceTierControl | undefined =
+    serviceTierMenuChoices.length
+      ? {
+          value: pickServiceTier(serviceTier, serviceTierChoices) || "default",
+          choices: serviceTierMenuChoices,
+          onChange: (value) => {
+            setServiceTier(value);
+            writeServiceTierCookie(value);
+            if (sessionId.trim())
+              void patchSessionSettings(sessionId.trim(), {
+                selectedServiceTier: value,
+              });
+          },
+        }
+      : undefined;
 
   const onLlmReasoningChange = useCallback(
     (level: string) => {
@@ -7627,6 +7783,7 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
+    statisticsRoute ||
     swarmRoute ||
     docsRoute !== null;
 
@@ -7786,7 +7943,20 @@ export function App() {
 
   // Every screen of the rail, whether it is on screen and what Escape does to
   // it: the step its close control takes (nav/railEscape.ts).
+  const openStatistics = () => {
+    if (parseAppHash().branch !== "statistics")
+      statisticsReturnHashRef.current = window.location.hash;
+    window.location.hash = "#/statistics";
+  };
+  const closeStatistics = () => {
+    setStatisticsRoute(false);
+    window.location.hash =
+      statisticsReturnHashRef.current ||
+      (sessionId.trim() ? `#/s/${encodeURIComponent(sessionId.trim())}` : "#/");
+    statisticsReturnHashRef.current = "";
+  };
   useRailScreenEscape({
+    statistics: { open: statisticsRoute, close: closeStatistics },
     history: { open: sessionsOpen, close: sessionPanelShared.onClose },
     scheduler: {
       open: schedulerOpen && schedulerHttpLinked === true,
@@ -7886,7 +8056,7 @@ export function App() {
       // neither clears the composer's draft nor comes back into it, and
       // onRefused gives it back to the bar when the server does not take it.
       source: "composer" | "canvas" = "composer",
-      onRefused?: () => void,
+      onRefused?: (reason?: string) => void,
     ) => {
       const sid = sessionId.trim();
       const generation = turnActivity.generation(sid);
@@ -7894,6 +8064,27 @@ export function App() {
       const body = text.trim();
       if (!sid || (!body && files.length === 0)) return;
       const fromComposer = source === "composer";
+      if (imageGenOn && llmModelImageGen) {
+        if (fromComposer) {
+          setDraft((current) => current || body);
+          if (files.length)
+            setComposerFiles((current) => [...files, ...current]);
+        } else {
+          onRefused?.(t("composer.imageGenerationQueueUnavailable"));
+          return;
+        }
+        applyStreamItemsForSession(sid, (prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error",
+            message: t("composer.imageGenerationQueueUnavailable"),
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
       if (fromComposer) setDraft("");
       void (async () => {
         type QueueAnswer = {
@@ -7953,6 +8144,7 @@ export function App() {
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
           void sendLatest(body, {
+            imageGenerationOverride: false,
             files,
             restoreOnRefusal: fromComposer,
             ...(onRefused ? { onRefusal: onRefused } : {}),
@@ -8076,8 +8268,18 @@ export function App() {
       })();
     },
   );
+  const retryImageGen = retryImageGenRef.current.get(sessionId.trim());
+  const retryImageGenKnown =
+    !!retryImageGen &&
+    retryImageGen.text === lastUserText &&
+    retryImageGen.model === llmModel;
   const handleRetryLast = useStableHandler(
-    () => void streamResponses(lastUserText),
+    () =>
+      void streamResponses(lastUserText, {
+        imageGenerationOverride: retryImageGenKnown
+          ? retryImageGen.enabled
+          : false,
+      }),
   );
   /**
    * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
@@ -8154,6 +8356,10 @@ export function App() {
       <EnvHealthBanner />
       <NavRail
         localHost={localHost}
+        {...(serverCollectsStatistics
+          ? { onOpenStatistics: openStatistics }
+          : {})}
+        statisticsOpen={statisticsRoute}
         // A relay has no chat to start: its home is the map, and the brand
         // leads there as it leads an agent's page to a new chat.
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
@@ -8169,7 +8375,10 @@ export function App() {
         onOpenSwarm={openSwarmFromNav}
         // On a relay the map is the home screen, so its entry stays lit while
         // the map is what is on screen, whichever address shows it.
-        swarmOpen={swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute)}
+        swarmOpen={
+          swarmRoute ||
+          (atSwarmRoot && !settingsRoute && !docsRoute && !statisticsRoute)
+        }
         {...(localDocs ? { onOpenDocs: openDocsFromNav } : {})}
         docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
@@ -8212,6 +8421,9 @@ export function App() {
               // button does.
               const guard = settingsRoute ? railCloseGuard("settings") : null;
               if (guard) guard();
+              // Statistics goes back where it was opened from, as its own
+              // close control and Escape do.
+              else if (statisticsRoute) closeStatistics();
               else closeAllShellDrawers();
             }
           }}
@@ -8318,7 +8530,8 @@ export function App() {
           </div>
         ) : null}
 
-        {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
+        {swarmRoute ||
+        (atSwarmRoot && !settingsRoute && !docsRoute && !statisticsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
               onOpenNode={(nodePath: string[]) =>
@@ -8339,6 +8552,19 @@ export function App() {
               {...(atSwarmRoot ? {} : { onClose: onCloseSwarm })}
             />
           </div>
+        ) : null}
+        {statisticsRoute ? (
+          <Suspense fallback={null}>
+            <StatisticsView
+              onClose={closeStatistics}
+              onSettings={() => {
+                window.location.hash = "#/settings/statistics";
+              }}
+              swarm={isSwarmEnv}
+              relayHome={atSwarmRoot}
+              cwd={chatWorkspace}
+            />
+          </Suspense>
         ) : null}
         {docsRoute ? (
           <div className="docs-dock-cluster">
@@ -8575,6 +8801,10 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
+                  llmModelImageGen,
+                  imageGenOn,
+                  onImageGenToggle,
+                  onImageGenEnable,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
@@ -8592,6 +8822,9 @@ export function App() {
             configuredPermissionMode={shownConfiguredPermissionMode}
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
+            }
+            serviceTierControl={
+              subagentTranscript ? undefined : serviceTierControl
             }
             toolsetControl={subagentTranscript ? undefined : toolsetControl}
             settingsOverrides={settingsOverrides}
@@ -8613,7 +8846,11 @@ export function App() {
             onPromptSuggestionAccepted={() => {
               promptSuggestionAcceptedRef.current = true;
             }}
-            {...(!generating && lastUserText.trim() && !subagentTranscript
+            {...(!generating &&
+            lastUserText.trim() &&
+            !subagentTranscript &&
+            (!retryImageGen || retryImageGen.model === llmModel) &&
+            (!llmModelImageGen || retryImageGenKnown)
               ? { onRetryLast: handleRetryLast }
               : {})}
             onContextRingOpen={() => {

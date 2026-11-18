@@ -38,8 +38,6 @@ Working directory: {{.CWD}}
 ## Mode: Agent | Plan | Ask             capabilities, how to work, how to plan
                                         (plan mode lists {{.DiscardedPlans}} here)
 {{.Subagents}}                          the subagent catalog, when the session may spawn
-## Available tools
-{{.Tools}}                              MCP tools among them, as server__tool
 {{.Skills}}                             ## Slash commands: the skill catalog and the load_skill hint;
                                         a /name body rides in the user message, load_skill returns one
 {{.PlanContext}}                        agent mode: the plan an approved turn implements
@@ -60,6 +58,10 @@ Working directory: {{.CWD}}
 ```
 
 The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+
+Coddy sends complete permitted tool names, descriptions and schemas through the request's native tool definitions. Bundled mode, memory and goal-verifier templates omit the duplicate Markdown catalog from the system prompt. Custom templates can still render `{{.Tools}}`; this explicitly adds the catalog to the system prompt alongside the native definitions. Tool permissions and execution stay the same.
+
+Context estimates count the complete serialized native definitions, including names and descriptions, plus any catalog a custom template renders. Earlier estimates counted only the native input schemas in addition to the catalog. The corrected estimate can show a larger tool category even though the bundled system prompt is smaller.
 
 ### The system prompt is frozen for the turn
 
@@ -145,13 +147,19 @@ each time even with the prompt frozen. **`compaction.result_eviction.start_perce
 holds the projection off until the estimated context reaches that share of the model's
 **`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
 decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
-mark and make the projection flap between two shapes. A request the provider
+mark and make the projection flap between two shapes. Above the mark, results leave the working
+window **a batch of four at a time** (**`resultEvictionBatch`**), so the set of collapsed results
+moves once every four candidates and three requests out of four still repeat the previous one byte
+for byte. A request the provider
 refused as too large opens the gate for the rest of that turn
 (**`Agent.evictionForced`**): the cache the gate protects is moot once the
 provider has refused to read the prefix. The fold inside a turn
 (**`compact_in_turn.go`**) is the same trade: it rewrites the history only at the
 compaction threshold, and the summary row it writes starts with the prompt, so the
-rewritten prefix still opens with what the model was asked. See
+rewritten prefix still opens with what the model was asked. The fold's own request
+reads the cache rather than spending it: when the summarizer is the session's model,
+**`compact_cached.go`** asks it with the request the turn has just sent, cut at the
+boundary, with the summarization brief appended as a request-only message. See
 [compaction.md](../features/compaction.md).
 
 ### Reading the cache hit
@@ -474,7 +482,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools offered through the native tool definitions. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
 
 Representative builtins (excluding MCP-namespaced tools):
 

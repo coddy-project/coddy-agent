@@ -1,5 +1,12 @@
 /** Russian UI strings for the Coddy SPA. Key set mirrors messages/en.ts. */
 export const messagesRu: Record<string, string> = {
+  "messages.openGeneratedImage": "Открыть созданное изображение {fileName}",
+  "composer.serviceTier": "Режим обслуживания",
+  "composer.serviceTier.default": "Стандартный",
+  "composer.serviceTier.priority": "Быстрый",
+  "composer.serviceTier.ultrafast": "Сверхбыстрый",
+  "composer.serviceTier.flex": "Flex",
+
   "git.createMenu": "Создать ветку и переключиться…",
   "git.createTitle": "Создать новую ветку и переключиться",
   "git.createDescription":

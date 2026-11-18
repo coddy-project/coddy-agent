@@ -323,6 +323,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	s.registerAuthRoutes()
 	s.registerCoddyRoutes()
+	s.registerStatisticsRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.registerOnboardingRoutes()
@@ -403,8 +404,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		return nil, err
 	}
 	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
+	if maxTok <= 0 || maxTok > describeMaxTokens {
+		maxTok = describeMaxTokens
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Name:              rm.ProviderName,
@@ -500,11 +501,13 @@ type modelObj struct {
 	// takes no output cap.
 	MaxOutputTokens int  `json:"max_output_tokens,omitempty"`
 	Multimodal      bool `json:"multimodal,omitempty"`
+	ImageGeneration bool `json:"image_generation,omitempty"`
 	// SupportedParameters is the request parameter names the endpoint takes
 	// on this row (OpenRouter's supported_parameters), so a client knows what
 	// it may send instead of learning it from a 400. The structural fields
 	// every request carries (model, messages, stream) are left out.
 	SupportedParameters []string `json:"supported_parameters"`
+	ServiceTierChoices  []string `json:"service_tier_choices,omitempty"`
 	ReasoningLevels     []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault    string   `json:"reasoning_default,omitempty"`
 	// Default marks the row a session that selected no model runs on,
@@ -555,6 +558,9 @@ func supportedParametersFor(cfg *config.Config, ent *config.ModelEntry) []string
 		"top_p",
 	}
 	providerType := providerTypeOf(cfg, ent)
+	if providerType == "openai" || providerType == "codex" {
+		params = append(params, "service_tier")
+	}
 	if providerType == "codex" {
 		// A Codex backend accepts output-cap fields for OpenAI-client
 		// compatibility but ignores them (reported by X-Coddy-Ignored-Params),
@@ -658,8 +664,10 @@ func (s *Server) directRow(cfg *config.Config, ent *config.ModelEntry, mid strin
 		ContextLength:       window,
 		MaxOutputTokens:     maxOutput,
 		Multimodal:          ent.Multimodal,
+		ImageGeneration:     ent.ImageGeneration,
 		SupportedParameters: supportedParametersFor(cfg, ent),
 		ReasoningLevels:     cfg.ReasoningChoicesFor(ent),
+		ServiceTierChoices:  llm.ModelServiceTierChoices(cfg, ent.Model),
 		ReasoningDefault:    cfg.DefaultReasoningLevelFor(ent),
 		Default:             defaultModel != "" && mid == defaultModel,
 		Toolset:             ent.Toolset,
@@ -769,6 +777,7 @@ type chatCompletionRequest struct {
 	// ReasoningEffort is OpenAI's reasoning_effort: a level the direct model
 	// offers, in place of its reasoning_default. A profile turn reads the level
 	// from metadata.reasoning instead.
+	ServiceTier     *string         `json:"service_tier,omitempty"`
 	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	// StreamOptions is OpenAI's stream_options; include_usage asks for the
@@ -888,6 +897,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := coerceMetadataJSON(req.Metadata); err != nil {
 		writeOpenAIValidationError(w, "invalid metadata", "metadata")
+		return
+	}
+	if imageGenerationFromHTTP(req.Metadata) && !httpModelIsCoddyProfile(model) {
+		writeOpenAIValidationError(w, "native image generation requires a chat profile", "metadata.image_generation")
 		return
 	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
@@ -1039,6 +1052,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			dropImageParts(prefix)
 		}
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(req.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata), ImageGeneration: imageGenerationFromHTTP(req.Metadata)}
+		if promptOpts.ImageGeneration {
+			taken, err := s.mgr.PrepareImageGenerationPrompt(ctx, sessionID, prompt, promptOpts)
+			if err != nil {
+				writeOpenAIValidationError(w, err.Error(), "metadata.image_generation")
+				return
+			}
+			if !taken.Handled {
+				prompt = taken.Prompt
+			}
+		}
+
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
 		// watch from a browser. The turn lock taken above comes first - beginComposerRelay
@@ -1066,7 +1091,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sessionID, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -1163,7 +1187,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools, genOpts)
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, statisticsSourceFromHTTP(req.Metadata), bridge, clientTools, genOpts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
@@ -1186,6 +1210,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// The level the provider was asked for, the model's default included,
 		// so a caller comparing model and level pairs can tell which ran.
 		meta["reasoning_effort"] = genOpts.ReasoningEffort
+	}
+	if directRes.ServiceTier != "" {
+		meta["service_tier"] = directRes.ServiceTier
 	}
 	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
@@ -1219,6 +1246,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"model":    model,
 		"metadata": meta,
 		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
+	}
+	if directRes.ServiceTier != "" {
+		resp["service_tier"] = directRes.ServiceTier
 	}
 	if usage := completionUsageFromResponse(directRes).openAI(); usage != nil {
 		resp["usage"] = usage
@@ -1582,6 +1612,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		s.handleDirectResponses(w, r, raw)
 		return
 	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	if _, present := fields["service_tier"]; present {
+		writeOpenAIValidationError(w, "service_tier is only supported for direct models; use metadata.service_tier for profiles", "service_tier")
+		return
+	}
 	var body struct {
 		Model       string                         `json:"model"`
 		Input       string                         `json:"input"`
@@ -1744,6 +1780,18 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, StatisticsSource: statisticsSourceFromHTTP(body.Metadata), SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata), ImageGeneration: imageGenerationFromHTTP(body.Metadata)}
+		if promptOpts.ImageGeneration {
+			taken, err := s.mgr.PrepareImageGenerationPrompt(ctx, sid, promptBlocks, promptOpts)
+			if err != nil {
+				writeOpenAIValidationError(w, err.Error(), "metadata.image_generation")
+				return
+			}
+			if !taken.Handled {
+				promptBlocks = taken.Prompt
+			}
+		}
+
 		// See the same block in handleChatCompletions: the relay is opened for every profile
 		// turn, after the turn lock taken above.
 		var bridge *Sender
@@ -1760,7 +1808,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		mirrored, releaseMirror := session.Mirror(s.turnMirror, sid, bridge)
 		defer releaseMirror()
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		// A turn from the side panel of Coddy for Browser names the tab it
 		// is written from: the chat's browser tool acts there by default,
 		// for this turn alone.

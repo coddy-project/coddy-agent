@@ -29,6 +29,17 @@ func previewServerSettings(cfg *config.Config) *tooling.PreviewServerSettings {
 	return &out
 }
 
+// previewPublishSettings resolves tools.preview_publish for the tool layer,
+// the artifact root resolved against the agent's home. Nil where the operator
+// did not turn the channel on, which is what the publishing tools refuse on.
+func previewPublishSettings(cfg *config.Config) *tooling.PreviewPublishSettings {
+	if cfg == nil || !cfg.Tools.PreviewPublish.Enable {
+		return nil
+	}
+	out := tooling.PreviewPublishSettings(cfg.Tools.PreviewPublish.ToolSettings(cfg.Paths.Home))
+	return &out
+}
+
 // httpRequestEnv puts tools.http_request on the tool environment: the
 // destinations a request reaches without asking and the headers every request
 // sends. It runs wherever the environment is built or refreshed after a config

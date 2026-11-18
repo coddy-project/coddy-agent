@@ -40,9 +40,3 @@ When you are done with tools in your chosen mode, answer with plain text only (n
 
 {{.SubagentRole}}
 {{end}}
-{{if .Tools}}
-
-## Available tools
-
-{{.Tools}}
-{{end}}

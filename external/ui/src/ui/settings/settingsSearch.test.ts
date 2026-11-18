@@ -159,6 +159,41 @@ function schemaLabel(domain: string, key: string): string {
   return schemaFieldLabel(domain, key, props[key]!.title, key);
 }
 
+test("Kimi catalog metadata is indexed only for models owned by a Kimi provider", () => {
+  const doc = configFromSchema(AGENT_SCHEMA);
+  doc.providers = [
+    { name: "codex", type: "codex" },
+    { name: "kimi-enterprise", type: "kimi" },
+  ];
+  doc.models = [
+    {
+      model: "codex/gpt-5.6-sol",
+      kimi_metadata: { model: "codex/gpt-5.6-sol", protocol: "kimi" },
+    },
+    {
+      model: "kimi-enterprise/kimi-for-coding",
+      kimi_metadata: {
+        model: "kimi-enterprise/kimi-for-coding",
+        protocol: "kimi",
+      },
+    },
+  ];
+
+  const index = indexOf(AGENT_SCHEMA, doc);
+  expect(
+    entriesAt(index, fieldAnchor("models", "kimi_metadata")).map(
+      (item) => item.row,
+    ),
+  ).toEqual(["kimi-enterprise/kimi-for-coding"]);
+  expect(
+    index.filter(
+      (item) =>
+        item.row === "codex/gpt-5.6-sol" &&
+        item.keyPath?.includes("kimi_metadata"),
+    ),
+  ).toEqual([]);
+});
+
 // ---- matching, on hand-made entries
 
 test("every word of the query has to occur in the own names, the config key, the surrounding names or the descriptions", () => {
@@ -558,7 +593,7 @@ test("the index lists the tabs, their blocks and their fields in the drawer's or
   });
   expect(
     bare.filter((e) => e.kind === "section").map((e) => e.section),
-  ).toEqual(["appearance", "sessions_manager", "status"]);
+  ).toEqual(["appearance", "sessions_manager", "status", "statistics"]);
   expect(bare.every((e) => e.kind === "section" || e.kind === "landmark")).toBe(
     true,
   );

@@ -34,6 +34,9 @@ const DefaultReadyTimeout = 30 * time.Second
 
 // Options are what a run needs. Home and Serve are required.
 type Options struct {
+	// nativeOpen is the opener seam used by the launcher specification.
+	nativeOpen func(context.Context, Options, string) error
+
 	// Home is the agent home. The remembered port and the window's browser
 	// profile live under it.
 	Home string
@@ -57,8 +60,8 @@ type Options struct {
 	// which serves the strip before any window exists.
 	Handle *WindowHandle
 	// Framed keeps the system title bar and borders. Without it the window
-	// opens as a bare rectangle and the tab strip is its title bar: the drag,
-	// the buttons and the menu are all in the strip. The switch in the menu
+	// uses the tab strip as its title bar. X11 draws window buttons in the strip;
+	// native macOS keeps the system buttons at the left. The switch in the menu
 	// sets the same thing for the launches that follow.
 	Framed bool
 	// StartMinimised opens the window minimised, which is what a window opened

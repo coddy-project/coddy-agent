@@ -1256,3 +1256,20 @@ The TUI rendering model and visual design are ported from
 `packages/coding-agent` interactive mode (MIT License, Copyright (c) 2025
 Mario Zechner), commit `b1efcf7d7`. The Go implementation in
 `external/cli/tui` is an independent rewrite of the documented behavior.
+
+## Service tier
+
+![Service tier](../assets/service-tier/service-tier-console.png)
+
+Use `/service-tier` to open the service tier menu for a supported model.
+The footer shows the selected mode beside the model and reasoning level.
+Use the arrow keys and Enter to select an option. An unset session shows Standard selected, with no separate Auto item.
+You can also enter `/service-tier default` to explicitly select Standard or `/service-tier priority` for Fast.
+`/service-tier reset` clears the selection, so Standard remains shown while the provider chooses.
+The same control works through `--remote`.
+A change during a turn applies to the next turn.
+
+The console stores the last choice in `console-state.json` as `last_service_tier`.
+A new session uses that choice only when its model offers it.
+Opening an existing session restores that session's selection.
+The console does not add a global YAML setting.

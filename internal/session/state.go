@@ -58,6 +58,13 @@ type State struct {
 	// mention treat as inside the workspace beside CWD.
 	additionalDirectories []string
 
+	// acpSystemPrompt is the system-level block a client asked for when it
+	// opened this session (ACP systemPrompt, append mode): the editor's own
+	// instructions, which follow the agent's and never replace them. It is
+	// stored with the session, so a client that reopens the session without
+	// resending it keeps the instructions it set.
+	acpSystemPrompt string
+
 	// Mode is the current operating mode.
 	Mode Mode
 
@@ -71,7 +78,8 @@ type State struct {
 	SelectedToolset string
 	// SelectedReasoning overrides the reasoning level for LLM calls when non-empty.
 	// Resolved against the effective model's levels by EffectiveReasoning.
-	SelectedReasoning string
+	SelectedReasoning   string
+	SelectedServiceTier string
 
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
@@ -249,6 +257,10 @@ type State struct {
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
+	// turnImageGeneration is the per-turn opt-in for native image generation:
+	// true only while a turn the caller enabled it on is in flight;
+	// turn-scoped and never persisted.
+	turnImageGeneration bool
 	// turnLang is the language of the surface running the current turn (the
 	// web UI's locale, the terminal's); turn-scoped and never persisted.
 	turnLang string
@@ -259,6 +271,11 @@ type State struct {
 	// promptSuggestionFork is the completed turn's provider context for the
 	// next-prompt side call. It is process-local and never persisted.
 	promptSuggestionFork *promptSuggestionFork
+
+	// turnSend is the shape of the last request this session put on the wire
+	// (turn_send.go), which is what a compaction repeats so the provider reads
+	// the history back from its prompt cache. Process-local, never persisted.
+	turnSend *TurnSend
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -285,8 +302,9 @@ type State struct {
 	// (settings_state.go): overrides armed by --once / --count=N, what the
 	// running turn holds, what the last operator turn held. settingsMu guards
 	// it alone; it is never taken together with mu.
-	settingsMu sync.Mutex
-	turn       turnSettings
+	settingsMu       sync.Mutex
+	settingsChangeMu sync.Mutex
+	turn             turnSettings
 	// settingsRev is the number of the last change of a setting a model
 	// request reads (SettingsRevision).
 	settingsRev atomic.Uint64
@@ -468,6 +486,30 @@ func (s *State) AdditionalDirectoriesForPersist() []string {
 		return nil
 	}
 	return append([]string(nil), s.additionalDirectories...)
+}
+
+// GetACPSystemPrompt returns the system-level block the client asked for when
+// it opened the session, "" when it asked for none.
+func (s *State) GetACPSystemPrompt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.acpSystemPrompt
+}
+
+// SetACPSystemPrompt records that block; it persists session metadata when a
+// store is attached, which is what keeps a reopened session on the same
+// instructions.
+func (s *State) SetACPSystemPrompt(text string) {
+	s.SetACPSystemPromptWithoutPersist(text)
+	s.touchPersist()
+}
+
+// SetACPSystemPromptWithoutPersist restores the block from a snapshot without
+// writing it back.
+func (s *State) SetACPSystemPromptWithoutPersist(text string) {
+	s.mu.Lock()
+	s.acpSystemPrompt = strings.TrimSpace(text)
+	s.mu.Unlock()
 }
 
 // setSessionDir records the bundle directory once it exists (child sessions
@@ -1806,6 +1848,25 @@ func (s *State) GetTurnRestriction() *TurnRestriction {
 	return s.turnRestriction
 }
 
+// SetTurnImageGeneration records the per-turn opt-in for native image
+// generation; false clears it.
+func (s *State) SetTurnImageGeneration(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnImageGeneration = on
+}
+
+// GetTurnImageGeneration reports whether the current turn carries the native
+// image generation opt-in. The turn's own provider calls read it and ask for
+// the tool explicitly; side calls (compaction folds, prompt suggestions,
+// naming, subagent runs) never see it, since it is held on the session rather
+// than on their context.
+func (s *State) GetTurnImageGeneration() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnImageGeneration
+}
+
 // SetSurfaceTurnContext records the section the surface running the current
 // turn contributed to the turn context block; "" clears it. Turn-scoped like
 // SetSurfaceSystemPrompt.
@@ -2177,11 +2238,12 @@ func sameWireRow(a, b llm.Message) bool {
 // RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk
 // (no persistence callback). The permission-mode override is never restored:
 // it lasts as long as the process.
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory string) {
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, selectedServiceTier, agentMemory string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
 	s.SelectedReasoning = selectedReasoning
+	s.SelectedServiceTier = selectedServiceTier
 	s.AgentMemory = agentMemory
 	s.mu.Unlock()
 }

@@ -2,7 +2,7 @@
 
 `coddy desktop` opens Coddy as an application on your own machine: a window with a strip of tabs,
 one chat per tab, over the same web interface `coddy serve` serves. It is a verb of the ordinary
-binary, which the release builds carry, and it runs on Linux, macOS and Windows.
+binary, which the release builds carry, and it runs on Linux, FreeBSD, macOS and Windows.
 
 ![The desktop window with two tabs, a chat in front](../assets/desktop/desktop-tabs-dark-1280.png)
 
@@ -49,8 +49,19 @@ The surface costs 0.44 MiB in a binary that already carries the HTTP server and 
 which is why it is a verb rather than a second program to install and update, and why every build
 has it - the release archives, the packages, the Homebrew formula and the container image alike.
 
-It needs a Chromium-family browser installed - Chrome, Chromium, Edge, Brave, Vivaldi or Yandex
-Browser - which it starts in application mode. Firefox has no application mode and is not used.
+macOS release archives include the Cocoa/WKWebView backend.
+The native window needs macOS 14 or later for a persistent WebKit store isolated to the agent home,
+and a GUI session. On older macOS versions, `auto` falls back to a Chromium-family browser.
+Linux, FreeBSD, Windows and macOS builds without the native backend need Chrome, Chromium, Edge,
+Brave, Vivaldi or Yandex Browser. Firefox has no application mode.
+The native backend needs no C compiler and no Xcode command-line tools: it reaches Cocoa and WebKit
+through the Objective-C runtime, so `make build` produces it like any other Go code, and the release
+cross-compiles it on Linux. Running a release binary on macOS 14 or later needs neither a compiler
+nor an installed browser. See [Building from source](../contributing/build.md#desktop-window-coddy-desktop).
+
+![The native macOS window in Dark at 1280 pixels](../assets/desktop/desktop-native-window-dark-1280.png)
+
+*The macOS native window uses the same tab shell in WKWebView.*
 
 ### The Linux package
 
@@ -79,10 +90,10 @@ coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
 
 | Flag | What it does |
 | --- | --- |
-| `--window` | which window to open: `auto` (the default), `browser` for application mode, `native` for the window around the system WebView, which is not built in yet |
+| `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS build carries, release or source; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
-| `--frame` | keep the system title bar and borders. Without it, on an X11 session, the strip is the title bar |
+| `--frame` | keep a separate system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar; macOS keeps its system buttons |
 | `--log-level` | `debug`, `info`, `warn` or `error`, overriding the configuration |
 | `--auth` | ask for the credential the configuration carries. Without it the window asks for nothing (below) |
 | `-t`, `--test-config` | check the configuration file and exit, starting nothing |
@@ -108,7 +119,7 @@ log; the window and the rest keep running. The configuration on disk is not rewr
 | Next, previous | `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab`, which wrap at both ends |
 | Reorder | drag a tab to its new place in the row |
 | Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
-| Walk a long row | the two arrows beside the window's own buttons, which appear once the tabs are wider than the bar |
+| Walk a long row | the two arrows after the empty part of the strip, which appear once the tabs are wider than the bar |
 
 A middle click on **New chat**, a conversation in **History**, or a rail item such as **Settings**,
 **Scheduler**, **Docs** or **Swarm** opens that route in a new tab of this window instead of another
@@ -126,9 +137,10 @@ those keys at the X server, with a grab on its own window, and hands them to the
 `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab` are two grabs rather than one, because a grab matches the
 modifiers exactly. `Ctrl`+`1` ... `Ctrl`+`9` need none of that, since an application window has no
 tabs of its own to switch to and gives the digits to the page. `Alt` stands beside `Ctrl` for every
-letter and digit chord, and on a Mac so does `Cmd`: that is what a Wayland or a macOS session -
-where the keys cannot be taken from the browser - leaves you with. `Alt`+`Tab` and `Cmd`+`Tab`
-always belong to the window manager and never switch these tabs. A chord is read off the physical
+letter and digit chord, and so does `Cmd`: in the native macOS window `Cmd`+`T`, `Cmd`+`W` and the
+`Cmd` digit chords reach the strip. In a browser window a `Cmd` shortcut the browser answers itself
+stays the browser's, and `Ctrl` or `Alt` do the same there. `Alt`+`Tab` and
+`Cmd`+`Tab` always belong to the window manager and never switch these tabs. A chord is read off the physical
 key, so a Russian or any other layout answers the same keys as a US one.
 
 A row longer than the bar scrolls, and the tab you switch to is always brought into sight, so the
@@ -166,20 +178,27 @@ origin shares a single connection.
 
 ## The window itself
 
-On an X11 session the window opens without the system frame, and the tab strip is its title bar.
-On macOS, on Windows and on Wayland the window keeps the frame its desktop draws, and the strip is
-a strip of tabs: everything below is what an X11 session adds. The strip
-carries, from left to right: the menu of the desktop, the tabs, `+`, the empty space that drags the
-window, the two arrows that walk a row too long for the bar, and minimise, maximise and close at the
-right edge. The corners are rounded while the window floats and square while it fills the screen.
+On X11 and native macOS the tab strip is the title bar by default. Browser windows on macOS,
+Windows and Wayland keep the system frame. From left to right the strip carries the desktop menu,
+the tabs, `+`, the empty space that drags the window, and the arrows that walk a row too long for
+the bar.
+
+On native macOS the round red, yellow and green system buttons stay at the top left, aligned with
+the menu icon, tab labels and `+`. The gap from green to the menu icon matches the left margin
+before red, measured from the system buttons at run time. With the strip as the title bar, green
+zooms or restores the window without entering full screen. A separate system frame restores
+macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window.
+AppKit draws the corners and handles resizing at the edges, so the strip draws no extra window
+buttons or resize areas. On X11 the strip draws minimise, maximise and close at the right edge, with rounded corners while the window floats and square corners while it fills the
+screen.
 
 | Action | How |
 | --- | --- |
-| Move the window | drag the empty part of the strip |
+| Move the window | drag the empty part of the strip; on native macOS its padding also drags |
 | Resize the window | drag an edge or a corner; the pointer shows the direction |
-| Maximise or restore | double-click the empty part of the strip, or the middle button at the right |
-| Minimise, close | the buttons at the right edge |
-| The desktop menu | the button at the left edge of the strip |
+| Maximise or restore | double-click the empty part of the strip; on macOS use the green system button, on X11 the middle button at the right |
+| Minimise, close | macOS: yellow and red system buttons at the left; X11: the buttons at the right edge |
+| The desktop menu | the menu button before the tabs, after the system buttons on native macOS |
 
 A window the window manager has pinned - maximised, or tiled against an edge with `Meta`+`Left` -
 is let loose when you start dragging the strip, and put back under the pointer, the way dragging a
@@ -189,6 +208,7 @@ do to any other.
 The first window of a browser profile opens as a landscape rectangle, 1280 by 820, rather than the
 tall one a Chromium application window takes by default. After that the browser remembers where you
 left it, and Coddy does not override that: a window moved or resized comes back where it was.
+The native macOS window starts centred, 1280 pixels wide; it does not save its size or position.
 
 ### In the task bar
 
@@ -203,13 +223,13 @@ a machine with no entry installed: a browser gives an application window the
 page's favicon at 16 pixels and nothing larger, which a task bar then blurs up
 to its own size.
 
-Both are X11. On Wayland, on macOS and on Windows the window is the browser's
-as far as the system is concerned, and the task bar draws what the browser
-tells it.
+Both are X11. With the browser backend on Wayland, macOS and Windows, the task bar draws what the
+browser tells it. The native macOS window belongs to the `coddy` process; this build adds no `.app`
+bundle or custom Dock icon.
 
 ### Recent folders in the application menu
 
-On Linux every launch writes this user's own application entry,
+On Linux and FreeBSD every launch writes this user's own application entry,
 `~/.local/share/applications/coddy-desktop.desktop`, naming the binary that
 wrote it. That is what puts Coddy in the launcher and in the task bar's menu
 without a package installed, and it carries the folders of this home's recent
@@ -244,10 +264,10 @@ take another port.
 | Entry | What it does |
 | --- | --- |
 | **New chat** | the same as `+` |
-| **Open at login** | Linux: writes `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
+| **Open at login** | Linux and FreeBSD: write `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
 | **Show the tray icon** | publishes Coddy's mark in the system tray as a StatusNotifierItem on the session bus. A click on it brings the window back from behind another window or from the taskbar |
 | **Start minimised** | the next launch opens the window minimised, which is usually what a window opened at login wants |
-| **Show the system frame** | gives the window back the title bar and borders your desktop draws. The strip then stops drawing minimise, maximise and close, since the frame carries them. An X11 session only: elsewhere the frame is always there |
+| **Show the system frame** | gives the window back the title bar and borders your desktop draws. On X11 the strip then stops drawing minimise, maximise and close. Native macOS keeps its system buttons in either mode and restores macOS's original full-screen behavior with a separate frame. On X11 and native macOS; other browser windows always keep their frame |
 
 A switch moves only once the launcher has done the thing: a tray this session has no tray for, or
 an autostart folder that cannot be written, leaves the switch where it was and says why on the row.
@@ -281,7 +301,7 @@ wrote.
 
 ## Notifications
 
-The window raises the system notifications the web interface raises. Turn them on in **Settings -
+The browser window raises the system notifications the web interface raises. Turn them on in **Settings -
 Appearance - Notifications**, and a chat that ends a turn, asks for a permission or asks a question
 while no window of Coddy has your attention puts a notice on your desktop; clicking it brings that
 chat up. The rules are the web interface's own, described under
@@ -292,6 +312,9 @@ first window, so turning the switch on does not open the browser's permission bu
 strip. The grant names this window's address and nothing else, and it holds because the port does.
 A launch that had to take another port gets a grant that no longer matches, and the browser asks
 once.
+
+WebKit denies notification permission requests made without a user gesture. The native backend
+adds no macOS notification bridge. Open the web interface in a browser to use its notification support.
 
 ## The port it remembers
 
@@ -306,6 +329,16 @@ Two consequences:
   starts with no tabs, and the new port is what the next one uses;
 - starting the application while a window is already open does not serve a second time. The second
   launch sees the desktop already running and asks it for a window.
+
+A second browser launch hands its tabs to the existing window.
+A second native launch opens another window on the running server. Its shell window controls
+still address the original window; use that original window for move, resize and close controls.
+Closing the second window ends only that launch.
+
+The native macOS window keeps its WebKit store identifier in `<home>/desktop/webkit/id`. WebKit
+stores cookies and localStorage in its system-managed data location, separately for each identifier.
+The identifier persists across launches, so homes keep separate browser data. The native store and
+Chromium profiles are separate; switching backends does not transfer the tab list or sign-in state.
 
 The browser's profile for the window lives in `<home>/desktop/profiles/<browser>`, one per browser.
 It is what makes the window a process of its own, and what keeps the agent's cookie out of your
@@ -338,25 +371,27 @@ For a swarm relay, configure `swarm.cors` on the relay instead. The alternative
 only when that broader trust is intended, and protect the remote API with a credential. Starting
 the desktop does not change a remote server's CORS policy.
 
-## Linux, macOS and Windows
+## Linux, FreeBSD, macOS and Windows
 
-The window opens on all three. What differs is how much of it the system lets Coddy drive:
+The window opens on all four. What differs is how much of it the system lets Coddy drive. FreeBSD
+runs the same freedesktop stack as Linux and is driven through the same code, so the two share a
+column:
 
-| | Linux (X11) | Linux (Wayland) | macOS | Windows |
+| | Linux, FreeBSD (X11) | Linux, FreeBSD (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
-| The window, tabs, settings | yes | yes | yes | yes |
-| No system frame, the strip as the title bar | yes | no | no | no |
-| Rounded corners, drag by the strip, its own buttons | yes | no | no | no |
+| The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on older macOS | yes |
+| The strip as the title bar | yes | no | native only, with system buttons at the left | no |
+| Rounded corners and drag by the strip | yes | no | native only; AppKit draws corners and resize edges | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
-| `Alt` (and `Cmd` on a Mac) for the letter and digit chords | yes | yes | yes | yes |
+| `Alt` for the letter and digit chords | yes | yes | yes | yes |
 | Tray icon | yes | yes | no | no |
 | Open at login | autostart entry | autostart entry | launch agent | `Run` key |
 
 Where a chord cannot be taken from the browser, `Alt`+`T`, `Alt`+`W`, `Alt`+`R` and the digit
-chords do the same thing, and on a Mac `Cmd` stands beside them. `Alt`+`Tab` and `Cmd`+`Tab` stay
+chords do the same thing. The strip also accepts `Cmd` when the macOS backend delivers it to the page. `Alt`+`Tab` and `Cmd`+`Tab` stay
 with the window manager.
 
-The browser is looked for where each system keeps one: on `PATH` on Linux, in `/Applications` and
+The browser is looked for where each system keeps one: on `PATH` on Linux and FreeBSD, in `/Applications` and
 `~/Applications` on macOS, under Program Files and the user's local application data on Windows.
 `CODDY_DESKTOP_BROWSER` names one by path for a machine that keeps its browser somewhere else:
 
@@ -364,14 +399,24 @@ The browser is looked for where each system keeps one: on `PATH` on Linux, in `/
 CODDY_DESKTOP_BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" coddy desktop
 ```
 
-Two things to know before you use it on macOS or Windows. Neither Gatekeeper nor SmartScreen has
-anything to warn about here, because the program you start is the browser already installed on the
-machine - but `coddy` itself is a console program, so on Windows the console window it was started
-from stays behind the window. And without a window of its own to drive, the strip draws no window
-buttons and the menu offers no frame switch: your desktop's own title bar carries both.
+The macOS native backend uses Cocoa and WebKit from the system, with a standard file picker for
+file inputs and the system browser for HTTP(S) links opened in a new window. The Edit menu supplies
+`Cmd`+`C`, `Cmd`+`V`, `Cmd`+`X`, `Cmd`+`A` and `Cmd`+`Z`; `Cmd`+`Q` closes the window and ends the
+run. Downloads from an HTML `download` link or an attachment response go to the standard Downloads
+folder. A duplicate name receives a numeric suffix, so an existing file is kept.
+Every macOS release archive carries this backend, and no build tag selects it: a macOS build
+compiles it. The window needs macOS 14 because its isolated persistent data store uses
+`WKWebsiteDataStore.dataStoreForIdentifier`, which is what `auto` asks the class itself for, so
+macOS 13 opens a browser instead. `--window browser` asks for the browser on a Mac that has the
+native window, and `CODDY_DESKTOP_BROWSER` says which one.
+This build adds no tray icon, signing, notarisation or application bundle.
 
-If no Chromium-family browser is found at all, the launch prints the address and serves until you
-stop it, so the interface is still reachable in an ordinary browser.
+On Windows, `coddy` remains a console program, so the console window it was started from stays
+behind the browser window. Browser windows on macOS and Windows keep the system title bar, and
+the strip offers no window buttons or frame switch.
+
+If `auto` has no available native backend and finds no Chromium-family browser, it prints the
+address and serves until you stop it, so the interface is still reachable in an ordinary browser.
 
 ## See also
 

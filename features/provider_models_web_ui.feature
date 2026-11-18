@@ -31,3 +31,14 @@ Feature: The settings form takes the models and their windows from the provider
 
   Scenario: The models of a provider named coddy are offered in the composer
     Then the models of a provider named coddy are backends and the profiles are not
+
+  Scenario: Kimi catalog metadata is shown only for Kimi model rows
+    Then Kimi catalog metadata is hidden for Codex models
+    And Kimi catalog metadata stays visible for a Kimi provider with a custom name
+    And editing a Codex model preserves hidden Kimi metadata
+
+  Scenario: Renaming a provider moves its models and every model reference
+    Then renaming a provider moves its models and every model reference
+
+  Scenario: Deleting a provider removes its models and clears their references
+    Then deleting a provider removes its models and clears their references

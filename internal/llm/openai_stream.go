@@ -104,6 +104,10 @@ func (s *sseScanner) Next() bool {
 		case "event":
 			event = string(value)
 		case "data":
+			if data.Len()+len(value)+1 > sseMaxScanSize {
+				s.err = fmt.Errorf("SSE frame exceeds %d bytes", sseMaxScanSize)
+				return false
+			}
 			data.Write(value)
 			data.WriteByte('\n')
 		case "error":
@@ -462,6 +466,9 @@ func newStreamServerError(obj []byte, emitted bool) error {
 
 // Stream implements Provider.Stream over the lenient SSE path.
 func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
+	if ImageGenerationEnabled(ctx) {
+		return p.streamImageGeneration(ctx, messages, tools, onChunk)
+	}
 	params := p.buildParams(messages, tools, true)
 	defer func() { retErr = withToolSchemaRequest(retErr, params, false) }()
 
@@ -478,6 +485,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
 	var usageKnown bool
+	var serviceTier string
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
@@ -577,6 +585,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			break
 		}
 
+		if chunk.ServiceTier != "" {
+			serviceTier = string(chunk.ServiceTier)
+		}
 		if len(chunk.Choices) == 0 {
 			if openAIUsageKnown(string(payload)) {
 				usageKnown = true
@@ -672,6 +683,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// contract.
 			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
+					ServiceTier:       serviceTier,
 					Content:           fullContent,
 					Reasoning:         reasoningBuf.String(),
 					UsageKnown:        usageKnown,
@@ -696,6 +708,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 					}
 				}
 				return &Response{
+					ServiceTier:       serviceTier,
 					Content:           fullContent,
 					ToolCalls:         toolCalls,
 					StopReason:        sr,
@@ -726,6 +739,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	return &Response{
+		ServiceTier:       serviceTier,
 		Content:           fullContent,
 		ToolCalls:         toolCalls,
 		StopReason:        stopReason,

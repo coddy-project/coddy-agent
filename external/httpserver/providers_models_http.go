@@ -31,8 +31,9 @@ func (s *Server) registerProvidersRoutes() {
 // {"ok":true,"models":[{"id","name","context_window"}]}; on failure it returns
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
 // manual model entry. A model the built-in models catalog knows also carries
-// {"catalog":{"context_window","max_tokens","multimodal"}} when the provider
-// reports no window for it or the catalog's window. An unknown provider name
+// {"catalog":{"context_window","max_tokens","multimodal","image_output"}}.
+// The context and max-token values are omitted when the provider reports a
+// different window or the catalog has none. An unknown provider name
 // returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
@@ -224,9 +225,8 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 }
 
 // providerModel is a listed model as the settings form gets it: what the
-// provider reports and, for a model it reports no window for or the catalog's
-// window (as Anthropic's listing does), what the built-in models catalog knows
-// of the id, which the form fills a model it adds from. The catalog's numbers
+// provider reports and what the built-in models catalog knows of the id.
+// Modality metadata is independent of the window. The catalog's numbers
 // come as a pair or not at all: its max_tokens was worked out for its own
 // window and fits no other.
 type providerModel struct {
@@ -235,17 +235,24 @@ type providerModel struct {
 }
 
 type catalogLimits struct {
-	ContextWindow int  `json:"context_window"`
-	MaxTokens     int  `json:"max_tokens,omitempty"`
-	Multimodal    bool `json:"multimodal,omitempty"`
+	ContextWindow int   `json:"context_window,omitempty"`
+	MaxTokens     int   `json:"max_tokens,omitempty"`
+	Multimodal    bool  `json:"multimodal,omitempty"`
+	ImageOutput   *bool `json:"image_output,omitempty"`
 }
 
 func withCatalogLimits(listed []llm.ModelEntry) []providerModel {
 	out := make([]providerModel, len(listed))
 	for i, m := range listed {
 		out[i].ModelEntry = m
-		if limits, ok := models.Lookup(m.ID); ok && (m.ContextWindow == 0 || m.ContextWindow == limits.ContextWindow) {
-			out[i].Catalog = &catalogLimits{ContextWindow: limits.ContextWindow, MaxTokens: limits.MaxTokens, Multimodal: limits.Multimodal}
+		if limits, ok := models.Lookup(m.ID); ok {
+			catalog := &catalogLimits{Multimodal: limits.Multimodal, ImageOutput: limits.ImageOutput}
+			if limits.ContextWindow > 0 && (m.ContextWindow == 0 || m.ContextWindow == limits.ContextWindow) {
+				catalog.ContextWindow, catalog.MaxTokens = limits.ContextWindow, limits.MaxTokens
+			}
+			if catalog.ContextWindow > 0 || catalog.Multimodal || catalog.ImageOutput != nil {
+				out[i].Catalog = catalog
+			}
 		}
 	}
 	return out

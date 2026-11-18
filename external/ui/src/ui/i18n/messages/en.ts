@@ -2,6 +2,13 @@
  *  English values are kept byte-identical to the former hardcoded literals so
  *  existing English-asserting tests keep passing when strings move behind t(). */
 export const messagesEn: Record<string, string> = {
+  "messages.openGeneratedImage": "Open generated image {fileName}",
+  "composer.serviceTier": "Service tier",
+  "composer.serviceTier.default": "Standard",
+  "composer.serviceTier.priority": "Fast",
+  "composer.serviceTier.ultrafast": "Ultrafast",
+  "composer.serviceTier.flex": "Flex",
+
   "git.createMenu": "Create and switch to new branch…",
   "git.createTitle": "Create and switch to a new branch",
   "git.createDescription":

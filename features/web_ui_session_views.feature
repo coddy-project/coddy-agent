@@ -47,6 +47,14 @@ Feature: The views of a chat
     Then discarding a file asks first, then puts it back through the server
     And discarding everything asks first, and a refusal touches nothing
 
+  Scenario: A file offers GitHub-style review and preview controls
+    When a file header offers rich preview, Viewed and whole-file context controls
+    Then file actions keep discard and delete behind a menu
+    And a binary file shows the old and new byte sizes
+    And an image reports its width and height after loading
+    And expanded contiguous hunks have no blank separator
+    And the Viewed counter shows progress and turns complete when every file is viewed
+
   Scenario: The terminal opens in a window of its own
     Then the terminal opens in a window of its own and closes by its own control
     And the terminal stays open while the files and the tasks come and go

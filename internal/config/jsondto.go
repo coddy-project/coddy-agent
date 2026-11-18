@@ -132,6 +132,7 @@ type ModelJSON struct {
 	Temperature      float64            `json:"temperature"`
 	MaxContextTokens int                `json:"max_context_tokens,omitempty"`
 	Multimodal       bool               `json:"multimodal,omitempty"`
+	ImageGeneration  bool               `json:"image_generation,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
@@ -209,14 +210,15 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	CommandAllowlist  []string              `json:"command_allowlist,omitempty"`
-	SSHConnectTimeout int                   `json:"ssh_connect_timeout,omitempty"`
-	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
-	Background        ToolBackgroundJSON    `json:"background,omitempty"`
-	PreviewServer     ToolPreviewServerJSON `json:"preview_server,omitempty"`
-	Canvas            ToolCanvasJSON        `json:"canvas,omitempty"`
-	WebSearch         ToolWebSearchJSON     `json:"websearch,omitempty"`
-	HTTPRequest       ToolHTTPRequestJSON   `json:"http_request,omitempty"`
+	CommandAllowlist  []string               `json:"command_allowlist,omitempty"`
+	SSHConnectTimeout int                    `json:"ssh_connect_timeout,omitempty"`
+	OutputLimits      ToolOutputLimitsJSON   `json:"output_limits,omitempty"`
+	Background        ToolBackgroundJSON     `json:"background,omitempty"`
+	PreviewServer     ToolPreviewServerJSON  `json:"preview_server,omitempty"`
+	PreviewPublish    ToolPreviewPublishJSON `json:"preview_publish,omitempty"`
+	Canvas            ToolCanvasJSON         `json:"canvas,omitempty"`
+	WebSearch         ToolWebSearchJSON      `json:"websearch,omitempty"`
+	HTTPRequest       ToolHTTPRequestJSON    `json:"http_request,omitempty"`
 }
 
 // ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
@@ -260,6 +262,20 @@ type ToolPreviewServerJSON struct {
 	Enabled    *bool  `json:"enable,omitempty"`
 	Host       string `json:"host,omitempty"`
 	PublicHost string `json:"public_host,omitempty"`
+}
+
+// ToolPreviewPublishJSON mirrors ToolPreviewPublish for JSON APIs. The
+// published-preview channel is a deployment decision the Settings form edits
+// like any other, and a section missing here is silently reset by any
+// unrelated save.
+type ToolPreviewPublishJSON struct {
+	Enable     bool   `json:"enable,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	Root       string `json:"root,omitempty"`
+	PublicURL  string `json:"public_url,omitempty"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+	MaxBytes   int64  `json:"max_bytes,omitempty"`
 }
 
 // ToolCanvasJSON mirrors ToolCanvas for JSON APIs.
@@ -640,6 +656,15 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Host:       c.Tools.PreviewServer.Host,
 			PublicHost: c.Tools.PreviewServer.PublicHost,
 		},
+		PreviewPublish: ToolPreviewPublishJSON{
+			Enable:     c.Tools.PreviewPublish.Enable,
+			Host:       c.Tools.PreviewPublish.Host,
+			Port:       c.Tools.PreviewPublish.Port,
+			Root:       c.Tools.PreviewPublish.Root,
+			PublicURL:  c.Tools.PreviewPublish.PublicURL,
+			TTLSeconds: c.Tools.PreviewPublish.TTLSeconds,
+			MaxBytes:   c.Tools.PreviewPublish.MaxBytes,
+		},
 		Canvas: ToolCanvasJSON{
 			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
 			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
@@ -907,6 +932,15 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:    cloneBoolPtr(j.Tools.PreviewServer.Enabled),
 			Host:       j.Tools.PreviewServer.Host,
 			PublicHost: j.Tools.PreviewServer.PublicHost,
+		},
+		PreviewPublish: ToolPreviewPublish{
+			Enable:     j.Tools.PreviewPublish.Enable,
+			Host:       j.Tools.PreviewPublish.Host,
+			Port:       j.Tools.PreviewPublish.Port,
+			Root:       j.Tools.PreviewPublish.Root,
+			PublicURL:  j.Tools.PreviewPublish.PublicURL,
+			TTLSeconds: j.Tools.PreviewPublish.TTLSeconds,
+			MaxBytes:   j.Tools.PreviewPublish.MaxBytes,
 		},
 		Canvas: ToolCanvas{
 			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),

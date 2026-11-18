@@ -873,6 +873,18 @@ a.canvas-node-url {
   pointer-events: none;
 }
 
+.canvas-send-error {
+  flex: none;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--coddy-danger) 50%, transparent);
+  background: color-mix(in srgb, var(--coddy-danger) 10%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .canvas-link-error {
   position: absolute;
   top: 12px;

@@ -232,7 +232,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call** (a call the agent behind a model of type acp ran on its own side carries `_meta.coddy.agentTool`: its title names what it works on, and nothing runs it), **tool_call_update** (pending file-writing calls may include `_meta.coddy.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution; a completed call that returned a picture - **read** on an image file, or an MCP tool whose result carried image blocks - carries `_meta.coddy.images` with each picture's `name`, `mime_type`, `asset`, `url` and `preview_url`), **plan**, **token_usage** (completed model-call counters: **`inputTokens`**, **`outputTokens`**, **`totalTokens`**, **`cachedInputTokens`**, and **`reasoningTokens`** - the part of the output the call spent reasoning, when the provider breaks it out), **usage_update** (`used` / `size` for the current context window), **turn_progress** (the running turn's clock and generated tokens: **`startedAt`**, **`elapsedMs`**, **`outputTokens`**, **`estimated`**; the first one, sent as soon as the turn is taken and before it brings in its MCP servers and waits for its model's context window, also carries **`phase: \"preparing\"`**; then sent when the loop starts, at most once a second while a model call streams and after every call, so a client shows the elapsed time alone before the first token and the count after it), **background_wake** (the first frame of a turn nobody typed: background tasks the model started ended with their wake on (**notify_on_finish**, on by default) and the server woke the agent; **`tasks`** lists each with **`id`**, **`kind`**, **`label`**, **`agent`**, **`status`**, **`exitCode`**, **`durationMs`** and **`error`**; the turn's first message is persisted with the same tasks as **`background_wake`**, so no client shows the instruction as a user bubble, live or after a reload - the bundled UI shows nothing in its place, and the task row says **woke_agent**), **session_settings** (the session's whole settings snapshot with its **version** and the **source** of the change, whenever a setting changes during the stream: a leading settings command, the permission dialog's session switch, the model's **switch_model**; a **notice** of what changed only when the agent made the change itself - its **switch_model**, a skill's frontmatter), **session_goal** (the session goal whenever it changes during the stream - set by **/goal**, checked by the supervisor, continued, paused, cleared: **`{goal, version, notice}`** in the shape of **GET /coddy/sessions/{id}/goal**), **goal_turn** (the first frame of a turn the session supervisor started - **`kind`** kickoff, continue, recover, resume or wrapup, **`index`** of **`limit`**, **`objective`**, **`reason`**, **`remaining`**; the turn's first message is persisted with the same marker as **`goal_turn`**, so a client shows a one-line row instead of the instruction text the model reads), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`settings_only`** `\"true\"` when the prompt was settings commands only and no turn ran: the notices were the answer, and the transcript keeps nothing of the exchange), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **assistant_images** (`sessionUpdate: assistant_images`, `messageId: msg_<index>`, `images: [{name, mime_type, asset, url, preview_url?}]`; completed native image output belongs to that assistant message and is stored with session assets), **tool_call** (a call the agent behind a model of type acp ran on its own side carries `_meta.coddy.agentTool`: its title names what it works on, and nothing runs it), **tool_call_update** (pending file-writing calls may include `_meta.coddy.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution; a completed call that returned a picture - **read** on an image file, or an MCP tool whose result carried image blocks - carries `_meta.coddy.images` with each picture's `name`, `mime_type`, `asset`, `url` and `preview_url`), **plan**, **token_usage** (completed model-call counters: **`inputTokens`**, **`outputTokens`**, **`totalTokens`**, **`cachedInputTokens`**, and **`reasoningTokens`** - the part of the output the call spent reasoning, when the provider breaks it out), **usage_update** (`used` / `size` for the current context window), **turn_progress** (the running turn's clock and generated tokens: **`startedAt`**, **`elapsedMs`**, **`outputTokens`**, **`estimated`**; the first one, sent as soon as the turn is taken and before it brings in its MCP servers and waits for its model's context window, also carries **`phase: \"preparing\"`**; then sent when the loop starts, at most once a second while a model call streams and after every call, so a client shows the elapsed time alone before the first token and the count after it), **background_wake** (the first frame of a turn nobody typed: background tasks the model started ended with their wake on (**notify_on_finish**, on by default) and the server woke the agent; **`tasks`** lists each with **`id`**, **`kind`**, **`label`**, **`agent`**, **`status`**, **`exitCode`**, **`durationMs`** and **`error`**; the turn's first message is persisted with the same tasks as **`background_wake`**, so no client shows the instruction as a user bubble, live or after a reload - the bundled UI shows nothing in its place, and the task row says **woke_agent**), **session_settings** (the session's whole settings snapshot with its **version** and the **source** of the change, whenever a setting changes during the stream: a leading settings command, the permission dialog's session switch, the model's **switch_model**; a **notice** of what changed only when the agent made the change itself - its **switch_model**, a skill's frontmatter), **session_goal** (the session goal whenever it changes during the stream - set by **/goal**, checked by the supervisor, continued, paused, cleared: **`{goal, version, notice}`** in the shape of **GET /coddy/sessions/{id}/goal**), **goal_turn** (the first frame of a turn the session supervisor started - **`kind`** kickoff, continue, recover, resume or wrapup, **`index`** of **`limit`**, **`objective`**, **`reason`**, **`remaining`**; the turn's first message is persisted with the same marker as **`goal_turn`**, so a client shows a one-line row instead of the instruction text the model reads), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`settings_only`** `\"true\"` when the prompt was settings commands only and no turn ran: the notices were the answer, and the transcript keeps nothing of the exchange), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2550,6 +2550,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "The working copy changes of the session's folder, as git reports them: every tracked file that differs from **`HEAD`** (staged or not) and every new file git does not ignore, whoever made the change - the agent, a shell command or an editor next to it. Nothing is recorded per turn. " +
 						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
 						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"Each row carries a **`digest`**, a SHA-256 fingerprint of its status and both raw sides, plus **`image`** (a raster image told by its bytes) broken down per side as **`beforeImage`** and **`afterImage`**, and **`beforeSize`** and **`afterSize`** - the exact byte lengths of the two sides - so a viewer can fingerprint, size and render the file without fetching its content. " +
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
 						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
 						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
@@ -2677,7 +2678,8 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Read one changed file of the session's folder",
 					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
-						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file.",
+						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file. " +
+						"With **`raw=1`** the route serves the exact bytes of one side instead of the JSON document: **`side`** picks **`before`** (default) or **`after`**, the Content-Type is the raster format the bytes carry (PNG, JPEG, GIF, WebP, BMP), a side the file does not have is **404**, and a side that is not a supported image is **400** - the raw form exists for images alone.",
 					"operationId": "coddySessionChangeFile",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2690,13 +2692,33 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Path relative to the session's folder, as listed by GET .../changes.",
 						},
+						map[string]interface{}{
+							"name": "side", "in": "query", "required": false,
+							"description": "Which side of the change raw=1 serves; ignored without raw=1.",
+							"schema": map[string]interface{}{
+								"type":    "string",
+								"enum":    []interface{}{"before", "after"},
+								"default": "before",
+							},
+						},
+						map[string]interface{}{
+							"name": "raw", "in": "query", "required": false,
+							"description": "Serve the raw bytes of one image side instead of the JSON document.",
+							"schema": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"1"},
+							},
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "One changed file",
+							"description": "One changed file, or its raw bytes when raw=1",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": sessionChangeFileSchema(),
+								},
+								"image/*": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
 								},
 							},
 						},
@@ -2747,6 +2769,63 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Changes discarded",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"at":        map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/changes/delete": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Delete files of the change set from the session's folder",
+					"description": "Removes the named files, as **GET .../changes** lists them, from the working copy without restoring **`HEAD`**: a file git does not hold (new, or only added to the index) goes away, and a tracked file becomes the deletion the next **GET .../changes** reports; a folder left empty by that goes with it. Files git ignores are never touched. " +
+						"The body is **`{\"paths\":[...]}`** with at least one path; an empty, malformed or ambiguous body (an empty or null list, an unknown key, anything after the object) is **400** and nothing is deleted. There is no **`all`**: removing everything the change set holds is a discard plus the tracked files, and nobody asks for that by accident the way an empty **`paths`** might slip through. " +
+						"A path git does not report any more (committed, or put back meanwhile) is **409** and nothing of the request is applied. A folder in no repository is **400**. " +
+						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the delete holds the session turn lock. " +
+						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session reads its working copy again.",
+					"operationId": "coddySessionChangesDelete",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"minItems":    1,
+											"description": "Files to delete, relative to the session's folder.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Files deleted",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2870,7 +2949,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for a settings change the agent made itself (the model's **switch_model**, a skill's frontmatter); a change the user made - a command, **PATCH**, the permission dialog - leaves none, and the rows a session saved by an earlier version holds for such changes are not returned. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata, and a tool row carries in **`files`** the pictures its call showed the model (**`read`** on an image file); persisted images carry a session-scoped **`preview_url`** (the bounded thumbnail) and, while the asset is still in the bundle, **`url`** for the original bytes a preview card opens enlarged. " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **serviceTier**, **serviceTierChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for a settings change the agent made itself (the model's **switch_model**, a skill's frontmatter); a change the user made - a command, **PATCH**, the permission dialog - leaves none, and the rows a session saved by an earlier version holds for such changes are not returned. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata, and a tool row carries in **`files`** the pictures its call showed the model (**`read`** on an image file); persisted images carry a session-scoped **`preview_url`** (the bounded thumbnail) and, while the asset is still in the bundle, **`url`** for the original bytes a preview card opens enlarged. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). A **user** row the session supervisor opened a goal turn with carries **`goal_turn`** **`{kind, index, limit, objective, reason, remaining}`**; a UI shows it as a one-line goal row, not as a message from the user. The answer also carries **goal**, the session goal in the shape of **GET /coddy/sessions/{id}/goal**, and, while the session keeps a todo checklist, **todoPlan** **`[{content, status, priority}]`**, the list **GET /coddy/sessions/{id}/plan** returns, in its order (the bundled UI shows it under the newest message; a session without a list carries no key). " +
 						"An **assistant** row a model of type acp wrote carries **`agent_tools`** **`[{id, title, kind, status, input, output, output_lines}]`**, the tool calls the agent behind it ran on its own side: a UI draws them as tool rows (the bundled UI puts them before the row's text), and the whole output of each is **GET /coddy/sessions/{id}/tool-calls/{toolCallId}**. " +
@@ -2986,7 +3065,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. **event: session_goal** (**`{object:\"coddy.session_goal\", sessionId, goal, version, notice}`**, **goal** null once cleared) follows every change of a session's goal from any surface, in the shape of **GET /coddy/sessions/{id}/goal**. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder or **POST /coddy/sessions/{id}/changes/delete** deleted files of it, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **toolset** and **toolsetChoices** (only while the configuration has **`toolsets`**), **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. **event: session_goal** (**`{object:\"coddy.session_goal\", sessionId, goal, version, notice}`**, **goal** null once cleared) follows every change of a session's goal from any surface, in the shape of **GET /coddy/sessions/{id}/goal**. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),
@@ -3052,7 +3131,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/question": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a pending interactive question from a streaming ReAct turn",
-					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and exactly one non-null outcome is required: **`answers`**, an array of string arrays (one row per question, entries are selected labels or custom text), or a non-empty **`error`** string for a client refusal/failure. The server truncates error text to at most 4096 UTF-8 bytes, including a ` [truncated]` marker, without splitting a character; successful answers are unchanged. An empty successful **`answers: []`** remains distinct from failure. The SSE question advertises **`supportsError: true`**; clients must not send errors unless it is present. A remote client whose question fails against an older server cancels the turn instead of submitting empty answers. The first answer or error settles the wait; later submissions return **404**. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3069,9 +3148,14 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"required": []interface{}{
-										"requestId", "answers",
+										"requestId",
+									},
+									"oneOf": []interface{}{
+										map[string]interface{}{"required": []interface{}{"answers"}},
+										map[string]interface{}{"required": []interface{}{"error"}},
 									},
 									"properties": map[string]interface{}{
+										"error":     map[string]interface{}{"type": "string", "minLength": 1, "pattern": `\S`, "description": "Client refusal/failure. Truncated by the server to at most 4096 UTF-8 bytes including a truncation marker; longer input is accepted."},
 										"requestId": map[string]string{"type": "string"},
 										"answers": map[string]interface{}{
 											"type": "array",
@@ -3155,7 +3239,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token, listing every model the account is offered, asked as Codex release 0.999.0 so that a model the backend reserves for a recent Codex release is not left out). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,context_window,catalog}]}`** on success (`context_window` only when the provider's listing reports one, under `limit.context`, `context_length`, `max_model_len`, `max_context_length`, `context_window`, `max_input_tokens` or `max_context_tokens`; **`catalog`** - **`{context_window, max_tokens, multimodal}`** - only for a model Coddy's built-in models catalog, built from models.dev and embedded into the binary, knows whose window the provider does not report or reports the same: what the settings form fills a model it adds from, `max_tokens` left out when the catalog has none and `multimodal` when the model reads no images), or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token, listing every model the account is offered, asked as Codex release 0.999.0 so that a model the backend reserves for a recent Codex release is not left out). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,context_window,catalog}]}`** on success (`context_window` only when the provider's listing reports one, under `limit.context`, `context_length`, `max_model_len`, `max_context_length`, `context_window`, `max_input_tokens` or `max_context_tokens`; **`catalog`** - **`{context_window, max_tokens, multimodal, image_output}`** - for a model Coddy's built-in models catalog knows; the catalog context window and `max_tokens` are omitted when the provider reports a different window or the catalog has no window, `max_tokens` is also omitted when unknown, and `multimodal` is omitted when the model reads no images; `image_output` is true or false when output modalities are known and omitted otherwise), or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3390,6 +3474,18 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"202": jsonSchemaResponse("Callback accepted for validation.", "#/components/schemas/CodexAuthDeviceStatus"),
 						"400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "415": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List all provider account limits",
+					"description": "Returns every configured provider in configuration order, including unused, unsupported and disabled rows. Uses the manager's shared cache, credentials, proxy and refresh pacing. Reads at most four accounts concurrently under a 15-second request budget; a failed row carries error=unavailable. Does not sum limits across accounts. refresh=1 requests fresh reads subject to the pacing floor.",
+					"operationId": "listProviderUsage",
+					"parameters":  []interface{}{map[string]interface{}{"name": "refresh", "in": "query", "schema": map[string]string{"type": "string"}}},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("All configured provider limits.", "#/components/schemas/ProviderUsageList"),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -4570,6 +4666,13 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
 				},
+				"ProviderUsageList": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"providers"},
+					"properties": map[string]interface{}{
+						"providers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}},
+					},
+				},
 				"ProviderUsageAnswer": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -4794,6 +4897,11 @@ func openAPISpec() map[string]interface{} {
 							"description": "Coddy transcript extension: the files uploaded with a user row, and on a tool row the pictures its call returned (read on an image file, an MCP tool's image blocks), which the bundled UI previews on the call's row.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/CoddyMessageFile"},
 						},
+						"images": map[string]interface{}{
+							"type": "array", "readOnly": true,
+							"description": "Assistant-owned generated image assets. The descriptor matches the assistant_images SSE event; no provider URL or inline base64 is returned.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/CoddyMessageFile"},
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 						"compaction_summary": map[string]interface{}{
@@ -4828,6 +4936,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"id":           map[string]interface{}{"type": "string", "description": "The id of the call's tool row: `acp_` and the agent's own id."},
 						"title":        map[string]interface{}{"type": "string", "description": "The call named by what it works on (`read notes.txt`)."},
+						"tool_name":    map[string]interface{}{"type": "string", "description": "The programmatic name of the tool the agent invoked, when it reported one (ACP's `toolCall.name`); absent otherwise."},
 						"kind":         map[string]interface{}{"type": "string", "description": "The agent's tool kind (ACP: read, edit, delete, move, search, execute, think, fetch, other)."},
 						"status":       map[string]interface{}{"type": "string", "enum": []string{"completed", "failed", "cancelled"}},
 						"input":        map[string]interface{}{"type": "string", "description": "What the call was given, as the agent reported it (JSON)."},
@@ -4841,6 +4950,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"name":      map[string]string{"type": "string"},
 						"mime_type": map[string]string{"type": "string"},
+						"asset":     map[string]string{"type": "string", "description": "Session-owned asset basename for generated assistant images."},
 						"preview_url": map[string]interface{}{
 							"type":        "string",
 							"description": "Session-scoped URL for a bounded PNG preview; present only when the backend persisted a decodable image thumbnail.",
@@ -4919,7 +5029,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. For direct completion `model` values, `model` and `reasoning` keys are rejected; use the top-level `reasoning_effort` for reasoning.",
+							"description":          "Optional. Boolean `image_generation: true` explicitly enables the native Responses image tool for this chat turn: a model must opt in with **`models[].image_generation`**, and only openai API-key and codex providers are allowed - a model without the flag, unsupported providers and direct models are refused. Real Codex backend entitlement for image generation remains unverified. Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. For direct completion `model` values, `model` and `reasoning` keys are rejected; use the top-level `reasoning_effort` for reasoning.",
 							"additionalProperties": true,
 						},
 					},
@@ -4996,7 +5106,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. `browser` (`{browser_id, tab_id, url, title}`, what the web UI in the side panel of Coddy for Browser sends) names the tab the turn is written from: the session's browser tool selects that browser and acts on that tab when a call names none, and the turn's system prompt says so, with the page's address and title as JSON data.",
+							"description":          "Optional. Boolean `image_generation: true` explicitly enables the native Responses image tool for this chat turn: a model must opt in with **`models[].image_generation`**, and only openai API-key and codex providers are allowed - a model without the flag, unsupported providers and direct models are refused. Real Codex backend entitlement for image generation remains unverified. Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. `browser` (`{browser_id, tab_id, url, title}`, what the web UI in the side panel of Coddy for Browser sends) names the tab the turn is written from: the session's browser tool selects that browser and acts on that tab when a call names none, and the turn's system prompt says so, with the page's address and title as JSON data.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -5388,6 +5498,7 @@ func openAPISpec() map[string]interface{} {
 	mergeWorkspaceViewerOpenAPI(doc)
 	mergeCanvasOpenAPI(doc)
 	mergeStatusOpenAPI(doc)
+	mergeStatisticsOpenAPI(doc)
 	mergeOpenCodeAuthOpenAPI(doc)
 	mergeWallpaperOpenAPI(doc)
 	mergeResponsesOpenAPI(doc)
@@ -5532,6 +5643,30 @@ func sessionChangeFileSchema() map[string]interface{} {
 			"truncated": map[string]string{
 				"type":        "boolean",
 				"description": "The patch was cut short at 256 KB; the line counts still cover the whole file.",
+			},
+			"digest": map[string]string{
+				"type":        "string",
+				"description": "SHA-256 fingerprint of the status and both raw sides, hex-encoded: identical content hashes the same on every read, and a rewrite that keeps the line counts still moves it.",
+			},
+			"image": map[string]string{
+				"type":        "boolean",
+				"description": "A side of the file is a raster image (PNG, JPEG, GIF, WebP or BMP, told by its bytes); see beforeImage / afterImage for which. Image sides can be fetched as exact bytes through GET .../changes/file with raw=1.",
+			},
+			"beforeImage": map[string]string{
+				"type":        "boolean",
+				"description": "The HEAD side is a raster image.",
+			},
+			"afterImage": map[string]string{
+				"type":        "boolean",
+				"description": "The working copy side is a raster image.",
+			},
+			"beforeSize": map[string]string{
+				"type":        "integer",
+				"description": "Exact length of the HEAD side in bytes, 0 when the file is new.",
+			},
+			"afterSize": map[string]string{
+				"type":        "integer",
+				"description": "Exact length of the working copy side in bytes, 0 when the file is gone.",
 			},
 			"patch": map[string]string{
 				"type":        "string",

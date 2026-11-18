@@ -71,4 +71,18 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	if status, out = get("/coddy/providers/nd-quiet/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["disabled"] != true || out["provider"] != "nd-quiet" || out["providerType"] != "neuraldeep" {
 		t.Fatalf("switched-off panel: status=%d body=%v", status, out)
 	}
+	status, out = get("/coddy/providers/usage")
+	rows, _ := out["providers"].([]interface{})
+	if status != http.StatusOK || len(rows) != 3 {
+		t.Fatalf("all provider states: status=%d body=%v", status, out)
+	}
+	for i, name := range []string{"neuraldeep", "nd-quiet", "stub"} {
+		row, _ := rows[i].(map[string]interface{})
+		if row["provider"] != name {
+			t.Fatalf("provider order: %v", rows)
+		}
+	}
+	if rows[1].(map[string]interface{})["disabled"] != true {
+		t.Fatalf("disabled provider missing from limits: %v", rows[1])
+	}
 }

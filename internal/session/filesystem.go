@@ -412,10 +412,18 @@ type SessionMeta struct {
 	// AdditionalDirectories are the extra workspace roots the session carries
 	// on top of CWD, in the order the client sent them.
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
-	SelectedModelID       string   `json:"selectedModelId,omitempty"`
-	SelectedReasoning     string   `json:"selectedReasoning,omitempty"`
-	SelectedToolset       string   `json:"selectedToolset,omitempty"`
-	AgentMemory           string   `json:"agentMemory,omitempty"`
+	// ACPSystemPrompt is the system-level block the client supplied when it
+	// opened the session (ACP systemPrompt, append mode). It is kept with the
+	// session, so a client that reopens it without resending the block keeps
+	// the instructions it set; a request that sends a different block replaces
+	// this one.
+	ACPSystemPrompt     string           `json:"acpSystemPrompt,omitempty"`
+	SelectedModelID     string           `json:"selectedModelId,omitempty"`
+	SelectedReasoning   string           `json:"selectedReasoning,omitempty"`
+	SelectedServiceTier string           `json:"selectedServiceTier,omitempty"`
+	TurnServiceTier     *TurnServiceTier `json:"turnServiceTier,omitempty"`
+	SelectedToolset     string           `json:"selectedToolset,omitempty"`
+	AgentMemory         string           `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
 	HookContext string     `json:"hookContext,omitempty"`
 	Goal        *GoalState `json:"goal,omitempty"`
@@ -1300,8 +1308,11 @@ func (f *FileStore) Save(state *State) error {
 		CWD:                   state.CWDForPersist(),
 		Mode:                  state.GetMode(),
 		AdditionalDirectories: state.AdditionalDirectoriesForPersist(),
+		ACPSystemPrompt:       state.GetACPSystemPrompt(),
 		SelectedModelID:       state.GetSelectedModelID(),
 		SelectedReasoning:     state.GetSelectedReasoning(),
+		SelectedServiceTier:   state.GetSelectedServiceTier(),
+		TurnServiceTier:       state.persistedTurnServiceTier(),
 		SelectedToolset:       state.GetSelectedToolset(),
 		HookContext:           state.GetHookContext(),
 		AgentMemory:           state.GetAgentMemory(),

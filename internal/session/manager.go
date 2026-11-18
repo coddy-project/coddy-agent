@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -758,7 +759,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 			Title:   acp.AgentTitle,
 			Version: version.Get(),
 		},
-		AuthMethods: []string{},
+		AuthMethods: []acp.AuthMethod{},
 	}, nil
 }
 
@@ -785,7 +786,9 @@ func sameAdditionalDirectories(a, b []string) bool {
 func validateAdditionalDirectories(dirs []string) error {
 	for _, d := range dirs {
 		if !filepath.IsAbs(strings.TrimSpace(d)) {
-			return fmt.Errorf("additionalDirectories entries must be absolute paths: %q", d)
+			// The shape of the request is what the client got wrong, which ACP
+			// answers as invalid params rather than as an agent failure.
+			return acp.InvalidParams("additionalDirectories entries must be absolute paths: %q", d)
 		}
 	}
 	return nil
@@ -795,6 +798,12 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if err := validateAdditionalDirectories(params.AdditionalDirectories); err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
+	// The client's system prompt is checked before anything is created: a
+	// prompt the agent cannot apply must not leave a session behind.
+	systemPrompt, err := validateACPSystemPrompt(params.SystemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("session/new: %w", err)
+	}
 	preferredConsumed := ""
 	if strings.TrimSpace(m.preferredNewSessionID) != "" {
 		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
@@ -802,14 +811,14 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 	origin := m.nextSessionOrigin
 	m.nextSessionOrigin = ""
-	return m.newSession(ctx, params, preferredConsumed, origin)
+	return m.newSession(ctx, params, preferredConsumed, origin, systemPrompt)
 }
 
 // newSession creates a session under preferredConsumed (a fresh id when it is
 // empty), or reopens the stored bundle of that id, and records origin on a
 // session it creates. EnsureHTTPSessionAs calls it with explicit values rather
 // than through the one-shot fields, which concurrent requests would share.
-func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin string) (*acp.SessionNewResult, error) {
+func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin, systemPrompt string) (*acp.SessionNewResult, error) {
 	var id string
 	if preferredConsumed != "" {
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
@@ -840,6 +849,7 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 				CWD:                   params.CWD,
 				AdditionalDirectories: params.AdditionalDirectories,
 				MCPServers:            params.MCPServers,
+				SystemPrompt:          params.SystemPrompt,
 			}, openOptions{replay: true, deferPublish: true, setExtraRoots: params.AdditionalDirectories != nil})
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
@@ -878,6 +888,9 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	// The extra workspace roots a client names on session/new are the
 	// session's from the start; a request that names none has none.
 	state.SetAdditionalDirectoriesWithoutPersist(params.AdditionalDirectories)
+	// The client's system-level instructions, kept with the session so a
+	// client that reopens it without resending them keeps them.
+	state.SetACPSystemPromptWithoutPersist(systemPrompt)
 	// Before anything can persist the bundle: the SessionStart hooks below
 	// and the initial save both write session.json.
 	state.SetOriginWithoutPersist(origin)
@@ -1015,6 +1028,13 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if err := ValidateFolderSessionID(params.SessionID); err != nil {
 		return nil, fmt.Errorf("session/load: %w", err)
 	}
+	// The client's system-level instructions are checked before the session is
+	// loaded: a prompt the agent cannot apply must not leave a half-applied
+	// session behind. A request that carries none keeps what the bundle holds.
+	systemPrompt, err := validateACPSystemPrompt(params.SystemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("session/load: %w", err)
+	}
 
 	// A live session is already loaded. Rebuilding a second State for it puts
 	// two writers on one bundle: the replacement's snapshot was read before
@@ -1024,6 +1044,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		if opts.setExtraRoots && !sameAdditionalDirectories(live.GetAdditionalDirectories(), params.AdditionalDirectories) {
 			live.SetAdditionalDirectories(params.AdditionalDirectories)
 		}
+		applyACPSystemPrompt(live, systemPrompt)
 		if opts.replay {
 			if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir(), live.GetUILog()); err != nil {
 				m.log.Warn("replay conversation", "error", err)
@@ -1035,6 +1056,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		}, nil
 	}
 
+	if !m.store.HasPersistedSnapshot(params.SessionID) {
+		return nil, acp.SessionNotFound(params.SessionID)
+	}
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -1070,7 +1094,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.SelectedServiceTier, snap.Meta.AgentMemory)
+	st.restoreTurnServiceTier(snap.Meta.TurnServiceTier)
 	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
 	if snap.Meta.Goal != nil {
 		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
@@ -1123,6 +1148,17 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	} else {
 		st.SetAdditionalDirectoriesWithoutPersist(snap.Meta.AdditionalDirectories)
 	}
+	// The client's system-level instructions: the request's own when it sent
+	// them, the block the bundle kept otherwise. A rename of that block is
+	// written below, with the roots.
+	promptMoved := false
+	switch {
+	case systemPrompt != "":
+		st.SetACPSystemPromptWithoutPersist(systemPrompt)
+		promptMoved = systemPrompt != snap.Meta.ACPSystemPrompt
+	case snap.Meta.ACPSystemPrompt != "":
+		st.SetACPSystemPromptWithoutPersist(snap.Meta.ACPSystemPrompt)
+	}
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -1164,11 +1200,12 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			ConfigOptions: BuildACPConfigOptions(m.activeCfg(), winner),
 		}, nil
 	}
-	// Roots the request moved are written now: the bundle is what session/list
-	// reads and what the next open restores, so a root the client took away
-	// would otherwise come back. A request that restates the stored list
-	// writes nothing, since a load is read as often as it is continued.
-	if rootsMoved {
+	// Roots and a system prompt the request moved are written now: the bundle
+	// is what session/list reads and what the next open restores, so a root the
+	// client took away, or an instruction it replaced, would otherwise come
+	// back. A request that restates what the bundle holds writes nothing, since
+	// a load is read as often as it is continued.
+	if rootsMoved || promptMoved {
 		st.touchPersist()
 	}
 
@@ -1247,6 +1284,34 @@ func (m *Manager) HandleSessionDelete(_ context.Context, params acp.SessionDelet
 	return &acp.SessionDeleteResult{}, nil
 }
 
+// HandleSessionClose implements session/close: the agent cancels any work
+// running for the session and frees what it holds for it, while the bundle on
+// disk stays where it is, so the same session can be loaded again later.
+//
+// ACP makes closing idempotent, so a session that is not active on this
+// connection - never opened, already closed, or deleted - answers with the same
+// empty object instead of an error. Ending the turn first is what keeps a
+// closed session from being recreated by the persist hook of a turn that was
+// still writing when the client let go of it.
+func (m *Manager) HandleSessionClose(_ context.Context, params acp.SessionCloseParams) (*acp.SessionCloseResult, error) {
+	sessionID := strings.TrimSpace(params.SessionID)
+	if sessionID == "" {
+		return nil, acp.InvalidParams("session/close: sessionId is required")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, acp.InvalidParams("session/close: %v", err)
+	}
+	if m.getSession(sessionID) == nil {
+		return &acp.SessionCloseResult{}, nil
+	}
+	if err := m.cancelAndAwaitTurns([]SessionTreeNode{{ID: sessionID}}); err != nil {
+		return nil, fmt.Errorf("session/close: %w", err)
+	}
+	m.ForgetLiveSession(sessionID)
+	m.log.Info("session closed", "id", sessionID)
+	return &acp.SessionCloseResult{}, nil
+}
+
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
 // reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
 func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
@@ -1261,7 +1326,7 @@ func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD
 	if err != nil || st != nil {
 		return st, err
 	}
-	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin), "")
 	if err != nil {
 		return nil, err
 	}
@@ -1336,7 +1401,8 @@ func (m *Manager) PreviewHTTPSession(sessionID string) (*State, error) {
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.SelectedServiceTier, snap.Meta.AgentMemory)
+	st.restoreTurnServiceTier(snap.Meta.TurnServiceTier)
 	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
 	if snap.Meta.IsSubagentRun() {
 		st.SetSubagentMeta(SubagentMeta{
@@ -1508,6 +1574,8 @@ func (r *TurnRestriction) Allows(name string) bool {
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
 type PromptRunOpts struct {
+	// StatisticsSource identifies the surface running this turn, never its content.
+	StatisticsSource string
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy serve SSE).
 	SkipTurnLock bool
 	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
@@ -1546,6 +1614,13 @@ type PromptRunOpts struct {
 	// asked about, whatever the session's permission mode. Turn-scoped, like
 	// SurfaceSystemPrompt, and never persisted.
 	Restriction *TurnRestriction
+	// ImageGeneration is the per-turn opt-in for native image generation
+	// (metadata.image_generation): the surface asked the model for native
+	// image output on this turn alone. It lasts exactly the turn, is never
+	// persisted, and is read by the turn's own provider calls only - side
+	// calls (compaction folds, prompt suggestions, naming, subagent runs)
+	// never inherit it.
+	ImageGeneration bool
 	// Lang is the language of the surface running this turn: the web UI's
 	// locale, the terminal's, a messenger user's. The documentation the
 	// turn's @coddy: mentions attach and the agent's documentation tools read
@@ -1566,8 +1641,9 @@ type PromptRunOpts struct {
 	// the start of the prompt (TakeSettingsCommands) - the HTTP server does,
 	// before it takes the turn lock - and TurnSettings are the turn-scoped
 	// changes it found, applied once this turn is admitted.
-	SettingsTaken bool
-	TurnSettings  []SettingsChange
+	SettingsTaken  bool
+	TurnSettings   []SettingsChange
+	settingsNotice *string
 
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
@@ -1884,12 +1960,16 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	state := m.getSession(params.SessionID)
 	if state == nil {
-		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+		return nil, acp.SessionNotFound(params.SessionID)
 	}
 	if opts == nil || !opts.subagentTurn {
 		if err := readOnlyRefusal(state, params.SessionID); err != nil {
 			return nil, err
 		}
+	}
+	if opts != nil && opts.settingsNotice != nil {
+		AnnounceSettingsNotice(sender, params.SessionID, *opts.settingsNotice)
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn, SettingsNotice: *opts.settingsNotice}, nil
 	}
 	// The first turn of a session a goal chain opened (goal_chain.go): its
 	// prompt is the supervisor's kickoff, which nobody typed.
@@ -1906,7 +1986,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			// A messenger user who is not the bot's admin changes the
 			// settings of the chat's session only.
 			restricted := opts != nil && opts.Restriction != nil
-			taken, err := m.takeSettingsCommands(ctx, params.SessionID, params.Prompt, "command", restricted)
+			var beforeApply func(*State, *CommandLine) error
+			if opts != nil && opts.ImageGeneration {
+				beforeApply = m.validateImageGenerationCommands
+			}
+			taken, err := m.takeSettingsCommandsChecked(ctx, params.SessionID, params.Prompt, "command", restricted, beforeApply)
 			if err != nil {
 				return nil, err
 			}
@@ -1938,22 +2022,36 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer finish()
 
 	if operatorTurn {
-		// Installed under the turn lock, so the turn this prompt starts is the
-		// one that takes them; then this turn consumes one of every override.
-		for _, ch := range turnSettings {
-			if _, err := m.ApplySessionSettings(turnCtx, params.SessionID, ch); err != nil {
+		if opts != nil && opts.ImageGeneration {
+			if err := m.prepareOperatorTurnSettings(params.SessionID, state, turnSettings, true); err != nil {
 				return nil, err
 			}
-		}
-		if m.beginOperatorTurnSettings(params.SessionID, state) {
 			defer m.endTurnSettings(params.SessionID, state)
 		} else {
-			defer state.EndTurnSettings()
+			// Installed under the turn lock, so this prompt consumes the overrides.
+			for _, ch := range turnSettings {
+				if _, err := m.ApplySessionSettings(turnCtx, params.SessionID, ch); err != nil {
+					return nil, err
+				}
+			}
+			if m.beginOperatorTurnSettings(params.SessionID, state) {
+				defer m.endTurnSettings(params.SessionID, state)
+			} else {
+				defer state.EndTurnSettings()
+			}
 		}
 	}
 
 	// What the surface wants the model to know lasts exactly this turn: set
 	// under the turn lock, cleared before it is released, never persisted.
+	if opts != nil {
+		if opts.StatisticsSource != "" {
+			turnCtx = statistics.WithSource(turnCtx, opts.StatisticsSource)
+		}
+		if opts.BackgroundWake != nil {
+			turnCtx = statistics.WithSource(turnCtx, "background")
+		}
+	}
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
@@ -1965,6 +2063,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.Restriction != nil {
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
+	}
+	if opts != nil && opts.ImageGeneration {
+		state.SetTurnImageGeneration(true)
+		defer state.SetTurnImageGeneration(false)
 	}
 	// The language of the turn: the surface's when it names a language the
 	// documentation is written in, else the language the person wrote the
@@ -2213,6 +2315,8 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 		ch.Mode = &value
 	case "model":
 		ch.Model = &value
+	case "service_tier":
+		ch.ServiceTier = &value
 	case "reasoning":
 		ch.Reasoning = &value
 	case "toolset":
@@ -2220,7 +2324,7 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 	case "permission_mode":
 		ch.PermissionMode = &value
 	default:
-		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
+		return nil, acp.InvalidParams("unknown config option: %q", params.ConfigID)
 	}
 	if _, err := m.ApplySessionSettings(ctx, params.SessionID, ch); err != nil {
 		return nil, err

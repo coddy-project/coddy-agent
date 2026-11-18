@@ -235,7 +235,7 @@ function response(body = {}) {
 function makeShell({ storedTabs, windowFetch } = {}) {
   const document = new FakeDocument();
   const ids = [
-    "strip", "coddy-desktop-frames", "new-tab", "drag", "menu-btn", "menu",
+    "coddy-desktop-tabs", "strip", "coddy-desktop-frames", "new-tab", "drag", "menu-btn", "menu",
     "window-btns", "scroll-btns", "scroll-left", "scroll-right", "resize-edges",
     "win-min", "win-max", "win-close",
   ];
@@ -310,7 +310,9 @@ function makeShell({ storedTabs, windowFetch } = {}) {
   const expose = `
     globalThis.__shellTest = {
       openNewChatTab,
+      setSetting,
       resizeWindowFrom,
+      syncFrameSessions,
       refreshSessions,
       labelOf,
       stateOf,
@@ -548,6 +550,26 @@ function mountSessionFetch(frame, fetch, scope) {
   frame.contentWindow.__coddySessionScope = typeof initial === "function" ? initial : () => initial;
 }
 
+test("leaving a chat for a route without a hash clears its old title", async () => {
+  const shell = makeShell({
+    storedTabs: [{ uid: "tab", session: "sess_old", route: "#/s/sess_old", workspace: "" }],
+    windowFetch: desktopFetchWithSessions([]),
+  });
+  await shell.settle();
+  const tab = shell.api.tabs()[0];
+  const frame = shell.api.frameOf.get(tab.uid);
+  mountSessionFetch(frame, async () => response({ sessions: [{ id: "sess_old", title: "Old chat" }] }));
+  await shell.api.refreshSessions();
+  assert.equal(shell.api.labelOf(tab), "Old chat");
+
+  // The SPA's new-chat action removes the hash with history.replaceState.
+  frame.contentWindow.location.hash = "";
+  assert.equal(shell.api.syncFrameSessions(), true);
+  assert.equal(tab.session, "");
+  assert.equal(tab.route, "#/");
+  assert.equal(shell.api.labelOf(tab), "New chat");
+});
+
 test("tabs with the same session id read their own iframe environment", async () => {
   const localRow = { id: "sess_same", title: "Local chat", turnActive: true };
   const remoteRow = { id: "sess_same", title: "Remote chat", questionPending: true };
@@ -727,4 +749,72 @@ test("a failed old scope does not undo a successful poll of the new scope", asyn
   assert.equal(shell.api.labelOf(shell.api.tabs()[0]), "New B");
   assert.equal(shell.api.stateOf(shell.api.tabs()[0]), "busy");
   assert.equal(shell.api.locallyBusy.has("tab"), true);
+});
+
+
+test("bar padding and empty strip drag, interactive controls do not", async () => {
+  for (const system of [false, true]) for (const targetName of ["coddy-desktop-tabs", "strip", "drag", "tab", "new-tab", "menu-btn"]) {
+    const actions = [];
+    const shell = makeShell({windowFetch:async (url, init={}) => {
+      if (url === "/desktop/keys") return new Promise(()=>{});
+      if (url === "/desktop/window" && init.method === "POST") actions.push(JSON.parse(init.body).action);
+      return response(url === "/desktop/window" ? {supported:true,...(system ? {frame:"system",left_inset:83} : {})} : {});
+    }});
+    await shell.settle();
+    const header=shell.document.ids.get("coddy-desktop-tabs");
+    const target=targetName === "tab" ? shell.document.ids.get("strip").children[0] : shell.document.ids.get(targetName);
+    const zone=["strip","drag"].includes(targetName) ? target : header;
+    const down=pointer(zone,100,100); down.target=target;
+    zone.dispatch("pointerdown",down);
+    zone.dispatch("pointermove",pointer(zone,120,110));
+    await shell.settle(); shell.flushFrame(); await shell.settle();
+    zone.dispatch("pointerup",pointer(zone,120,110));
+    await shell.settle();
+    const expected=["strip","drag"].includes(targetName) || (system && targetName === "coddy-desktop-tabs");
+    assert.equal(actions.includes("move-begin"),expected,`drag start for ${targetName}`);
+    assert.equal(actions.includes("move-by"),expected,`drag movement for ${targetName}`);
+  }
+});
+
+test("system chrome uses its measured inset and no custom controls", async () => {
+  const shell=makeShell({windowFetch:async (url) => {
+    if(url === "/desktop/keys") return new Promise(()=>{});
+    return response(url === "/desktop/window" ? {supported:true,frame:"system",left_inset:83} : {});
+  }});
+  await shell.settle();
+  assert.equal(shell.document.documentElement.dataset.frame,"system");
+  assert.equal(shell.document.documentElement.style.getPropertyValue("--window-left-inset"),"83px");
+  assert.equal(shell.document.ids.get("window-btns").hidden,true);
+  assert.equal(shell.document.ids.get("resize-edges").hidden,true);
+});
+
+
+test("system frame started framed retains measured room when unified again", async () => {
+ let framed=true;
+ const shell=makeShell({windowFetch:async (url,init={})=>{
+  if(url === "/desktop/keys") return new Promise(()=>{});
+  if(url === "/desktop/window") return response({supported:true,frame:"system",left_inset:83});
+  if(url === "/desktop/settings") {if(init.method === "POST") framed=JSON.parse(init.body).framed; return response({framed})}
+  return response({});
+ }});
+ await shell.settle();
+ assert.equal(shell.document.documentElement.dataset.framed,"true");
+ await shell.api.setSetting("framed",false);
+ assert.equal(shell.document.documentElement.dataset.framed,"false");
+ assert.equal(shell.document.documentElement.style.getPropertyValue("--window-left-inset"),"83px");
+});
+
+
+test("controls without system chrome leave the original root DOM unchanged", async () => {
+ for (const supported of [false,true]) {
+  const shell=makeShell({windowFetch:async (url)=>{
+   if(url === "/desktop/keys") return new Promise(()=>{});
+   return response(url === "/desktop/window" ? {supported} : {});
+  }});
+  await shell.settle();
+  const root=shell.document.documentElement;
+  assert.equal(Object.hasOwn(root.dataset,"frame"),false);
+  assert.equal(Object.hasOwn(root.dataset,"framed"),false);
+  assert.equal(root.style.getPropertyValue("--window-left-inset"),"");
+ }
 });

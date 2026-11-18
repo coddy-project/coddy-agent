@@ -60,6 +60,34 @@ func Discard(dir string, paths []string) error {
 	return deleteWorktreeFiles(dir, append(drop, sel.untracked...))
 }
 
+// Delete removes the named paths of the folder's change set from the working
+// copy without restoring HEAD: a file git does not hold goes away, and a
+// tracked file becomes the deletion the change set then reports. The paths
+// are matched against the current changes the same way a discard matches
+// them, so one path the set does not hold refuses the whole call before a
+// single file is deleted.
+func Delete(dir string, paths []string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("%w: at least one path is required", ErrNotChanged)
+	}
+	if !Describe(dir).IsGitRepo {
+		return fmt.Errorf("%w: %s", ErrNotRepository, dir)
+	}
+	records, untracked, err := discardChangeSet(dir)
+	if err != nil {
+		return err
+	}
+	sel, err := selectDiscard(records, untracked, paths)
+	if err != nil {
+		return err
+	}
+	remove := make([]string, 0, len(sel.records)+len(sel.untracked))
+	for _, rec := range sel.records {
+		remove = append(remove, rec.newPath)
+	}
+	return deleteWorktreeFiles(dir, append(remove, sel.untracked...))
+}
+
 // discardChangeSet is the change set a discard can pick from: the tracked
 // records, the index entries that differ from HEAD where the disk does not,
 // and every untracked path, all relative to dir. In a repository without a

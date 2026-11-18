@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,7 +94,9 @@ func helperBrowser(t *testing.T) desktop.BrowserCommand {
 type windowState struct {
 	t *testing.T
 
-	home string
+	home        string
+	nativeURL   chan string
+	nativeClose chan struct{}
 	// recordPath is where the fake browser writes the argv it was started
 	// with; closePath is the file whose appearance closes the window.
 	recordPath string
@@ -297,9 +300,12 @@ func (s *windowState) stripIsToldTo(what string) error {
 // asked, the settings of a home of its own, and the shell over both, which is
 // where the bar's own menu comes from.
 func (s *windowState) trayCarriesAMenu() error {
-	// The autostart entry is a file in the XDG config folder of this session,
-	// so the scenario gives it one of its own rather than the operator's.
+	// "Open at login" writes a file of this session: the XDG config folder on
+	// Linux, a launch agent under the home on darwin. The scenario gives it
+	// both of its own rather than the operator's, since this package is the
+	// external test package and cannot reach isolateAutostart.
 	s.t.Setenv("XDG_CONFIG_HOME", s.t.TempDir())
+	s.t.Setenv("HOME", s.t.TempDir())
 	s.menuWindow = desktop.NewMenuWindow()
 	handle := desktop.NewWindowHandle()
 	handle.Attach(s.menuWindow)
@@ -686,7 +692,46 @@ func (s *windowState) switchWrittenDown() error {
 	if !saved.Autostart {
 		return errors.New("the settings of this home do not have it on")
 	}
+	// The entry the platform writes belongs to the scenario, not to the
+	// operator: on darwin a launch agent under ~/Library/LaunchAgents would
+	// otherwise point launchd at the temporary test binary at the next login,
+	// over whatever the operator had there.
+	entry, within := autostartEntryOfThisPlatform()
+	if entry == "" {
+		return nil
+	}
+	if _, err := os.Stat(entry); err != nil {
+		return fmt.Errorf("the entry of this platform was not written to %s: %w", entry, err)
+	}
+	if !strings.HasPrefix(entry, within) {
+		return fmt.Errorf("the entry went to %s, outside the scenario's own %s", entry, within)
+	}
 	return nil
+}
+
+// linuxOnlyTags leaves out the scenarios only a Linux session can answer.
+func linuxOnlyTags() string {
+	if runtime.GOOS == "linux" {
+		return ""
+	}
+	return "~@linux"
+}
+
+// autostartEntryOfThisPlatform answers where "Open at login" writes on this
+// platform and the folder the scenario gave it, or "" where it writes nothing.
+func autostartEntryOfThisPlatform() (entry, within string) {
+	switch runtime.GOOS {
+	case "linux":
+		config := os.Getenv("XDG_CONFIG_HOME")
+		return filepath.Join(config, "autostart", "coddy-desktop.desktop"), config
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		return filepath.Join(home, "Library", "LaunchAgents", "dev.coddy.desktop.plist"), home
+	}
+	return "", ""
 }
 
 func (s *windowState) barDrawsItTicked() error {
@@ -757,6 +802,47 @@ func (s *windowState) launch() error {
 	s.runErr = errs
 	return s.waitForWindow()
 }
+
+func (s *windowState) launchNative() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.nativeURL = make(chan string, 1)
+	s.nativeClose = make(chan struct{})
+	s.runErr = make(chan error, 1)
+	opts := s.options()
+	opts.Window = desktop.WindowNative
+	go func() {
+		s.runErr <- desktop.RunWithNativeOpener(ctx, opts, func(ctx context.Context, _ desktop.Options, url string) error {
+			s.nativeURL <- url
+			select {
+			case <-s.nativeClose:
+			case <-ctx.Done():
+			}
+			return nil
+		})
+	}()
+	return nil
+}
+
+func (s *windowState) nativeOpenedRememberedShell() error {
+	select {
+	case url := <-s.nativeURL:
+		port, err := desktop.ReadPort(s.home)
+		if err != nil {
+			return err
+		}
+		if want := "http://127.0.0.1:" + strconv.Itoa(port) + shell.Prefix; url != want {
+			return fmt.Errorf("native window opened %q, wanted %q", url, want)
+		}
+		return s.runsOnThePortOfTheLastLaunch()
+	case err := <-s.runErr:
+		return fmt.Errorf("native run ended before opening: %v", err)
+	case <-time.After(10 * time.Second):
+		return errors.New("native window did not open")
+	}
+}
+
+func (s *windowState) closeNative() error { close(s.nativeClose); return nil }
 
 func (s *windowState) waitForWindow() error {
 	deadline := time.Now().Add(15 * time.Second)
@@ -1088,6 +1174,53 @@ func freePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
+type systemFrameControl struct{ *desktop.ShellWindow }
+
+func (*systemFrameControl) Frame() shell.WindowFrame {
+	return shell.WindowFrame{Kind: shell.FrameSystem, LeftInset: 83}
+}
+
+func (s *windowState) systemDrawsFrame() error {
+	handle := desktop.NewWindowHandle()
+	handle.Attach(&systemFrameControl{desktop.NewShellWindow()})
+	s.shellServer = httptest.NewServer(shell.Handler(handle))
+	return nil
+}
+func (s *windowState) systemFrameAnswer() error {
+	res, err := s.shellServer.Client().Get(s.shellServer.URL + "/desktop/window")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var answer map[string]any
+	if err = json.NewDecoder(res.Body).Decode(&answer); err != nil {
+		return err
+	}
+	if answer["supported"] != true || answer["frame"] != "system" || answer["left_inset"] != float64(83) {
+		return fmt.Errorf("system frame answer=%v", answer)
+	}
+	return nil
+}
+func (s *windowState) ordinaryFrameControl() error {
+	s.shellServer.Close()
+	return s.windowOnTheTabShell()
+}
+func (s *windowState) ordinaryFrameAnswer() error {
+	res, err := s.shellServer.Client().Get(s.shellServer.URL + "/desktop/window")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(body)) != `{"supported":true}` {
+		return fmt.Errorf("ordinary frame answer=%s", body)
+	}
+	return nil
+}
+
 func TestDesktopWindowFeature(t *testing.T) {
 	st := &windowState{}
 	suite := godog.TestSuite{
@@ -1102,12 +1235,19 @@ func TestDesktopWindowFeature(t *testing.T) {
 				return ctx, nil
 			})
 
+			sc.Step(`^a window whose frame is drawn by the system$`, st.systemDrawsFrame)
+			sc.Step(`^the strip is told the frame is system with 83 pixels on the left$`, st.systemFrameAnswer)
+			sc.Step(`^the window control has no system frame$`, st.ordinaryFrameControl)
+			sc.Step(`^the strip receives only the ordinary window support answer$`, st.ordinaryFrameAnswer)
 			sc.Step(`^a machine where Coddy has never opened a desktop window$`, st.neverOpenedBefore)
 			sc.Step(`^a machine where Coddy has opened a desktop window before$`, st.openedBefore)
 			sc.Step(`^a desktop window open on its own Coddy$`, st.windowOpen)
 			sc.Step(`^a configuration that also enables the swarm relay and the scheduler$`, st.configWithRelayAndScheduler)
 
 			sc.Step(`^the operator opens the desktop$`, st.opensTheDesktop)
+			sc.Step(`^the operator opens the native desktop$`, st.launchNative)
+			sc.Step(`^the native window is opened on the tab shell of the remembered port$`, st.nativeOpenedRememberedShell)
+			sc.Step(`^the native window closes$`, st.closeNative)
 			sc.Step(`^the operator opens the desktop again$`, st.opensTheDesktopAgain)
 			sc.Step(`^the window closes$`, st.windowCloses)
 			sc.Step(`^the desktop decides what to run$`, st.decidesWhatToRun)
@@ -1168,8 +1308,14 @@ func TestDesktopWindowFeature(t *testing.T) {
 			sc.Step(`^a drag never puts the bar above the top of the screen$`, st.neverAboveTheTop)
 		},
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/desktop_window.feature"},
+			Format: "pretty",
+			Paths:  []string{"../../features/desktop_window.feature"},
+			// The application entry is a file of the XDG desktop specification
+			// and only menu_entry_linux.go writes one, so its scenario is
+			// Linux's alone; everywhere else writeMenuEntry does nothing and
+			// there is nothing to assert. Same shape as ~@metrics in
+			// cmd/coddy/bdd_dry_run_serve_test.go.
+			Tags:     linuxOnlyTags(),
 			TestingT: t,
 			Output:   os.Stdout,
 			Strict:   true,

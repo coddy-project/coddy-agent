@@ -62,12 +62,6 @@ Structure your plans as markdown with:
 {{.Subagents}}
 
 {{end}}
-{{if .Tools}}
-## Available tools
-
-{{.Tools}}
-
-{{end}}
 {{if .Skills}}
 {{.Skills}}
 

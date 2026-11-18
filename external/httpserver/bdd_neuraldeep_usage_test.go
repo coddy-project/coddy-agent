@@ -145,7 +145,9 @@ func neuralDeepUsagePayload(used int, refusedModel string) string {
  "parallel_limit":16,"abuse_cooldown_sec":0,
  "daily_capacity":{"pct_used":0.0,"exhausted":false,"resets_at":"2026-09-07T00:00:00+00:00"},
  "night":{"enabled":true,"active":false,"capacity_factor":2,"window_start_msk":0,"window_end_msk":6},
- "wallet":{"balance_rub":-1229.244167,"spent_rub_30d":2000.73518},"kimi":null}`
+ "wallet":{"balance_rub":-1229.244167,"spent_rub_30d":2000.73518},
+ "kimi":{"usages":{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-09-06T22:00:00Z"},
+                     "limit_7d":{"used_ratio":0.5}}}}`
 }
 
 func (s *neuralDeepUsageBDDState) givenServerWithProviderLoginAndLimits() error {
@@ -583,6 +585,9 @@ func initializeNeuralDeepUsageScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stand-in limits API refuses the model "([^"]*)" until the period rolls over$`, s.givenAPIRefusesModel)
 	sc.Step(`^the usage marks "([^"]*)" blocked with the moment it comes back$`, s.thenUsageMarksModelBlocked)
 	sc.Step(`^the usage still reports the account itself as able to request$`, s.thenUsageReportsAccountUnblocked)
+	sc.Step(`^I read all provider limits over REST$`, s.whenReadAllLimits)
+	sc.Step(`^the list contains neuraldeep windows and the unsupported stub provider$`, s.thenAllLimits)
+	sc.Step(`^the list includes the NeuralDeep Kimi subscription windows at 25% over 5h and 50% over 7d$`, s.thenAllLimitsIncludesKimi)
 }
 
 func TestNeuralDeepUsageFeature(t *testing.T) {
@@ -645,4 +650,77 @@ func (s *neuralDeepUsageBDDState) thenUsageReportsAccountUnblocked() error {
 		return fmt.Errorf("a model gate must not read as an account block: %v", usage["blockers"])
 	}
 	return nil
+}
+
+func (s *neuralDeepUsageBDDState) whenReadAllLimits() error {
+	res, err := http.Get(s.ts.URL + "/coddy/providers/usage")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	s.lastStatus = res.StatusCode
+	s.lastBody, err = io.ReadAll(res.Body)
+	return err
+}
+
+func (s *neuralDeepUsageBDDState) thenAllLimits() error {
+	var answer struct {
+		Providers []acp.ProviderUsageUpdate `json:"providers"`
+	}
+	if s.lastStatus != http.StatusOK {
+		return fmt.Errorf("status = %d", s.lastStatus)
+	}
+	if err := json.Unmarshal(s.lastBody, &answer); err != nil {
+		return err
+	}
+	if len(answer.Providers) != 2 {
+		return fmt.Errorf("providers = %+v", answer.Providers)
+	}
+	found, unsupported := false, false
+	for _, u := range answer.Providers {
+		if u.Provider == "neuraldeep" {
+			found = u.Plan == "pro" && len(u.Windows) >= 2
+		}
+		if u.Provider == "stub" {
+			unsupported = u.Unsupported
+		}
+	}
+	if !found || !unsupported || strings.Contains(string(s.lastBody), neuralDeepUsageBDDKey) {
+		return fmt.Errorf("unexpected provider limits: %s", s.lastBody)
+	}
+	return nil
+}
+
+func (s *neuralDeepUsageBDDState) thenAllLimitsIncludesKimi() error {
+	var answer struct {
+		Providers []acp.ProviderUsageUpdate `json:"providers"`
+	}
+	if err := json.Unmarshal(s.lastBody, &answer); err != nil {
+		return err
+	}
+	for _, usage := range answer.Providers {
+		if usage.Provider != "neuraldeep" {
+			continue
+		}
+		for _, tc := range []struct {
+			id  string
+			pct float64
+		}{{"5h", 25}, {"7d", 50}} {
+			found := false
+			for _, window := range usage.Windows {
+				if window.ID == tc.id {
+					found = true
+					if window.UsedPercent != tc.pct {
+						return fmt.Errorf("Kimi %s window = %.0f%%, want %.0f%%", tc.id, window.UsedPercent, tc.pct)
+					}
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("NeuralDeep response has no Kimi %s window: %+v", tc.id, usage.Windows)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("response has no NeuralDeep provider: %s", s.lastBody)
 }

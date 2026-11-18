@@ -1,3 +1,4 @@
+import { type ServiceTierControl, serviceTierLabelKey } from "./serviceTier";
 import { composerAutoFocusAllowed } from "./composerFocus";
 import {
   lazy,
@@ -468,6 +469,13 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Whether the currently selected model opted in to native image generation (models[].image_generation). */
+  llmModelImageGen?: boolean;
+  /** Per-turn image control: while on, sends ask the model for native image output (metadata.image_generation). */
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
+  /** Opens the selected model's row in Settings so image_generation can be enabled. */
+  onImageGenEnable?: () => void;
   /** Optional shared attachment state for composer layout transitions. */
   attachedFiles?: File[];
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
@@ -522,6 +530,7 @@ export function Composer(props: {
   /** The session's toolset: the chip after the permission chip and its menu.
    *  Absent while the configuration has no toolsets[] preset, and so is the
    *  chip. */
+  serviceTierControl?: ServiceTierControl | undefined;
   toolsetControl?: ToolsetControl | undefined;
   /** Settings changed for the running and the next turns (--once, --count=N). */
   settingsOverrides?: TurnOverride[];
@@ -608,7 +617,13 @@ export function Composer(props: {
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const toolsetChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
-    "mode" | "llm" | "reasoning" | "permission" | "toolset" | null
+    | "mode"
+    | "llm"
+    | "reasoning"
+    | "permission"
+    | "toolset"
+    | "service_tier"
+    | null
   >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -809,6 +824,10 @@ export function Composer(props: {
     }
     const txt = props.value.trim();
     if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
+      return;
+    }
+    if (props.imageGenOn) {
+      showAttachHint(t("composer.imageGenerationQueueUnavailable"));
       return;
     }
     const chosen = mode ?? props.queueMode;
@@ -2072,8 +2091,14 @@ export function Composer(props: {
       control();
       return;
     }
-    const insert = `/${name} `;
-    const next = props.value.slice(0, from) + insert + props.value.slice(to);
+    const after = props.value.slice(to);
+    // Exactly one separator between the chosen name and what follows the
+    // caret: when the draft already carries whitespace there, the inserted
+    // name takes no trailing space of its own and the caret lands before
+    // that whitespace.
+    const trailingSpace = /^\s/.test(after) ? "" : " ";
+    const insert = `/${name}${trailingSpace}`;
+    const next = props.value.slice(0, from) + insert + after;
     props.onChange(next);
     setSlashOpen(false);
     setSlashReplace(null);
@@ -2427,7 +2452,13 @@ export function Composer(props: {
   useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning" | "permission" | "toolset",
+    type:
+      | "mode"
+      | "llm"
+      | "reasoning"
+      | "permission"
+      | "toolset"
+      | "service_tier",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -3827,6 +3858,24 @@ export function Composer(props: {
                   </div>
                 ) : null}
 
+                {props.serviceTierControl ? (
+                  <div className="mode">
+                    <button
+                      type="button"
+                      className="composer-tab mode-btn"
+                      aria-label={t("composer.serviceTier")}
+                      title={t("composer.serviceTier")}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen === "service_tier"}
+                      onClick={(e) =>
+                        toggleMenu("service_tier", e.currentTarget)
+                      }
+                    >
+                      {t(serviceTierLabelKey(props.serviceTierControl.value))}
+                    </button>
+                  </div>
+                ) : null}
+
                 {props.onPermissionModeChange ? (
                   <div className="mode">
                     <button
@@ -3863,6 +3912,39 @@ export function Composer(props: {
                       onClick={(e) => toggleMenu("toolset", e.currentTarget)}
                     >
                       {displayToolset(props.toolsetControl.value)}
+                    </button>
+                  </div>
+                ) : null}
+
+                {props.llmModelImageGen && props.onImageGenToggle ? (
+                  <div className="mode">
+                    <button
+                      type="button"
+                      className={`composer-tab mode-btn mode-imagegen${props.imageGenOn ? " is-on" : ""}`}
+                      aria-label={t("composer.imageGeneration")}
+                      title={t("composer.imageGenerationTitle")}
+                      aria-pressed={props.imageGenOn === true}
+                      data-testid="composer-imagegen"
+                      onClick={props.onImageGenToggle}
+                    >
+                      {t("composer.imageGeneration")}
+                    </button>
+                  </div>
+                ) : null}
+
+                {!props.llmModelImageGen &&
+                props.onImageGenEnable &&
+                (props.llmModels ?? []).includes(props.llmModel ?? "") ? (
+                  <div className="mode">
+                    <button
+                      type="button"
+                      className="composer-tab mode-btn mode-imagegen-cta"
+                      aria-label={t("composer.imageGenerationEnableTitle")}
+                      title={t("composer.imageGenerationEnableTitle")}
+                      data-testid="composer-imagegen-cta"
+                      onClick={props.onImageGenEnable}
+                    >
+                      {t("composer.imageGenerationEnable")}
                     </button>
                   </div>
                 ) : null}
@@ -4179,6 +4261,22 @@ export function Composer(props: {
                     </div>
                   </>
                 ) : null}
+                {menuOpen === "service_tier" && props.serviceTierControl
+                  ? props.serviceTierControl.choices.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="menuitem"
+                        className={`mode-item ${value === props.serviceTierControl?.value ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.serviceTierControl?.onChange(value);
+                          closeMenu();
+                        }}
+                      >
+                        {t(serviceTierLabelKey(value))}
+                      </button>
+                    ))
+                  : null}
                 {menuOpen === "reasoning"
                   ? reasoningLevels.map((lv) => (
                       <button

@@ -233,7 +233,7 @@ func printUsage(w io.Writer) {
   %[1]s serve status | stop | restart [--home DIR]
   %[1]s desktop [flags] (open Coddy as a window on this machine: a tab strip with
         one chat per tab, over an HTTP surface on a loopback port this home
-        remembers. --frame keeps the system title bar, --browser names the
+        remembers. --frame keeps a separate system title bar, --browser names the
         browser to open it with, --auth asks for the credential the
         configuration carries; build tags http ui desktop)
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web

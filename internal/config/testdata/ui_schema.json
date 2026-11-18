@@ -984,6 +984,11 @@
             "title": "Allow disabling reasoning",
             "type": "boolean"
           },
+          "image_generation": {
+            "description": "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
+            "title": "Image generation",
+            "type": "boolean"
+          },
           "kimi_metadata": {
             "additionalProperties": false,
             "description": "Protocol and provider settings captured from the model catalog.",
@@ -1082,6 +1087,7 @@
           "temperature",
           "max_context_tokens",
           "multimodal",
+          "image_generation",
           "stream",
           "reasoning_levels",
           "reasoning_default",
@@ -1792,6 +1798,58 @@
             "default"
           ]
         },
+        "preview_publish": {
+          "additionalProperties": false,
+          "description": "A read-only static origin on a fixed address over one artifact root, and the preview_publish tool that copies finished work there. For a Coddy behind an authenticated HTTPS edge: the reverse proxy authenticates the visitor and routes a stable prefix to this origin, so a link survives a rebuild and no random port is published.",
+          "properties": {
+            "enable": {
+              "description": "Run the published-preview origin and offer the preview_publish and preview_unpublish tools (default off).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "host": {
+              "description": "Address the origin binds (default 127.0.0.1). Anything that is not loopback serves every published preview to whoever can reach that address.",
+              "title": "Bind host",
+              "type": "string"
+            },
+            "max_bytes": {
+              "description": "Largest one published preview may be (default 104857600). A publish over it is refused whole.",
+              "title": "Max size (bytes)",
+              "type": "integer"
+            },
+            "port": {
+              "description": "Fixed port the origin binds, so a reverse proxy has an upstream that does not move (default 8081).",
+              "title": "Port",
+              "type": "integer"
+            },
+            "public_url": {
+              "description": "Address your edge serves the root under, written into the link the agent hands out (https://coddy.example/preview/). Empty uses the origin's own address.",
+              "title": "Public URL",
+              "type": "string"
+            },
+            "root": {
+              "description": "The only directory the origin serves and the only one a publish writes into, absolute. Empty uses \u003chome\u003e/previews.",
+              "title": "Artifact root",
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "description": "How long a published preview stays up before it is removed (default 86400). A call may ask for its own lifetime, or for none.",
+              "title": "Lifetime (s)",
+              "type": "integer"
+            }
+          },
+          "title": "Published previews",
+          "type": "object",
+          "x-coddy-property-order": [
+            "enable",
+            "host",
+            "port",
+            "root",
+            "public_url",
+            "ttl_seconds",
+            "max_bytes"
+          ]
+        },
         "preview_server": {
           "additionalProperties": false,
           "description": "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
@@ -1904,6 +1962,7 @@
         "output_limits",
         "background",
         "preview_server",
+        "preview_publish",
         "canvas",
         "websearch",
         "http_request"

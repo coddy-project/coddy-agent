@@ -48,7 +48,7 @@ func TestPendingAndFailedFramesStillReachTheChat(t *testing.T) {
 		`frame.addEventListener("error", () => retryFrame(tab.uid, frame));`,
 		`if (frame.contentWindow.location.href === "about:blank") return;`,
 		`if (location.href === "about:blank") return null;`,
-		`if (!hash || hash === "#") return null;`,
+		`if (!hash || hash === "#") return "#/";`,
 	)
 }
 
@@ -182,4 +182,16 @@ func TestManualReloadRestoresTheFrameRetryBudget(t *testing.T) {
 	if !strings.Contains(body, "frameLoadAttempts.set(tab.uid, 0)") {
 		t.Fatal("a manual reload does not reset the frame load retry budget")
 	}
+}
+
+func TestTitleBarPaddingSharesTheEmptyStripGesture(t *testing.T) {
+	requireShellSource(t, shellSource(t, "shell.js"),
+		`const titleBar = document.getElementById("coddy-desktop-tabs");`,
+		`for (const zone of [titleBar, dragZone, strip])`,
+		`body.frame === "system"`,
+		`root.style.setProperty("--window-left-inset",`,
+		`else delete root.dataset.frame;`,
+		`else delete root.dataset.framed;`,
+		`else root.style.removeProperty("--window-left-inset");`,
+	)
 }

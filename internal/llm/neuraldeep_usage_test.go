@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,24 @@ func TestFetchNeuralDeepUsageParsesThePayload(t *testing.T) {
 	}
 	if len(u.Options) != 1 || len(u.Options[0].Models) != 1 || u.Options[0].Models[0] != "qwen3.6-35b-a3b" {
 		t.Fatalf("options = %+v", u.Options)
+	}
+}
+
+func TestDecodeNeuralDeepKimiUsage(t *testing.T) {
+	for name, raw := range map[string]string{
+		"usages wrapper": `{"usages":{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-09-06T22:00:00Z"}}}`,
+		"direct windows": `{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-09-06T22:00:00Z"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			usage, ok := DecodeNeuralDeepKimiUsage(json.RawMessage(raw))
+			if !ok || usage.Limit5H == nil || usage.Limit5H.UsedRatio != 0.25 || usage.Limit5H.ResetAt == nil || *usage.Limit5H.ResetAt != "2026-09-06T22:00:00Z" {
+				t.Fatalf("decoded usage = %+v, valid = %v", usage, ok)
+			}
+		})
+	}
+
+	if _, ok := DecodeNeuralDeepKimiUsage(json.RawMessage(`{"usages":{},"limit_5h":{"used_ratio":0.25}}`)); ok {
+		t.Fatal("accepted a window outside the usages wrapper")
 	}
 }
 

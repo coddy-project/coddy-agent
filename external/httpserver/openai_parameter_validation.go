@@ -43,12 +43,15 @@ func validateChatParameters(raw json.RawMessage, profile bool) (llm.RequestOptio
 			if !profile {
 				var metadata map[string]json.RawMessage
 				if json.Unmarshal(value, &metadata) == nil {
+					if _, ok := metadata["service_tier"]; ok {
+						return opts, unsupportedChatParameter("metadata.service_tier")
+					}
 					if _, ok := metadata["reasoning"]; ok {
 						return opts, unsupportedChatParameter("metadata.reasoning")
 					}
 				}
 			}
-		case "max_tokens", "max_completion_tokens", "temperature", "reasoning_effort", "tools", "tool_choice", "top_p":
+		case "max_tokens", "max_completion_tokens", "temperature", "reasoning_effort", "service_tier", "tools", "tool_choice", "top_p":
 			if profile {
 				return opts, unsupportedChatParameter(key)
 			}

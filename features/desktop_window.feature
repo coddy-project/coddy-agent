@@ -17,6 +17,13 @@ Feature: Opening Coddy as a desktop window
     And that port is written down for the next launch
     And the browser is opened on the tab shell of that port, in a profile of its own
 
+  Scenario: The native window opens the remembered shell and closing it ends the run
+    Given a machine where Coddy has opened a desktop window before
+    When the operator opens the native desktop
+    Then the native window is opened on the tab shell of the remembered port
+    When the native window closes
+    Then the run ends and the HTTP surface stops with it
+
   Scenario: The next launch comes back to the same port
     Given a machine where Coddy has opened a desktop window before
     When the operator opens the desktop
@@ -93,6 +100,10 @@ Feature: Opening Coddy as a desktop window
     When the application menu asks for a chat in a folder that is not there
     Then the window refuses, and the strip is told nothing
 
+  # The application entry is a file of the XDG desktop specification, which
+  # only Linux writes; elsewhere there is no entry to name. The suite leaves
+  # this scenario out where it cannot hold.
+  @linux
   Scenario: The application menu of this user names Coddy and its recent folders
     Given a machine where Coddy has never opened a desktop window
     And two chats of this home were had in folders of their own
@@ -119,3 +130,9 @@ Feature: Opening Coddy as a desktop window
     Then the window follows it off the edge
     But a drag never puts the bar above the top of the screen
 
+
+  Scenario: System window buttons leave their measured room in the strip
+    Given a window whose frame is drawn by the system
+    Then the strip is told the frame is system with 83 pixels on the left
+    When the window control has no system frame
+    Then the strip receives only the ordinary window support answer

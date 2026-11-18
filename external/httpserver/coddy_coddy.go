@@ -582,8 +582,9 @@ func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		RequestID string     `json:"requestId"`
-		Answers   [][]string `json:"answers"`
+		RequestID string          `json:"requestId"`
+		Answers   json.RawMessage `json:"answers"`
+		Error     json.RawMessage `json:"error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -594,11 +595,27 @@ func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":{"message":"requestId is required"}}`, http.StatusBadRequest)
 		return
 	}
-	if body.Answers == nil {
-		http.Error(w, `{"error":{"message":"answers is required"}}`, http.StatusBadRequest)
+	if (body.Answers == nil) == (body.Error == nil) {
+		http.Error(w, `{"error":{"message":"exactly one of answers or error is required"}}`, http.StatusBadRequest)
 		return
 	}
-	ok := CompleteQuestionAnswer(id, rid, &acp.QuestionResult{Answers: body.Answers})
+	var reply questionReply
+	if body.Error != nil {
+		var message string
+		if json.Unmarshal(body.Error, &message) != nil || strings.TrimSpace(message) == "" {
+			http.Error(w, `{"error":{"message":"error must be a non-empty string"}}`, http.StatusBadRequest)
+			return
+		}
+		reply.err = errors.New(acp.BoundQuestionError(message))
+	} else {
+		var answers [][]string
+		if json.Unmarshal(body.Answers, &answers) != nil || answers == nil {
+			http.Error(w, `{"error":{"message":"answers must be an array of string arrays"}}`, http.StatusBadRequest)
+			return
+		}
+		reply.result = &acp.QuestionResult{Answers: answers}
+	}
+	ok := completeQuestionReply(id, rid, reply)
 	if !ok {
 		http.Error(w, `{"error":{"message":"no pending question for this requestId"}}`, http.StatusNotFound)
 		return
@@ -654,7 +671,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	ctx, finishStatistics := s.auxiliaryStatistics(r.Context(), "background")
+	defer finishStatistics()
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(describeSystemPrompt(commands))},
 		{Role: llm.RoleUser, Content: text},
@@ -1582,7 +1600,7 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 		// A prompt's attachments, and the pictures a tool call returned (read
 		// on an image file, an MCP tool's image blocks), which stay on that
 		// call's result.
-		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
+		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool || m.Role == llm.RoleAssistant) && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {
 				name := strings.TrimSpace(part.Name)
@@ -1600,6 +1618,9 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				// the agent can write there, and the prompt tells it where - would
 				// make it serve whatever it points at.
 				if asset := recordedAsset(assetsDir, part.FilePath); sessionID != "" && asset != "" {
+					if m.Role == llm.RoleAssistant {
+						file["asset"] = asset
+					}
 					if part.ThumbnailPath != "" && isRegularFile(session.ThumbnailPathInAssets(assetsDir, asset)) {
 						file["preview_url"] = session.AssetThumbnailRoute(sessionID, asset)
 					}
@@ -1610,7 +1631,11 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				}
 				files = append(files, file)
 			}
-			item["files"] = files
+			if m.Role == llm.RoleAssistant {
+				item["images"] = files
+			} else {
+				item["files"] = files
+			}
 		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
@@ -1941,6 +1966,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["selectedServiceTier"] = st.GetSelectedServiceTier()
 		out["mode"] = string(st.GetMode())
 		// The whole snapshot, versioned: what the composer mirrors and what
 		// it names in metadata.settingsVersion when it sends.
@@ -1995,10 +2021,11 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		// pinned title of its own, so a name the operator or the model wrote
 		// during that first turn is not overwritten seconds later by an answer
 		// that was already in flight.
-		TitleIfUnpinned   bool    `json:"titleIfUnpinned"`
-		MarkActivityRead  bool    `json:"markActivityRead"`
-		SelectedModelID   *string `json:"selectedModelId"`
-		SelectedReasoning *string `json:"selectedReasoning"`
+		TitleIfUnpinned     bool    `json:"titleIfUnpinned"`
+		MarkActivityRead    bool    `json:"markActivityRead"`
+		SelectedModelID     *string `json:"selectedModelId"`
+		SelectedReasoning   *string `json:"selectedReasoning"`
+		SelectedServiceTier *string `json:"selectedServiceTier"`
 		// SelectedToolset is a toolsets[] preset by name, or "default".
 		SelectedToolset *string `json:"selectedToolset"`
 		// Mode and PermissionMode are the operating mode and the permission
@@ -2029,13 +2056,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	// surface's, so the change is validated once, logged, and mirrored by
 	// every client watching the session (event: session_settings).
 	change := session.SettingsChange{Source: "web", Turns: body.Turns}
-	clearModel := false
 	if body.SelectedModelID != nil {
 		mid := strings.TrimSpace(*body.SelectedModelID)
 		switch {
 		case mid == "":
 			// Clearing the selection goes back to the configured agent model.
-			clearModel = true
+			change.Model = &mid
 		case s.activeCfg() == nil || s.activeCfg().FindModelEntry(mid) == nil:
 			http.Error(w, errorJSON(ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
 			return
@@ -2053,25 +2079,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Reasoning = &level
 	}
+	change.ServiceTier = body.SelectedServiceTier
 	change.Toolset = body.SelectedToolset
 	change.Mode = body.Mode
 	change.PermissionMode = body.PermissionMode
-	if clearModel {
-		if body.Turns > 0 {
-			http.Error(w, `{"error":{"message":"selectedModelId cannot be cleared for a number of turns"}}`, http.StatusBadRequest)
-			return
-		}
-		st.SetSelectedModelID("")
-		st.ClearTurnOverride(session.SettingModel)
-	}
-	if !change.Empty() || clearModel {
-		var snap acp.SessionSettings
-		var err error
-		if change.Empty() {
-			snap = s.mgr.PublishSessionSettings(id, st, "", "web")
-		} else {
-			snap, err = s.mgr.ApplySessionSettings(r.Context(), id, change)
-		}
+	if !change.Empty() {
+		snap, err := s.mgr.ApplySessionSettings(r.Context(), id, change)
 		if err != nil {
 			code := http.StatusBadRequest
 			if isSubagentReadOnly(err) {
@@ -2090,6 +2103,9 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.SelectedReasoning != nil {
 			resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		}
+		if body.SelectedServiceTier != nil {
+			resp["selectedServiceTier"] = st.GetSelectedServiceTier()
 		}
 		if body.SelectedToolset != nil {
 			resp["selectedToolset"] = st.GetSelectedToolset()

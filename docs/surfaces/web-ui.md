@@ -142,9 +142,10 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 *A provider's form ends with what the provider advertises: a plus files an id under Logical models, a check marks one already there and takes it out again, an amber id is one the provider no longer advertises.*
 
 - A provider's form (**Settings → LLM providers → row**) is three blocks: **Provider settings** (id, type, endpoint, key, sign-in, the usage switch), **Advanced settings** (the credential command, the proxy, the request timeout), folded until its chevron is clicked, and **Models**.
+- Renaming a provider id rewrites its logical model ids and updates `agent.model`, `memory.model`, `compaction.model`, `supervisor.model` and both fallback chains. Renaming a logical model id updates the same references. Deleting a provider removes its logical models, clears selectors that referenced them and drops their ids from `memory.fallback_models` and `compaction.fallback_models`. Models and references of other providers stay unchanged.
 - **Models** lists what the provider advertises, fetched through **`POST /coddy/providers/models`** with the row exactly as the form holds it, so an unsaved row, a sign-in that exists only on disk and a provider the document does not have yet all list their models the way a saved row does (issue #335). The list is fetched when the form opens and again when the row becomes another provider, once its id or type has stopped changing; an edit to the endpoint, the key or the proxy waits for the refresh icon beside the **Models** title, which fetches at once with the row as it now stands. An automatic fetch never sends the credential command, so a command is not run half-typed: the refresh icon is the only fetch that runs it.
 - Each row is the model id, its context window right of it (**`131k`**, the exact count in its tooltip), and a toggle. The window is the one the provider reports; for a model it reports no window for, it is the one Coddy's models catalog (below) has for the id. A plus adds **`provider/id`** to **Logical models** in the same unsaved document and writes that window into the new model's **Context window**; when the catalog has the same window for the id, its number for **Max tokens** comes with it, and **Multimodal** switched on for a model that reads images. A check says the model is there, and clicking it takes the model out again. Nothing reaches `config.yaml` until **Save all**. An id Logical models lists under this provider that the provider no longer advertises shows in amber, checked, the reason in its tooltip. A line under the title appears only when there is nothing to list: while fetching, on an error, for an empty answer, or for a row without an id and a type. Past eight models a filter field narrows the list.
-- The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, each with a context window, a max tokens to start from and whether it reads images. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads it for a model the provider reports no window for or the same window as the catalog, as Anthropic's listing does, and takes both numbers or neither, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
+- The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, with its available context window, starting max tokens, and known image input and output modalities. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads the modality metadata independently of the window. It takes the context and max-token numbers together only when the provider reports no window or the same window as the catalog, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
 - The open row is part of the address: **`#/settings/providers?id=demo`**, **`#/settings/models?id=demo%2Fqwen3.8-27b`**. Opening a row writes it, going back removes it, renaming the row rewrites it, and editing the address opens the row it names. The search adds `&field=<anchor>` for the setting it took you to ([Settings: search](#settings-search)). An address naming a row that does not exist shows the list and drops the name. While a row is open, the drawer's head reads **Provider settings** (or **Model settings**) behind a back arrow that returns to the list, on a desktop and on a phone alike.
 - **Settings → Logical models → row** is four blocks: **Model** (the provider, the model id, the context window, multimodal input), **Generation** (max tokens, temperature, streamed responses), **Reasoning** (the levels and the default) and **Tools** (the toolset a session on this model is offered its tools by). **Provider** is a combobox over the document's `providers[].name` rows (a name not listed yet can still be typed) and **Model id** a plain field; the two compose into `provider/id` on the first slash. Picking an id out of what the provider advertises happens in the provider's own form.
 - **Context window (tokens)** asks the provider too. Left at 0, the model measures against the window the provider's listing reports (else 128000), so the field shows that number as its placeholder, for example **`131072, reported by demo`**, and writes nothing. The refresh icon beside it asks again and writes the number into `max_context_tokens`, which pins it; a note under the field says when the provider reports no window for the id or the request failed.
@@ -162,7 +163,7 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 - The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`, `openai`); for the others it would change nothing.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
-- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the four blocks of the logical-model form, its toolset and the Toolsets tab in English and in Russian, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
+- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`**, **`SettingsSection.providers.test.tsx`** and **`applyProvidersChange.test.ts`** (the form blocks, provider and model cascades through every selector and fallback chain, the Toolsets tab, the reported window and the usage switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
 ## Settings: tabs and form layout
 
@@ -419,7 +420,7 @@ Desktop layout
 
 - **Brand** is **typography only** (**Coddy** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
-- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**), and so does **New Chat** (**`data-testid="nav-new-chat"`**): a plus under the brand in the narrow rail, a plus after it in the top bar and a labelled row above **History** in the wide rail.
+- Left rail opens **chat history** from **History** under the brand. The **Coddy** menu opens [Statistics](../features/statistics.md); **New Chat** (**`data-testid="nav-new-chat"`**) starts a chat: a plus under the brand in the narrow rail, after it in the top bar and a labelled row above **History** in the wide rail.
 - **Brand**, **History**, **Scheduler** (when linked), **Settings**, and each row in the **History** list use real fragment **`href`** values (**`#/`**, **`#/history`**, **`#/scheduler`**, **`#/scheduler/new`** (new job editor), **`#/settings`**, **`#/s/<sessionId>`**) so **middle-click** or **Ctrl/Cmd-click** opens a **new browser tab** on the same origin while another tab can keep streaming.
 - Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**. On the stacked shell the panel keeps the same band as the Scheduler's and Settings' drawers: 10 px from the sides, under the top strip, and 14 px from the foot or the screen's own bottom inset where there is one. The close control in its head and Escape are the ways back to the conversation.
 - Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
@@ -964,6 +965,18 @@ Functional regression checklist:
 | Press Stop during an eligible profile prompt with mixed-mode queued messages, duplicates and images | The partial answer and tool results settle before separate user rows appear in original FIFO order; the same admitted turn answers them through the relay without another client POST or `turn_started`. |
 | Press Stop again before the accepted batch is read | Full cancellation wins, and the unread accepted batch is retained without automatic continuation. |
 | Press Stop during a saved-plan run, direct completion, permission resume or supervisor command | The server uses full cancellation; it does not acknowledge a queue continuation. |
+
+## Generating images in chat
+
+![Native image generation from opt-in to chat](../assets/diagrams/chat-image-generation.png)
+
+![A generated image in a chat with the Images toggle enabled](../assets/web-ui/chat-image-generation-dark-1280.png)
+
+*An image in a chat with the Images toggle enabled*
+
+For a model that supports native image output, enable **Image generation** on its row in **Settings → Logical models** and save. This sets `models[].image_generation`; it is off by default and is independent of `multimodal`, which controls image input. A selected logical model without it gets an **Images** CTA in the composer, which opens that model's row in Settings. With the flag on, the composer offers an **Images** toggle, initially off. Turn it on and ask for an image. It stays on for subsequent sends in that chat until switched off; changing the chat or model clears it. Each enabled send carries `metadata.image_generation`. Image-enabled messages cannot be queued while a turn is running; the draft stays in the composer. After a reload, Retry is unavailable when the original image choice is unknown and the selected model supports image generation.
+
+The chat path supports `openai` API-key and `codex` providers when the model is explicitly enabled and the provider supports the Responses image generation tool. Codex has been tested against a fake backend; live account entitlement has not been verified. Coddy refuses image generation on direct model requests. Coddy sends the native tool with the conversation and saves returned images as session assets on the assistant message. Images appear in the answer and remain available after reloading the chat. Provider support and account access are required; enabling the setting alone does not guarantee an image. A generated assistant image is not automatically included as visual context in later prompts. To ask for an edit, download the image and reattach it as input with a multimodal model.
 
 ## Composer file attachments (multimodal)
 
@@ -1694,25 +1707,54 @@ it was under the window.
 On the left the tree lists the changed files and only them, git's uncommitted changes
 in the folders they sit in, each with git's letter at the end of its row (**A** added,
 **M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
-file picked there scrolls the diffs to it and stays put while the diffs above it are
-still loading, and as you scroll the tree marks the file at the top, scrolling itself
+file picked there scrolls the diffs to it, highlights its card with an accent frame and stays put while the diffs above it are
+still loading. Selecting a Viewed file unfolds its body without clearing the Viewed mark. As you scroll, the tree marks the file at the top, scrolling itself
 to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
-A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+A file section has a sticky header: the chevron and name, which fold the diff, then copy-path and **Expand all lines** beside the name. The source/rich switch for Markdown stands to the right of the counts or sizes. Images and other binary files have no source/rich switch.
+Git's `+a −b`, **Viewed** and a three-dot file-actions menu close the row. Checking **Viewed** folds the file and remembers its
+content digest in this browser; when the file changes, the digest changes and the mark is withdrawn,
+even if the line counts stayed the same. Unchecking it expands the file again, and reopening the window restores the collapsed state. The window header shows `viewed / total` with a circular progress indicator. On a phone only the compact counts are visible; the full summary remains in the accessible name and tooltip. It turns green when every listed file is viewed, and a changed digest immediately removes that file from the count. The line numbers stand in
 cells as wide as the file's longest number, so the code of every row, a removed or an added one
 included, starts at one edge; inside a change the removed lines come first, then the added ones,
-the way git writes them. Between hunks sits a wordless separator
-rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+the way git writes them. Between hunks and at the file ends, arrows reveal 10 more lines up, down,
+or in both directions; **Expand all lines** reveals the whole file with its diff and becomes **Collapse all lines**. Collapsing restores the original hunks and discards context revealed through either control without folding the file card. A patch the server
+truncated offers no context controls. When expansion makes two hunks contiguous, their separator disappears. In a folder with nothing to show it says
 so: clean, or not in a git repository.
+
+For any binary file, compact byte sizes with the exact count in the tooltip replace the line counts:
+green for an addition, red for a deletion, and old red beside new green for a modification.
+Each side renders by its own type, so an image replaced by text shows the old image beside the new
+text. Rich preview shows the image itself. A modified
+image has a red-framed **Before** beside a green-framed **After**; an added or deleted image shows
+only the version that exists. Its coloured version label and loaded width and height stand outside the image frame as `W … · H …`. Images scale down to 320px high without changing their proportions. Markdown rich preview renders only the new version through the
+ordinary Markdown component. On a phone the header wraps and before/after panels stack in one column.
+
+![The file controls for reviewing a source diff](../assets/session-changes-review-controls-dark-1280.png)
+
+*Source and rich diff, context expansion and Viewed in a file header*
+
+![The same file controls on a phone](../assets/session-changes-review-controls-dark-390.png)
+
+*The file header wraps on a phone*
+
+![The before and after versions of a modified image](../assets/session-changes-image-rich-dark-1280.png)
+
+*Rich image diff with exact byte sizes and framed before and after versions*
+
+![The image versions stacked on a phone](../assets/session-changes-image-rich-dark-390.png)
+
+*Before and after images use one column on a phone*
 
 ![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
 
 *The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
 
-**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
-menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+**Discard changes** and **Delete file** live in the file's three-dot menu, immediately right of
+**Viewed**, and each asks first in the shared confirmation dialog. The menu is portaled, so it also works while the file is folded. Discard puts that file back at
+`HEAD`; delete removes it from the working folder, leaving a tracked file reported as deleted.
+**Discard all** in the window menu discards every change. The discard confirmation says whether the file
 goes back to its last committed content or, new since that commit, is deleted; Escape
 there answers the question and leaves the window open. Then the page posts
 `.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
@@ -1720,8 +1762,8 @@ content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted
 with any folder it leaves empty, and files git ignores are never touched. A turn running in
 that folder, in this chat or in another one working there, refuses the discard
 (**409**); so does a file git no longer reports - committed or put
-back meanwhile - and then nothing of the request is applied. A commit is not offered:
-the window reads, and discarding is the one thing it writes.
+back meanwhile - and then nothing of the request is applied. Delete posts `.../changes/delete`
+with `{"paths":[...]}` under the same change-set and running-turn guards. A commit is not offered.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1741,6 +1783,8 @@ Automated checks:
 - **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
 - **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/contextExpansion.test.ts** (10-line expansion in every direction, overlap, file ends and expand all) and **viewedFiles.test.ts** (Viewed keyed by content digest)
+- **external/ui/src/ui/changes/richDiff.test.ts** (rich formats, authenticated image addresses and byte sizes)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
 - **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
@@ -2688,3 +2732,25 @@ Other provider types hide the selector.
 ![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
 
 *The Anthropic-compatible provider offers its own SDK identity by default.*
+
+## Service tier
+
+The selector is available for Codex and for OpenAI providers using the official `https://api.openai.com/v1` API base (with or without a trailing slash), not compatible endpoints such as Ollama. With an empty `api_base`, `OPENAI_BASE_URL` applies when set; otherwise the official endpoint is used. A forward `proxy` does not change this decision.
+
+![Service tier](../assets/service-tier/service-tier-dark.png)
+![Service tier](../assets/service-tier/service-tier-light.png)
+![Service tier](../assets/service-tier/service-tier-narrow.png)
+
+For supported models, the composer shows **Service tier** beside the model controls.
+Choose **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+An unset session shows one selected Standard item and omits the parameter; there is no separate Auto item.
+Explicitly selecting Standard sends `default`, including after Fast.
+`gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast.
+The menu shows your selection, which can differ from the tier the provider actually uses.
+Another client of the same session receives the change.
+A change during a turn applies to the next turn.
+
+The browser remembers your last selection for new chats.
+An existing chat keeps its saved selection.
+A model that does not offer the remembered value leaves the session unset and shows Standard.
+Opening a chat or receiving another client's change does not replace the browser preference.

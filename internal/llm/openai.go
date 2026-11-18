@@ -26,6 +26,7 @@ type openAIProvider struct {
 	tempSet         bool
 	topP            *float64
 	reasoningEffort string
+	serviceTier     *string
 	// modelParams is what the provider's model listing says the model takes
 	// (ProviderInput.SupportedParameters); nil when nothing is known.
 	modelParams []string
@@ -55,6 +56,9 @@ func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, m
 }
 
 func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	if ImageGenerationEnabled(ctx) {
+		return p.streamImageGeneration(ctx, messages, tools, nil)
+	}
 	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
@@ -237,6 +241,14 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 // finishParams adds what every request carries whatever its reasoning: the
 // tools and, on a stream, the usage request.
 func (p *openAIProvider) finishParams(params openai.ChatCompletionNewParams, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
+	if p.serviceTier != nil {
+		extra := params.ExtraFields()
+		if extra == nil {
+			extra = make(map[string]any)
+		}
+		extra["service_tier"] = *p.serviceTier
+		params.SetExtraFields(extra)
+	}
 	if len(tools) > 0 {
 		oaiTools := make([]openai.ChatCompletionToolParam, len(tools))
 		for i, t := range tools {
@@ -419,6 +431,7 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	msg := choice.Message
 
 	r := &Response{
+		ServiceTier:       string(resp.ServiceTier),
 		UsageKnown:        openAIUsageKnown(resp.RawJSON()),
 		UsageIncomplete:   !openAIUsageKnown(resp.RawJSON()),
 		Content:           msg.Content,

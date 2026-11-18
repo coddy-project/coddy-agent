@@ -1,4 +1,7 @@
-import { memo } from "react";
+import { memo, useState } from "react";
+import { ApiImage, ApiImageLightbox } from "../components/ApiImage";
+import { useT } from "../i18n/I18nProvider";
+import type { TranscriptFile } from "../chat/types";
 
 import { Markdown } from "../markdown/Markdown";
 import { formatUtcToLocalFullDetail } from "./formatMessageTime";
@@ -11,6 +14,7 @@ import type { ToolArtifact } from "../chat/toolArtifacts";
 
 export const AssistantMessage = memo(function AssistantMessage(props: {
   content: string;
+  files?: readonly TranscriptFile[];
   /** The transcript row id, stamped on the row so the transcript window can
    *  find it on screen. */
   rowId?: string;
@@ -22,6 +26,12 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
   artifacts?: ReadonlyMap<string, ToolArtifact>;
   onMentionArtifact?: (path: string) => void;
 }) {
+  const { t } = useT();
+  const [open, setOpen] = useState<TranscriptFile | null>(null);
+  const images = (props.files || []).filter(
+    (f) =>
+      f.mimeType.toLowerCase().startsWith("image/") && (f.url || f.previewUrl),
+  );
   const timeFull = props.createdAtUtc
     ? formatUtcToLocalFullDetail(props.createdAtUtc)
     : "";
@@ -54,6 +64,31 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
             />
           ) : null,
         )}
+        {images.map((file, index) => (
+          <button
+            key={`${index}:${file.url || file.previewUrl}`}
+            type="button"
+            className="msg-generated-image"
+            aria-label={t("messages.openGeneratedImage", {
+              fileName: file.name,
+            })}
+            onClick={() => setOpen(file)}
+          >
+            <ApiImage
+              className="msg-generated-image-content"
+              src={(file.url || file.previewUrl)!}
+              alt={file.name}
+              data-testid="generated-image"
+            />
+          </button>
+        ))}
+        {open ? (
+          <ApiImageLightbox
+            src={(open.url || open.previewUrl)!}
+            alt={open.name}
+            onClose={() => setOpen(null)}
+          />
+        ) : null}
       </div>
     </div>
   );

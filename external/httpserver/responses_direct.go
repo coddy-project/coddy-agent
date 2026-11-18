@@ -37,8 +37,18 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeOpenAIValidationError(w, "invalid metadata", "metadata")
 		return
 	}
+	if imageGenerationFromHTTP(req.Metadata) {
+		writeOpenAIValidationError(w, "native image generation requires a chat profile", "metadata.image_generation")
+		return
+	}
 	if completionMetadataForbidden(req.Metadata) {
 		writeOpenAIValidationError(w, "metadata.model is not allowed for direct completion", "metadata.model")
+		return
+	}
+	var metadata map[string]json.RawMessage
+	_ = json.Unmarshal(req.Metadata, &metadata)
+	if _, present := metadata["service_tier"]; present {
+		writeOpenAIValidationError(w, "use top-level service_tier for direct models", "metadata.service_tier")
 		return
 	}
 	if len(req.Attachments) > 0 {
@@ -128,6 +138,8 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		writeErrorReply(w, err)
 		return
 	}
+	ctx, finishStatistics := s.beginDirectStatistics(ctx, st, sid, req.Model, statisticsSourceFromHTTP(req.Metadata), opts.ReasoningEffort)
+	defer finishStatistics()
 	id, createdAt := responsesItemID("resp_"), time.Now().Unix()
 	if req.Stream {
 		writeSSEHeaders(w)
@@ -152,7 +164,11 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 			errorObject = replyForError(callErr).body["error"]
 			s.log.Error("responses stream", "error", callErr)
 		}
-		stream.event("response."+status, map[string]any{"response": responsesObject(id, req.Model, createdAt, status, output, responsesUsage(response), &req, errorObject, incomplete)})
+		result := responsesObject(id, req.Model, createdAt, status, output, responsesUsage(response), &req, errorObject, incomplete)
+		if response != nil && response.ServiceTier != "" {
+			result["service_tier"] = response.ServiceTier
+		}
+		stream.event("response."+status, map[string]any{"response": result})
 		return
 	}
 	response, err := provider.Complete(ctx, messages, tools)
@@ -168,13 +184,17 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 	st.AddMessage(directAssistantMessage(response, req.Model))
 	status, incomplete := responsesStatus(response)
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(responsesObject(id, req.Model, createdAt, status, responsesOutputItems(response), responsesUsage(response), &req, nil, incomplete)); err != nil {
+	result := responsesObject(id, req.Model, createdAt, status, responsesOutputItems(response), responsesUsage(response), &req, nil, incomplete)
+	if response.ServiceTier != "" {
+		result["service_tier"] = response.ServiceTier
+	}
+	if err := json.NewEncoder(w).Encode(result); err != nil {
 		s.log.Debug("write Responses answer", "error", err)
 	}
 }
 
 func responsesOptionParam(err error) string {
-	for _, field := range []string{"temperature", "top_p", "reasoning"} {
+	for _, field := range []string{"temperature", "top_p", "reasoning", "service_tier"} {
 		if strings.Contains(err.Error(), field) {
 			return field
 		}

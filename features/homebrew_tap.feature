@@ -19,6 +19,7 @@ Feature: Coddy installs from its own Homebrew tap
     And it installs the binary, the man page and the bash and zsh completions
     And its caveats say how zsh loads the completion
     And it lifts the quarantine from the installed binary
+    And it asks for macOS 13 or later
     And it uses no stanza current Homebrew deprecates
 
   Scenario: A release publishes its cask to the tap

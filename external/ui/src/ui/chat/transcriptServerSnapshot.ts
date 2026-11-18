@@ -39,8 +39,10 @@ export function transcriptItemsLooselyEqual(
           a.content.trim()
       );
     case "assistant_message": {
-      const bc = (b as Extract<TranscriptItem, { type: "assistant_message" }>)
-        .content;
+      const other = b as Extract<TranscriptItem, { type: "assistant_message" }>;
+      if (a.messageId && other.messageId && a.messageId !== other.messageId)
+        return false;
+      const bc = other.content;
       const ac = a.content.trim();
       const bt = bc.trim();
       if (ac === bt) return true;
@@ -240,8 +242,29 @@ function mergeServerPrefix(
     ) {
       const sText = lastS.content;
       const lText = lastL.content;
+      if (
+        (!lastS.files || lastS.files.length === 0) &&
+        lastL.files?.length &&
+        sText === lText
+      ) {
+        return [
+          ...serverNext.slice(0, -1),
+          {
+            ...lastS,
+            files: lastL.files,
+            ...(lastL.messageId ? { messageId: lastL.messageId } : {}),
+          },
+        ];
+      }
       if (lText.length > sText.length && lText.startsWith(sText)) {
-        return [...serverNext.slice(0, -1), { ...lastL, streaming: false }];
+        return [
+          ...serverNext.slice(0, -1),
+          {
+            ...lastL,
+            ...(lastS.files?.length ? { files: lastS.files } : {}),
+            streaming: false,
+          },
+        ];
       }
       if (!sText.trim() && lText.trim()) {
         return [...serverNext.slice(0, -1), { ...lastL, streaming: false }];

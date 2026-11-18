@@ -19,8 +19,19 @@ import (
 
 // describeMaxTokens is the output cap of the naming call: a title is a short
 // phrase and tags are one line, so neither route lets the model write an essay
-// for a label. The default path clamps to the same number inline.
-const describeMaxTokens = 96
+// for a label. Both routes read this number - describeTokenLimit for a model
+// the request names, and defaultProviderFromAgentModel for the fallback.
+//
+// The cap is not the length of the answer a model is asked for. On an
+// OpenAI-shaped provider max_tokens also pays for the reasoning tokens the
+// backend hides, and a reasoning model spends a hundred or several hundred of
+// them before it writes a word: at 96 a chat on such a model came back with
+// finish_reason=length and an empty answer, so the title fell back to the
+// first words of the message and the tags were lost. A reasoning model asks
+// for 150 to 450 of them on a first message, so the cap keeps room for that
+// and still bounds the answer itself - the prompt asks for one phrase and one
+// line of tags, and a model that ignores it writes no essay either.
+const describeMaxTokens = 512
 
 func describeTokenLimit(cfg *config.Config, model string) int {
 	if entry := cfg.FindModelEntry(model); entry != nil && entry.MaxTokens > 0 && entry.MaxTokens < describeMaxTokens {

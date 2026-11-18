@@ -13,6 +13,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
 )
@@ -40,6 +41,7 @@ type codexProvider struct {
 	httpClient      *http.Client
 	model           string
 	reasoningEffort string
+	serviceTier     *string
 	sessionID       string
 }
 
@@ -147,6 +149,9 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		return nil, err
 	}
 	params := p.buildParams(messages, tools)
+	if ImageGenerationEnabled(ctx) {
+		params.Tools = append(params.Tools, param.Override[responses.ToolUnionParam](json.RawMessage(`{"type":"image_generation"}`)))
+	}
 	// The request is the one ResponseService.NewStreaming sends; only the
 	// frames are read by codexEventDecoder instead of the SDK decoder.
 	var raw *http.Response
@@ -277,7 +282,11 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 	// The Codex backend serves gpt-5* ids yet accepts only none/low/medium/
 	// high/xhigh, so "minimal" (which coddy offers for every gpt-5 model) and
 	// the "off" pseudo level both become its lowest tier, "none".
-	return buildResponsesParams(p.model, codexReasoningEffort(p.reasoningEffort), p.decodeReasoningItems, messages, tools)
+	params := buildResponsesParams(p.model, codexReasoningEffort(p.reasoningEffort), p.decodeReasoningItems, messages, tools)
+	if p.serviceTier != nil {
+		params.SetExtraFields(map[string]any{"service_tier": *p.serviceTier})
+	}
+	return params
 }
 
 // newCodexSessionID returns a random UUIDv4 string for the session_id header.

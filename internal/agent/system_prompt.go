@@ -187,10 +187,19 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// answering through it. Last of the appended blocks, so a messenger's
 	// answer format is the nearest instruction to the conversation itself.
 	full = joinNonEmptyPromptBlocks(full, a.surfaceBlock())
+	// The system-level instructions the client that opened the session asked
+	// for (ACP systemPrompt, append mode). They follow the surface's block and
+	// the template's own text: append never replaces the agent's instructions.
+	full = joinNonEmptyPromptBlocks(full, a.clientSystemBlock())
 	// Applied last so it also covers a user's own prompts.dir template and the
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.
 	full = prompts.WithIdentity(full)
+	// Custom templates may still opt into the Markdown catalog. Categorize it
+	// only when it was rendered; native definitions are counted separately.
+	if !strings.Contains(full, toolsMD) {
+		toolsMD = ""
+	}
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,
@@ -285,8 +294,8 @@ func offersTool(defs []llm.ToolDefinition, name string) bool {
 }
 
 // buildTemplatedChildPrompt renders the system prompt of a system child that
-// carries a template of its own (the memory subagent): the template with the
-// working directory and the tool list, then the environment block, the hook
+// carries a template of its own: the template with the working directory and
+// an optional custom tool list, then the environment block, the hook
 // context and the identity line as for every prompt. Skills, rules, project
 // instructions, the subagent catalog and the session memory are not
 // rendered: the child's task is not the workspace's, and a template that
@@ -308,6 +317,11 @@ func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefini
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
 	full = prompts.WithIdentity(full)
+	// Custom templates may still opt into the Markdown catalog. Categorize it
+	// only when it was rendered; native definitions are counted separately.
+	if !strings.Contains(full, toolsMD) {
+		toolsMD = ""
+	}
 	build := &systemPromptBuild{
 		Mode:     mode,
 		Content:  full,

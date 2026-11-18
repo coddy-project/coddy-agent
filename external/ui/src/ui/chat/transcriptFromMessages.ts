@@ -338,6 +338,34 @@ export function transcriptItemsFromMessages(p: {
         next.push(item);
       }
       pushText(content.slice(cut));
+      const images = sessionMessageFiles(m.images ?? m.files, "").filter(
+        (file) =>
+          file.mimeType.toLowerCase().startsWith("image/") &&
+          (file.url || file.previewUrl),
+      );
+      if (images.length > 0) {
+        if (textRow >= 0 && textRow === next.length - 1) {
+          const row = next[textRow] as Extract<
+            TranscriptItem,
+            { type: "assistant_message" }
+          >;
+          next[textRow] = {
+            ...row,
+            messageId: `msg_${abs}`,
+            files: [...(row.files || []), ...images],
+          };
+        } else {
+          next.push({
+            id: assistantId(abs),
+            type: "assistant_message",
+            content: "",
+            files: images,
+            messageId: `msg_${abs}`,
+            ...(acat ? { createdAtUtc: acat } : {}),
+          });
+          textRow = next.length - 1;
+        }
+      }
       const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
       for (const tc of tcs) {
         const id = tc?.id || "";
@@ -359,7 +387,7 @@ export function transcriptItemsFromMessages(p: {
       }
       if (m.truncated === true && textRow >= 0 && textRow === next.length - 1) {
         continuableRow = textRow;
-      } else if (!content.trim() && tcs.length === 0) {
+      } else if (!content.trim() && images.length === 0 && tcs.length === 0) {
         // A step that came back with no text and no tool call is not in the
         // way, as on the server (session.FollowsTruncated): the answer after
         // it still goes on from the cut text. Thinking it drew stands between

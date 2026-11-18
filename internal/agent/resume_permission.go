@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
@@ -45,6 +46,9 @@ func (e *answeredToolCallError) Error() string {
 // ResumeAfterPermission executes a tool call that was approved via POST /permission after the HTTP
 // stream ended or the server restarted, then continues the ReAct loop from persisted messages.
 func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, perm *acp.PermissionResult) (string, error) {
+	ctx, finishStatistics := a.beginStatistics(ctx)
+	defer finishStatistics()
+	statistics.Background(ctx)
 	toolCallID = strings.TrimSpace(toolCallID)
 	if toolCallID == "" {
 		return "", fmt.Errorf("toolCallId is required")
@@ -475,7 +479,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, false)
 	a.noteStopReason(stop, err, maxTurns)
 	return stop, err
 }
