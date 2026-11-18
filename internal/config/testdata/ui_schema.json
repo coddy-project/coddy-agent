@@ -985,7 +985,7 @@
             "type": "boolean"
           },
           "image_generation": {
-            "description": "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
+            "description": "When true, the model may emit images natively through the provider's image generation tool, and the tool is included in every chat request sent with this model.",
             "title": "Image generation",
             "type": "boolean"
           },

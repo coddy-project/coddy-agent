@@ -14,10 +14,9 @@ import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
 /**
- * The composer's per-turn image control: it appears only while the chosen
- * model opted in to native image output (models[].image_generation, shown by
- * GET /v1/models as image_generation), and a turn started with it on rides in
- * as metadata.image_generation.
+ * The image generation tool is included only when the chosen model enables
+ * image generation (models[].image_generation, shown by GET /v1/models as
+ * image_generation), and each turn carries metadata.image_generation.
  */
 
 const MODEL = "fake/alpha-model";

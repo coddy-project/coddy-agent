@@ -812,7 +812,7 @@ export const messagesEn: Record<string, string> = {
     "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
   "settings.schema.models.image_generation.label": "Image generation",
   "settings.schema.models.image_generation.desc":
-    "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
+    "When true, the model may emit images natively through the provider's image generation tool, and the tool is included in every chat request sent with this model.",
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
     "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
