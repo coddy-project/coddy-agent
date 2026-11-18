@@ -36,6 +36,13 @@ Feature: A configuration reload reaches the clients that are already open
     Then the browser is told the configuration reloaded
     And the model list the browser reads after that event carries "rpa/qwen3.6-35b-a3b"
 
+  Scenario: An unfinished manual edit is preserved until it is corrected
+    When an operator writes an invalid intermediate configuration and the watcher examines it
+    Then the intermediate configuration remains byte-for-byte on disk and the running configuration is unchanged
+    When the operator corrects it by adding the model "rpa/qwen3.6-35b-a3b"
+    Then the browser is told the configuration reloaded
+    And the model list the browser reads after that event carries "rpa/qwen3.6-35b-a3b"
+
   Scenario: Saving settings keeps a command-line policy override active
     Given a process override sets project trust to deny
     When the configuration is saved with the model "rpa/qwen3.6-35b-a3b" added

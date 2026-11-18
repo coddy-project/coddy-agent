@@ -37,3 +37,9 @@ Feature: OpenAI Responses API for configured models
     Given a coddy server whose direct model is a recording stub with tool calling
     When a coddy client streams "agent" over POST /v1/responses
     Then the stream carries chat.completion.chunk deltas and [DONE]
+
+  Scenario: inline files for a model that reads none are refused, not dropped
+    Given a coddy server whose direct model is a recording stub with tool calling
+    When an OpenAI client posts "local/qwen3-text" to the Responses API with an inline image
+    Then the answer is a 400 naming "inline_files"
+    And no request reached the Responses upstream

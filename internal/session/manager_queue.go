@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
+
+var ErrImagesNotSupported = errors.New("images not supported by the selected model")
 
 // EnqueueTurnMessage adds a follow-up to the turn running on sessionID and
 // returns it together with the queue as it now stands.
@@ -25,6 +28,13 @@ func (m *Manager) EnqueueTurnMessageWithMode(sessionID, text string, mode QueueM
 	st, err := m.queueSession(sessionID)
 	if err != nil {
 		return QueuedMessage{}, nil, err
+	}
+	if len(parts) > 0 {
+		cfg := m.activeCfg()
+		model := st.EffectiveModelID(cfg)
+		if entry := cfg.FindModelEntry(model); entry == nil || !entry.Multimodal {
+			return QueuedMessage{}, nil, fmt.Errorf("%w: %s takes no images: inline_files need a model configured multimodal", ErrImagesNotSupported, model)
+		}
 	}
 	// A /goal command is the operator's, like a settings command: read into
 	// the running step it would reach the model as text. It waits for the

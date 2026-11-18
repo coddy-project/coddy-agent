@@ -245,6 +245,25 @@ test("image files with previewUrl render a thumbnail chip; others keep the icon"
   ).not.toHaveClass("msg-user-file-chip--image");
 });
 
+test("an image-only message has no empty text bubble", () => {
+  const { container } = render(
+    <UserMessage
+      content=""
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "blob:coddy-user-thumb-only",
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByTestId("msg-user-file-thumb")).toBeInTheDocument();
+  expect(screen.queryByTestId("user-message-body")).toBeNull();
+  expect(container.querySelector(".msg-user")).toBeNull();
+});
+
 // The sent bubble shows the picture large enough to recognise, and a click
 // opens the original rather than the bounded thumbnail beside it.
 test("an image in the sent bubble opens the full-size asset enlarged", () => {

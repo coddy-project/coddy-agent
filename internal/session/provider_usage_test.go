@@ -132,7 +132,7 @@ const usageFixtureTemplate = `{
 const usageKey = "sk-usage-test-key-0123456789abcdef"
 
 // newUsageManager builds a manager over a neuraldeep provider with a stored
-// hub login that points at stand, plus a plain openai provider without a
+// hub login that points at stand, plus a plain anthropic provider without a
 // usage source.
 func newUsageManager(t *testing.T, stand *usageStand, sender acp.UpdateSender, runner AgentRunner) *Manager {
 	t.Helper()
@@ -153,7 +153,7 @@ func newUsageManagerWith(t *testing.T, stand *usageStand, sender acp.UpdateSende
 		Paths: config.Paths{Home: home, CWD: t.TempDir()},
 		Providers: []config.ProviderConfig{
 			{Name: "neuraldeep", Type: "neuraldeep"},
-			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
+			{Name: "stub", Type: "anthropic", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{
 			{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000},
@@ -300,6 +300,21 @@ func TestMapNeuralDeepUsageWindowsRateWalletAndOptions(t *testing.T) {
 	}
 	if u.CooldownSec != 0 {
 		t.Fatalf("cooldown = %d", u.CooldownSec)
+	}
+}
+
+func TestMapNeuralDeepUsageIncludesKimiWindows(t *testing.T) {
+	fetchedAt := time.Date(2026, 9, 6, 17, 47, 10, 0, time.UTC)
+	body := strings.Replace(usageFixture(407), `"kimi": null`, `"kimi":{"usages":{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-09-06T22:00:00Z"},"limit_7d":{"used_ratio":0.5}}}`, 1)
+	u := mapNeuralDeepUsage(decodeUsageFixture(t, body), "neuraldeep", fetchedAt)
+
+	fiveHour := findWindow(u, "5h")
+	if fiveHour == nil || fiveHour.Label != "5h" || fiveHour.UsedPercent != 25 || fiveHour.ResetsAt != "2026-09-06T22:00:00Z" {
+		t.Fatalf("Kimi 5h window = %+v, want 25%% and reset time", fiveHour)
+	}
+	sevenDay := findWindow(u, "7d")
+	if sevenDay == nil || sevenDay.Label != "7d" || sevenDay.UsedPercent != 50 {
+		t.Fatalf("Kimi 7d window = %+v, want 50%%", sevenDay)
 	}
 }
 
@@ -794,7 +809,7 @@ func TestProviderUsageUnsupportedAndUnknownProvider(t *testing.T) {
 	stand := newUsageStand(t)
 	m := newUsageManager(t, stand, &usageCapture{}, nil)
 	u, err := m.ProviderUsage(context.Background(), "stub", false)
-	if err != nil || u == nil || !u.Unsupported || u.Provider != "stub" || u.ProviderType != "openai" {
+	if err != nil || u == nil || !u.Unsupported || u.Provider != "stub" || u.ProviderType != "anthropic" {
 		t.Fatalf("stub provider: err=%v update=%+v", err, u)
 	}
 	if _, err := m.ProviderUsage(context.Background(), "nope", false); err == nil {
@@ -1545,7 +1560,7 @@ func TestCachedProviderUsageReadsOnlyTheCache(t *testing.T) {
 
 	// A row the live configuration no longer reads is left out.
 	next := *m.Cfg()
-	next.Providers = []config.ProviderConfig{{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"}}
+	next.Providers = []config.ProviderConfig{{Name: "stub", Type: "anthropic", APIBase: "http://127.0.0.1:0", APIKey: "test"}}
 	m.storeConfig(&next)
 	if got := m.CachedProviderUsage(); len(got) != 0 {
 		t.Fatalf("a removed row is still reported: %+v", got)

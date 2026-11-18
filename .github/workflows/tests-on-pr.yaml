@@ -83,7 +83,12 @@ jobs:
         run: make ui-build
 
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: |
+          mkdir -p "$RUNNER_TEMP/ripgrep"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/ripgrep"
+          sudo install "$RUNNER_TEMP/ripgrep/ripgrep-15.1.0-x86_64-unknown-linux-musl/rg" /usr/local/bin/rg
 
       - name: Run tests
         run: go test -tags=${{ matrix.tags }} ./...
@@ -139,11 +144,23 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: make build TAGS="http ui swarm"
 
+      # check:desktop walks the rail and drives the `coddy desktop` verb, which
+      # the lean binary above carries neither of, so it gets one of its own
+      # under build/desktop. It is built here rather than beside its own step
+      # because `make build` with `ui` runs `npm install`, which puts the
+      # playwright of package-lock.json back over the one the next step
+      # installs with --no-save and leaves its browser undownloaded.
+      - name: Build the desktop binary for its browser check
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: make build BUILD_DIR=build/desktop TAGS="http ui swarm scheduler desktop"
+
       - name: Drive a long transcript in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: |
           npm --prefix external/ui i --no-save playwright
-          (cd external/ui && npx playwright install --with-deps chromium)
+          # The runner image supplies the shared libraries; download only the
+          # browser so a failing Ubuntu mirror cannot block the test.
+          (cd external/ui && npx playwright install --only-shell chromium)
           CODDY_BIN="$PWD/build/coddy" CODDY_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
 
       # The message queue (issue #364) through the same kind of stand: the
@@ -183,6 +200,15 @@ jobs:
       - name: Drive the Settings search in a browser
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:settings-search
+
+      # The desktop tab shell against the real binary: tabs, the chords, links
+      # out of Coddy through a stub of this machine's opener, the menu, and the
+      # tab list surviving a restart. It names its binary CODDY_DESKTOP_BIN,
+      # not CODDY_BIN, and takes the one built for it above, so the lean binary
+      # the checks before it drive is left alone.
+      - name: Drive the desktop tab shell in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_DESKTOP_BIN="$PWD/build/desktop/coddy" npm --prefix external/ui run check:desktop
 
   # The integration layer against tgfake (github.com/EvilFreelancer/tgfake),
   # the fake Telegram Bot API and scripted model this repository tests its
@@ -268,7 +294,12 @@ jobs:
 
       # The test suite runs with ripgrep installed; the same code paths run here.
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: |
+          mkdir -p "$RUNNER_TEMP/ripgrep"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/ripgrep"
+          sudo install "$RUNNER_TEMP/ripgrep/ripgrep-15.1.0-x86_64-unknown-linux-musl/rg" /usr/local/bin/rg
 
       - name: Run tests under the race detector
         run: make test-race
@@ -361,6 +392,92 @@ jobs:
           name: coddy-android-amd64
           path: dist/coddy_android_amd64.tar.gz
           retention-days: 14
+
+  # FreeBSD, type-checked here and then run on a real one.
+  #
+  # The BSD half of every per-OS file - the xucred peer check of the local
+  # endpoint, the statfs of the disk probe, the kern.proc sysctl the desktop
+  # window reads a parent from - is compiled by neither the host gate nor the
+  # linter, the way check-windows covers the Windows half. Cross-building is
+  # not proof that the binary runs, so the second half of this job starts a
+  # FreeBSD virtual machine and runs the release-shaped binary and the
+  # platform suites inside it.
+  #
+  # The test binaries are cross-compiled here rather than built in the VM:
+  # FreeBSD's ports carry whichever Go the quarterly branch pinned, and the
+  # toolchain this repository builds with is the one in go.mod. The VM gets
+  # finished binaries and needs no Go at all.
+  freebsd:
+    name: FreeBSD build and native tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Type-check the FreeBSD build
+        run: make check-freebsd
+
+      - name: Cross-compile the binary and the test binaries a FreeBSD runs
+        env:
+          GOOS: freebsd
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist/freebsd
+          # The release shape minus `ui`: the embedded SPA is a build artefact
+          # and this job proves the platform, not the assets.
+          tags="$(make -s print-lint-tags-no-ui)"
+          go build -tags "$tags" -o dist/freebsd/coddy ./cmd/coddy/
+          for pkg in internal/platform internal/localipc internal/llm internal/bgtask internal/tools/shell internal/rules external/desktop; do
+            go test -c -tags "$tags" -o "dist/freebsd/$(basename "$pkg").test" "./$pkg"
+          done
+
+      - name: Run them on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          usesh: true
+          # bash is what the shell detector prefers and what a shell-tool test
+          # asks for by name, and ripgrep is what the search tool runs;
+          # FreeBSD's base system ships neither.
+          prepare: pkg install -y bash ripgrep
+          run: |
+            set -e
+            bin="$(pwd)/dist/freebsd"
+            "$bin/coddy" -v
+            "$bin/coddy" sessions list
+            "$bin/coddy" skills list
+            # Each binary runs in the directory of the package it was built
+            # from: the suites read the checkout through relative paths.
+            for pkg in internal/platform internal/localipc internal/bgtask internal/tools/shell internal/rules; do
+              ( cd "$pkg" && "$bin/$(basename "$pkg").test" -test.timeout=20m )
+            done
+            # The Kimi credential store is the one provider path with a
+            # per-platform implementation: owner checks, flock and the
+            # directory flush that makes a refresh survive a crash.
+            ( cd internal/llm && "$bin/llm.test" -test.timeout=20m -test.run '^Test(Kimi|EnsureKimiIdentity|ContextWindowKimi|GoalJudgeKimi)' )
+            # The kern.proc.pid sysctl the desktop window reads a process's
+            # parent from is decoded at offsets written down by hand, so it is
+            # the one thing here that only a real kernel can confirm. The rest
+            # of the package drives `go list` and `go build`, which this VM
+            # has no Go for, hence the filter. A filter that matches nothing
+            # still exits 0, so the run is held to the test that must pass.
+            (
+              cd external/desktop || exit 1
+              "$bin/desktop.test" -test.v -test.timeout=5m -test.run '^TestParentOf' > /tmp/parent.log 2>&1
+              status=$?
+              cat /tmp/parent.log
+              [ "$status" -eq 0 ] || exit 1
+              grep -q 'PASS: TestParentOfAnswersTheRealParent' /tmp/parent.log
+            )
 
   # Run the shipped suite natively as well: cross-building cannot exercise
   # Windows process groups, paths, file handles or the console shell.
@@ -464,6 +581,44 @@ jobs:
       - name: Feed one-shot prompts from files and stdin
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
+      # The shipped binary embeds the SPA, so this job builds it the way
+      # every other job here does: the same action, the same Node and the same
+      # npm cache.
+      - name: Set up Node for the desktop window
+        uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      # The shape a release has: the shipped tag set and no cgo, which is what
+      # the Linux runner cross-compiles for macOS.
+      - name: Build the binary a Mac is shipped
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          make build TAGS="$(make -s print-full-tags | tr ',' ' ')"
+
+      # The console a Mac actually gets is that binary, not the pure-Go
+      # `make build TAGS=cli` driven above: the shipped one carries the native
+      # window, whose runtime.LockOSThread in init runs for every command and
+      # not only for `coddy desktop`.
+      - name: Drive the shipped console through a real pty
+        run: |
+          set -euo pipefail
+          ./build/coddy -v
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+      # A real Cocoa loop and WKWebView, rather than only a cross-build: the
+      # window is reached through the Objective-C runtime, and nothing but a
+      # Mac can say that the messages it sends are the ones AppKit answers.
+      # The whole package runs, not only the native tests: no other job runs a
+      # `desktop` tag on a Mac, so the BDD suite had never met darwin's own
+      # autostart path or its missing application entry (issue 748).
+      - name: Open and drive a real WKWebView window
+        run: env -u USER go test -tags desktop ./external/desktop -count=1
 
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
@@ -675,6 +830,30 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         env:
           GOOS: windows
+        with:
+          version: v2.15.0
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
+
+      - name: Run golangci-lint against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
+        with:
+          version: v2.15.0
+          args: ./...
+
+      - name: Run golangci-lint with every tag but ui against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
+        with:
+          version: v2.15.0
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
+
+      - name: Run golangci-lint with the shipped tag set against the FreeBSD build
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: freebsd
         with:
           version: v2.15.0
           args: --build-tags ${{ steps.tags.outputs.full }} ./...

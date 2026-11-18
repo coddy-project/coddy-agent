@@ -49,6 +49,11 @@ func (s *Server) coddyInfoGet(w http.ResponseWriter, _ *http.Request) {
 		"permissionMode": permissionMode,
 		"toolsets":       toolsets,
 	}
+	// Whether this home records usage at all. The rail asks before any
+	// statistics route, so the page it offers is one the server would answer.
+	if s.mgr != nil && strings.TrimSpace(s.mgr.Cfg().Paths.Home) != "" {
+		answer["statistics"] = s.mgr.Statistics().Collecting()
+	}
 	// The deployment's UI defaults, only while the variables name them: the
 	// theme a fresh browser opens on and the gallery file it shows until the
 	// person picks a background of their own.

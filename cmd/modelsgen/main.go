@@ -1,7 +1,7 @@
 // Command modelsgen refreshes internal/llm/models/models.json from
 // models.dev: the id, window, max_tokens and image support of every model of
-// the providers Coddy has (OpenAI, Anthropic, OpenCode), nothing else. It
-// writes the file only when those values changed and says which models moved.
+// the providers Coddy has (OpenAI, Anthropic, OpenCode), plus their list prices. It
+// writes the catalogs only when their values change and reports changed model limits.
 //
 //	go run ./cmd/modelsgen          # refresh (make models-catalog)
 //	go run ./cmd/modelsgen -check   # exit 1 when the copy is behind (make models-catalog-check)
@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,15 +34,37 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	priceBytes, err := models.CompactPrices(api)
+	if err != nil {
+		fail(err)
+	}
 	fresh, err := models.Compact(api)
 	if err != nil {
 		fail(err)
+	}
+	pricePath := filepath.Join(filepath.Dir(*out), "prices.json")
+	oldPrices, err := os.ReadFile(pricePath)
+	if err != nil && !os.IsNotExist(err) {
+		fail(err)
+	}
+	pricesChanged := !bytes.Equal(oldPrices, priceBytes)
+	if pricesChanged {
+		if *check {
+			fmt.Fprintln(os.Stderr, "modelsgen: prices.json is behind; run make models-catalog")
+		} else if err := os.WriteFile(pricePath, priceBytes, 0o644); err != nil {
+			fail(err)
+		} else {
+			fmt.Printf("modelsgen: wrote %s\n", pricePath)
+		}
 	}
 	current, err := os.ReadFile(*out)
 	if err != nil && !os.IsNotExist(err) {
 		fail(err)
 	}
 	if bytes.Equal(current, fresh) {
+		if *check && pricesChanged {
+			os.Exit(1)
+		}
 		fmt.Printf("modelsgen: %s is up to date\n", *out)
 		return
 	}

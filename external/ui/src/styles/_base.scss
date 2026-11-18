@@ -4,6 +4,13 @@
 
 * {
   box-sizing: border-box;
+  /* The width of the app's scrollbars, set here and not on the root because
+     `scrollbar-width` does not inherit (`scrollbar-color`, below, does): a
+     scroller deeper in the page keeps the platform's wide bar otherwise, which
+     is what the transcript did while only the root asked for a thin one. A
+     surface that hides or restyles its own bar names it in its own rule and
+     wins on specificity. */
+  scrollbar-width: thin;
 }
 
 html,
@@ -22,6 +29,14 @@ html {
   background-color: var(--coddy-canvas-gradient-bottom);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* One scrollbar for the whole app, in the theme's own ink: the bar the
+     platform paints is wide and light-grey, and on a dark canvas it reads as a
+     strip of another program. The ink inherits, so the root reaches every
+     scroller the page opens - a code block, a picker, a window - and a surface
+     that wants its own (the settings drawer, a diff) keeps overriding it. With
+     the width above, these two are the whole of the styling: Chromium ignores
+     every ::-webkit-scrollbar rule for an element once either one is set. */
+  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
 }
 
 /* The canvas: one fixed layer behind the whole page, carrying the theme's two

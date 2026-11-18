@@ -17,6 +17,7 @@ func TestProviderModelsWebUIFeature(t *testing.T) {
 	const field = "src/ui/settings/ModelField.test.tsx"
 	const window = "src/ui/settings/ContextWindowField.test.tsx"
 	const section = "src/ui/settings/SettingsSection.test.tsx"
+	const providerCascade = "src/ui/settings/SettingsSection.providers.test.tsx"
 	const array = "src/ui/settings/SettingsArraySection.test.tsx"
 	const selection = "src/ui/chat/llmModelSelection.test.ts"
 	steps := map[string][2]string{
@@ -33,6 +34,11 @@ func TestProviderModelsWebUIFeature(t *testing.T) {
 		"an address naming no row goes back to the list and clears the name":                   {array, "an address naming no row goes back to the list and clears the name"},
 		"renaming the open row renames it in the address":                                      {array, "renaming the open row renames it in the address"},
 		"the models of a provider named coddy are backends and the profiles are not":           {selection, "the models of a provider named coddy are backends and the profiles are not"},
+		"Kimi catalog metadata is hidden for Codex models":                                     {section, "Kimi catalog metadata is hidden for Codex models"},
+		"Kimi catalog metadata stays visible for a Kimi provider with a custom name":           {section, "Kimi catalog metadata stays visible for a Kimi provider with a custom name"},
+		"editing a Codex model preserves hidden Kimi metadata":                                 {section, "editing a Codex model preserves hidden Kimi metadata"},
+		"renaming a provider moves its models and every model reference":                       {providerCascade, "renaming a provider moves its models and every model reference"},
+		"deleting a provider removes its models and clears their references":                   {providerCascade, "deleting a provider removes its models and clears their references"},
 	}
 	suite := godog.TestSuite{
 		Name: "provider_models_web_ui",

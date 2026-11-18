@@ -103,7 +103,9 @@ test("switching session refocuses textarea in active chat", () => {
       onSend={() => {}}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   expect(ta).toHaveFocus();
   ta.blur();
   rerender(
@@ -265,7 +267,9 @@ test("pressing Enter calls onSend with trimmed text", () => {
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   fireEvent.keyDown(ta, { key: "Enter", code: "Enter", charCode: 13 });
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(onSend).toHaveBeenCalledWith("test input");
@@ -373,18 +377,141 @@ test("Tab key selects first slash command from picker", async () => {
     target: { value: "/gen", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
     expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules ");
   });
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+// Regression: picking a skill while the caret sits in the middle of a draft
+// used to leave two spaces between the chosen name and the text that followed
+// the caret, because the inserted "/name " added a second separator.
+test("Tab keeps one space between the chosen skill and the text after the caret", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/gen hello", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
+  fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules hello");
+  });
+  // The caret stands before the whitespace that already followed the draft.
+  await waitFor(() => {
+    expect(ta.selectionStart).toBe("/rpa-gen-rules".length);
+  });
+  vi.unstubAllGlobals();
+});
+
+test("clicking a skill row keeps one space between the chosen skill and the text after the caret", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/gen hello", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  const row = await screen.findByTestId("slash-command-row-rpa-gen-rules");
+  fireEvent.mouseDown(row);
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules hello");
+  });
+  await waitFor(() => {
+    expect(ta.selectionStart).toBe("/rpa-gen-rules".length);
+  });
   vi.unstubAllGlobals();
 });
 
@@ -441,12 +568,9 @@ test("Tab completes a skill name while a turn runs", async () => {
     target: { value: "/nd-", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-nd-search");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
@@ -556,6 +680,11 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
       String(c[0]).includes("/coddy/slash-commands"),
     ).length;
   await waitFor(() => expect(slashCalls()).toBe(1));
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeNull();
+  });
   fireEvent.change(ta, {
     target: {
       value: "/adfadsfgaf",
@@ -793,7 +922,11 @@ test("generating shows stop and calls onStop", () => {
 // that say it. The five lines it used to be - input, output, total and the
 // window - repeated the popover the ring opens, badly.
 test("the context tip is the percent and the tokens, and follows the model's window", () => {
-  const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
+  const usage = {
+    inputTokens: 800000,
+    outputTokens: 200000,
+    totalTokens: 1000000,
+  };
   const { rerender } = render(
     <Composer
       value=""
@@ -939,6 +1072,66 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
   const c = 2 * Math.PI * 12;
   const off = Number.parseFloat(fg!.getAttribute("stroke-dashoffset") || "0");
   expect(off).toBeCloseTo(c * (1 - 23787 / 128000), 1);
+});
+
+// The tip counts the same tokens the ring fills by: the context window, not
+// the session's cumulative usage. With 820k lifetime tokens in a 128k window
+// holding ~24k, the line used to read "19% · 820k / 128k" (issue #732).
+test("the context tip counts the window's tokens, not cumulative usage", () => {
+  const breakdown = {
+    systemPrompt: 851,
+    toolDefinitions: 1950,
+    rules: 14867,
+    skills: 45,
+    mcp: 0,
+    subagents: 0,
+    conversation: 6074,
+    estimatedTotal: 23787,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "18.6% · 23.7k / 128k",
+  );
+});
+
+test("the context tip does not use lifetime tokens when the window is unknown", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
+      maxContextTokens={128000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("tooltip").textContent ?? "").toBe(
+    "Context usage unavailable · max 128k",
+  );
 });
 
 test("context meter fill width reflects usage percent", () => {
@@ -1358,6 +1551,106 @@ test("attach button visible when llmModelMultimodal is true", () => {
     />,
   );
   expect(screen.getByTestId("composer-attach-btn")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("image control hidden when the model does not opt in", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={false}
+      imageGenOn={false}
+      onImageGenToggle={() => {}}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("image control hidden without a toggle handler", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("image control toggles the per-turn opt-in", () => {
+  stubMatchMediaMobile(false);
+  const onImageGenToggle = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      imageGenOn={false}
+      onImageGenToggle={onImageGenToggle}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-imagegen");
+  expect(chip.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(chip);
+  expect(onImageGenToggle).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
+});
+
+test("image control pressed when the opt-in is on", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      llmModelImageGen={true}
+      imageGenOn={true}
+      onImageGenToggle={() => {}}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-imagegen");
+  expect(chip.getAttribute("aria-pressed")).toBe("true");
+  expect(chip.className).toContain("is-on");
   vi.unstubAllGlobals();
 });
 
@@ -3578,4 +3871,124 @@ test("the pencil on an attached picture marks it up in place", async () => {
   } finally {
     restore();
   }
+});
+
+test("the prompt suggestion shows dim and Tab takes it into the draft", () => {
+  const onChange = vi.fn();
+  const onAccepted = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+      onPromptSuggestionAccepted={onAccepted}
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenCalledWith("run the tests");
+  expect(onAccepted).toHaveBeenCalledTimes(1);
+});
+
+test("a draft hides the prompt suggestion from Tab", () => {
+  const onChange = vi.fn();
+  render(
+    <Composer
+      value="already typing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+      promptSuggestion="run the tests"
+    />,
+  );
+  const ta = document.getElementById("composer") as HTMLTextAreaElement;
+  expect(ta.placeholder).toBe("run the tests");
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).not.toHaveBeenCalledWith("run the tests");
+});
+
+test.each(["Tab", "ArrowRight"])(
+  "the composer preserves its suggestion through editing and clearing - %s",
+  (key) => {
+    const onSend = vi.fn();
+    const onAccepted = vi.fn();
+    function EditableComposer() {
+      const [value, onChange] = useState("");
+      return (
+        <Composer
+          value={value}
+          isEmpty={false}
+          mode="agent"
+          modes={["agent", "plan"]}
+          onModeChange={() => {}}
+          onChange={onChange}
+          onSend={onSend}
+          promptSuggestion="run the tests"
+          onPromptSuggestionAccepted={onAccepted}
+        />
+      );
+    }
+    render(<EditableComposer />);
+    const ta = document.getElementById("composer") as HTMLTextAreaElement;
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "my own follow-up" } });
+    expect(ta.value).toBe("my own follow-up");
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.keyDown(ta, { key });
+    expect(ta.value).toBe("run the tests");
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    fireEvent.change(ta, { target: { value: "run the tests and explain" } });
+    expect(ta.placeholder).toBe("run the tests");
+    fireEvent.change(ta, { target: { value: "" } });
+    expect(ta.value).toBe("");
+    expect(ta.placeholder).toBe("run the tests");
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);
+
+test("image generation refuses queued sends without discarding the attachment", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  render(
+    <Composer
+      value="draw"
+      isEmpty={false}
+      generating
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal
+      imageGenOn
+      queueMode="steer"
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+    />,
+  );
+  const file = new File(["image"], "img.png", { type: "image/png" });
+  fireEvent.change(screen.getByTestId("composer-file-input"), {
+    target: { files: [file] },
+  });
+  await waitFor(() => screen.getByText("img.png"));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Tab",
+  });
+  expect(onQueue).not.toHaveBeenCalled();
+  expect(screen.getByText("img.png")).toBeVisible();
+  expect(
+    screen.getByText(
+      "Turn off Images to queue a message, or wait for the current turn to finish.",
+    ),
+  ).toBeVisible();
 });

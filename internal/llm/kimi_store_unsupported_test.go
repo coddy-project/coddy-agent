@@ -1,4 +1,4 @@
-//go:build !linux && !android && !darwin && !windows
+//go:build !linux && !android && !darwin && !freebsd && !windows
 
 package llm
 

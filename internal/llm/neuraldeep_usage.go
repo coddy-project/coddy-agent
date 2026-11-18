@@ -82,7 +82,9 @@ type NeuralDeepUsage struct {
 	// session and week windows do not apply to the key.
 	FairUse *bool                   `json:"fair_use"`
 	Options []NeuralDeepUsageOption `json:"options"`
-	Key     NeuralDeepUsageKey      `json:"key"`
+	// Key is omitted when it is all empty: an object of empty strings reads
+	// as "a key with no state" rather than as nothing to say.
+	Key NeuralDeepUsageKey `json:"key,omitzero"`
 	// Decision and Chat are required blocks of the schema: a payload without
 	// them is not a limits answer, whatever its schema number says.
 	Decision      *NeuralDeepUsageDecision `json:"decision"`
@@ -93,6 +95,45 @@ type NeuralDeepUsage struct {
 	// covers part of the catalogue rather than the chat class as a whole,
 	// so the account stays able to request and only these models do not.
 	BlockedModels []NeuralDeepUsageBlockedModel `json:"blocked_models"`
+	// Kimi carries the hub's optional Kimi subscription usage, in the same
+	// shape as the Kimi /usages endpoint.
+	Kimi json.RawMessage `json:"kimi"`
+}
+
+// DecodeNeuralDeepKimiUsage decodes the optional Kimi windows carried by a
+// NeuralDeep limits response. It returns false when the member is absent or
+// does not contain recognized Kimi windows.
+func DecodeNeuralDeepKimiUsage(raw json.RawMessage) (*KimiUsage, bool) {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil || root == nil {
+		return nil, false
+	}
+	windows := root
+	if wrapped, ok := root["usages"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(wrapped, &nested) != nil || nested == nil {
+			return nil, false
+		}
+		windows = nested
+	}
+	if !hasNeuralDeepKimiWindow(windows) {
+		return nil, false
+	}
+	return &KimiUsage{
+		Limit5H:    kimiUsageWindow(windows["limit_5h"]),
+		Limit7D:    kimiUsageWindow(windows["limit_7d"]),
+		MonthTotal: kimiUsageWindow(windows["limit_month_total"]),
+		MonthCode:  kimiUsageWindow(windows["limit_month_code"]),
+	}, true
+}
+
+func hasNeuralDeepKimiWindow(windows map[string]json.RawMessage) bool {
+	for _, key := range []string{"limit_5h", "limit_7d", "limit_month_total", "limit_month_code"} {
+		if _, ok := windows[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // NeuralDeepUsageBlockedModel is one model the key may not call right now,
@@ -130,11 +171,12 @@ type NeuralDeepUsageDecision struct {
 }
 
 // NeuralDeepUsageChat holds the chat-class windows, the live minute and the
-// cooldown of the account.
+// cooldown of the account. A gate or the rpm object with nothing in it is
+// omitted rather than emitted as an object of nulls.
 type NeuralDeepUsageChat struct {
-	Session     NeuralDeepUsageGate `json:"session"`
-	Week        NeuralDeepUsageGate `json:"week"`
-	RPM         NeuralDeepUsageRPM  `json:"rpm"`
+	Session     NeuralDeepUsageGate `json:"session,omitzero"`
+	Week        NeuralDeepUsageGate `json:"week,omitzero"`
+	RPM         NeuralDeepUsageRPM  `json:"rpm,omitzero"`
 	CooldownSec *int                `json:"cooldown_sec"`
 }
 

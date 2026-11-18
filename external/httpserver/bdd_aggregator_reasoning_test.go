@@ -151,7 +151,7 @@ func (s *aggregatorReasoningState) aCoddyServerOnTheAggregator(modelRef string) 
 	s.modelRef = modelRef
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: cwd},
-		Providers: []config.ProviderConfig{{Name: provider, Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
+		Providers: []config.ProviderConfig{{Name: provider, Type: "openai", UsageLimitsPanel: new(bool), APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: modelRef}},
 		Agent:     config.Agent{Model: modelRef},
 	}

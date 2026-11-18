@@ -34,7 +34,7 @@ func TestDirectCompletionReadsTheListedReasoningParameter(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: filepath.Join(root, "home"), CWD: root},
-		Providers: []config.ProviderConfig{{Name: "agg", Type: "openai", APIBase: upstream.URL, APIKey: "k"}},
+		Providers: []config.ProviderConfig{{Name: "agg", Type: "openai", UsageLimitsPanel: new(bool), APIBase: upstream.URL, APIKey: "k"}},
 		Models:    []config.ModelEntry{{Model: "agg/qwen/qwen3.8-flash"}},
 		Agent:     config.Agent{Model: "agg/qwen/qwen3.8-flash"},
 	}

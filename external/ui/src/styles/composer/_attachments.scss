@@ -324,6 +324,46 @@
   z-index: 3;
 }
 
+/* The plate and the card share one shadow owner at rest and while a tip is
+   up. Moving it between them made its top edge jump by the plate's height.
+   The queue and the banners above the panel keep their own. */
+.composer-panel {
+  border-radius: 12px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.composer-panel .composer-card {
+  box-shadow: none;
+}
+
+@media (hover: hover) {
+  .composer-panel:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    border-radius: 12px;
+    box-shadow: var(--coddy-glass-panel-shadow);
+  }
+}
+
+.composer-panel:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  border-radius: 12px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+@media (hover: hover) {
+  .composer-card:has(.rail-tip-host:hover, .composer-context-tip-host:hover) {
+    box-shadow: none;
+  }
+}
+
+.composer-card:has(
+  .rail-tip-host :focus-visible,
+  .composer-context-tip-host:focus-visible
+) {
+  box-shadow: none;
+}
+
 .composer-context-tip-host.composer-context-tip-suppressed:hover .rail-tip,
 .composer-context-tip-host.composer-context-tip-suppressed:focus-visible
   .rail-tip {

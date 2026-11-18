@@ -27,6 +27,8 @@ export function composerReserveFor(m: {
   rowGap: number;
   /** How far above the block's bottom the scroll content ends. */
   contentEndAboveBlockEnd: number;
+  /** A desktop-only tightening of the gap above the docked block. */
+  endGapReductionPx?: number;
 }): number {
   return Math.max(
     COMPOSER_RESERVE_FLOOR_PX,
@@ -34,6 +36,7 @@ export function composerReserveFor(m: {
       m.blockHeight -
         m.blockPaddingTop +
         TRANSCRIPT_END_GAP_ROWS * m.rowGap -
+        (m.endGapReductionPx ?? 0) -
         m.contentEndAboveBlockEnd,
     ),
   );

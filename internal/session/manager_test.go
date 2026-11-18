@@ -55,10 +55,13 @@ func (noopSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*
 }
 
 func testConfig() *config.Config {
+	// The openai rows carry no limits upstream, so their usage panels are off:
+	// nothing probes them and no provider_usage update is published on ready.
+	off := false
 	return &config.Config{
 		Providers: []config.ProviderConfig{
-			{Name: "p1", Type: "openai", APIKey: "k"},
-			{Name: "p2", Type: "openai", APIKey: "k"},
+			{Name: "p1", Type: "openai", APIKey: "k", UsageLimitsPanel: &off},
+			{Name: "p2", Type: "openai", APIKey: "k", UsageLimitsPanel: &off},
 			{Name: "p3", Type: "anthropic", APIKey: "k"},
 		},
 		Models: []config.ModelEntry{
@@ -947,9 +950,9 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		return
 	}
 	// The workspace skill, the standard delivery, and the built-in commands:
-	// the eight settings commands, compact (while compaction is enabled),
+	// the nine settings commands, compact (while compaction is enabled),
 	// goal, export, plugin and worktree (always).
-	if want := 14 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+	if want := 15 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
 		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}

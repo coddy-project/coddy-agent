@@ -285,6 +285,21 @@ textarea#composer {
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
+/* The per-turn image control. Off is a quiet chip like the selectors; on is
+   marked the way a mode selection is, an accent border with a soft ring. */
+.composer-tab.mode-imagegen.is-on {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* A model without the image_generation opt-in gets a CTA instead of the
+   toggle: the accent text marks it as a link, and it opens the model's row in
+   Settings. */
+.composer-tab.mode-imagegen-cta {
+  color: var(--accent);
+}
+
 /* The permission chip (#292). Ask is the quiet default; a session that no
    longer asks says so from the composer, bypass in the danger tone. */
 .composer-tab.mode-permission.perm-accept_edits {

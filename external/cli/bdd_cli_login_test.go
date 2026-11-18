@@ -100,6 +100,8 @@ func registerCLILoginSteps(sc *godog.ScenarioContext, s *cliTUIState) {
 	sc.Step(`^config\.yaml runs the provider "([^"]*)" as a command$`, s.configRunsProviderAsCommand)
 	sc.Step(`^the operator answers with the stand-in server's address$`, s.operatorAnswersWithStandInAddress)
 	sc.Step(`^the operator answers "([^"]*)"$`, s.operatorAnswers)
+	sc.Step(`^the operator pastes "([^"]*)" and confirms it$`, s.operatorPastesProviderValue)
+	sc.Step(`^the operator pastes the stand-in server's address and confirms it$`, s.operatorPastesStandInAddress)
 }
 
 // providerPickerListsInOrder reads the picker's rows off the frame: every
@@ -173,13 +175,40 @@ func (s *cliTUIState) operatorAnswers(text string) error {
 	return nil
 }
 
-func (s *cliTUIState) operatorAnswersWithStandInAddress() error {
-	if s.compatibleServer == nil {
-		return fmt.Errorf("no stand-in OpenAI-compatible server in this scenario")
+// operatorPastesProviderValue waits for the pasted text before confirming it.
+func (s *cliTUIState) operatorPastesProviderValue(text string) error {
+	s.app.OnTerminalPaste([]byte(text))
+	if err := s.waitScreen(text, 5*time.Second); err != nil {
+		return err
 	}
+	s.press("\r")
+	return nil
+}
+
+// standInAddress is the API base of the stand-in server the scenario started.
+func (s *cliTUIState) standInAddress() (string, error) {
+	if s.compatibleServer == nil {
+		return "", fmt.Errorf("no stand-in OpenAI-compatible server in this scenario")
+	}
+	return s.compatibleServer.URL + "/v1", nil
+}
+
+func (s *cliTUIState) operatorAnswersWithStandInAddress() error {
 	// The prompt is prefilled with nothing for this preset, so the typed
 	// address is the whole answer.
-	return s.operatorAnswers(s.compatibleServer.URL + "/v1")
+	addr, err := s.standInAddress()
+	if err != nil {
+		return err
+	}
+	return s.operatorAnswers(addr)
+}
+
+func (s *cliTUIState) operatorPastesStandInAddress() error {
+	addr, err := s.standInAddress()
+	if err != nil {
+		return err
+	}
+	return s.operatorPastesProviderValue(addr)
 }
 
 // standInCompatibleServer serves the one endpoint the setup of a key

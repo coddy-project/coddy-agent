@@ -51,9 +51,10 @@ type footer struct {
 	ctxPercent   float64
 	ctxMax       int
 
-	provider  string
-	model     string
-	reasoning string
+	provider    string
+	model       string
+	reasoning   string
+	serviceTier string
 	// toolset is the preset the session runs with, empty with none (the
 	// configuration has no preset, or the session picked default).
 	toolset string
@@ -332,6 +333,9 @@ func (f *footer) modelSegment() string {
 	}
 	if f.reasoning != "" {
 		right += " • " + tui.SanitizeText(f.reasoning)
+	}
+	if f.serviceTier != "" {
+		right += " • " + tui.SanitizeText(f.serviceTier)
 	}
 	if f.toolset != "" {
 		right += " • tools " + tui.SanitizeText(f.toolset)

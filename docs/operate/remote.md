@@ -90,6 +90,28 @@ Signing in sets an `HttpOnly`, `SameSite=Strict` cookie that opens the same rout
 
 `coddy serve` still has no TLS of its own, so a password typed into a non-loopback `http://` page travels in clear exactly as a token does. Put a TLS-terminating reverse proxy in front of it, or reach it through the SSH tunnel above.
 
+### One-time codes
+
+A password can leak; the six digits of an authenticator app on the operator's phone change every 30 seconds. The web UI adds them to the form as a second factor, managed from **Settings**, **Authentication** - there is no command for it. The fieldset shows a QR code and the same key as text; an authenticator app - Google Authenticator, FreeOTP, Aegis, a password manager - adds the account under the name **Coddy**. A key may also be typed in, in base32 or base16 (a string that decodes as both is taken as base32) and is canonicalized to base32. The page then asks for the code the app shows, and only when it matches is the key written into `config.yaml` as `httpserver.login.totp_secret`, so a scan that went wrong locks nobody out of the form. From then on the form takes the code on a second step after the password. The browser that enrolled gets a refreshed session with the same cookie persistence; every other browser signed in before signs in again.
+
+The same fieldset issues ten **backup codes** (`XXXXXXXX-XXXXXXXX`) and shows them once; `config.yaml` keeps their SHA-256 hashes under `httpserver.login.backup_codes` together with a generation id, and **Regenerate** writes a fresh set and retires the old one. A backup code answers the second step where the app would, each spent once; a ledger at `${CODDY_HOME}/webauth-backup-consumed.json` records the spent ones, so a `config.yaml` restored from a backup cannot bring a spent code back, and two processes sharing the home cannot spend one twice.
+
+![The sign-in form with the field for the code of an authenticator app](../assets/remote/sign-in-totp-dark-1280.png)
+
+*The sign-in form of a server with one-time codes on*
+
+![The second sign-in step on a phone](../assets/remote/sign-in-totp-dark-390.png)
+
+*The second sign-in step at 390 px*
+
+- **Two steps, not two fields.** The password goes alone to `POST /coddy/auth/login`; a server with codes on answers `second_factor: "totp"` and a challenge instead of a session, and the code goes with the challenge to `POST /coddy/auth/login/verify` - one attempt within three minutes, bound to the account the challenge was issued for.
+- **A code works once.** It is taken with one step of clock drift either way, and the same code - or an older one - opens no second session. When every code is refused, the phone's clock is off.
+- **A wrong code is a wrong password.** The form answers both with the same message and the same throttle. A challenge is issued only after the password passes, and a completed verification attempt consumes it.
+- **The form only.** A bearer token (`auth_token`, `--auth-token`, `CODDY_HTTP_TOKEN`) is a credential of its own and is not asked for a code, and neither are the Telegram bot's Mini App and the side panel of Coddy for Browser, which sign in with credentials of their own. The key guards an account from `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` as much as one from the file.
+- **A lost phone.** A backup code signs in without the app. In **Settings**, **Authentication** the key is removed with one control, and the password alone signs in again; enrolling once more issues a new key and a new backup set, and the old entry in the app stops working. Without the phone, a backup code or any other way in, the way back is to clear `httpserver.login.totp_secret` from `config.yaml` on the server.
+- **The logo in the app.** The QR code names Coddy's icon, and FreeOTP shows it. Google Authenticator, Microsoft Authenticator and most others choose their icons themselves and show the name **Coddy** without it.
+- **The key is a secret.** A code can only be checked against the key itself, so it is stored as it is and `config.yaml` becomes as sensitive as the key: keep the file readable by its owner alone. `GET /coddy/config` never returns the key, and a save from the settings screen keeps it.
+
 ## CORS for the web UI
 
 A browser that loaded the UI from one origin and calls the API of another needs the remote server to opt into CORS:

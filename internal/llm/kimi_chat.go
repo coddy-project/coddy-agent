@@ -41,7 +41,7 @@ func newKimiChatProvider(transport *KimiInferenceTransport, input ProviderInput)
 	return &kimiChatProvider{transport: transport, input: input}
 }
 
-func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool) (*http.Response, error) {
+func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool, wire *map[string]any) (*http.Response, error) {
 	if p.transport == nil {
 		return nil, errors.New("kimi chat: missing transport")
 	}
@@ -96,12 +96,12 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 	if err != nil {
 		return nil, fmt.Errorf("kimi chat encode: %w", err)
 	}
-	resp, err := p.transport.Do(ctx, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
+	if wire != nil {
+		*wire = body
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, kimiStatusError("kimi chat", resp)
+	resp, err := p.transport.do(ctx, bytes.NewReader(data), false, "kimi chat")
+	if err != nil {
+		return nil, withToolSchemaRequest(err, body, false)
 	}
 	return resp, nil
 }
@@ -123,7 +123,7 @@ func kimiChatUsage(raw []byte, r *Response) {
 }
 
 func (p *kimiChatProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	resp, err := p.request(ctx, messages, tools, false)
+	resp, err := p.request(ctx, messages, tools, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +152,13 @@ func (p *kimiChatProvider) Complete(ctx context.Context, messages []Message, too
 	return result, nil
 }
 
-func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	resp, err := p.request(ctx, messages, tools, true)
+func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
+	var wire map[string]any
+	resp, err := p.request(ctx, messages, tools, true, &wire)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = withToolSchemaRequest(retErr, wire, false) }()
 	defer func() { _ = resp.Body.Close() }()
 	result := &Response{UsageIncomplete: true}
 	builders := map[int]*ToolCall{}

@@ -68,3 +68,5 @@ tools:
 `tools.background.enable: false` turns the tool off as well: without the task pool there is nothing to list or stop the server with.
 
 When Coddy runs where your browser is not - a container, a remote machine - loopback is out of reach. Bind `host: 0.0.0.0` and set `public_host` to the name you reach that machine by; inside a container the port is a random one, so publish a range or use host networking. A bind that is not loopback exposes the served directory to whoever can reach that address, and the `Host` check no longer applies: set it on purpose. The fields are listed in the [configuration reference](../reference/config.md).
+
+On a server that already has an authenticated HTTPS edge, that is the wrong shape: a random port cannot be routed to, and a published port range is a hole nobody wants to own. [Published previews](published-previews.md) are the channel for it - one static origin on a fixed address over one artifact root, and a `preview_publish` tool that copies finished work there. The preview server itself is unchanged by it.

@@ -116,6 +116,30 @@ func (s *homebrewTapState) itLiftsTheQuarantine() error {
 	return nil
 }
 
+// macOSFloors maps the Homebrew symbol a cask names to the release it stands
+// for, so the scenario asserts the number a person reads rather than the word.
+var macOSFloors = map[string]int{
+	"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26,
+}
+
+// The release is built by the toolchain of go.mod, and from Go 1.27 a darwin
+// binary records macOS 13 as its minimum whether or not cgo is in it. A cask
+// whose floor is lower installs a binary the loader then refuses.
+func (s *homebrewTapState) itAsksForMacOS(want int) error {
+	m := regexp.MustCompile(`(?m)^\s*depends_on macos: :(\w+)\s*$`).FindStringSubmatch(s.facts.text)
+	if m == nil {
+		return fmt.Errorf("the cask names no `depends_on macos:` floor:\n%s", s.facts.text)
+	}
+	got, ok := macOSFloors[m[1]]
+	if !ok {
+		return fmt.Errorf("the cask asks for :%s, which this test does not know; add it to macOSFloors", m[1])
+	}
+	if got != want {
+		return fmt.Errorf("the cask asks for macOS %d (:%s), and the release binaries need macOS %d", got, m[1], want)
+	}
+	return nil
+}
+
 func (s *homebrewTapState) itUsesNoDeprecatedStanza() error {
 	var found []string
 	for _, d := range deprecatedCaskStanzas {
@@ -187,6 +211,7 @@ func TestHomebrewTapFeature(t *testing.T) {
 			sc.Step(`^it installs the binary, the man page and the bash and zsh completions$`, s.itInstallsTheBinaryManPageAndCompletions)
 			sc.Step(`^its caveats say how zsh loads the completion$`, s.itsCaveatsSayHowZshLoadsTheCompletion)
 			sc.Step(`^it lifts the quarantine from the installed binary$`, s.itLiftsTheQuarantine)
+			sc.Step(`^it asks for macOS (\d+) or later$`, s.itAsksForMacOS)
 			sc.Step(`^it uses no stanza current Homebrew deprecates$`, s.itUsesNoDeprecatedStanza)
 			sc.Step(`^a Homebrew tap whose cask is at release "([^"]*)"$`, s.aTapWhoseCaskIsAt(t))
 			sc.Step(`^release "([^"]*)" publishes its cask to the tap$`, s.releasePublishesItsCask(t))

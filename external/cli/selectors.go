@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 // selectorModal frames a SelectList between accent borders with a title and a
@@ -154,4 +155,30 @@ func (m *selectorModal) HandleInput(data []byte) {
 			m.onChange()
 		}
 	}
+}
+
+func (a *App) openConfigSelector(title string, opt *acp.ConfigOption, apply func(string)) {
+	items := make([]tui.SelectItem, 0, len(opt.Options))
+	selected := 0
+	for i, option := range opt.Options {
+		items = append(items, tui.SelectItem{Value: option.Value, Label: tui.SanitizeText(option.Name), Description: option.Description})
+		if option.Value == opt.CurrentValue {
+			selected = i
+		}
+	}
+	a.openValueSelector(title, items, selected, apply)
+}
+
+func (a *App) openValueSelector(title string, items []tui.SelectItem, selected int, apply func(string)) {
+	sel := newSelectorModal(a.theme, title, items, 10, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(selected)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		apply(item.Value)
+	}
+	a.openModal(sel)
 }

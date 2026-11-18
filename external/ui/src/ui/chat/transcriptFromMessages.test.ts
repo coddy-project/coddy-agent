@@ -998,3 +998,55 @@ test("the cut of an answer follows characters, not bytes", () => {
       .map((it) => (it as { content: string }).content),
   ).toEqual(["Начало.\n", "Продолжение."]);
 });
+
+test("restores an image-only assistant message from persisted files", () => {
+  const messages = [
+    {
+      role: "assistant",
+      content: "",
+      files: [
+        {
+          name: "result.png",
+          mime_type: "image/png",
+          url: "/coddy/sessions/s/assets/result.png",
+        },
+      ],
+    },
+  ];
+  expect(mapPage(messages, 0, messages.length)).toEqual([
+    expect.objectContaining({
+      type: "assistant_message",
+      content: "",
+      files: [
+        {
+          name: "result.png",
+          mimeType: "image/png",
+          url: "/coddy/sessions/s/assets/result.png",
+        },
+      ],
+    }),
+  ]);
+});
+
+test("restores assistant images using the backend images contract", () => {
+  const messages = [
+    {
+      role: "assistant",
+      content: "",
+      images: [
+        {
+          name: "new.png",
+          mime_type: "image/png",
+          asset: "new.png",
+          url: "/coddy/sessions/s/assets/new.png",
+        },
+      ],
+    },
+  ];
+  expect(mapPage(messages, 0, 1)).toEqual([
+    expect.objectContaining({
+      type: "assistant_message",
+      files: [expect.objectContaining({ name: "new.png" })],
+    }),
+  ]);
+});

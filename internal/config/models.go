@@ -30,6 +30,12 @@ type ModelEntry struct {
 	// When true the UI may offer file attachment for messages sent with this model,
 	// and read hands it the picture in an image file instead of refusing it.
 	Multimodal bool `yaml:"multimodal"`
+	// ImageGeneration declares that this model may emit images natively (the
+	// provider's image generation tool). When true the UI offers a per-turn
+	// control for requests sent with this model; metadata.image_generation on
+	// a request asks the model for native image output. Off by default: no
+	// turn opts in unless the operator said the deployment supports it.
+	ImageGeneration bool `yaml:"image_generation"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
 	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
 	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning

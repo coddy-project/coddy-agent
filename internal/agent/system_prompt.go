@@ -187,6 +187,10 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// answering through it. Last of the appended blocks, so a messenger's
 	// answer format is the nearest instruction to the conversation itself.
 	full = joinNonEmptyPromptBlocks(full, a.surfaceBlock())
+	// The system-level instructions the client that opened the session asked
+	// for (ACP systemPrompt, append mode). They follow the surface's block and
+	// the template's own text: append never replaces the agent's instructions.
+	full = joinNonEmptyPromptBlocks(full, a.clientSystemBlock())
 	// Applied last so it also covers a user's own prompts.dir template and the
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.

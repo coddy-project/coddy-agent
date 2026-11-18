@@ -62,10 +62,60 @@ type configReloadState struct {
 	srv     *Server
 	mgr     *session.Manager
 
-	stopWatch context.CancelFunc
-	watchDone chan struct{}
+	stopWatch   context.CancelFunc
+	watchDone   chan struct{}
+	manualWatch *config.FileWatcher
+	beforeEdit  *config.Config
 
 	browsers []*eventsClient
+}
+
+const invalidManualConfig = "# unfinished manual edit\nproviders: [\n"
+
+func (s *configReloadState) examineInvalidManualEdit() error {
+	s.stopWatch()
+	<-s.watchDone
+	s.stopWatch = nil
+	s.beforeEdit = s.mgr.Cfg()
+	s.manualWatch = &config.FileWatcher{Paths: s.beforeEdit.Paths, Live: s.mgr.Cfg, Install: s.mgr.ReplaceConfig, Log: slog.Default()}
+	s.manualWatch.Poll()
+	if err := os.WriteFile(s.cfgPath, []byte(invalidManualConfig), 0o644); err != nil {
+		return err
+	}
+	if s.manualWatch.Poll() {
+		return fmt.Errorf("invalid configuration was installed")
+	}
+	if s.manualWatch.Poll() {
+		return fmt.Errorf("invalid configuration was installed")
+	}
+	return nil
+}
+
+func (s *configReloadState) invalidEditPreserved() error {
+	data, err := os.ReadFile(s.cfgPath)
+	if err != nil {
+		return err
+	}
+	if string(data) != invalidManualConfig {
+		return fmt.Errorf("intermediate configuration changed: got %q, want %q", data, invalidManualConfig)
+	}
+	if s.mgr.Cfg() != s.beforeEdit {
+		return fmt.Errorf("running configuration changed after invalid edit")
+	}
+	return nil
+}
+
+func (s *configReloadState) correctManualEdit(model string) error {
+	if err := s.addModelToConfigFile(model); err != nil {
+		return err
+	}
+	if s.manualWatch.Poll() {
+		return fmt.Errorf("corrected configuration installed before stable poll")
+	}
+	if !s.manualWatch.Poll() {
+		return fmt.Errorf("corrected configuration was not installed")
+	}
+	return nil
 }
 
 func (s *configReloadState) reset() {
@@ -333,6 +383,9 @@ func initializeConfigReloadScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a process override sets project trust to deny$`, s.overrideProjectTrust)
 	sc.Step(`^the configuration is saved with the model "([^"]*)" added$`, s.saveConfigWithModel)
 	sc.Step(`^another process adds the model "([^"]*)" to config\.yaml$`, s.addModelToConfigFile)
+	sc.Step(`^an operator writes an invalid intermediate configuration and the watcher examines it$`, s.examineInvalidManualEdit)
+	sc.Step(`^the intermediate configuration remains byte-for-byte on disk and the running configuration is unchanged$`, s.invalidEditPreserved)
+	sc.Step(`^the operator corrects it by adding the model "([^"]*)"$`, s.correctManualEdit)
 	sc.Step(`^the browser is told the configuration reloaded$`, s.firstBrowserToldReloaded)
 	sc.Step(`^both browsers are told the configuration reloaded$`, s.allBrowsersToldReloaded)
 	sc.Step(`^the model list the browser reads after that event carries "([^"]*)"$`, s.modelsListAfterEventCarries)

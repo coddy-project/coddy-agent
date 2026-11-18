@@ -70,7 +70,16 @@ export function settingsFormDirty(
   }
   const strip = (d: Doc): Doc => {
     const { revision: _revision, ...rest } = d;
-    return rest;
+    const httpserver = rest.httpserver;
+    if (!isObject(httpserver) || !isObject(httpserver.login)) return rest;
+    const {
+      totp_configured: _totpConfigured,
+      backup_codes_configured: _backupCodesConfigured,
+      backup_codes_count: _backupCodesCount,
+      backup_codes_generation: _backupCodesGeneration,
+      ...login
+    } = httpserver.login;
+    return { ...rest, httpserver: { ...httpserver, login } };
   };
   const s = schema ?? undefined;
   return (

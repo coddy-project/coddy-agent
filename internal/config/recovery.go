@@ -130,6 +130,14 @@ func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	return &cfg, nil
 }
 
+// ParseConfigYAML validates raw config bytes without writing or recovering files.
+func ParseConfigYAML(data []byte, paths Paths) (*Config, error) {
+	if enc := utf16Encoding(data); enc != "" {
+		return nil, fmt.Errorf("config is %s text, not UTF-8; %s", enc, utf16Fix)
+	}
+	return parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+}
+
 // tryRecoverFromBackup loads config.yaml.bak; if valid, restores it over configPath and returns the config.
 func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	bak := BackupPath(paths.ConfigPath)

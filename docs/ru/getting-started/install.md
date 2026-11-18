@@ -19,9 +19,11 @@ irm https://coddy.dev/install.ps1 | iex
 **Android (Termux)** - тот же **`install.sh`** скачивает сборку для Android; см.
 [Android (Termux)](#android-termux).
 
+**FreeBSD** - тот же **`install.sh`** скачивает сборку для FreeBSD; см. [FreeBSD](#freebsd).
+
 Если **`~/.coddy/config.yaml`** нет, скрипт создаёт его из **`config.example.yaml`** релиза.
 
-В Linux и macOS скрипт ставит не только бинарник. В архиве релиза рядом с **`coddy`** лежат
+В Linux, FreeBSD и macOS скрипт ставит не только бинарник. В архиве релиза рядом с **`coddy`** лежат
 man-страница и автодополнения для bash и zsh, поэтому они попадают в каталог **`share`** того же
 префикса (**`~/.local/bin`** → **`~/.local/share`**), а установка на уровне пользователя затем
 записывает один защищённый блок в rc-файл вашей login-оболочки.
@@ -169,7 +171,9 @@ brew install coddy-project/coddy-agent/coddy
 Cask лежит в собственном тапе Coddy, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
 и каждый релиз его обновляет. Команда добавляет тап, доверяет этому одному cask и ставит бинарник
 **`coddy`** из архива для macOS последнего релиза, а также **`man coddy`** и автодополнения bash и zsh.
-Нужна macOS 12 или новее. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
+Нужна macOS 13 или новее - минимальная версия, которую записывает бинарник, собранный тулчейном Go 1.27. На macOS 14
+или новее `coddy desktop` открывает нативное окно Cocoa/WKWebView без установленного браузера, на
+более старых версиях - браузер семейства Chromium. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
 и командой **`brew info --cask coddy`**, рекомендуют **`brew install tmux`** для консольной сессии,
 которая переживает терминал. Ещё они дают две строки для **`~/.zshrc`**, с которыми zsh загружает
 автодополнение. zsh из поставки macOS не запускает **`compinit`**, и без него Tab не дополняет
@@ -227,6 +231,23 @@ curl -fsSL https://coddy.dev/install.sh | bash
 man-страница и автодополнения в **`~/.local/share`** и блок в **`~/.bashrc`**. То, что на
 устройстве отличается (программы, которые запускает Coddy, сертификаты, работа **`coddy serve`** в
 фоне), описано на отдельной странице [Android (Termux)](android.md).
+
+## FreeBSD
+
+```sh
+pkg install -y bash curl
+curl -fsSL https://coddy.dev/install.sh | bash
+```
+
+Скрипт скачивает **`coddy_X.Y.Z_freebsd_amd64.tar.gz`** или
+**`coddy_X.Y.Z_freebsd_arm64.tar.gz`** и ставит его так же, как в Linux: в **`~/.local/bin`**,
+man-страницу и автодополнения в **`~/.local/share`**, а блок - в rc-файл вашей login-оболочки, для
+стандартного **`sh`** во FreeBSD это **`~/.profile`**. Бинарник слинкован статически, рядом с ним
+порты не нужны, а **`bash`** и **`curl`** нужны самому скрипту.
+
+Systemd во FreeBSD нет, поэтому **`coddy serve install`** там недоступен. Чем его заменить, включая
+путь через **`rc.d`**, и чем интерфейсы ядра BSD отличаются от Linux, описано на отдельной
+странице [FreeBSD](freebsd.md).
 
 ## После установки
 
@@ -300,4 +321,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=45b2fa2b21c1f2c8 -->
+<!-- docsgen:source sha256=4abe073e87edd20f -->

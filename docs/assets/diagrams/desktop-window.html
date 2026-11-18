@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>coddy-desktop: one process, one window, a frame per chat</title>
+    <link rel="stylesheet" href="diagram.css" />
+    <style>
+      .top {
+        grid-template-columns: 420px 470px 1fr;
+        gap: 54px;
+      }
+      .panel .box {
+        margin-bottom: 8px;
+      }
+      .panel .box:last-child {
+        margin-bottom: 0;
+      }
+      .routes .group {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--muted);
+        margin: 10px 0 6px;
+      }
+      .routes .group:first-child {
+        margin-top: 0;
+      }
+      .routes .box {
+        padding: 6px 12px;
+      }
+      .chats .box {
+        margin-bottom: 10px;
+      }
+      .launch {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1.1fr 1fr;
+        column-gap: 30px;
+        align-items: stretch;
+      }
+      .launch .box {
+        padding: 9px 12px;
+      }
+    </style>
+  </head>
+  <body style="--width: 1400px">
+    <h1>coddy-desktop: one process, one window, a frame per chat</h1>
+    <p class="lead">
+      <code>coddy-desktop</code> is one binary: it serves the web interface on a loopback port it remembers and opens a
+      browser window on it in application mode. The page in that window is not the web interface - it is a tab strip
+      over one frame per chat, and the strip drives the window itself.
+    </p>
+
+    <div class="cols top">
+      <div>
+        <h2>1. The launcher (<code>external/desktop</code>)</h2>
+        <div class="panel" id="launcher">
+          <div class="title">the process on the desktop</div>
+          <div class="box core b" id="port">
+            <code>&lt;home&gt;/desktop/port</code>
+            <span class="sub"
+              >the same loopback port every launch; a browser scopes stored state to the origin, so the tabs come back
+              and the tour stays seen</span
+            >
+          </div>
+          <div class="box blue b" id="serve">
+            The HTTP subsystem, and only it
+            <span class="sub"
+              >one <code>serve.Supervisor</code> over the shared session manager; the scheduler, the bots, the relay are
+              named in the log and left to <code>coddy serve</code>. No credential is asked: loopback, opened by the
+              person who started it</span
+            >
+          </div>
+          <div class="box green b" id="browser">
+            The browser, in application mode
+            <span class="sub"
+              ><code>--app=</code> plus a profile of its own under <code>&lt;home&gt;/desktop/profiles/</code>, so the
+              window is a process this run can wait on and the agent's cookie stays out of the everyday profile</span
+            >
+          </div>
+          <div class="box purple b" id="x11">
+            The window, over X11
+            <span class="sub"
+              >the system frame taken off, move and resize by EWMH, rounded corners by Shape, and a passive grab on
+              <code>Ctrl+T</code> / <code>Ctrl+W</code> / <code>Ctrl+Tab</code>, which an application window would
+              otherwise answer itself</span
+            >
+          </div>
+          <div class="box amber" id="tray">
+            Tray icon and autostart
+            <span class="sub"
+              >StatusNotifierItem on the session bus with a <code>com.canonical.dbusmenu</code> menu;
+              <code>coddy-desktop.desktop</code> in this user's autostart folder. Nothing system-wide, nothing as
+              root</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>2. The page in the window (<code>/desktop/</code>)</h2>
+        <div class="panel routes" id="shell">
+          <div class="group">served under the SPA's catch-all, never a route of its own</div>
+          <div class="box blue b" id="page">
+            <code>GET /desktop/</code>
+            <span class="sub"
+              >one HTML file, one stylesheet, one script. A route of its own would sit behind the sign-in gate, which
+              has no form to answer in an application window</span
+            >
+          </div>
+          <div class="group">what the strip asks of the window around it</div>
+          <div class="box purple" id="window">
+            <code>POST /desktop/window</code>
+            <span class="sub">minimise, maximise, close, move-begin, move-by, decorate, undecorate</span>
+          </div>
+          <div class="box purple" id="keys">
+            <code>GET /desktop/keys</code>
+            <span class="sub">one long poll at a time for the chords the launcher took at the X server</span>
+          </div>
+          <div class="box amber" id="menu">
+            <code>GET /desktop/menu</code>
+            <span class="sub"
+              >the rows are decided in Go (<code>shell.MenuRows</code>), so the strip's menu and the tray's are one
+              list</span
+            >
+          </div>
+          <div class="box amber" id="settings">
+            <code>GET</code>, <code>POST /desktop/settings</code>
+            <span class="sub"
+              >open at login, the tray icon, start minimised, the system frame; kept in
+              <code>&lt;home&gt;/desktop/settings.json</code></span
+            >
+          </div>
+          <div class="box core b" id="strip" style="margin-top: 14px">
+            The strip
+            <span class="sub"
+              >menu, tabs, <code>+</code>, the empty space that drags the window, the arrows for a row too long, and the
+              window buttons. It wears the theme of the chat in front</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="chats">
+        <h2>3. The chats</h2>
+        <div class="box green b" id="frames">
+          One <code>&lt;iframe&gt;</code> per tab
+          <span class="sub">the web interface of this same server, same origin, <code>#/s/&lt;session&gt;</code></span>
+        </div>
+        <div class="box green" id="kept">
+          A hidden tab is hidden, not unmounted
+          <span class="sub"
+            >that is the point of a tab: the transcript, the scroll position and the stream behind it stay</span
+          >
+        </div>
+        <div class="box blue" id="events">
+          One <code>GET /coddy/events</code> for all of them
+          <span class="sub">every instance of one origin shares the stream, so tabs cost memory and not connections</span>
+        </div>
+        <div class="box blue" id="notify">
+          System notifications
+          <span class="sub"
+            >the web interface raises them; the profile is told the answer before its first window, so no permission
+            bubble opens over the strip</span
+          >
+        </div>
+        <p class="note" style="margin: 2px 0 18px">
+          A key pressed in a chat reaches that frame's document and never the parent, so the strip attaches its handler
+          to every frame's <code>contentDocument</code> - which it may, the frames being same-origin, and which asks
+          nothing of the web interface.
+        </p>
+        <div class="box gray" id="agent">
+          The agent, the models, the tools
+          <span class="sub">unchanged: the window is a surface over the same session manager</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h2>4. One launch, end to end</h2>
+    <div class="launch">
+      <div class="box core b" id="l1">
+        Read the remembered port
+        <span class="sub">a desktop already serving there is handed the window, and nothing is served twice</span>
+      </div>
+      <div class="box blue b" id="l2">
+        Bind it and serve
+        <span class="sub">free port written back; a port that is taken yields another one, and that launch has no tabs</span>
+      </div>
+      <div class="box green b" id="l3">
+        Open the browser on <code>/desktop/</code>
+        <span class="sub">a fresh profile is seeded first: no translate bubble, notifications granted to this origin</span>
+      </div>
+      <div class="box purple b" id="l4">
+        Find the window, take its frame off
+        <span class="sub">by the process tree, because the window names a child of the browser we started</span>
+      </div>
+      <div class="box core b" id="l5">
+        The strip asks what it may do
+        <span class="sub">no window to drive, no window buttons; the tabs come back from the page's stored state</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>
+        Closing the window ends the process, and the server with it. The window is a Linux port: elsewhere the binary
+        builds and serves, and <code>CODDY_DESKTOP_BROWSER</code> still opens a window, but nothing drives it, so the
+        system frame stays and the strip draws no buttons of its own.
+      </p>
+    </div>
+
+    <script src="diagram.js"></script>
+    <script>
+      wires([
+        { from: "#serve", to: "#page", color: "blue", bend: 0.5 },
+        { from: "#browser", to: "#strip", color: "green", bend: 0.5 },
+        { from: "#x11", to: "#window", color: "purple", toShift: -0.2 },
+        { from: "#x11", to: "#keys", color: "purple", toShift: 0.2, bend: 0.4 },
+        { from: "#tray", to: "#menu", color: "amber", bend: 0.4 },
+        { from: "#strip", to: "#frames", fromSide: "right", toSide: "left", color: "green" },
+        { from: "#l1", to: "#l2", color: "ink" },
+        { from: "#l2", to: "#l3", color: "ink" },
+        { from: "#l3", to: "#l4", color: "ink" },
+        { from: "#l4", to: "#l5", color: "green" },
+      ]);
+    </script>
+  </body>
+</html>

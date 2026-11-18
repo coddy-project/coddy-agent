@@ -25,6 +25,7 @@ import {
   patchNodes,
   removeFrame,
   rotateFrame,
+  untrustBoard,
   type CanvasDevice,
   type CanvasFrame as Frame,
   type CanvasItem,
@@ -35,6 +36,7 @@ import { CameraStore } from "./cameraStore";
 import { CanvasFrame, sizeLabel } from "./CanvasFrame";
 import { CanvasPromptBar } from "./CanvasPromptBar";
 import { CanvasEdges, CanvasNode } from "./CanvasNodes";
+import { CanvasHeldFrame, CanvasTrustDialog } from "./CanvasTrust";
 import { useCanvasBoard } from "./useCanvasBoard";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
@@ -90,7 +92,7 @@ export interface CanvasChatProps {
   busy: boolean;
   /** Sends the prompt; giveBack puts the bar's text and picks back when the
    *  server never takes it. */
-  onSend: (text: string, giveBack: () => void) => void;
+  onSend: (text: string, giveBack: (reason?: string) => void) => void;
   onStop: () => void;
   /** The chat's unanswered permission and question prompts: the window
    *  covers the chat, so a turn waiting on one is answered here. */
@@ -214,6 +216,7 @@ export function CanvasBoard(props: CanvasBoardProps) {
   const [note, setNote] = useState("");
   const key = draftKey(sessionId, file);
   const initial = drafts.get(key) ?? { text: "", picks: [] };
+  const [sendError, setSendError] = useState("");
   const [text, setText] = useState(initial.text);
   const [picks, setPicks] = useState<CanvasPick[]>(initial.picks);
   const fittedFor = useRef<string>("");
@@ -445,10 +448,14 @@ export function CanvasBoard(props: CanvasBoardProps) {
     const prompt = composeCanvasPrompt(picks, text);
     if (!prompt) return;
     const sent = { text, picks };
+    setSendError("");
     setText("");
     setPicks([]);
     drafts.set(key, { text: "", picks: [] });
-    props.onSend(prompt, () => giveBackDraft(key, sent));
+    props.onSend(prompt, (reason) => {
+      giveBackDraft(key, sent);
+      if (reason) setSendError(reason);
+    });
     setMode("interact");
   };
 
@@ -619,6 +626,20 @@ export function CanvasBoard(props: CanvasBoardProps) {
       }
     : undefined;
 
+  // The pages of a board that came with the workspace wait for the person.
+  const [asking, setAsking] = useState(false);
+  const held = useMemo(() => frames.filter((f) => f.held), [frames]);
+  const trust = board?.trust;
+  useEffect(() => {
+    if (held.length === 0) setAsking(false);
+  }, [held.length]);
+  const ask = useCallback(() => setAsking(true), []);
+  const canHold =
+    trust?.policy === "ask" && frames.length > 0 && frames.some((f) => !f.held);
+  const hold = () => {
+    void untrustBoard(sessionId, file).finally(reload);
+  };
+
   const fileError = board?.error || "";
   const empty = board !== null && everything.length === 0 && !fileError;
 
@@ -672,25 +693,36 @@ export function CanvasBoard(props: CanvasBoardProps) {
               onPointerUp={onNodeUp}
             />
           ))}
-          {frames.map((f) => (
-            <CanvasFrameAt
-              key={f.id}
-              sessionId={sessionId}
-              file={file}
-              frame={f}
-              shift={nodeDrag?.ids.includes(f.id) ? nodeDrag : null}
-              camera={camera}
-              mode={mode}
-              focused={f.id === props.focusFrameId}
-              onPick={onPick}
-              onEscape={escapeStep}
-              onMove={onMove}
-              onDragging={onFrameDrag}
-              onResize={onResize}
-              onRemove={onRemove}
-              onLeft={onLeft}
-            />
-          ))}
+          {frames.map((f) =>
+            f.held ? (
+              <CanvasHeldFrame
+                key={f.id}
+                frame={f}
+                dx={nodeDrag?.ids.includes(f.id) ? nodeDrag.dx : 0}
+                dy={nodeDrag?.ids.includes(f.id) ? nodeDrag.dy : 0}
+                policy={trust?.policy}
+                onAsk={ask}
+              />
+            ) : (
+              <CanvasFrameAt
+                key={f.id}
+                sessionId={sessionId}
+                file={file}
+                frame={f}
+                shift={nodeDrag?.ids.includes(f.id) ? nodeDrag : null}
+                camera={camera}
+                mode={mode}
+                focused={f.id === props.focusFrameId}
+                onPick={onPick}
+                onEscape={escapeStep}
+                onMove={onMove}
+                onDragging={onFrameDrag}
+                onResize={onResize}
+                onRemove={onRemove}
+                onLeft={onLeft}
+              />
+            ),
+          )}
         </div>
         {fileError || readError ? (
           <div
@@ -739,6 +771,32 @@ export function CanvasBoard(props: CanvasBoardProps) {
           </button>
         </div>
         <CanvasZoom camera={camera} onZoom={zoomBy} onFit={fitAll} />
+        {canHold ? (
+          <button
+            type="button"
+            className="canvas-hold"
+            data-testid="canvas-hold"
+            title={t("canvas.holdTitle")}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={hold}
+          >
+            {t("canvas.hold")}
+          </button>
+        ) : null}
+        {asking && trust && held.length > 0 ? (
+          <CanvasTrustDialog
+            sessionId={sessionId}
+            file={file}
+            trust={trust}
+            held={held}
+            onClose={() => setAsking(false)}
+            onDone={() => {
+              setAsking(false);
+              reload();
+            }}
+            onStale={reload}
+          />
+        ) : null}
         {popover ? (
           <div
             className="canvas-popover"
@@ -829,6 +887,7 @@ export function CanvasBoard(props: CanvasBoardProps) {
       ) : null}
 
       <CanvasPromptBar
+        error={sendError}
         text={text}
         onText={setText}
         picks={picks}

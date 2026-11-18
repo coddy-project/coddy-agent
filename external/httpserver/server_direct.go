@@ -12,7 +12,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/statistics"
 )
+
+const coddyIgnoredParamsHeader = "X-Coddy-Ignored-Params"
 
 // directACPRefusal refuses a direct completion of a model a local ACP agent
 // serves: the call carries the caller's own messages and tools, and the agent
@@ -31,11 +34,13 @@ func directACPRefusal(cfg *config.Config, model string) error {
 // OpenAI tool_calls delta and kept on the assistant message, and running it is the
 // caller's business. opts are the request's own generation options, applied to
 // the provider built for this one call.
-func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
+func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel, source string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
 	provider, err := s.directYAMLProvider(ctx, st, yamlSel, opts)
 	if err != nil {
 		return nil, err
 	}
+	ctx, finishStatistics := s.beginDirectStatistics(ctx, st, sessionID, yamlSel, source, opts.ReasoningEffort)
+	defer finishStatistics()
 	msgs := st.GetMessages()
 	// emit still means "the client asked for a stream" here: this path only ever receives
 	// senders built by NewSender. A relay-only sender must not reach it, or a request that
@@ -91,6 +96,27 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	return resp, nil
 }
 
+// beginDirectStatistics records one direct completion in the usage history,
+// counters and identities only. Callers build the provider first, so a request
+// refused before it could reach one never reaches the history either.
+func (s *Server) beginDirectStatistics(ctx context.Context, st *session.State, sessionID, yamlSel, source, reasoning string) (context.Context, func()) {
+	cfg := s.activeCfg()
+	if cfg == nil || strings.TrimSpace(cfg.Paths.Home) == "" {
+		return ctx, func() {}
+	}
+	provider, model, _ := strings.Cut(yamlSel, "/")
+	ctx, recorder := statistics.Begin(ctx, statistics.New(cfg.Paths.Home), statistics.Event{
+		Session:   sessionID,
+		Project:   st.GetCWD(),
+		Source:    source,
+		Provider:  provider,
+		Model:     model,
+		Reasoning: reasoning,
+		Requests:  1,
+	}, func(err error) { s.log.Warn("statistics could not be saved", "error", err) })
+	return ctx, recorder.Finish
+}
+
 // directYAMLProvider is shared by the Chat Completions and Responses wires.
 func (s *Server) directYAMLProvider(ctx context.Context, st *session.State, yamlSel string, opts llm.RequestOptions) (llm.Provider, error) {
 	mk := s.makeLLMFromYAML
@@ -142,7 +168,7 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
 func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
-	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature, ServiceTier: req.ServiceTier}
 	if len(topP) > 0 {
 		opts.TopP = topP[0]
 	}
@@ -155,13 +181,22 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 	var ent *config.ModelEntry
 	providerType := ""
 	apiModel := ""
+	baseURL := ""
 	if cfg != nil {
 		if ent = cfg.FindModelEntry(model); ent != nil {
 			apiModel = ent.APIModel()
 			if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
 				providerType = prov.Type
+				baseURL = prov.APIBase
 			}
 		}
+	}
+	// models[].max_tokens is the bound the row advertises as
+	// max_output_tokens: it caps a request that asks for more, the same as it
+	// supplies one to a request that names none (issue #579).
+	if opts.MaxTokens != nil && ent != nil && ent.MaxTokens > 0 && *opts.MaxTokens > ent.MaxTokens {
+		bound := ent.MaxTokens
+		opts.MaxTokens = &bound
 	}
 	level := ""
 	if req.ReasoningEffort != nil {
@@ -184,7 +219,25 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 		}
 		return llm.RequestOptions{}, fmt.Errorf("reasoning_effort %q is not offered by model %q (offered: %s)", level, model, strings.Join(levels, ", "))
 	}
-	return opts, opts.Validate(providerType, apiModel)
+	return opts, opts.Validate(providerType, apiModel, baseURL)
+}
+
+// directIgnoredOutputCap names output-cap fields that a Codex backend cannot
+// enforce. The caller reports them instead of rejecting an otherwise portable
+// OpenAI request or claiming that the cap reached the provider.
+func directIgnoredOutputCap(cfg *config.Config, model string, parameters ...string) string {
+	if len(parameters) == 0 || cfg == nil {
+		return ""
+	}
+	entry := cfg.FindModelEntry(model)
+	if entry == nil {
+		return ""
+	}
+	provider := cfg.FindProvider(entry.ProviderName())
+	if provider == nil || provider.Type != "codex" {
+		return ""
+	}
+	return strings.Join(parameters, ", ")
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM

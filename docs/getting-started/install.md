@@ -19,12 +19,14 @@ irm https://coddy.dev/install.ps1 | iex
 **Android (Termux)**: the same **`install.sh`** fetches the Android build; see
 [Android (Termux)](#android-termux).
 
+**FreeBSD**: the same **`install.sh`** fetches the FreeBSD build; see [FreeBSD](#freebsd).
+
 Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing.
 
-On Linux and macOS the script installs more than the binary. The release archive carries the man
-page and the bash and zsh completions beside **`coddy`**, so they land in the **`share`** directory
-of the same prefix (**`~/.local/bin`** -> **`~/.local/share`**), and a user-level install then writes
-one guarded block to the rc file of your login shell:
+On Linux, FreeBSD and macOS the script installs more than the binary. The release archive carries
+the man page and the bash and zsh completions beside **`coddy`**, so they land in the **`share`**
+directory of the same prefix (**`~/.local/bin`** -> **`~/.local/share`**), and a user-level install
+then writes one guarded block to the rc file of your login shell:
 
 | What the block does | Why |
 |---|---|
@@ -167,7 +169,9 @@ brew install coddy-project/coddy-agent/coddy
 The cask lives in Coddy's own tap, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
 and every release updates it. The command adds the tap, trusts this one cask and installs the
 **`coddy`** binary from the macOS archive of the latest release, plus **`man coddy`** and the bash and zsh
-completions. It needs macOS 12 or later. It does not install **`tmux`**: its caveats, printed after
+completions. It needs macOS 13 or later, the minimum a binary of the Go 1.27 toolchain records. On
+macOS 14 or later, `coddy desktop` opens a native Cocoa/WKWebView window without an installed
+browser; on older releases it uses a Chromium-family browser. It does not install **`tmux`**: its caveats, printed after
 the install and by **`brew info --cask coddy`**, recommend **`brew install tmux`** for a console
 session that outlives the terminal. They also give the two lines for **`~/.zshrc`** that make zsh load
 the completion: the zsh macOS ships runs no **`compinit`**, and without it Tab does not complete
@@ -223,6 +227,23 @@ program through Android's linker, which turns a static executable away with
 man page and the completions in **`~/.local/share`**, and the block in **`~/.bashrc`**. What differs
 on the device (the programs Coddy starts, certificates, running **`coddy serve`** in the background)
 is on its own page: [Android (Termux)](android.md).
+
+## FreeBSD
+
+```sh
+pkg install -y bash curl
+curl -fsSL https://coddy.dev/install.sh | bash
+```
+
+The script fetches **`coddy_X.Y.Z_freebsd_amd64.tar.gz`** or **`coddy_X.Y.Z_freebsd_arm64.tar.gz`**
+and installs it the way it does on Linux: **`~/.local/bin`**, the man page and the completions in
+**`~/.local/share`**, and the block in the rc file of your login shell, **`~/.profile`** for
+FreeBSD's default **`sh`**. The binary is static and needs no port beside it; **`bash`** and
+**`curl`** are what the script itself runs on.
+
+FreeBSD has no systemd, so **`coddy serve install`** is not available there. What to use instead,
+the **`rc.d`** route included, and where the BSD kernel interfaces differ from Linux are on the
+page of their own: [FreeBSD](freebsd.md).
 
 ## After install
 

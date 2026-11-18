@@ -79,3 +79,10 @@ Feature: Remote client for the coddy HTTP API
     Then the client saw a tool call named "spawn_agent"
     And the client received a permission request titled "[subagent explore] Run: run_command"
     And the client receives the streamed text "child allowed"
+
+  Scenario: A remote question refusal reaches the server without an empty answer
+    Given the client refuses the remote question before the agent replies "refusal handled"
+    And the client starts a session
+    When the client sends the prompt "ask the client"
+    Then the client receives the streamed text "refusal handled"
+    And the turn ends with stop reason "end_turn"

@@ -890,7 +890,60 @@ async function scenario() {
 
   // The browser's Stop continues with what waits: the message enters the
   // transcript and the same admitted turn answers it.
+  let deferredReadyState;
+  try {
+    await until(
+      "the deferred turn ended and its queue is clear",
+      async () => {
+        const act = await viaMount(`/coddy/sessions/${sid}/activity`);
+        const queue = await a.page
+          .locator("#btn-send")
+          .getAttribute("data-queue");
+        deferredReadyState = {
+          activityStatus: act.status,
+          activityRaw: act.raw,
+          turnActive: act.json?.turnActive,
+          sendQueue: queue,
+        };
+        return act.json?.turnActive === false && queue !== "true";
+      },
+      30000,
+    );
+  } catch (error) {
+    throw new Error(
+      `${error.message}; last observed state: ${JSON.stringify(deferredReadyState)}`,
+      { cause: error },
+    );
+  }
   await composer(a.page).fill("Start the second task");
+  let sendReadyState;
+  try {
+    await until(
+      "Send is ready for the second task",
+      async () => {
+        const send = a.page.locator("#btn-send");
+        const [enabled, queue, label, visible] = await Promise.all([
+          send.isEnabled(),
+          send.getAttribute("data-queue"),
+          send.getAttribute("aria-label"),
+          send.isVisible(),
+        ]);
+        sendReadyState = {
+          sendEnabled: enabled,
+          sendQueue: queue,
+          sendLabel: label,
+          sendVisible: visible,
+        };
+        return enabled && queue !== "true";
+      },
+      30000,
+    );
+  } catch (error) {
+    throw new Error(
+      `${error.message}; last observed state: ${JSON.stringify(sendReadyState)}`,
+      { cause: error },
+    );
+  }
   await composer(a.page).press("Enter");
   await until("the second turn running", () => model.holds.length === 1, 30000);
   await composer(a.page).fill("Continued after stop");

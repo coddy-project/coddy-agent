@@ -228,6 +228,7 @@ func TestSettingsCommandWithAnImageQueuesTheImage(t *testing.T) {
 		}
 	}
 	mgr, sid = newQueueManager(t, r)
+	mgr.Cfg().Models[0].Multimodal = true
 	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
 		t.Fatal(err)
 	}

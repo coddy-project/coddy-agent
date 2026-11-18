@@ -84,6 +84,9 @@ func TestWebUISurfacePromptFeature(t *testing.T) {
 			ctx.Step(`^the web UI sends "([^"]+)" to /v1/responses$`, func(text string) error {
 				return stand.post("/v1/responses", fmt.Sprintf(`{"model":"agent","input":%q,"stream":false,"metadata":{"surface":"webui"}}`, text))
 			})
+			ctx.Step(`^the web UI sends "([^"]+)" with worktree enabled to /v1/responses$`, func(text string) error {
+				return stand.post("/v1/responses", fmt.Sprintf(`{"model":"agent","input":%q,"stream":false,"metadata":{"surface":"webui","worktree":true}}`, text))
+			})
 			ctx.Step(`^the turn's system prompt includes "([^"]+)"$`, func(want string) error {
 				if !strings.Contains(stand.lastBlock(), want) {
 					return fmt.Errorf("surface block %q lacks %q", stand.lastBlock(), want)

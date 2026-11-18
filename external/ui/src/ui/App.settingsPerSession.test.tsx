@@ -389,7 +389,7 @@ test("a new chat starts in Agent mode, not in the mode of the chat just left", a
   await mountSession(S_PLAN);
   expect(modePill()).toHaveTextContent("Plan");
 
-  fireEvent.click(screen.getByTestId("nav-home"));
+  fireEvent.click(screen.getByTestId("nav-new-chat"));
   await settle();
   expect(modePill()).toHaveTextContent("Agent");
 

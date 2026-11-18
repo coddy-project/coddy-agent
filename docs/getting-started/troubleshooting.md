@@ -85,7 +85,7 @@ For access from other machines bind wider and require a token: `coddy serve -H 0
 **Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
 ```
 
 `ui` needs Node.js and npm (the Makefile runs `ui-build` first). `coddy serve --dry-run` reports a surface this binary was not built with without starting anything. Tag reference: [Build from source](../contributing/build.md#build-tags-reference).
@@ -401,7 +401,7 @@ A build from source that stops at the first `FROM` with `failed to parse platfor
 
   ```bash
   (cd external/ui && npm install && npm run build:go)
-  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser"
+  make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"
   ```
 
 - **Updates from scripts.** `coddy update -y` installs without asking and does not start Coddy, so it fits a CI step with no console.

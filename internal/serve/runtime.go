@@ -33,8 +33,9 @@ type Runtime struct {
 	// Mgr owns sessions, nil when no enabled subsystem runs turns.
 	Mgr *session.Manager
 
-	mirrorMu sync.RWMutex
-	mirror   session.TurnMirror
+	mirrorMu  sync.RWMutex
+	mirrors   map[uint64]session.TurnMirror
+	mirrorSeq uint64
 
 	// approvers are the surfaces that offered to show a detached subagent's
 	// permission prompt, keyed by the offer so withdrawing one never takes
@@ -80,29 +81,70 @@ func (r *Runtime) Cfg() *config.Config {
 }
 
 // SetTurnMirror installs (or with nil clears) the surface that mirrors turns
-// started elsewhere.
+// started elsewhere, as the only mirror in effect.
 //
-// It is a slot rather than a constructor argument because the surfaces come up
-// in whatever order the configuration lists them, and because one of them can
-// be restarted under a settings change while another keeps running. A gateway
-// that started first still ends up mirroring into an HTTP server that started
-// second.
+// The slot rather than a constructor argument exists because the surfaces come
+// up in whatever order the configuration lists them, and because one of them
+// can be restarted under a settings change while another keeps running. A
+// gateway that started first still ends up mirroring into an HTTP server that
+// started second.
 func (r *Runtime) SetTurnMirror(m session.TurnMirror) {
 	r.mirrorMu.Lock()
-	r.mirror = m
+	r.mirrors = nil
+	if m != nil {
+		r.mirrors = map[uint64]session.TurnMirror{0: m}
+	}
 	r.mirrorMu.Unlock()
 }
 
-// MirrorTurn implements session.TurnMirror by delegating to the installed
-// mirror, or handing the sender straight back when nothing is watching.
+// AddTurnMirror registers a surface that mirrors turns started elsewhere and
+// returns the function that withdraws it. A process can run more than one
+// mirroring surface - `coddy desktop` runs the window's server beside the
+// configured one - so the mirrors are a set like the detached-prompt
+// approvers, and a surface that restarts takes only its own entry out.
+func (r *Runtime) AddTurnMirror(m session.TurnMirror) (withdraw func()) {
+	r.mirrorMu.Lock()
+	r.mirrorSeq++
+	id := r.mirrorSeq
+	if r.mirrors == nil {
+		r.mirrors = map[uint64]session.TurnMirror{}
+	}
+	r.mirrors[id] = m
+	r.mirrorMu.Unlock()
+	return func() {
+		r.mirrorMu.Lock()
+		delete(r.mirrors, id)
+		r.mirrorMu.Unlock()
+	}
+}
+
+// MirrorTurn implements session.TurnMirror by delegating to every installed
+// mirror, wrapping the sender through each of them so every surface gets the
+// updates, or handing the sender straight back when nothing is watching.
 func (r *Runtime) MirrorTurn(sessionID string, primary acp.UpdateSender) (acp.UpdateSender, func()) {
 	r.mirrorMu.RLock()
-	m := r.mirror
+	mirrors := make([]session.TurnMirror, 0, len(r.mirrors))
+	for _, m := range r.mirrors {
+		mirrors = append(mirrors, m)
+	}
 	r.mirrorMu.RUnlock()
-	if m == nil {
+	if len(mirrors) == 0 {
 		return primary, func() {}
 	}
-	return m.MirrorTurn(sessionID, primary)
+	sender := primary
+	stops := make([]func(), 0, len(mirrors))
+	for _, m := range mirrors {
+		wrapped, stop := m.MirrorTurn(sessionID, sender)
+		sender = wrapped
+		if stop != nil {
+			stops = append(stops, stop)
+		}
+	}
+	return sender, func() {
+		for _, stop := range stops {
+			stop()
+		}
+	}
 }
 
 var _ session.TurnMirror = (*Runtime)(nil)

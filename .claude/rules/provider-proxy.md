@@ -27,7 +27,7 @@ setting.
 - When changing provider transport, extend `features/provider_proxy.feature`
   and `internal/llm/bdd_provider_proxy_test.go` for every new request class,
   and keep `TestProviderProxyGuard` green.
-- The proxy path works on every supported OS (Windows, macOS, Linux, Android):
+- The proxy path works on every supported OS (Windows, macOS, Linux, FreeBSD, Android):
   a proxy source a platform resolves differently (system proxy, environment,
   a per-OS helper) gets a real per-OS implementation or a working fallback,
   never a deliberate refusal on a supported OS. Gate it on `runtime.GOOS` /

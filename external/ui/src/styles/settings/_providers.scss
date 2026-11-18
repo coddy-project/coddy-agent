@@ -379,6 +379,14 @@
   width: 6px;
 }
 
+// Lists in scrolling sheets take their own row so the panel never clips them.
+.settings-combobox--inline .settings-combobox-list {
+  position: relative;
+  top: auto;
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+
 .settings-combobox-list::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--text) 20%, transparent);
   border-radius: 999px;

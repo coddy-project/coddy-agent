@@ -308,6 +308,8 @@ func TestCanvasOpenAPIListsTheRoutes(t *testing.T) {
 		"/coddy/sessions/{id}/canvas/frames/{frame}",
 		"/coddy/sessions/{id}/canvas/frames/{frame}/rotate",
 		"/coddy/sessions/{id}/canvas/frames/{frame}/report",
+		"/coddy/sessions/{id}/canvas/trust",
+		"/coddy/sessions/{id}/canvas/untrust",
 		"/coddy/canvas/{capability}/{path}",
 	} {
 		if _, ok := paths[p]; !ok {
@@ -346,6 +348,11 @@ func TestCanvasFileRoutes(t *testing.T) {
 	if b.File != "design/shop.canvas" || !b.Current || b.Stamp == "" || len(b.Frames) != 1 || len(b.Items) != 1 || len(b.Edges) != 1 {
 		t.Fatalf("opened board %s", w.Body)
 	}
+	// The board came with the workspace: its page waits for the person.
+	if !b.Frames[0].Held || b.Frames[0].URL != "" || b.Trust == nil || b.Trust.Trusted {
+		t.Fatalf("a checkout's board ran its page: %s", w.Body)
+	}
+	b = trustCanvas(t, e, "design/shop.canvas", b.Trust.Digest)
 	if page := canvasRequest(e, "GET", b.Frames[0].URL, "", nil); page.Code != 200 || !strings.Contains(page.Body.String(), "bridge.js") {
 		t.Fatalf("a frame of the file did not serve: %d", page.Code)
 	}
@@ -382,5 +389,79 @@ func TestCanvasFrameAnswersHEADWithoutACredential(t *testing.T) {
 	head := canvasRequest(e, http.MethodHead, added.Frame.URL, "", nil)
 	if head.Code != http.StatusOK || head.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("HEAD of a frame's address answered %d %v", head.Code, head.Header())
+	}
+}
+
+// trustCanvas approves the pages of a board as the dialog does.
+func trustCanvas(t *testing.T, e *changesEnv, file, digest string) canvasBoardJSON {
+	t.Helper()
+	w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/trust?file="+file, `{"digest":"`+digest+`"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("trust %d %s", w.Code, w.Body)
+	}
+	var b canvasBoardJSON
+	if err := json.Unmarshal(w.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Trust == nil || !b.Trust.Trusted || len(b.Frames) == 0 || b.Frames[0].Held || b.Frames[0].URL == "" {
+		t.Fatalf("the trusted board %s", w.Body)
+	}
+	return b
+}
+
+func TestCanvasTrustRoutes(t *testing.T) {
+	e := newChangesEnv(t)
+	sitePage(t, e.cwd)
+	writeInWorkspace(t, e.cwd, "site/about.html", "<!doctype html><title>About</title>")
+	writeInWorkspace(t, e.cwd, "design/shop.canvas", obsidianShopCanvas)
+	sess := "/coddy/sessions/" + e.id + "/canvas"
+	var b canvasBoardJSON
+	w := canvasRequest(e, "POST", sess+"/open?file=design/shop.canvas", "", nil)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &b) != nil || b.Trust == nil {
+		t.Fatalf("open %d %s", w.Code, w.Body)
+	}
+	if b.Trust.Policy != "ask" || b.Trust.Digest != canvas.PagesDigest([]string{"site/index.html"}) {
+		t.Fatalf("trust %+v", b.Trust)
+	}
+
+	// No digest, or the digest of a list the board no longer holds.
+	if w := canvasRequest(e, "POST", sess+"/trust?file=design/shop.canvas", `{}`, nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("trust without a digest answered %d", w.Code)
+	}
+	if w := canvasRequest(e, "POST", sess+"/trust", `{"digest":"`+b.Trust.Digest+`"}`, nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("trust naming no file answered %d", w.Code)
+	}
+	shown := b.Trust.Digest
+	writeInWorkspace(t, e.cwd, "design/shop.canvas", strings.Replace(obsidianShopCanvas, `"file":"site/index.html"`, `"file":"site/about.html"`, 1))
+	if w := canvasRequest(e, "POST", sess+"/trust?file=design/shop.canvas", `{"digest":"`+shown+`"}`, nil); w.Code != http.StatusConflict {
+		t.Fatalf("trust with a stale digest answered %d %s", w.Code, w.Body)
+	}
+	if w := canvasRequest(e, "GET", sess+"?file=design/shop.canvas", "", nil); !strings.Contains(w.Body.String(), `"held":true`) {
+		t.Fatalf("a refused approval let the page run: %s", w.Body)
+	}
+	writeInWorkspace(t, e.cwd, "design/shop.canvas", obsidianShopCanvas)
+	b = trustCanvas(t, e, "design/shop.canvas", shown)
+	url := b.Frames[0].URL
+	if w := canvasRequest(e, "GET", url, "", nil); w.Code != 200 {
+		t.Fatalf("the trusted page answered %d", w.Code)
+	}
+
+	// Untrust holds it again, and the address handed out before is refused.
+	w = canvasRequest(e, "POST", sess+"/untrust?file=design/shop.canvas", "", nil)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &b) != nil || !b.Frames[0].Held || b.Trust.Trusted {
+		t.Fatalf("untrust %d %s", w.Code, w.Body)
+	}
+	if w := canvasRequest(e, "GET", url, "", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("the address of a held frame answered %d", w.Code)
+	}
+
+	// Under deny the person cannot approve, and no page of the board runs.
+	e.srv.activeCfg().Tools.Canvas.ProjectTrust = "deny"
+	if w := canvasRequest(e, "POST", sess+"/trust?file=design/shop.canvas", `{"digest":"`+shown+`"}`, nil); w.Code != http.StatusForbidden {
+		t.Fatalf("trust under deny answered %d", w.Code)
+	}
+	w = canvasRequest(e, "GET", sess+"?file=design/shop.canvas", "", nil)
+	if !strings.Contains(w.Body.String(), `"policy":"deny"`) || !strings.Contains(w.Body.String(), `"held":true`) {
+		t.Fatalf("the board under deny: %s", w.Body)
 	}
 }

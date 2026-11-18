@@ -233,27 +233,29 @@ export const UserMessage = memo(function UserMessage(props: {
           })}
         </div>
       ) : null}
-      <div className="msg msg-user">
-        <div className="msg-user-body" data-testid="user-message-body">
-          {hasQuotes
-            ? blocks.map((b, i) =>
-                b.quote ? (
-                  <blockquote
-                    key={i}
-                    className="msg-user-quote"
-                    data-testid="user-message-quote"
-                  >
-                    {renderText(b.text, `q${i}`)}
-                  </blockquote>
-                ) : (
-                  <div key={i} className="msg-user-text">
-                    {renderText(b.text, `t${i}`)}
-                  </div>
-                ),
-              )
-            : renderText(display, "b")}
+      {display.trim() !== "" ? (
+        <div className="msg msg-user">
+          <div className="msg-user-body" data-testid="user-message-body">
+            {hasQuotes
+              ? blocks.map((b, i) =>
+                  b.quote ? (
+                    <blockquote
+                      key={i}
+                      className="msg-user-quote"
+                      data-testid="user-message-quote"
+                    >
+                      {renderText(b.text, `q${i}`)}
+                    </blockquote>
+                  ) : (
+                    <div key={i} className="msg-user-text">
+                      {renderText(b.text, `t${i}`)}
+                    </div>
+                  ),
+                )
+              : renderText(display, "b")}
+          </div>
         </div>
-      </div>
+      ) : null}
       <div className="msg-user-foot">
         {props.onUndoEdit ? (
           <button

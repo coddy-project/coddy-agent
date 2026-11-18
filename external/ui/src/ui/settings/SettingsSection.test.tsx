@@ -1102,6 +1102,124 @@ const modelsSchema: JsonSchema = {
   },
 };
 
+const kimiMetadataSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          kimi_metadata: {
+            type: "object",
+            title: "Kimi catalog metadata",
+            description: "Protocol and provider settings from the catalog.",
+            properties: {
+              model: { type: "string", title: "Model reference" },
+              protocol: { type: "string", title: "Protocol" },
+              mode: { type: "string", title: "Mode" },
+              region: { type: "string", title: "Region" },
+            },
+          },
+          max_tokens: { type: "integer", title: "Max tokens" },
+        },
+        "x-coddy-property-order": ["model", "kimi_metadata", "max_tokens"],
+      },
+    },
+  },
+};
+
+function KimiMetadataHarness(props: {
+  providerName: string;
+  providerType: string;
+  modelId: string;
+  setDoc?: (next: Record<string, unknown>) => void;
+}) {
+  return (
+    <SettingsSection
+      section={modelsSection}
+      schema={kimiMetadataSchema}
+      doc={{
+        providers: [{ name: props.providerName, type: props.providerType }],
+        models: [
+          {
+            model: props.modelId,
+            kimi_metadata: {
+              model: props.modelId,
+              protocol: "kimi",
+              mode: "subscription",
+              region: "global",
+            },
+            max_tokens: 256,
+          },
+        ],
+      }}
+      setDoc={props.setDoc ?? vi.fn()}
+    />
+  );
+}
+
+test("Kimi catalog metadata is hidden for Codex models", () => {
+  render(
+    <KimiMetadataHarness
+      providerName="codex"
+      providerType="codex"
+      modelId="codex/gpt-5.6-sol"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.queryByText("Kimi catalog metadata")).toBeNull();
+});
+
+test("Kimi catalog metadata stays visible for a Kimi provider with a custom name", () => {
+  render(
+    <KimiMetadataHarness
+      providerName="kimi-enterprise"
+      providerType="kimi"
+      modelId="kimi-enterprise/kimi-for-coding"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.getByText("Kimi catalog metadata")).toBeInTheDocument();
+});
+
+test("editing a Codex model preserves hidden Kimi metadata", () => {
+  const setDoc = vi.fn();
+  render(
+    <KimiMetadataHarness
+      providerName="codex"
+      providerType="codex"
+      modelId="codex/gpt-5.6-sol"
+      setDoc={setDoc}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Max tokens" }), {
+    target: { value: "512" },
+  });
+
+  expect(setDoc).toHaveBeenCalledWith(
+    expect.objectContaining({
+      models: [
+        expect.objectContaining({
+          model: "codex/gpt-5.6-sol",
+          max_tokens: 512,
+          kimi_metadata: {
+            model: "codex/gpt-5.6-sol",
+            protocol: "kimi",
+            mode: "subscription",
+            region: "global",
+          },
+        }),
+      ],
+    }),
+  );
+});
+
 const reasoningModelsSchema: JsonSchema = {
   type: "object",
   properties: {
@@ -1857,7 +1975,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
             type: {
               type: "string",
               title: "Provider type",
-              enum: ["openai", "codex"],
+              enum: ["anthropic", "codex"],
             },
             usage_limits_panel: {
               type: "boolean",
@@ -1884,7 +2002,7 @@ test("the usage panel switch shows only for a provider type with a usage source"
     );
   }
 
-  const { unmount } = render(<TypedHarness type="openai" />);
+  const { unmount } = render(<TypedHarness type="anthropic" />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   expect(
     screen.queryByRole("switch", { name: "Usage limits panel" }),
@@ -2633,6 +2751,31 @@ describe("settings search index matches the drawing", () => {
     }
     return pages;
   }
+
+  test("authentication fields are searchable by their displayed names in both languages", async () => {
+    for (const [sc, names] of [
+      [AGENT_EN, ["Enabled", "Login", "Password", "Session duration (hours)"]],
+      [AGENT_RU, ["Включено", "Логин", "Пароль", "Длительность сеанса (часы)"]],
+    ] as const) {
+      const index = indexFor(sc);
+      const page = await readPage(sc, index, "httpserver", null);
+      for (const name of names) {
+        const hit = searchSettings(index, name, index.length).hits.find(
+          ({ entry }) =>
+            entry.section === "httpserver" &&
+            entry.kind === "field" &&
+            entry.names.includes(name),
+        );
+        expect(hit, `${sc.name}: ${name}`).toBeDefined();
+        expect(
+          page.drawn.some(
+            (box) =>
+              box.anchor === hit!.entry.anchor && box.names.includes(name),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
 
   test("every drawn anchor is indexed and every indexed anchor is drawn, once or once per entry its list draws, tab by tab and row by row", async () => {
     for (const sc of SCENARIOS) {

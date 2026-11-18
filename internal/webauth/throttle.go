@@ -175,19 +175,19 @@ func (t *Throttle) sweepLocked(now time.Time) {
 // TLS-terminating proxy in front of a loopback listener - hands every request in
 // the world the same RemoteAddr, 127.0.0.1, which the loopback exemption would
 // then wave through. So when, and only when, the connection itself came from
-// loopback, the forwarded client address is believed: on that path the header
-// can only be set by something already on this machine. A connection from
-// anywhere else is counted by where it actually came from, because there the
-// header is the attacker's to write.
+// loopback, the rightmost valid X-Forwarded-For address is used: the trusted
+// proxy must append the address it saw. Earlier entries can be attacker-supplied.
+// A connection from elsewhere is counted by its direct address.
 func ClientAddr(remoteAddr, forwardedFor, realIP string) string {
 	direct := NormalizeAddr(remoteAddr)
 	if !IsLoopbackAddr(direct) {
 		return direct
 	}
-	// The leftmost entry of X-Forwarded-For is the client the first proxy saw.
-	if v := strings.TrimSpace(strings.Split(forwardedFor, ",")[0]); v != "" {
-		if host := NormalizeAddr(v); host != "" {
-			return host
+	entries := strings.Split(forwardedFor, ",")
+	for i := len(entries) - 1; i >= 0; i-- {
+		host := NormalizeAddr(entries[i])
+		if ip, err := netip.ParseAddr(host); err == nil {
+			return ip.Unmap().String()
 		}
 	}
 	if host := NormalizeAddr(realIP); host != "" {
