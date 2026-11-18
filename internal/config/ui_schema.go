@@ -327,7 +327,7 @@ func UISchemaMap() map[string]interface{} {
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
 		"image_generation": boolProp("Image generation",
-			"When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model."),
+			"When true, the model may emit images natively through the provider's image generation tool, and the tool is included in every chat request sent with this model."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
