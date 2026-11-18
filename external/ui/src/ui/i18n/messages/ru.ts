@@ -98,6 +98,174 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.user_agent.label": "User-Agent",
   "settings.schema.providers.user_agent.desc":
     "Имя клиента в запросах к OpenAI- и Anthropic-совместимым провайдерам. По умолчанию используется имя SDK (OpenAI/Go или Anthropic/Go); Coddy передаёт версию запущенного приложения.",
+  "stats.durationSeconds": "{seconds} с",
+  "stats.durationMinutes": "{minutes} мин",
+  "stats.source.console": "Консоль",
+  "stats.source.acp": "Редактор (ACP)",
+  "stats.source.local": "Консоль и ACP",
+  "stats.source.webui": "Веб-интерфейс",
+  "stats.source.subagent": "Субагенты",
+  "stats.source.memory": "Память",
+  "stats.source.scheduler": "Планировщик",
+  "stats.source.background": "Фоновая работа",
+  "stats.source.followup": "Очередь сообщений",
+  "stats.source.print": "Одноразовые запуски",
+  "stats.actions": "Действия со статистикой",
+  "stats.exportCsv": "Экспорт CSV",
+  "stats.exportJson": "Экспорт JSON",
+  "stats.filters": "Фильтры",
+  "stats.resetFilters": "Сбросить фильтры",
+  "stats.tokensHeading": "Токены",
+  "stats.overview": "Обзор",
+  "stats.activityDetails": "Активность",
+  "stats.segment.days": "Дни",
+  "stats.segment.weeks": "Недели",
+  "stats.segment.cumulative": "Всего",
+  "stats.limits": "Лимиты",
+  "stats.limitsHint":
+    "Текущие лимиты аккаунтов всех настроенных провайдеров. Они не зависят от периода статистики и фильтра проекта.",
+  "stats.refresh": "Обновить",
+  "stats.limitsUnavailable": "Не удалось получить лимиты.",
+  "stats.noProviders": "Провайдеры не настроены.",
+  "stats.limitsDisabled":
+    "Получение лимитов отключено в настройках этого провайдера.",
+  "stats.limitsUnsupported":
+    "Этот провайдер не передаёт лимиты аккаунта в Coddy.",
+  "stats.limitsUnauthorized":
+    "Войдите в аккаунт провайдера, чтобы получить лимиты.",
+  "stats.unlimited": "Без лимита объёма",
+  "stats.limitPercent": "Использовано {percent}%",
+  "stats.limitUsed": "Использовано",
+  "stats.limitTotal": "Лимит",
+  "stats.limitRemaining": "Осталось",
+  "stats.limitReset": "Сброс",
+  "stats.rate": "Запросы в минуту",
+  "stats.cooldown": "Пауза между запросами",
+  "stats.wallet": "Баланс кошелька",
+  "stats.walletSpent": "Потрачено за 30 дней",
+  "stats.unlimitedModels": "Безлимитные модели",
+  "stats.blockedModels": "Заблокированные модели",
+  "stats.limitsNoWindows": "Провайдер не сообщил лимиты по периодам.",
+  "stats.limitsUpdated": "Обновлено {time}",
+  "stats.limitsRefreshPending":
+    "Обновление запланировано с учётом интервала опроса провайдера.",
+  "stats.title": "Статистика",
+  "stats.settings.description": "История, часовой пояс и тарифы",
+  "stats.activity": "Активность токенов",
+  "stats.weeks": "По неделям",
+  "stats.cumulative": "Нарастающим итогом",
+  "stats.calendarYear": "На календаре показан последний год выбранного периода",
+  "stats.less": "Меньше",
+  "stats.more": "Больше",
+  "stats.all": "Все",
+  "stats.scope": "Область",
+  "stats.thisServer": "Этот сервер",
+  "stats.swarm": "Весь swarm",
+  "stats.node": "Узел",
+  "stats.swarmHint":
+    "Сводка включает доступные узлы. Импорт и очистка настраиваются в статистике каждого узла.",
+  "stats.period": "Период",
+  "stats.period.7": "Последние 7 дней",
+  "stats.period.30": "Последние 30 дней",
+  "stats.period.year": "Последний год",
+  "stats.period.all": "Всё время",
+  "stats.period.custom": "Свой период",
+  "stats.from": "С",
+  "stats.to": "По",
+  "stats.project": "Проект",
+  "stats.provider": "Провайдер",
+  "stats.model": "Модель",
+  "stats.source": "Источник",
+  "stats.tokens": "токенов",
+  "stats.tokensAllTime": "Токены за всё время",
+  "stats.tokensPeriod": "Токены за выбранный период",
+  "stats.input": "Входящие",
+  "stats.output": "Исходящие",
+  "stats.cached": "Кеш",
+  "stats.maxDaily": "Максимум токенов за день",
+  "stats.longest": "Самая долгая задача · время агента",
+  "stats.activeTime": "Общее время работы агента",
+  "stats.currentStreak": "Текущая серия · дни",
+  "stats.longestStreak": "Самая длинная серия · дни",
+  "stats.chats": "Чаты",
+  "stats.requests": "Запросы",
+  "stats.calls": "Вызовы моделей",
+  "stats.uniqueSkills": "Использованные навыки",
+  "stats.skillCalls": "Вызовы навыков",
+  "stats.installedSkills": "Установленные навыки",
+  "stats.cost": "Оценочная стоимость · {currency}",
+  "stats.cost.rate": "1 USD = {rate} RUB",
+  "stats.duration": "{hours} ч {minutes} мин",
+  "stats.unknown": "Нет записанных данных",
+  "stats.unknownHint":
+    "Прочерк означает, что значение не записано. Токены из кеша уже входят во входящие. Серии учитывают дни с ручными запросами.",
+  "stats.popularReasoning": "Самый частый режим рассуждений",
+  "stats.models": "Модели",
+  "stats.providers": "Провайдеры",
+  "stats.projects": "Проекты",
+  "stats.sources": "Источники",
+  "stats.reasoning": "Режимы рассуждений",
+  "stats.skills": "Навыки",
+  "stats.name": "Название",
+  "stats.count": "Количество",
+  "stats.noData": "За этот период данных нет",
+  "stats.loading": "Загрузка статистики…",
+  "stats.retry": "Повторить",
+  "stats.import.title": "Подтянуть данные из старых чатов?",
+  "stats.import.start": "Подтянуть историю",
+  "stats.import.message":
+    "Импорт пройдёт в фоне и включит архивные чаты и субагентов. Будут восстановлены только записанные данные, остальные значения останутся пустыми. Импорт можно запустить позже в настройках статистики.",
+  "stats.import.skip": "Пропустить",
+  "stats.import.running": "Идёт импорт истории…",
+  "stats.import.progress": "Обработано чатов: {done} / {total}",
+  "stats.import.interrupted":
+    "Импорт истории остановился. Его можно продолжить без дублирования данных.",
+  "stats.import.failed": "Не удалось импортировать чатов: {count}",
+  "stats.import.partial":
+    "Данные старых чатов неполные: в них не записывались все вызовы, расход кеша и время работы без ожидания ответов пользователя.",
+  "stats.enable": "Собирать статистику",
+  "stats.enable.hint":
+    "С выключенным переключателем машина не записывает ни ходов, ни вызовов провайдера, а экран статистики не предлагается. Уже записанное остаётся; его удаляет сброс.",
+  "stats.counters": "Счётчики",
+  "stats.counters.hint":
+    "Счётчики лежат рядом с чатами, в домашней папке этой машины, и переживают удаление чата.",
+  "stats.timezone": "Часовой пояс",
+  "stats.timezone.browser": "Часовой пояс браузера",
+  "stats.timezone.hint":
+    "Без него дни раскладываются по часовому поясу браузера. Заданный здесь пояс сервер отдаёт по умолчанию, и его же запрашивает релей.",
+  "stats.currency.field": "Валюта",
+  "stats.currency.rub": "Российский рубль (RUB)",
+  "stats.currency.usd": "Доллар США (USD)",
+  "stats.exchange.heading": "Пересчёт валюты",
+  "stats.exchange.hint":
+    "Укажите ручной курс для пересчёта RUB-тарифов в USD и отображения стоимости. Автоматический курс не запрашивается.",
+  "stats.usdToRub": "RUB за USD",
+  "stats.usdToRub.hint":
+    "Укажите, сколько рублей стоит 1 USD. По умолчанию используется 90.",
+  "stats.usdToRub.invalid": "Укажите положительный конечный курс.",
+  "stats.prices": "Тарифы моделей за миллион токенов",
+  "stats.prices.hint":
+    "Цены каталога указаны в USD. Для каждого пользовательского тарифа можно выбрать USD или RUB; тарифы в RUB пересчитываются по курсу из настроек статистики. Плата за подписки и инструменты не входит в оценку.",
+  "stats.prices.custom": "Свои цены ({count})",
+  "stats.settings": "Настройки статистики",
+  "stats.prices.add": "Добавить",
+  "stats.prices.remove": "Убрать тариф модели",
+  "stats.prices.invalid":
+    "Укажите уникальное название модели и неотрицательные тарифы во всех полях.",
+  "stats.prices.configure": "Указать тарифы",
+  "stats.prices.currency": "Валюта тарифа",
+  "stats.prices.currency.hint":
+    "Валюта тарифов этой модели. Для новых тарифов по умолчанию используется USD. Тарифы в RUB пересчитываются в USD по курсу из настроек статистики.",
+  "stats.prices.currencyFor": "Валюта тарифа для {model}",
+  "stats.unpriced":
+    "Вызовы без тарифа: {count}. Оценка включает только вызовы с тарифом.",
+  "stats.clear.heading": "Сброс статистики",
+  "stats.clear.hint":
+    "Счётчики хранятся бессрочно и переживают удаление чатов. Сброс удаляет их все и начинает счёт заново, история чатов остаётся.",
+  "stats.clear.action": "Очистить",
+  "stats.clear.title": "Сбросить всю статистику?",
+  "stats.clear.message":
+    "Все записанные счётчики будут удалены, счёт начнётся с нуля. Чаты останутся на месте. Отменить это нельзя.",
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.simpleLabel": "Упрощённый режим",
@@ -203,6 +371,7 @@ export const messagesRu: Record<string, string> = {
   "auth.signOut.tooltipUser": "Выйти ({user})",
 
   "common.cancel": "Отмена",
+  "common.close": "Закрыть",
   "common.confirm": "Подтвердить",
   "common.confirmAction": "Подтвердить",
   "common.delete": "Удалить",
@@ -684,6 +853,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.multimodal.label": "Мультимодальная",
   "settings.schema.models.multimodal.desc":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. UI предложит прикрепление файлов для сообщений, отправляемых с этой моделью, а read покажет ей картинку из файла PNG, JPEG, GIF или WebP.",
+  "settings.schema.models.image_generation.label": "Генерация изображений",
+  "settings.schema.models.image_generation.desc":
+    "Если включено, модель может создавать изображения через нативный инструмент генерации изображений провайдера, а в поле ввода появляется переключатель генерации для каждого хода этой модели.",
   "settings.schema.models.reasoning_levels.label": "Уровни рассуждения",
   "settings.schema.models.reasoning_levels.desc":
     "Необязательное переопределение уровней рассуждения для этой модели (например, low, medium, high). Пусто — автоопределение по идентификатору модели; явный пустой список скрывает селектор уровней.",
@@ -728,7 +900,7 @@ export const messagesRu: Record<string, string> = {
     "Сколько автоматических ходов может занять одна цель, после них идёт завершающий ход и остановка.",
   "settings.schema.supervisor.token_budget.label": "Бюджет токенов",
   "settings.schema.supervisor.token_budget.desc":
-    "Некэшированные входные и выходные токены на одну цель. 0 снимает ограничение.",
+    "Некешированные входные и выходные токены на одну цель. 0 снимает ограничение.",
   "settings.schema.supervisor.max_chain_sessions.label": "Сессий в цепочке",
   "settings.schema.supervisor.max_chain_sessions.desc":
     "Сколько сессий одна цепочка целей (/goal --then-file) может открыть одну за другой. 0 отключает цепочки.",
@@ -845,6 +1017,35 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.desc":
     "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
+  "settings.schema.tools.preview_publish.label": "Опубликованные предпросмотры",
+  "settings.schema.tools.preview_publish.desc":
+    "Статический сервер только на чтение по неизменному адресу над одним корнем артефактов и инструмент preview_publish, который копирует туда готовую работу. Для Coddy за HTTPS-прокси с аутентификацией: ваш обратный прокси аутентифицирует посетителя и направляет неизменный префикс на этот сервер.",
+  "settings.schema.tools.preview_publish.enable.label": "Включено",
+  "settings.schema.tools.preview_publish.enable.desc":
+    "Запускать сервер опубликованных предпросмотров и предлагать инструменты preview_publish и preview_unpublish (по умолчанию выключено).",
+  "settings.schema.tools.preview_publish.host.label": "Адрес привязки",
+  "settings.schema.tools.preview_publish.host.desc":
+    "Адрес, на котором слушает сервер (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, отдаёт все опубликованные предпросмотры всем, кто до него достучится.",
+  "settings.schema.tools.preview_publish.host.ph": "127.0.0.1",
+  "settings.schema.tools.preview_publish.port.label": "Порт",
+  "settings.schema.tools.preview_publish.port.desc":
+    "Неизменный порт, на котором слушает сервер, чтобы у обратного прокси был апстрим, который не переезжает (по умолчанию 8081).",
+  "settings.schema.tools.preview_publish.root.label": "Корень артефактов",
+  "settings.schema.tools.preview_publish.root.desc":
+    "Единственный каталог, который отдаёт сервер и в который пишет публикация, абсолютный путь. Пусто - используется <home>/previews.",
+  "settings.schema.tools.preview_publish.root.ph": "<home>/previews",
+  "settings.schema.tools.preview_publish.public_url.label": "Публичный адрес",
+  "settings.schema.tools.preview_publish.public_url.desc":
+    "Адрес, по которому корень отдаёт ваш прокси; он подставляется в выдаваемую агентом ссылку. Пусто - используется собственный адрес сервера.",
+  "settings.schema.tools.preview_publish.public_url.ph":
+    "https://coddy.example/preview/",
+  "settings.schema.tools.preview_publish.ttl_seconds.label": "Время жизни (с)",
+  "settings.schema.tools.preview_publish.ttl_seconds.desc":
+    "Сколько опубликованный предпросмотр держится, прежде чем его удалят (по умолчанию 86400). Вызов может попросить своё время жизни или не ограничивать его.",
+  "settings.schema.tools.preview_publish.max_bytes.label":
+    "Предел размера (байты)",
+  "settings.schema.tools.preview_publish.max_bytes.desc":
+    "Наибольший размер одного опубликованного предпросмотра (по умолчанию 104857600). Публикация сверх него отклоняется целиком.",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
   "settings.schema.tools.websearch.deepseek_api_key.label":
@@ -997,11 +1198,11 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "Сколько самых свежих результатов read и grep остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего).",
+    "Наименьшее число самых свежих результатов read и grep, которые остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего). Если значение больше нуля, они уходят из окна по четыре, поэтому пока набирается следующая порция, в нём остаётся до трёх лишних.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
-    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
+    "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 - кандидат любой результат).",
   "settings.schema.compaction.fallback_models.label":
     "Резервные модели суммаризации",
   "settings.schema.compaction.fallback_models.desc":
@@ -1009,7 +1210,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.start_percent.label":
     "Начинать с (%)",
   "settings.schema.compaction.result_eviction.start_percent.desc":
-    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кэш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
+    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кеш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
 
   "settings.schema.scheduler.label": "Планировщик",
   "settings.schema.scheduler.enable.label": "Включено",
@@ -1677,6 +1878,7 @@ export const messagesRu: Record<string, string> = {
   "nav.swarm": "Рой",
   "nav.docs": "Документация",
   "nav.schedulerAriaLabel": "Задачи планировщика",
+  "nav.statistics": "Статистика",
   "nav.settings": "Настройки",
   "nav.more": "Ещё",
 
@@ -1985,6 +2187,14 @@ export const messagesRu: Record<string, string> = {
   "composer.reasoning": "Рассуждение",
   "composer.reasoningLevel": "Уровень рассуждения",
   "composer.reasoningLevelTitle": "Уровень рассуждения (metadata.reasoning)",
+  "composer.imageGenerationQueueUnavailable":
+    'Отключите переключатель "Изображения", чтобы добавить сообщение в очередь, или дождитесь завершения текущего хода.',
+  "composer.imageGeneration": "Изображения",
+  "composer.imageGenerationTitle":
+    "Запрашивать нативную генерацию изображений при отправке (metadata.image_generation)",
+  "composer.imageGenerationEnable": "Изображения",
+  "composer.imageGenerationEnableTitle":
+    "Включите генерацию изображений для этой модели в настройках",
   "composer.contextUsage": "Использование контекста",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown":
@@ -2274,6 +2484,11 @@ export const messagesRu: Record<string, string> = {
     "Все изменённые файлы вернутся к содержимому последнего коммита, новые файлы будут удалены, а файлы из .gitignore останутся. Это нельзя отменить.",
   "changes.discardYes": "Отменить правки",
   "changes.discardFailed": "Не удалось отменить правки: {message}",
+  "changes.deleteFileConfirm": "Удалить {name}?",
+  "changes.deleteFileMessage":
+    "Файл будет удалён из рабочей папки. Если он уже был в git, в правках появится удаление. Это нельзя отменить.",
+  "changes.deleteYes": "Удалить файл",
+  "changes.deleteFailed": "Не удалось удалить файл: {message}",
   "workspaceBar.label": "Где работает этот чат",
   "workspaceBar.branchTitle": "Ветка {branch}",
   "workspaceBar.worktreeTitle": "Worktree {path} на ветке {branch}",
@@ -2402,6 +2617,26 @@ export const messagesRu: Record<string, string> = {
   "changes.viewer.copyPath": "Скопировать путь",
   "changes.viewer.copied": "Путь скопирован",
   "changes.viewer.loadingFile": "Загрузка различий...",
+  "changes.viewer.viewed": "Просмотрено",
+  "changes.viewer.viewedSummary": "{viewed} / {total} просмотрено",
+  "changes.viewer.viewedSummaryTitle":
+    "Просмотрено {viewed} из {total} изменённых файлов",
+  "changes.viewer.fileActions": "Действия с файлом",
+  "changes.viewer.discardChanges": "Отменить изменения",
+  "changes.viewer.deleteFile": "Удалить файл",
+  "changes.viewer.diffMode": "Предпросмотр различий",
+  "changes.viewer.sourceDiff": "Показать исходный diff",
+  "changes.viewer.richDiff": "Показать rich diff",
+  "changes.viewer.expandLines": "Развернуть все строки",
+  "changes.viewer.collapseLines": "Свернуть все строки",
+  "changes.viewer.viewedSummaryLabel": "просмотрено",
+  "changes.viewer.expandUp": "Показать 10 строк сверху",
+  "changes.viewer.expandDown": "Показать 10 строк снизу",
+  "changes.viewer.expandBoth": "Показать по 10 строк в обе стороны",
+  "changes.viewer.before": "Было",
+  "changes.viewer.after": "Стало",
+  "changes.viewer.imageLoading": "Загрузка изображения...",
+  "changes.viewer.imageUnavailable": "Не удалось загрузить изображение",
   "changes.viewer.noMatches": "Нет подходящих файлов",
   "changes.viewer.noVcs": "Эта папка не в git-репозитории, показывать нечего.",
 
@@ -2505,6 +2740,8 @@ export const messagesRu: Record<string, string> = {
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
   "tool.name.preview_server": "запускаю сервер предпросмотра",
+  "tool.name.preview_publish": "публикую предпросмотр",
+  "tool.name.preview_unpublish": "снимаю опубликованный предпросмотр",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.coddy_docs_search": "ищу в документации",
   "tool.name.coddy_docs_read": "читаю документацию",
@@ -2933,6 +3170,8 @@ export const messagesRu: Record<string, string> = {
   "status.webFetch": "Загружаю страницу",
   "status.httpRequest": "Отправляю запрос",
   "status.previewServer": "Запускаю сервер предпросмотра",
+  "status.previewPublish": "Публикую предпросмотр",
+  "status.previewUnpublish": "Снимаю опубликованный предпросмотр",
   "status.plan": "Обновляю план",
   "status.planRead": "Читаю план",
   "status.skill": "Загружаю скил",
