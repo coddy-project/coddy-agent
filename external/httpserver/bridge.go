@@ -428,11 +428,11 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	// is answered live or not at all and never becomes the parent's pending
 	// record, which stays reserved for the parent's own gate.
 	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
+	ch := registerPermissionWait(sid, tcid, sd)
+	defer unregisterPermissionWait(sid, tcid, sd)
 	if sd != "" && !relayed {
 		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
 	}
-	ch := registerPermissionWait(sid, tcid, sd)
-	defer unregisterPermissionWait(sid, tcid, sd)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		if _, merr := json.Marshal(params); merr != nil {
 			// A marshal failure means the prompt never left the process;

@@ -3,8 +3,8 @@ package agent
 // Godog harness for features/toolsets.feature: drives the real Agent.Run in
 // agent mode with a fake LLM provider on a models[] row that names a toolset.
 // The scenarios read what the provider was sent (the request's tool list and
-// the tool list in the system message) and replay a call to a tool the toolset
-// does not offer, which has to be refused before any permission prompt; the
+// absence of a duplicate catalog in the system message) and replay a call to a
+// tool the toolset does not offer, which has to be refused before any permission prompt; the
 // control scenarios run the same call with no toolset, the model's or the
 // session's, so the refusal is provably the only thing between the call and
 // the file.
@@ -78,13 +78,14 @@ func (s *bddModelToolsSender) SendSessionUpdate(_ string, update interface{}) er
 }
 
 type modelToolsFeatureState struct {
-	tmpDirs  []string
-	st       *session.State
-	ag       *Agent
-	cfg      *config.Config
-	provider *bddModelToolsProvider
-	sender   *bddModelToolsSender
-	target   string
+	tmpDirs        []string
+	st             *session.State
+	ag             *Agent
+	cfg            *config.Config
+	provider       *bddModelToolsProvider
+	sender         *bddModelToolsSender
+	target         string
+	expectedNative []byte
 
 	stop   string
 	runErr error
@@ -178,7 +179,9 @@ func (s *modelToolsFeatureState) buildAgent() error {
 	}
 	s.ag = NewAgent(s.cfg, s.st, s.sender, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil }
-	return nil
+	var err error
+	s.expectedNative, err = json.Marshal(s.ag.currentToolDefinitions("agent"))
+	return err
 }
 
 func (s *modelToolsFeatureState) modelAnswersDirectly() error {
@@ -248,15 +251,13 @@ func (s *modelToolsFeatureState) offeredExactly(list string) error {
 	return nil
 }
 
-func (s *modelToolsFeatureState) promptListsExactly(list string) error {
+func (s *modelToolsFeatureState) promptHasNoCatalog() error {
 	_, system, err := s.firstRequest()
 	if err != nil {
 		return err
 	}
-	want := splitToolList(list)
-	sort.Strings(want)
-	if got := promptToolNames(system); strings.Join(got, ",") != strings.Join(want, ",") {
-		return fmt.Errorf("system prompt lists %v, want exactly %v", got, want)
+	if got := promptToolNames(system); len(got) != 0 {
+		return fmt.Errorf("bundled system prompt duplicates tools: %v", got)
 	}
 	return nil
 }
@@ -309,14 +310,17 @@ func contains(list []string, want string) bool {
 	return false
 }
 
-func (s *modelToolsFeatureState) promptListsSameTools() error {
-	defs, system, err := s.firstRequest()
+func (s *modelToolsFeatureState) nativeDefinitionsUnchanged() error {
+	defs, _, err := s.firstRequest()
 	if err != nil {
 		return err
 	}
-	want, got := sortedNames(defs), promptToolNames(system)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		return fmt.Errorf("system prompt lists %v, the request carries %v", got, want)
+	actual, err := json.Marshal(defs)
+	if err != nil {
+		return err
+	}
+	if string(actual) != string(s.expectedNative) {
+		return fmt.Errorf("native definitions differ from the complete permitted offer")
 	}
 	return nil
 }
@@ -415,9 +419,9 @@ func initializeModelToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a model that requests the "([^"]+)" tool once, then answers$`, s.modelRequestsToolOnce)
 	sc.Step(`^the user sends a message$`, s.userSendsMessage)
 	sc.Step(`^the model is offered exactly the tools "([^"]*)"$`, s.offeredExactly)
-	sc.Step(`^the system prompt lists exactly the tools "([^"]*)"$`, s.promptListsExactly)
+	sc.Step(`^the bundled system prompt does not duplicate the tool catalog$`, s.promptHasNoCatalog)
 	sc.Step(`^the model is offered the full set of tools without "([^"]*)"$`, s.fullSetWithout)
-	sc.Step(`^the system prompt lists the same tools$`, s.promptListsSameTools)
+	sc.Step(`^the native tool definitions keep their complete descriptions and schemas$`, s.nativeDefinitionsUnchanged)
 	sc.Step(`^the file is not written$`, s.fileIsNotWritten)
 	sc.Step(`^the file is written$`, s.fileIsWritten)
 	sc.Step(`^the tool call is answered with the toolset's refusal$`, s.callAnsweredWithModelRefusal)
