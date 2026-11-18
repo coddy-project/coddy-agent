@@ -433,7 +433,6 @@ type ModelInfo = {
   ownedBy?: string;
   maxContextTokens?: number | undefined;
   multimodal?: boolean;
-  /** The model opted in to native image output (models[].image_generation). */
   imageGeneration?: boolean;
   serviceTierChoices?: string[];
   reasoningLevels?: string[];
@@ -5694,7 +5693,6 @@ export function App() {
     text: string,
     opts?: {
       modeOverride?: string;
-      imageGenerationOverride?: boolean;
       runPlanSlug?: string;
       files?: File[];
       /**
@@ -5794,11 +5792,6 @@ export function App() {
           );
           setActiveDraftId("");
         }
-        setImageGenSelection((previous) =>
-          previous.on && previous.scope === imageGenScope
-            ? { ...previous, scope: `${sid}\0${llmModel}\0${llmModelImageGen}` }
-            : previous,
-        );
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -6124,11 +6117,9 @@ export function App() {
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
-      // The per-turn image control: only for a model the configuration
-      // opted in to native image output (models[].image_generation).
-      const imageGenForTurn =
-        (opts?.imageGenerationOverride ?? imageGenOn) && llmModelImageGen;
-      if (imageGenForTurn) meta.image_generation = true;
+      if (modelInfos.find((model) => model.id === yamlSel)?.imageGeneration) {
+        meta.image_generation = true;
+      }
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
       meta.service_tier = pickServiceTier(serviceTier, serviceTierChoices);
@@ -6172,12 +6163,6 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
-      if (res.ok)
-        retryImageGenRef.current.set(sid.trim(), {
-          text,
-          model: llmModel,
-          enabled: imageGenForTurn,
-        });
       // The server took the session's first message, and with it the pick.
       if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
         setPendingPermissionMode("");
@@ -6713,49 +6698,6 @@ export function App() {
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
-
-  // The model opted in to native image output: the composer offers the
-  // per-turn Images control only for one, and sends ask for it only then.
-  const llmModelImageGen = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.imageGeneration ?? false;
-  }, [modelInfos, llmModel]);
-
-  // The per-turn image control: while on, sends carry
-  // metadata.image_generation for a model opted in to native output.
-  const imageGenScope = `${sessionId.trim() || activeDraftId.trim()}\0${llmModel}\0${llmModelImageGen}`;
-  const [imageGenSelection, setImageGenSelection] = useState({
-    scope: imageGenScope,
-    on: false,
-  });
-  if (imageGenSelection.scope !== imageGenScope) {
-    setImageGenSelection({ scope: imageGenScope, on: false });
-  }
-  const imageGenOn =
-    imageGenSelection.scope === imageGenScope && imageGenSelection.on;
-  const retryImageGenRef = useRef(
-    new Map<string, { text: string; model: string; enabled: boolean }>(),
-  );
-  const onImageGenToggle = useCallback(
-    () =>
-      setImageGenSelection((v) => ({
-        scope: imageGenScope,
-        on: v.scope === imageGenScope ? !v.on : true,
-      })),
-    [imageGenScope],
-  );
-
-  // A model without the opt-in gets a CTA instead of the toggle: it opens the
-  // model's own row in Settings -> Logical models, where image_generation is
-  // enabled. After a save, configEpoch refreshes the model catalog and the
-  // per-turn Images toggle replaces the CTA.
-  const onImageGenEnable = useCallback(() => {
-    const model = llmModel.trim();
-    if (!model) {
-      return;
-    }
-    setSettingsSectionHash("models", { item: model });
-  }, [llmModel]);
 
   // Every configured model's levels: /goal --reasoning completes the levels
   // of the model its --model names.
@@ -8064,27 +8006,6 @@ export function App() {
       const body = text.trim();
       if (!sid || (!body && files.length === 0)) return;
       const fromComposer = source === "composer";
-      if (imageGenOn && llmModelImageGen) {
-        if (fromComposer) {
-          setDraft((current) => current || body);
-          if (files.length)
-            setComposerFiles((current) => [...files, ...current]);
-        } else {
-          onRefused?.(t("composer.imageGenerationQueueUnavailable"));
-          return;
-        }
-        applyStreamItemsForSession(sid, (prev) => [
-          ...prev,
-          {
-            id: newId("s"),
-            type: "system_notice",
-            level: "error",
-            message: t("composer.imageGenerationQueueUnavailable"),
-            createdAtUtc: new Date().toISOString(),
-          },
-        ]);
-        return;
-      }
       if (fromComposer) setDraft("");
       void (async () => {
         type QueueAnswer = {
@@ -8144,7 +8065,6 @@ export function App() {
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
           void sendLatest(body, {
-            imageGenerationOverride: false,
             files,
             restoreOnRefusal: fromComposer,
             ...(onRefused ? { onRefusal: onRefused } : {}),
@@ -8268,18 +8188,8 @@ export function App() {
       })();
     },
   );
-  const retryImageGen = retryImageGenRef.current.get(sessionId.trim());
-  const retryImageGenKnown =
-    !!retryImageGen &&
-    retryImageGen.text === lastUserText &&
-    retryImageGen.model === llmModel;
   const handleRetryLast = useStableHandler(
-    () =>
-      void streamResponses(lastUserText, {
-        imageGenerationOverride: retryImageGenKnown
-          ? retryImageGen.enabled
-          : false,
-      }),
+    () => void streamResponses(lastUserText),
   );
   /**
    * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
@@ -8801,10 +8711,6 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
-                  llmModelImageGen,
-                  imageGenOn,
-                  onImageGenToggle,
-                  onImageGenEnable,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
@@ -8846,11 +8752,7 @@ export function App() {
             onPromptSuggestionAccepted={() => {
               promptSuggestionAcceptedRef.current = true;
             }}
-            {...(!generating &&
-            lastUserText.trim() &&
-            !subagentTranscript &&
-            (!retryImageGen || retryImageGen.model === llmModel) &&
-            (!llmModelImageGen || retryImageGenKnown)
+            {...(!generating && lastUserText.trim() && !subagentTranscript
               ? { onRetryLast: handleRetryLast }
               : {})}
             onContextRingOpen={() => {

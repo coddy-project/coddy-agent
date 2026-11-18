@@ -223,7 +223,7 @@
           },
           "image_generation": {
             "type": "boolean",
-            "description": "Model may emit images natively through the provider's image generation tool. Off by default: the UI offers the per-turn image control only for models opted in here, and a request's metadata.image_generation is refused for a model without it.",
+            "description": "Allow the model to use the provider's native image generation tool. Off by default. The tool is available on each chat request when enabled; metadata.image_generation is refused for a model without this setting.",
             "default": false
           },
           "reasoning_levels": {

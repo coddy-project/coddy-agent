@@ -835,7 +835,7 @@ export const messagesEn: Record<string, string> = {
     "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
   "settings.schema.models.image_generation.label": "Image generation",
   "settings.schema.models.image_generation.desc":
-    "When true, the model may emit images natively through the provider's image generation tool, and the composer offers a per-turn control for requests sent with this model.",
+    "When true, the model may emit images natively through the provider's image generation tool, and the tool is included in every chat request sent with this model.",
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
     "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
@@ -2119,14 +2119,6 @@ export const messagesEn: Record<string, string> = {
   "composer.reasoning": "Reasoning",
   "composer.reasoningLevel": "Reasoning level",
   "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
-  "composer.imageGenerationQueueUnavailable":
-    "Turn off Images to queue a message, or wait for the current turn to finish.",
-  "composer.imageGeneration": "Images",
-  "composer.imageGenerationTitle":
-    "Ask the model for native image output on send (metadata.image_generation)",
-  "composer.imageGenerationEnable": "Images",
-  "composer.imageGenerationEnableTitle":
-    "Enable image generation for this model in Settings",
   "composer.contextUsage": "Context usage",
   "composer.contextTipShort": "{percent}% \u00b7 {used} / {max}",
   "composer.contextTipUnknown": "Context usage unavailable · max {max}",
