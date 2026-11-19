@@ -2,12 +2,15 @@
 description: The Russian documentation tree (docs/ru), what moves with an English page, the stamp, and the writing rules for Russian and English documentation
 paths:
   - "docs/**"
+  - "specs/**/*.md"
   - "internal/config/config.schema.json"
   - "internal/docs/**"
   - "internal/docsgen/**"
 ---
 
 # Documentation in two languages
+
+`specs/` holds internal English references. It is checked for links and assets, but does not enter the public map or require Russian mirrors.
 
 The documentation exists in English (`docs/<group>/<page>.md`) and in Russian
 (`docs/ru/<group>/<page>.md`, the same name and the same path under `docs/ru/`). The English page is

@@ -36,7 +36,10 @@ const css = stylesheets(join(dir, ".."))
   .map((path) => readFileSync(path, "utf8"))
   .join("\n")
   .replace(/\/\*[\s\S]*?\*\//g, "");
-const design = readFileSync(join(dir, "../../../../DESIGN.md"), "utf8");
+const design = readFileSync(
+  join(dir, "../../../../specs/ui/layout.md"),
+  "utf8",
+);
 
 type Query = { kind: "min" | "max"; px: number };
 const key = (q: Query) => `${q.kind}-width: ${q.px}px`;
