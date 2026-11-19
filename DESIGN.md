@@ -28,6 +28,6 @@ Read the relevant SPA contract below before changing layout, styles, interaction
 
 ## Console TUI (`external/cli/`)
 
-- For terminal layout, rendering, or input behavior, read the console [visual model](docs/surfaces/console.md#visual-model) and [commands and keys](docs/surfaces/console.md#commands-and-keys).
-- For render caching, local shell, and question behavior, read the scoped console rule ([Cursor](.cursor/rules/console-tui.mdc), [Claude Code](.claude/rules/console-tui.md)). Use the [console test guide](docs/surfaces/console.md#testing) for terminal-output regressions.
+- Read the [TUI design contract](specs/tui/design.md) before changing terminal layout, rendering, input, or dialogs.
+- For local shell behavior and test safety, use the scoped console rule ([Cursor](.cursor/rules/console-tui.mdc), [Claude Code](.claude/rules/console-tui.md)).
 - Do not apply SPA stylesheet or browser geometry rules to the console. If a change affects both surfaces, read both contracts.
