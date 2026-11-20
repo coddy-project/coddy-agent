@@ -614,7 +614,7 @@ func isTransientTransportError(err error) bool {
 		errors.Is(err, syscall.ECONNABORTED) || isWinsockConnectionDrop(err) {
 		return true
 	}
-	s := strings.ToLower(err.Error())
+	s := err.Error()
 	for _, needle := range []string{
 		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
 		// net/http prints it as "stream error: stream ID N; CODE; received
@@ -635,7 +635,6 @@ func isTransientTransportError(err error) bool {
 		"unexpected EOF",
 		// A corrupted TLS record means the established connection cannot be
 		// trusted; discard it and retry the request on a fresh connection.
-		"tls: bad record mac",
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
 		"net/http: TLS handshake timeout",
@@ -644,7 +643,7 @@ func isTransientTransportError(err error) bool {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(strings.ToLower(s), "tls: bad record mac")
 }
 
 // Winsock's codes for an established connection that died under the request:
