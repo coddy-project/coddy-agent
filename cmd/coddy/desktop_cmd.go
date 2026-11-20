@@ -78,6 +78,7 @@ func runDesktopWindow(args []string) error {
 	framed := fs.Bool("frame", false, "keep the separate system title bar and borders. Without it the tab strip is the title bar: X11 draws window buttons at the right, native macOS keeps system buttons at the left (elsewhere the frame stays)")
 	keepAuth := fs.Bool("auth", false, "ask for the credential the configuration carries (a token, the sign-in form). By default the window asks for nothing: it binds loopback for the person who started it, and a form in a window they opened themselves proves nothing")
 	testConfig := config.AddCheckFlag(fs)
+	installShortcut := desktopShortcutFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of coddy desktop (opens Coddy in a window on this machine):\n")
@@ -91,6 +92,12 @@ func runDesktopWindow(args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unknown argument %q: coddy desktop takes flags only", fs.Arg(0))
+	}
+	if *installShortcut {
+		if *testConfig {
+			return errors.New("--install-shortcut and --test-config are mutually exclusive")
+		}
+		return installDesktopShortcut()
 	}
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
@@ -114,6 +121,7 @@ func runDesktopWindow(args []string) error {
 	if err != nil {
 		return err
 	}
+	maybeMigrateDesktopShortcut()
 	_, _ = skills.SeedDelivery(cfg)
 
 	// The window is one surface of this process; beside it the desktop runs

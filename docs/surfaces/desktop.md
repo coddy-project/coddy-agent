@@ -65,31 +65,36 @@ nor an installed browser. See [Building from source](../contributing/build.md#de
 
 ### The Linux package
 
-`coddy-desktop` is a package of its own beside `coddy`, and it carries no program: it installs the
-menu entry (`/usr/share/applications/coddy-desktop.desktop`) and the icon it names, so Coddy
-appears in the application launcher and starts from there with no terminal, and it depends on
-`coddy`, whose `desktop` verb is the window. A server that only runs `coddy serve` installs the
-agent alone.
+The `coddy` Linux package includes the application launcher and icon when built with the
+`desktop` tag. It replaces the former `coddy-desktop` package. A lean package without that tag
+does not install a launcher for a command it cannot run. The package enables nothing, creates no
+system account and writes nothing under `/etc`. **Open at login** writes to the invoking user's
+autostart folder. A Chromium-family browser is needed for the Linux window.
 
-```bash
-make deb-desktop    # dist/coddy-desktop_<version>_linux_<arch>.deb
-make rpm-desktop    # the same as an .rpm
-```
+### Application menu shortcut
 
-Like the agent's package it enables nothing, creates no system account and writes nothing under
-`/etc`; the window's state is the invoking user's `~/.coddy`, and **Open at login** writes into
-that user's own autostart folder. A browser is a recommendation rather than a dependency - any of
-the Chromium family does, and `CODDY_DESKTOP_BROWSER` names another.
+On Linux and Windows, the user installer registers a shortcut for the installed binary. For an
+existing default user installation, the first interactive desktop or console launch after updating a
+release registers it once. On Linux this migration needs a graphical session and does not apply to
+system packages or portable binaries; on Windows it applies to the default per-user installation
+in an unelevated interactive session. Services and non-interactive commands do not register it.
+
+Deleting a registered user shortcut is respected on later launches and updates. To restore it, run
+`coddy desktop --install-shortcut` as that user. This installs or repairs the shortcut and exits
+without opening a window. A Linux package also provides its own system-wide menu entry, independent
+of the user shortcut.
 
 ## Running it
 
 ```
 coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
               [--config PATH] [--home DIR] [--cwd DIR] [--log-level LEVEL] [-t]
+              [--install-shortcut]
 ```
 
 | Flag | What it does |
 | --- | --- |
+| `--install-shortcut` | Linux and Windows: install or repair this user's application menu shortcut and exit |
 | `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS build carries, release or source; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
@@ -229,14 +234,12 @@ bundle or custom Dock icon.
 
 ### Recent folders in the application menu
 
-On Linux and FreeBSD every launch writes this user's own application entry,
-`~/.local/share/applications/coddy-desktop.desktop`, naming the binary that
-wrote it. That is what puts Coddy in the launcher and in the task bar's menu
-without a package installed, and it carries the folders of this home's recent
-chats as its actions - up to six, newest first. A right click on the icon
-offers them, and picking one opens a new chat in that folder: the row runs
-`coddy desktop --new-chat --cwd <folder>`, which hands the folder to the
-window already open rather than starting a second one.
+On Linux and FreeBSD, a desktop launch refreshes the user's application entry,
+`~/.local/share/applications/coddy-desktop.desktop` (or under `$XDG_DATA_HOME`), with the running
+binary and up to six recent chat folders, newest first. On Linux, a registered shortcut that the
+user deleted is not recreated by this refresh. An unregistered portable launch and a FreeBSD launch
+create the entry when it is missing. A right click offers the folders; selecting one runs
+`coddy desktop --new-chat --cwd <folder>` and hands it to the open window.
 
 A row names the folder and the one above it (`coddy-agent/docs`), because that
 is what tells two checkouts of one repository apart; the whole path is in the

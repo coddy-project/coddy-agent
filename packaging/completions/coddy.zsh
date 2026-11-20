@@ -131,6 +131,7 @@ _coddy() {
                         '--frame[keep a separate system title bar (macOS always keeps its buttons)]' \
                         '--auth[ask for the credential the configuration carries]' \
                         '--new-chat[open a new chat in --cwd, asking a desktop already running]' \
+                        '--install-shortcut[install or repair the application menu shortcut and exit (Linux and Windows)]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \

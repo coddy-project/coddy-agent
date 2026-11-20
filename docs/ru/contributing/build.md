@@ -209,21 +209,10 @@ make build TAGS="http ui desktop"
 отдельный бинарник с тегами сборки `http ui swarm scheduler desktop`, потому что проверка проходит
 по рельсу, а в урезанном бинарнике предыдущих проверок нет ни планировщика, ни окна.
 
-Десктопное приложение - отдельный пакет для Linux, и бинарника в нём нет: это пункт меню и иконка,
-которые ставят Coddy в меню приложений, с зависимостью от `coddy`.
-
-```bash
-make deb-desktop        # dist/coddy-desktop_<версия>_linux_<арх>.deb
-make rpm-desktop        # то же самое в виде .rpm
-```
-
-Они берут те же ручки `PKG_ARCHS` и `DIST_DIR` и ничего не собирают, потому что бинарника в пакете
-нет. Рецепт - `packaging/nfpm-desktop.yaml`, его гоняет `scripts/build-desktop-packages.sh`,
-который складывает пункт меню (`packaging/desktop/coddy-desktop.desktop`), иконку
-(`packaging/desktop/coddy-desktop.svg` и размеры из `packaging/desktop/icons/`, отрисованные из
-него через `rsvg-convert` и закоммиченные: вокруг знака в фавиконе веб-интерфейса слишком много
-воздуха, чтобы он читался на 32 и 48 пикселях меню приложений) и `LICENSE`. Пакет ничего не
-включает, не несёт сопроводительных скриптов и зависит от `coddy`.
+Пакет `coddy` для Linux включает пункт меню и иконки, когда в `PKG_TAGS` указан `desktop`.
+`make deb` и `make rpm` добавляют `packaging/desktop/coddy-desktop.desktop`, SVG и растровые
+иконки из `packaging/desktop/icons/`. Урезанная сборка без `desktop` их не включает. Пакет
+заменяет прежний `coddy-desktop`, чтобы менеджер пакетов передал ему владение файлами.
 
 ## Android (Termux)
 
@@ -392,4 +381,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics browser desktop"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=bb4cf6539ecbd2fa -->
+<!-- docsgen:source sha256=13a5059e91f14229 -->

@@ -67,6 +67,8 @@ func installedExtras(share string) []extraFile {
 // an update does not revisit. The binary goes first, so a failure half-way
 // leaves a new binary with old completions, which is what the user had, and
 // never new completions for an old binary.
+// The desktop menu entry and icon are managed separately. The replacement
+// keeps the launcher target stable without reinstalling a deleted shortcut.
 func installRelease(data []byte, archiveName, dest, tag string, out io.Writer) error {
 	binName := BinaryName(runtimeGOOSFromArchive(archiveName))
 	share := shareDirFor(dest)

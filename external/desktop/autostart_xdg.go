@@ -87,7 +87,7 @@ func autostartEntry(exe string) string {
 		"Comment=Coddy agent in a window",
 		"Exec=" + quoteExec(exe) + " desktop",
 		// The icon the package installs into the hicolor theme
-		// (packaging/nfpm-desktop.yaml), so an entry written here draws the
+		// (packaging/nfpm.yaml), so an entry written here draws the
 		// same mark as the one in the application menu.
 		"Icon=coddy-desktop",
 		"Terminal=false",

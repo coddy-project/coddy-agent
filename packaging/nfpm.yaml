@@ -44,6 +44,11 @@ description: |
 # connection. A suggestion is named and never installed: apt and zypper list it
 # during the install, and it stays in the package metadata for dnf
 # (rpm -q --suggests). The Homebrew cask says the same in its caveats.
+replaces:
+  - coddy-desktop
+conflicts:
+  - coddy-desktop
+
 suggests:
   - tmux
 
@@ -93,6 +98,44 @@ contents:
     dst: /usr/share/doc/coddy/copyright
     file_info:
       mode: 0644
+
+  # BEGIN DESKTOP CONTENTS
+  - src: coddy-desktop.desktop
+    dst: /usr/share/applications/coddy-desktop.desktop
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/coddy-desktop.svg
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  - src: coddy-desktop-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/coddy-desktop.png
+    file_info:
+      mode: 0644
+
+  # END DESKTOP CONTENTS
 
 scripts:
   postinstall: postinstall.sh

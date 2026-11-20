@@ -871,3 +871,30 @@ func TestNotesDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallReleaseKeepsDesktopShortcutAndIcon(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	dest := filepath.Join(prefix, "bin", "coddy")
+	share := filepath.Join(prefix, "share")
+	launcher := filepath.Join(share, "applications", "coddy-desktop.desktop")
+	icon := filepath.Join(share, "icons", "hicolor", "512x512", "apps", "coddy-desktop.png")
+	entry := fmt.Sprintf("[Desktop Entry]\nExec=%q desktop\nIcon=coddy-desktop\n", dest)
+	for path, body := range map[string]string{dest: "old executable", launcher: entry, icon: "icon data"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := mustTarGz(t, "coddy", []byte("new executable"))
+	if err := installRelease(archive, "coddy_1.2.3_linux_amd64.tar.gz", dest, "1.2.3", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{dest: "new executable", launcher: entry, icon: "icon data"} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q (%v), want %q", path, got, err, want)
+		}
+	}
+}
