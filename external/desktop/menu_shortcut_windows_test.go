@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"os"
 	"os/exec"
@@ -115,34 +116,53 @@ func TestTheShellReadsTheShortcutBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := filepath.Join(programs, menuShortcutName)
-	script := "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" +
+	script := "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" +
 		strings.ReplaceAll(link, "'", "''") +
-		"');Write-Output ($s.TargetPath,$s.Arguments,$s.WorkingDirectory,$s.WindowStyle,$s.IconLocation -join [char]30)"
+		"');@($s.TargetPath,$s.Arguments,$s.WorkingDirectory,[string]$s.WindowStyle,$s.IconLocation) | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) }"
 	out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).Output()
 	if err != nil {
 		t.Fatalf("the shell could not read the shortcut: %v", err)
 	}
-	fields := strings.Split(strings.TrimSpace(string(out)), "\x1e")
-	if len(fields) != 5 {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 5 {
 		t.Fatalf("the shell read %q back", strings.TrimSpace(string(out)))
 	}
-	if !strings.EqualFold(fields[0], exe) {
-		t.Fatalf("the shell opens %q, not %q", fields[0], exe)
+	fields := make([]string, len(lines))
+	for i, line := range lines {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(line))
+		if err != nil {
+			t.Fatalf("the shell returned invalid base64 for field %d: %v", i, err)
+		}
+		fields[i] = string(decoded)
 	}
+	assertSameFile(t, fields[0], exe)
 	if fields[1] != "desktop" {
 		t.Fatalf("the shell runs the program with %q", fields[1])
 	}
-	if !strings.EqualFold(fields[2], filepath.Dir(exe)) {
-		t.Fatalf("the shell starts in %q", fields[2])
-	}
+	assertSameFile(t, fields[2], filepath.Dir(exe))
 	if fields[3] != "7" {
 		t.Fatalf("the shell starts the link with window mode %q", fields[3])
 	}
-	if !strings.Contains(strings.ToLower(fields[4]), "coddy-desktop.ico") {
-		t.Fatalf("the shell draws the icon from %q", fields[4])
+	icon, index, ok := strings.Cut(fields[4], ",")
+	if !ok || index != "0" {
+		t.Fatalf("the shell returned icon location %q, expected icon index 0", fields[4])
 	}
-	if !strings.HasPrefix(fields[4], filepath.Join(icons, "Coddy")) {
-		t.Fatalf("the icon is not the managed one: %q", fields[4])
+	assertSameFile(t, icon, filepath.Join(icons, "Coddy", menuIconName))
+}
+
+// The shell may expand Windows 8.3 short names or change path casing.
+func assertSameFile(t *testing.T, got, want string) {
+	t.Helper()
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("cannot stat shell path %q: %v", got, err)
+	}
+	wantInfo, err := os.Stat(want)
+	if err != nil {
+		t.Fatalf("cannot stat expected path %q: %v", want, err)
+	}
+	if !os.SameFile(gotInfo, wantInfo) {
+		t.Fatalf("shell path %q does not identify %q", got, want)
 	}
 }
 
