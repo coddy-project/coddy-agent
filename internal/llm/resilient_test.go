@@ -1201,6 +1201,8 @@ func TestIsTransientProviderError(t *testing.T) {
 		{"JSON syntax error in a transport wrapper", fmt.Errorf("codex stream: %w", &streamTransportError{cause: jsonCutError(), emitted: true}), false},
 		{"undecodable frame with a status in its text", fmt.Errorf("openai stream: %w", &streamUndecodableError{snippet: "<html><title>502 Bad Gateway</title></html>"}), false},
 		{"connection reset after text", fmt.Errorf("openai stream: %w", &streamTransportError{cause: syscall.ECONNRESET, emitted: true}), true},
+		{"TLS bad record MAC before text", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New("local error: tls: bad record MAC")}), true},
+		{"TLS bad record MAC after text", fmt.Errorf("codex stream: %w", &streamTransportError{cause: errors.New("local error: tls: bad record MAC"), emitted: true}), true},
 		{"Windows connection reset after text", fmt.Errorf("openai stream: %w", &streamTransportError{cause: windowsSocketError(10054), emitted: true}), true},
 		{"Windows connection aborted before text", fmt.Errorf("openai stream: %w", &streamTransportError{cause: windowsSocketError(10053)}), true},
 		{"stalled", &streamStalledError{idle: time.Minute}, true},

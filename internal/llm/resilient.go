@@ -633,6 +633,8 @@ func isTransientTransportError(err error) bool {
 		"forcibly closed by the remote host",
 		"aborted by the software in your host machine",
 		"unexpected EOF",
+		// A corrupted TLS record means the established connection cannot be
+		// trusted; discard it and retry the request on a fresh connection.
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
 		"net/http: TLS handshake timeout",
@@ -641,7 +643,7 @@ func isTransientTransportError(err error) bool {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(strings.ToLower(s), "tls: bad record mac")
 }
 
 // Winsock's codes for an established connection that died under the request:
