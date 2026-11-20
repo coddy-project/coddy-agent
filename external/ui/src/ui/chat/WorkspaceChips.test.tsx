@@ -61,16 +61,14 @@ afterEach(() => {
 });
 
 describe("WorkspaceChips", () => {
-  it("offers branch creation and Git Graph below the branch list", async () => {
+  it("offers branch creation and Commit history below the branch list", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     renderChips({ onCreateBranch: create });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     expect(
-      screen.getByRole("menuitem", { name: "Git Graph" }),
+      screen.getByRole("menuitem", { name: "Commit history" }),
     ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: /Create and switch to new branch/ }),
-    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Create branch/ }));
     expect(screen.queryByRole("menu")).toBeNull();
     const input = screen.getByRole("textbox", { name: "Branch name" });
     fireEvent.change(input, { target: { value: "feature/new" } });

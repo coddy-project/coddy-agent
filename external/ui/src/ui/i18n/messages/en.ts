@@ -9,8 +9,8 @@ export const messagesEn: Record<string, string> = {
   "composer.serviceTier.ultrafast": "Ultrafast",
   "composer.serviceTier.flex": "Flex",
 
-  "git.createMenu": "Create and switch to new branch…",
-  "git.createTitle": "Create and switch to a new branch",
+  "git.createMenu": "Create branch…",
+  "git.createTitle": "Create branch",
   "git.createDescription":
     "Create a new local branch from the current HEAD and switch to it immediately after it succeeds.",
   "git.branchName": "Branch name",
@@ -19,7 +19,7 @@ export const messagesEn: Record<string, string> = {
   "git.createAction": "Create and switch",
   "git.creating": "Creating…",
   "git.createFailed": "Could not create the branch.",
-  "git.graph": "Git Graph",
+  "git.graph": "Commit history",
   "git.refresh": "Refresh graph",
   "git.graphColumn": "Graph",
   "git.description": "Description",

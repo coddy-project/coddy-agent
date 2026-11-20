@@ -7,8 +7,8 @@ export const messagesRu: Record<string, string> = {
   "composer.serviceTier.ultrafast": "Сверхбыстрый",
   "composer.serviceTier.flex": "Flex",
 
-  "git.createMenu": "Создать ветку и переключиться…",
-  "git.createTitle": "Создать новую ветку и переключиться",
+  "git.createMenu": "Создать ветку…",
+  "git.createTitle": "Создать ветку",
   "git.createDescription":
     "Создайте локальную ветку от текущего HEAD и сразу переключитесь на неё.",
   "git.branchName": "Имя ветки",
@@ -17,7 +17,7 @@ export const messagesRu: Record<string, string> = {
   "git.createAction": "Создать и переключиться",
   "git.creating": "Создание…",
   "git.createFailed": "Не удалось создать ветку.",
-  "git.graph": "Git Graph",
+  "git.graph": "История коммитов",
   "git.refresh": "Обновить граф",
   "git.graphColumn": "Граф",
   "git.description": "Описание",

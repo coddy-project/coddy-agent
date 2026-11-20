@@ -177,7 +177,9 @@ test("a linked worktree has no exit button and its edits remain actionable", () 
   expect(onOpenEdits).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId("workspace-bar-leave")).toBeNull();
   expect(screen.getAllByRole("button")).toEqual([
-    screen.getByRole("button", { name: "Git Graph: feat/session-changes" }),
+    screen.getByRole("button", {
+      name: "Commit history: feat/session-changes",
+    }),
     edits,
   ]);
 });

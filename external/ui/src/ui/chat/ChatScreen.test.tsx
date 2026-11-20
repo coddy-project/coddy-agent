@@ -1210,7 +1210,9 @@ test("a linked worktree's plate has no exit button and still opens the edits", a
     expect(
       within(screen.getByTestId("workspace-bar")).getAllByRole("button"),
     ).toEqual([
-      screen.getByRole("button", { name: "Git Graph: feat/session-changes" }),
+      screen.getByRole("button", {
+        name: "Commit history: feat/session-changes",
+      }),
       edits,
     ]);
   } finally {

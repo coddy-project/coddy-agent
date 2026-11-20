@@ -197,15 +197,13 @@ try {
       await chip.waitFor();
       await chip.click();
       await page
-        .getByRole("menuitem", { name: "Git Graph", exact: true })
+        .getByRole("menuitem", { name: "Commit history", exact: true })
         .waitFor();
       if (shots)
         await page.screenshot({
           path: path.join(shots, `git-menu-${theme}-${width}.png`),
         });
-      await page
-        .getByRole("menuitem", { name: /Create and switch to new branch/ })
-        .click();
+      await page.getByRole("menuitem", { name: /Create branch/ }).click();
       const dialog = page.getByRole("dialog");
       await dialog.waitFor();
       const name = `feature/demo-${theme}-${width}`;
@@ -230,9 +228,7 @@ try {
       );
       assert.equal(await chip.getAttribute("title"), name);
       await chip.click();
-      await page
-        .getByRole("menuitem", { name: /Create and switch to new branch/ })
-        .click();
+      await page.getByRole("menuitem", { name: /Create branch/ }).click();
       await page.getByRole("textbox", { name: "Branch name" }).fill("main");
       await page
         .getByRole("button", { name: "Create and switch", exact: true })
@@ -241,7 +237,7 @@ try {
       await page.keyboard.press("Escape");
       await chip.click();
       await page
-        .getByRole("menuitem", { name: "Git Graph", exact: true })
+        .getByRole("menuitem", { name: "Commit history", exact: true })
         .click();
       await page.getByText("Commits shown: 100", { exact: true }).waitFor();
       assert.equal(
