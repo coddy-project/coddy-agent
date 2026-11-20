@@ -104,15 +104,18 @@ func TestTheShellReadsTheShortcutBack(t *testing.T) {
 		t.Skip("powershell is not there to ask the shell what the link opens")
 	}
 	programs, icons := isolateMenuFolders(t)
-	exe, err := os.Executable()
-	if err != nil {
+	exe := filepath.Join(t.TempDir(), "Папка с пробелом", "программа.exe")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("test"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := InstallMenuShortcut(exe); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(programs, menuShortcutName)
-	script := "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" +
+	script := "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" +
 		strings.ReplaceAll(link, "'", "''") +
 		"');Write-Output ($s.TargetPath,$s.Arguments,$s.WorkingDirectory,$s.WindowStyle,$s.IconLocation -join [char]30)"
 	out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).Output()
@@ -169,7 +172,7 @@ func parseMenuShortcut(t *testing.T, b []byte) parsedShortcut {
 	}
 	if flags&linkHasLinkInfo != 0 {
 		info := b[off:]
-		got.target = utf16String(t, info[int(binary.LittleEndian.Uint32(info[0x18:])):])
+		got.target = utf16String(t, info[int(binary.LittleEndian.Uint32(info[0x1c:])):])
 		off += int(binary.LittleEndian.Uint32(info))
 	}
 	// The counted strings, in flag order: name, relative path, working

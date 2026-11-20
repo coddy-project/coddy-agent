@@ -9,28 +9,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"unicode/utf16"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// The Start menu entry of this user: a shell link named after the
-// application in the Programs folder of the account that runs Coddy. Where
-// the XDG entry is a text file any launcher reads, this is the binary shell
-// link format (MS-SHLLINK), written directly the way the tray speaks its
-// own protocol elsewhere in this package - nothing in the toolchain calls
-// the shell's COM API, and a cross-compile produces exactly the file a
-// Windows installer would.
-//
-// Two things the format buys here. The link names its target twice - once
-// as the shell item list Explorer builds first, once as the LinkInfo the
-// resolver falls back on - so it opens the binary it was written for even
-// after the menu stops trusting the list. And its run mode is Minimized:
-// coddy is one program for the terminal and the desktop both, so the
-// console subsystem stays (a CLI launched from a terminal still works), and
-// what keeps a Start menu launch from opening a console over the window is
-// this field, not a second binary.
+// The Start menu entry is a per-user shell link. The shell builds its target
+// item list; LinkInfo provides a fallback when the target cannot be resolved.
+// Minimized launch keeps the console window out of the way of the desktop.
 
 //go:embed assets/coddy-icon.png
 var menuIconBig []byte
@@ -199,66 +187,45 @@ func menuShortcut(exe, workDir, icon string) []byte {
 	return b.Bytes()
 }
 
-// linkTargetIDList is the shell item list of the target: My Computer, the
-// drive, then a file entry per component. Nil for a path it cannot split -
-// a relative name or a UNC share - and the link resolves through its
-// LinkInfo instead, which is what the resolver reads next.
+var (
+	shell32            = windows.NewLazySystemDLL("shell32.dll")
+	ole32              = windows.NewLazySystemDLL("ole32.dll")
+	shParseDisplayName = shell32.NewProc("SHParseDisplayName")
+	ilGetSize          = shell32.NewProc("ILGetSize")
+	coInitializeEx     = ole32.NewProc("CoInitializeEx")
+	coUninitialize     = ole32.NewProc("CoUninitialize")
+	coTaskMemFree      = ole32.NewProc("CoTaskMemFree")
+)
+
+// linkTargetIDList asks the shell to encode the target, including Unicode and
+// network paths. An unresolved target is left to the LinkInfo fallback.
 func linkTargetIDList(exe string) []byte {
-	vol := filepath.VolumeName(exe)
-	if len(vol) != 2 || vol[1] != ':' {
+	path, err := windows.UTF16PtrFromString(exe)
+	if err != nil {
 		return nil
 	}
-	var items bytes.Buffer
-	// The computer: a 0x1F50 item naming CLSID_MyComputer.
-	writeItemID(&items, []byte{0x1f, 0x50, 0xe0, 0x4f, 0xd0, 0x20,
-		0xea, 0x3a, 0x69, 0x10, 0xa2, 0xd8, 0x08, 0x00, 0x2b, 0x30, 0x30, 0x9d})
-	// The drive: a 0x2F item holding "C:\" in a fixed-size field.
-	var drive [23]byte
-	drive[0] = 0x2f
-	copy(drive[1:], strings.ToUpper(vol)+`\`)
-	writeItemID(&items, drive[:])
-	parts := strings.Split(strings.TrimPrefix(exe[len(vol):], `\`), `\`)
-	for i, part := range parts {
-		writeItemID(&items, fileEntryItem(part, i < len(parts)-1))
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	hr, _, _ := coInitializeEx.Call(0, 2) // COINIT_APARTMENTTHREADED
+	if hr&0x80000000 == 0 {
+		defer func() { _, _, _ = coUninitialize.Call() }()
+	} else if hr&0xffffffff != 0x80010106 { // already initialized in another apartment
+		return nil
 	}
-	var out bytes.Buffer
-	_ = binary.Write(&out, binary.LittleEndian, uint16(items.Len()+2)) //nolint:gosec // G115: an ID list of path parts is far under 64 KiB
-	out.Write(items.Bytes())
-	out.Write([]byte{0, 0}) // TerminalID
-	return out.Bytes()
-}
-
-// writeItemID appends one shell item: its size, including the size field
-// itself, then its data.
-func writeItemID(b *bytes.Buffer, data []byte) {
-	_ = binary.Write(b, binary.LittleEndian, uint16(len(data)+2)) //nolint:gosec // G115: a shell item is a path part, far under 64 KiB
-	b.Write(data)
-}
-
-// fileEntryItem is the FAT-variant file entry shell item for one component
-// of the target path: 0x31 for a directory, 0x32 for the file, the name in
-// ANSI and the item padded to an even size.
-func fileEntryItem(name string, dir bool) []byte {
-	var d bytes.Buffer
-	put := func(v any) { _ = binary.Write(&d, binary.LittleEndian, v) }
-	if dir {
-		d.WriteByte(0x31)
-	} else {
-		d.WriteByte(0x32)
+	var pidl unsafe.Pointer
+	hr, _, _ = shParseDisplayName.Call(uintptr(unsafe.Pointer(path)), 0, uintptr(unsafe.Pointer(&pidl)), 0, 0) //nolint:gosec // G103: Windows API requires pointers to the path and PIDL
+	if hr&0x80000000 != 0 || pidl == nil {
+		return nil
 	}
-	put(uint32(0)) // size of the target
-	put(uint32(0)) // its FAT timestamp
-	if dir {
-		put(uint16(0x10)) // FILE_ATTRIBUTE_DIRECTORY
-	} else {
-		put(uint16(0x20)) // FILE_ATTRIBUTE_ARCHIVE
+	defer func() { _, _, _ = coTaskMemFree.Call(uintptr(pidl)) }()
+	size, _, _ := ilGetSize.Call(uintptr(pidl))
+	if size < 2 || size > 65535 {
+		return nil
 	}
-	d.Write(ansiBytes(name))
-	d.WriteByte(0)
-	if d.Len()%2 == 1 {
-		d.WriteByte(0)
-	}
-	return d.Bytes()
+	out := make([]byte, 2+int(size))
+	binary.LittleEndian.PutUint16(out, uint16(size))
+	copy(out[2:], unsafe.Slice((*byte)(pidl), int(size))) //nolint:gosec // G103: PIDL buffer size comes from ILGetSize
+	return out
 }
 
 // linkInfo is the LinkInfo structure: a fixed drive volume and the target's
@@ -291,8 +258,8 @@ func linkInfo(exe string) []byte {
 	put(uint32(volumeOff))
 	put(uint32(baseOff))    //nolint:gosec // G115: a LinkInfo is the size of a path
 	put(0)                  // no common network relative link
-	put(uint32(baseUOff))   //nolint:gosec // G115: a LinkInfo is the size of a path
 	put(uint32(suffixOff))  //nolint:gosec // G115: a LinkInfo is the size of a path
+	put(uint32(baseUOff))   //nolint:gosec // G115: a LinkInfo is the size of a path
 	put(uint32(suffixUOff)) //nolint:gosec // G115: a LinkInfo is the size of a path
 	b.Write(volume)
 	b.Write(base)
