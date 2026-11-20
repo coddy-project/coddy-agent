@@ -4,161 +4,163 @@ package desktop
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/binary"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
+	"syscall"
 	"testing"
 	"unicode/utf16"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
-// The Start menu link this user gets: written by the program itself, read
-// back two ways - by walking the bytes, and by the shell's own COM API,
-// which is the check a cross-compile cannot do.
-
-// Shell link flags (MS-SHLLINK): the bits of the file header the parser
-// below walks to find the string data the shell saved.
-const (
-	linkHasIDList   = 0x01 // a LinkTargetIDList follows the header
-	linkHasLinkInfo = 0x02 // a LinkInfo structure follows
-	linkHasName     = 0x04 // NAME_STRING string data
-	linkHasWorkDir  = 0x10 // WORKING_DIR string data
-	linkHasArgs     = 0x20 // COMMAND_LINE_ARGUMENTS string data
-	linkHasIcon     = 0x40 // ICON_LOCATION string data
-)
-
-// isolateMenuFolders points the link and its icon at folders of this test's
-// own, so a suite neither writes into nor reads the Start menu and the
-// application data of the person running it.
-func isolateMenuFolders(t *testing.T) (programs, icons string) {
+// Use a short prefix instead of the test name in the temporary paths, so
+// this tests Unicode separately from the shell's legacy MAX_PATH limits.
+func isolateMenuFolders(t *testing.T) string {
 	t.Helper()
-	programs = t.TempDir()
-	icons = t.TempDir()
-	wasPrograms, wasIcons := menuProgramsFolder, menuIconFolder
-	menuProgramsFolder = func() (string, error) { return programs, nil }
-	menuIconFolder = func() (string, error) { return icons, nil }
-	t.Cleanup(func() {
-		menuProgramsFolder, menuIconFolder = wasPrograms, wasIcons
-	})
-	return programs, icons
-}
-
-func TestTheMenuShortcutIsWrittenWhereTheShellReadsIt(t *testing.T) {
-	programs, icons := isolateMenuFolders(t)
-	exe, err := os.Executable()
+	root, err := os.MkdirTemp("", "cd-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Error(err)
+		}
+	})
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wasPrograms, wasIcons := menuProgramsFolder, menuIconFolder
+	menuProgramsFolder = func() (string, error) { return filepath.Join(abs, "Меню"), nil }
+	menuIconFolder = func() (string, error) { return filepath.Join(abs, "Данные, 日本"), nil }
+	t.Cleanup(func() { menuProgramsFolder, menuIconFolder = wasPrograms, wasIcons })
+	return abs
+}
+
+// A real PE file lets the shell build the same target metadata as an install.
+// A distinct copy (not a hard link) also makes the repair identity check useful.
+func copyShortcutTarget(t *testing.T, dst string) {
+	t.Helper()
+	src, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallMenuShortcutUnicode(t *testing.T) {
+	root := isolateMenuFolders(t)
+	checkMenuShortcut(t, root, filepath.Join(root, "Папка с пробелом", "程序.exe"))
+}
+
+func TestInstallMenuShortcutRepairsTarget(t *testing.T) {
+	root := isolateMenuFolders(t)
+	checkMenuShortcut(t, root, filepath.Join(root, "old", "coddy.exe"))
+	checkMenuShortcut(t, root, filepath.Join(root, "new", "coddy.exe"))
+}
+
+func TestInstallMenuShortcutNeedsAbsolutePath(t *testing.T) {
+	isolateMenuFolders(t)
+	if err := InstallMenuShortcut(`coddy.exe`); err == nil {
+		t.Fatal("a relative executable was accepted")
+	}
+}
+
+func checkMenuShortcut(t *testing.T, root, exe string) {
+	t.Helper()
+	link := filepath.Join(root, "Меню", "Coddy Desktop.lnk")
+	icon := filepath.Join(root, "Данные, 日本", "Coddy", "coddy-desktop.ico")
+	units := func(s string) int { return len(utf16.Encode([]rune(s))) }
+	t.Logf("path lengths (UTF-16 code units): link=%d target=%d workdir=%d icon=%d",
+		units(link), units(exe), units(filepath.Dir(exe)), units(icon))
+	copyShortcutTarget(t, exe)
 	if err := InstallMenuShortcut(exe); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(filepath.Join(programs, menuShortcutName))
-	if err != nil {
-		t.Fatalf("no shortcut was written: %v", err)
-	}
-	got := parseMenuShortcut(t, body)
-	if got.target != exe {
-		t.Fatalf("the shortcut opens %q, not %q", got.target, exe)
-	}
-	if got.args != "desktop" {
-		t.Fatalf("the shortcut's arguments are %q: it would not open a window", got.args)
-	}
-	if got.workDir != filepath.Dir(exe) {
-		t.Fatalf("the shortcut's working folder is %q, not the program's own %q", got.workDir, filepath.Dir(exe))
-	}
-	if got.show != linkShowMinNoAct {
-		t.Fatalf("the shortcut's run mode is %d: the console would cover the window", got.show)
-	}
-	icon := filepath.Join(icons, "Coddy", menuIconName)
-	if got.icon != icon+",0" {
-		t.Fatalf("the shortcut's icon is %q, not %q", got.icon, icon+",0")
+	got := readMenuShortcut(t, link)
+	assertSameFile(t, got.target, exe)
+	assertSameFile(t, got.workDir, filepath.Dir(exe))
+	assertSameFile(t, got.icon, icon)
+	if got.args != "desktop" || got.index != 0 || got.show != 7 || got.description != "Coddy agent in a window" {
+		t.Errorf("shell read arguments=%q, icon index=%d, show command=%d, description=%q; want desktop, 0, SW_SHOWMINNOACTIVE (7), Coddy agent in a window",
+			got.args, got.index, got.show, got.description)
 	}
 	ico, err := os.ReadFile(icon)
 	if err != nil {
 		t.Fatalf("no managed icon was written: %v", err)
 	}
-	if len(ico) < 6 || !bytes.Equal(ico[:4], []byte{0, 0, 1, 0}) || ico[4] != 2 || ico[5] != 0 {
-		t.Fatalf("the managed icon is not the .ico it should be: %x", ico[:6])
+	if !bytes.HasPrefix(ico, []byte{0, 0, 1, 0, 2, 0}) {
+		t.Fatalf("managed icon does not have a two-image ICO header: %x", ico[:min(6, len(ico))])
 	}
 }
 
-// A repair run rewrites the link for the binary it is given now: the
-// migration of an old install depends on that.
-func TestTheShortcutFollowsTheBinaryItNames(t *testing.T) {
-	programs, _ := isolateMenuFolders(t)
-	exe := `C:\Tools\Coddy\coddy.exe`
-	if err := InstallMenuShortcut(exe); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join(programs, menuShortcutName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := parseMenuShortcut(t, body).target; got != exe {
-		t.Fatalf("the shortcut opens %q, not %q", got, exe)
-	}
+type savedMenuShortcut struct {
+	target, workDir, args, description, icon string
+	index, show                              int32
 }
 
-func TestTheShortcutNeedsAnAbsolutePath(t *testing.T) {
-	isolateMenuFolders(t)
-	if err := InstallMenuShortcut(`coddy.exe`); err == nil {
-		t.Fatal("a relative executable was accepted: the menu cannot find it later")
-	}
-}
-
-// The shell reads the file back: the fields the resolver acts on are the
-// ones the link claims.
-func TestTheShellReadsTheShortcutBack(t *testing.T) {
-	ps, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Skip("powershell is not there to ask the shell what the link opens")
-	}
-	programs, icons := isolateMenuFolders(t)
-	exe := filepath.Join(t.TempDir(), "Папка с пробелом", "программа.exe")
-	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(exe, []byte("test"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := InstallMenuShortcut(exe); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(programs, menuShortcutName)
-	script := "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" +
-		strings.ReplaceAll(link, "'", "''") +
-		"');@($s.TargetPath,$s.Arguments,$s.WorkingDirectory,[string]$s.WindowStyle,$s.IconLocation) | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) }"
-	out, err := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script).Output()
-	if err != nil {
-		t.Fatalf("the shell could not read the shortcut: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("the shell read %q back", strings.TrimSpace(string(out)))
-	}
-	fields := make([]string, len(lines))
-	for i, line := range lines {
-		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(line))
-		if err != nil {
-			t.Fatalf("the shell returned invalid base64 for field %d: %v", i, err)
+// Open the file in a fresh native Shell object. This uses only the reader
+// methods and the saved file, never the writer's in-memory state or layout.
+func readMenuShortcut(t *testing.T, path string) savedMenuShortcut {
+	t.Helper()
+	check := func(method string, result uintptr) {
+		t.Helper()
+		if uint32(result) != 0 { // GetPath can return S_FALSE when no path is available.
+			t.Fatalf("%s returned HRESULT 0x%08x", method, uint32(result))
 		}
-		fields[i] = string(decoded)
 	}
-	assertSameFile(t, fields[0], exe)
-	if fields[1] != "desktop" {
-		t.Fatalf("the shell runs the program with %q", fields[1])
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertSameFile(t, fields[2], filepath.Dir(exe))
-	if fields[3] != "7" {
-		t.Fatalf("the shell starts the link with window mode %q", fields[3])
+	var got savedMenuShortcut
+	err = withShellLink(func(link *shellLinkW, file *persistFile) error {
+		hr, _, _ := syscall.SyscallN(file.vtbl.load, uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(name)), 0) // STGM_READ
+		check("IPersistFile.Load", hr)
+
+		self := unsafe.Pointer(link)
+		var buf [windows.MAX_PATH]uint16
+		hr, _, _ = syscall.SyscallN(link.vtbl.getPath, uintptr(self), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0, 0)
+		check("IShellLinkW.GetPath", hr)
+		got.target = windows.UTF16ToString(buf[:])
+
+		for _, field := range []struct {
+			name string
+			proc uintptr
+			dest *string
+		}{
+			{"GetWorkingDirectory", link.vtbl.getWorkingDirectory, &got.workDir},
+			{"GetArguments", link.vtbl.getArguments, &got.args},
+			{"GetDescription", link.vtbl.getDescription, &got.description},
+		} {
+			clear(buf[:])
+			hr, _, _ = syscall.SyscallN(field.proc, uintptr(self), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+			check("IShellLinkW."+field.name, hr)
+			*field.dest = windows.UTF16ToString(buf[:])
+		}
+
+		clear(buf[:])
+		hr, _, _ = syscall.SyscallN(link.vtbl.getIconLocation, uintptr(self), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&got.index)))
+		check("IShellLinkW.GetIconLocation", hr)
+		got.icon = windows.UTF16ToString(buf[:])
+		hr, _, _ = syscall.SyscallN(link.vtbl.getShowCmd, uintptr(self), uintptr(unsafe.Pointer(&got.show)))
+		check("IShellLinkW.GetShowCmd", hr)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	icon, index, ok := strings.Cut(fields[4], ",")
-	if !ok || index != "0" {
-		t.Fatalf("the shell returned icon location %q, expected icon index 0", fields[4])
-	}
-	assertSameFile(t, icon, filepath.Join(icons, "Coddy", menuIconName))
+	return got
 }
 
 // The shell may expand Windows 8.3 short names or change path casing.
@@ -175,79 +177,4 @@ func assertSameFile(t *testing.T, got, want string) {
 	if !os.SameFile(gotInfo, wantInfo) {
 		t.Fatalf("shell path %q does not identify %q", got, want)
 	}
-}
-
-// parsedShortcut is the part of a shell link the test reads back.
-type parsedShortcut struct {
-	target, args, workDir, icon, name string
-	show                              uint32
-}
-
-func parseMenuShortcut(t *testing.T, b []byte) parsedShortcut {
-	t.Helper()
-	var got parsedShortcut
-	if len(b) < 76 || binary.LittleEndian.Uint32(b) != 0x4c {
-		t.Fatalf("not a shell link: %x", b[:min(16, len(b))])
-	}
-	clsid := []byte{0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}
-	if !bytes.Equal(b[4:20], clsid) {
-		t.Fatalf("the file is a link of a different class: %x", b[4:20])
-	}
-	flags := binary.LittleEndian.Uint32(b[20:])
-	got.show = binary.LittleEndian.Uint32(b[60:])
-	off := 76
-	if flags&linkHasIDList != 0 {
-		n := int(binary.LittleEndian.Uint16(b[off:]))
-		off += 2 + n
-	}
-	if flags&linkHasLinkInfo != 0 {
-		info := b[off:]
-		got.target = utf16String(t, info[int(binary.LittleEndian.Uint32(info[0x1c:])):])
-		off += int(binary.LittleEndian.Uint32(info))
-	}
-	// The counted strings, in flag order: name, relative path, working
-	// directory, arguments, icon location.
-	for _, f := range []struct {
-		flag uint32
-		dst  *string
-	}{
-		{linkHasName, &got.name},
-		{0x08, new(string)},
-		{linkHasWorkDir, &got.workDir},
-		{linkHasArgs, &got.args},
-		{linkHasIcon, &got.icon},
-	} {
-		if flags&f.flag == 0 {
-			continue
-		}
-		n := int(binary.LittleEndian.Uint16(b[off:]))
-		u16dst(t, f.dst, b[off+2:off+2+2*n])
-		off += 2 + 2*n
-	}
-	return got
-}
-
-// utf16String reads a NUL-terminated UTF-16LE string.
-func utf16String(t *testing.T, b []byte) string {
-	t.Helper()
-	var u []uint16
-	for len(b) >= 2 && binary.LittleEndian.Uint16(b) != 0 {
-		u = append(u, binary.LittleEndian.Uint16(b))
-		b = b[2:]
-	}
-	if len(b) < 2 {
-		t.Fatal("the string is not terminated")
-	}
-	return string(utf16.Decode(u))
-}
-
-// u16dst decodes n UTF-16 code units into dst.
-func u16dst(t *testing.T, dst *string, b []byte) {
-	t.Helper()
-	u := make([]uint16, len(b)/2)
-	for i := range u {
-		u[i] = binary.LittleEndian.Uint16(b[2*i:])
-	}
-	*dst = string(utf16.Decode(u))
 }

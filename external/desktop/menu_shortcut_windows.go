@@ -4,18 +4,14 @@ package desktop
 
 import (
 	"bytes"
-	"context"
 	_ "embed"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
+	"runtime"
 	"syscall"
-	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -46,10 +42,6 @@ const (
 	menuShortcutDesc = "Coddy agent in a window"
 	// linkShowMinNoAct is SW_SHOWMINNOACTIVE: the console starts minimized.
 	linkShowMinNoAct = 7
-	// shortcutWriteTimeout bounds how long the shell may take to save the
-	// link before the install reports a failure instead of stalling the
-	// launch it was called from.
-	shortcutWriteTimeout = 30 * time.Second
 )
 
 // menuProgramsFolder and menuIconFolder resolve where the link and its icon
@@ -143,58 +135,146 @@ func menuIcon() []byte {
 	return b.Bytes()
 }
 
-// shortcutScript is a constant: every value the link needs arrives through
-// the process environment, which Windows keeps in UTF-16, so nothing is
-// interpolated into the script and no console code page ever touches the
-// paths. A failure comes back on stdout as one Base64 UTF-8 line, the same
-// transport the test that reads the link back uses.
-const shortcutScript = `$ErrorActionPreference = 'Stop'
-try {
-	$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CODDY_SHORTCUT_LINK)
-	$s.TargetPath = $env:CODDY_SHORTCUT_TARGET
-	$s.Arguments = $env:CODDY_SHORTCUT_ARGS
-	$s.WorkingDirectory = $env:CODDY_SHORTCUT_WORKDIR
-	$s.Description = $env:CODDY_SHORTCUT_DESC
-	$s.IconLocation = $env:CODDY_SHORTCUT_ICON
-	$s.WindowStyle = [int]$env:CODDY_SHORTCUT_SHOW
-	$s.Save()
-} catch {
-	[Console]::Out.WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_.Exception.Message)))
-	exit 1
-}`
+// These vtables follow the Windows SDK declarations, including inherited
+// IUnknown and IPersist slots. Unused slots are kept in their ABI positions.
+type shellLinkW struct {
+	vtbl *shellLinkWVtbl
+}
 
-// writeMenuShortcut saves the link through the Windows Script Host of the
-// system PowerShell. Serializing MS-SHLLINK by hand cannot spell a target
-// outside the ANSI code page of the machine - its LocalBasePath turns
-// Cyrillic into '?' - so the shell writes the file it will resolve itself.
-func writeMenuShortcut(link, exe, workDir, icon string) error {
-	system, err := windows.KnownFolderPath(windows.FOLDERID_System, windows.KF_FLAG_DEFAULT)
-	if err != nil {
-		return fmt.Errorf("desktop: find the System folder: %w", err)
-	}
-	ps := filepath.Join(system, "WindowsPowerShell", "v1.0", "powershell.exe")
-	ctx, cancel := context.WithTimeout(context.Background(), shortcutWriteTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-Command", shortcutScript)
-	cmd.Env = append(os.Environ(),
-		"CODDY_SHORTCUT_LINK="+link,
-		"CODDY_SHORTCUT_TARGET="+exe,
-		"CODDY_SHORTCUT_ARGS="+menuShortcutArgs,
-		"CODDY_SHORTCUT_WORKDIR="+workDir,
-		"CODDY_SHORTCUT_DESC="+menuShortcutDesc,
-		"CODDY_SHORTCUT_ICON="+icon+",0",
-		"CODDY_SHORTCUT_SHOW="+strconv.Itoa(linkShowMinNoAct),
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if msg := strings.TrimSpace(string(out)); msg != "" {
-			if decoded, derr := base64.StdEncoding.DecodeString(msg); derr == nil {
-				msg = string(decoded)
-			}
-			return fmt.Errorf("desktop: the shell could not write the shortcut: %w: %s", err, msg)
-		}
-		return fmt.Errorf("desktop: the shell could not write the shortcut: %w", err)
+type shellLinkWVtbl struct {
+	queryInterface, _, release               uintptr // IUnknown
+	getPath                                  uintptr
+	_, _                                     uintptr // GetIDList, SetIDList
+	getDescription, setDescription           uintptr
+	getWorkingDirectory, setWorkingDirectory uintptr
+	getArguments, setArguments               uintptr
+	_, _                                     uintptr // GetHotkey, SetHotkey
+	getShowCmd, setShowCmd                   uintptr
+	getIconLocation, setIconLocation         uintptr
+	_, _                                     uintptr // SetRelativePath, Resolve
+	setPath                                  uintptr
+}
+
+type persistFile struct {
+	vtbl *persistFileVtbl
+}
+
+type persistFileVtbl struct {
+	_, _, release uintptr // IUnknown
+	_             uintptr // IPersist.GetClassID
+	_             uintptr // IsDirty
+	load, save    uintptr
+}
+
+var (
+	ole32            = windows.NewLazySystemDLL("ole32.dll")
+	coInitializeEx   = ole32.NewProc("CoInitializeEx")
+	coUninitialize   = ole32.NewProc("CoUninitialize")
+	coCreateInstance = ole32.NewProc("CoCreateInstance")
+
+	clsidShellLink = windows.GUID{Data1: 0x00021401, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
+	iidShellLinkW  = windows.GUID{Data1: 0x000214f9, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
+	iidPersistFile = windows.GUID{Data1: 0x0000010b, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
+)
+
+func hresultCode(hr uintptr) uint32 {
+	return uint32(hr) //nolint:gosec // G115: only the low 32 bits of an HRESULT are defined.
+}
+
+func shellLinkResult(method string, hr uintptr) error {
+	code := hresultCode(hr)
+	if code&0x80000000 != 0 {
+		return fmt.Errorf("desktop: %s failed (HRESULT 0x%08X): %w", method, code, syscall.Errno(code))
 	}
 	return nil
+}
+
+//nolint:gosec // G103: The COM ABI requires native interface and GUID pointers.
+func withShellLink(use func(*shellLinkW, *persistFile) error) error {
+	const (
+		coinitApartmentThreaded = 0x2
+		coinitDisableOLE1DDE    = 0x4
+		clsctxInprocServer      = 0x1
+		rpcEChangedMode         = 0x80010106
+	)
+	// COM initialization, object use, and release all belong to this thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	hr, _, _ := coInitializeEx.Call(0, coinitApartmentThreaded|coinitDisableOLE1DDE)
+	if hresultCode(hr) != rpcEChangedMode {
+		if err := shellLinkResult("CoInitializeEx", hr); err != nil {
+			return err
+		}
+		// Both S_OK and S_FALSE must be balanced. If the thread already
+		// has a different apartment, use it without balancing a failed call.
+		defer func() { _, _, _ = coUninitialize.Call() }() // CoUninitialize returns void.
+	}
+
+	var link *shellLinkW
+	hr, _, _ = coCreateInstance.Call(uintptr(unsafe.Pointer(&clsidShellLink)), 0, clsctxInprocServer,
+		uintptr(unsafe.Pointer(&iidShellLinkW)), uintptr(unsafe.Pointer(&link)))
+	if err := shellLinkResult("CoCreateInstance(ShellLink)", hr); err != nil {
+		return err
+	}
+	defer func() { _, _, _ = syscall.SyscallN(link.vtbl.release, uintptr(unsafe.Pointer(link))) }()
+
+	var file *persistFile
+	hr, _, _ = syscall.SyscallN(link.vtbl.queryInterface, uintptr(unsafe.Pointer(link)),
+		uintptr(unsafe.Pointer(&iidPersistFile)), uintptr(unsafe.Pointer(&file)))
+	if err := shellLinkResult("IShellLinkW.QueryInterface(IPersistFile)", hr); err != nil {
+		return err
+	}
+	defer func() { _, _, _ = syscall.SyscallN(file.vtbl.release, uintptr(unsafe.Pointer(file))) }()
+	return use(link, file)
+}
+
+// Let the shell choose the on-disk link layout, passing values directly to
+// the Unicode interface rather than through the Windows Script Host.
+//
+//nolint:gosec // G103: Native setters and IPersistFile.Save require UTF-16 pointers.
+func writeMenuShortcut(path, exe, workDir, icon string) error {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return fmt.Errorf("desktop: encode shortcut filename: %w", err)
+	}
+	return withShellLink(func(link *shellLinkW, file *persistFile) error {
+		vt := link.vtbl
+		for _, field := range []struct {
+			method string
+			proc   uintptr
+			value  string
+		}{
+			{"SetPath", vt.setPath, exe},
+			{"SetArguments", vt.setArguments, menuShortcutArgs},
+			{"SetWorkingDirectory", vt.setWorkingDirectory, workDir},
+			{"SetDescription", vt.setDescription, menuShortcutDesc},
+		} {
+			value, err := windows.UTF16PtrFromString(field.value)
+			if err != nil {
+				return fmt.Errorf("desktop: encode shortcut value for %s: %w", field.method, err)
+			}
+			hr, _, _ := syscall.SyscallN(field.proc, uintptr(unsafe.Pointer(link)), uintptr(unsafe.Pointer(value)))
+			if err := shellLinkResult("IShellLinkW."+field.method, hr); err != nil {
+				return err
+			}
+		}
+		iconPath, err := windows.UTF16PtrFromString(icon)
+		if err != nil {
+			return fmt.Errorf("desktop: encode shortcut icon path: %w", err)
+		}
+		hr, _, _ := syscall.SyscallN(vt.setIconLocation, uintptr(unsafe.Pointer(link)), uintptr(unsafe.Pointer(iconPath)), 0)
+		if err := shellLinkResult("IShellLinkW.SetIconLocation", hr); err != nil {
+			return err
+		}
+		hr, _, _ = syscall.SyscallN(vt.setShowCmd, uintptr(unsafe.Pointer(link)), linkShowMinNoAct)
+		if err := shellLinkResult("IShellLinkW.SetShowCmd", hr); err != nil {
+			return err
+		}
+		// Save a copy (fRemember = FALSE): the object is not reused.
+		hr, _, _ = syscall.SyscallN(file.vtbl.save, uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(name)), 0)
+		if hresultCode(hr) == 1 { // IPersistFile.Save can report an unsuccessful save as S_FALSE.
+			return fmt.Errorf("desktop: IPersistFile.Save did not save %q (S_FALSE)", path)
+		}
+		return shellLinkResult("IPersistFile.Save", hr)
+	})
 }
