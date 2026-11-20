@@ -614,7 +614,7 @@ func isTransientTransportError(err error) bool {
 		errors.Is(err, syscall.ECONNABORTED) || isWinsockConnectionDrop(err) {
 		return true
 	}
-	s := err.Error()
+	s := strings.ToLower(err.Error())
 	for _, needle := range []string{
 		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
 		// net/http prints it as "stream error: stream ID N; CODE; received
@@ -633,6 +633,9 @@ func isTransientTransportError(err error) bool {
 		"forcibly closed by the remote host",
 		"aborted by the software in your host machine",
 		"unexpected EOF",
+		// A corrupted TLS record means the established connection cannot be
+		// trusted; discard it and retry the request on a fresh connection.
+		"tls: bad record mac",
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
 		"net/http: TLS handshake timeout",
