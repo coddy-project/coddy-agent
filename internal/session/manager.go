@@ -102,8 +102,8 @@ type Manager struct {
 	mcpWatchMu   sync.Mutex
 	mcpWatchStop context.CancelFunc
 
-	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
-	stubTurnMu sync.Map // sessionID -> *sync.Mutex
+	// stubTurnLocks tracks held turn locks when flock is unavailable or SessionDir is empty.
+	stubTurnLocks sync.Map // sessionID -> struct{}
 
 	// activeTurns counts prompt turns in flight in THIS process, keyed by session id.
 	// See turn_active.go for why it is a count rather than a set.

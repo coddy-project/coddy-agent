@@ -285,22 +285,10 @@ and `check:files`; the step builds its own binary with `http ui swarm scheduler 
 the check walks the rail and the lean binary of the checks before it carries neither the scheduler
 nor the window.
 
-The desktop application is a Linux package of its own, and it carries no binary: the menu entry and
-the icon that put Coddy in the application launcher, depending on `coddy` for the program.
-
-```bash
-make deb-desktop        # dist/coddy-desktop_<version>_linux_<arch>.deb
-make rpm-desktop        # the same as an .rpm
-```
-
-They take the same `PKG_ARCHS` and `DIST_DIR` knobs and build nothing, since the package has no
-binary in it. The recipe is `packaging/nfpm-desktop.yaml`, driven by
-`scripts/build-desktop-packages.sh`, which stages the menu entry
-(`packaging/desktop/coddy-desktop.desktop`), the icon (`packaging/desktop/coddy-desktop.svg` and
-the sizes under `packaging/desktop/icons/`, rendered from it with `rsvg-convert` and committed:
-the web interface's favicon leaves too much air around the mark to read at the 32 and 48 pixels an
-application menu gives it) and `LICENSE`. The package enables nothing, has no maintainer scripts
-and depends on `coddy`.
+The Linux `coddy` package includes the menu entry and icons when `PKG_TAGS` includes `desktop`.
+`make deb` and `make rpm` stage `packaging/desktop/coddy-desktop.desktop`, the SVG and the raster
+icons from `packaging/desktop/icons/`. A lean build without `desktop` omits those files. The package
+replaces the former `coddy-desktop` package so the package manager transfers ownership of its files.
 
 ## Android (Termux)
 

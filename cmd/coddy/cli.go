@@ -9,10 +9,11 @@ import (
 // runCLI starts the interactive console surface (external/cli).
 func runCLI(args []string) error {
 	return cli.Run(args, cli.CommandDeps{
-		EnsureHome: ensureCoddyHomeLayout,
-		OpenStore:  openSessionStore,
-		TestConfig: runConfigTest,
-		DryRun:     runConsoleDryRun,
+		EnsureHome:         ensureCoddyHomeLayout,
+		OpenStore:          openSessionStore,
+		TestConfig:         runConfigTest,
+		DryRun:             runConsoleDryRun,
+		OnInteractiveStart: maybeMigrateDesktopShortcut,
 	})
 }
 

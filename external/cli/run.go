@@ -41,6 +41,8 @@ type CommandDeps struct {
 	// DryRun runs --dry-run (verbose when --test-config is given as well);
 	// nil falls back to dryrun.RunConsole on stdout.
 	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
+	// OnInteractiveStart runs after validation, only for the interactive console.
+	OnInteractiveStart func()
 	// Stdin, Stdout and Stderr are the streams of a one-shot run; nil means
 	// the process's own. The interactive console always uses the terminal.
 	Stdin  *os.File
@@ -207,6 +209,9 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 	defer func() { _ = logCloser.Close() }()
+	if !printMode && !*plainFlag && deps.OnInteractiveStart != nil {
+		deps.OnInteractiveStart()
+	}
 	log.Info("starting interactive console", "version", version.Get())
 
 	store, err := deps.OpenStore(*sessionsRoot, cfg)

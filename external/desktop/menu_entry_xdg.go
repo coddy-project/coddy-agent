@@ -45,7 +45,19 @@ func writeMenuEntry(exe string, folders []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("desktop: the applications folder: %w", err)
 	}
-	return os.WriteFile(path, []byte(menuEntry(exe, folders)), 0o600)
+	flags, err := menuEntryOpenFlags()
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, flags, 0o600)
+	if errors.Is(err, os.ErrNotExist) && flags&os.O_CREATE == 0 {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, writeErr := f.WriteString(menuEntry(exe, folders))
+	return errors.Join(writeErr, f.Close())
 }
 
 func menuEntryPath() (string, error) {
