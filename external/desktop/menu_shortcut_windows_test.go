@@ -18,6 +18,17 @@ import (
 // back two ways - by walking the bytes, and by the shell's own COM API,
 // which is the check a cross-compile cannot do.
 
+// Shell link flags (MS-SHLLINK): the bits of the file header the parser
+// below walks to find the string data the shell saved.
+const (
+	linkHasIDList   = 0x01 // a LinkTargetIDList follows the header
+	linkHasLinkInfo = 0x02 // a LinkInfo structure follows
+	linkHasName     = 0x04 // NAME_STRING string data
+	linkHasWorkDir  = 0x10 // WORKING_DIR string data
+	linkHasArgs     = 0x20 // COMMAND_LINE_ARGUMENTS string data
+	linkHasIcon     = 0x40 // ICON_LOCATION string data
+)
+
 // isolateMenuFolders points the link and its icon at folders of this test's
 // own, so a suite neither writes into nor reads the Start menu and the
 // application data of the person running it.
