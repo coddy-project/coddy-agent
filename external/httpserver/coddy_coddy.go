@@ -219,6 +219,8 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/workspace/files", s.coddyWorkspaceFilesGet)
 	s.mux.HandleFunc("GET /coddy/workspace/context", s.coddyWorkspaceContextGet)
 	s.mux.HandleFunc("POST /coddy/workspace/fetch", s.coddyWorkspaceFetchPost)
+	s.mux.HandleFunc("POST /coddy/workspace/branches", s.coddyWorkspaceBranchesPost)
+	s.mux.HandleFunc("GET /coddy/workspace/graph", s.coddyWorkspaceGraphGet)
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /coddy/workspace/folders", s.coddyWorkspaceFoldersPost)
 	s.mux.HandleFunc("GET /coddy/workspace/file", s.coddyWorkspaceFileGet)

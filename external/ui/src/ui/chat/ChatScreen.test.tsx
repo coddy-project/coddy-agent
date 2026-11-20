@@ -1209,7 +1209,12 @@ test("a linked worktree's plate has no exit button and still opens the edits", a
     expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
     expect(
       within(screen.getByTestId("workspace-bar")).getAllByRole("button"),
-    ).toEqual([edits]);
+    ).toEqual([
+      screen.getByRole("button", {
+        name: "Commit history: feat/session-changes",
+      }),
+      edits,
+    ]);
   } finally {
     vi.unstubAllGlobals();
   }

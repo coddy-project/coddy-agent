@@ -239,6 +239,7 @@ export function ChatScreen(props: {
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorkspaceCreateBranch?: ((name: string) => Promise<void>) | undefined;
   onWorktreeToggle?: () => void;
   /** Fetches the remotes while the branch list shows; resolves with the outcome. */
   onWorkspaceRefreshBranches?: () => Promise<
@@ -1081,6 +1082,7 @@ export function ChatScreen(props: {
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorkspaceCreateBranch: props.onWorkspaceCreateBranch,
                       onWorkspaceRefreshBranches:
                         props.onWorkspaceRefreshBranches,
                       onWorktreeToggle: props.onWorktreeToggle,
@@ -1379,6 +1381,7 @@ export function ChatScreen(props: {
                         workspaceLocked: props.workspaceLocked ?? false,
                         onWorkspacePickFolder: props.onWorkspacePickFolder,
                         onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorkspaceCreateBranch: props.onWorkspaceCreateBranch,
                         onWorkspaceRefreshBranches:
                           props.onWorkspaceRefreshBranches,
                         onWorktreeToggle: props.onWorktreeToggle,

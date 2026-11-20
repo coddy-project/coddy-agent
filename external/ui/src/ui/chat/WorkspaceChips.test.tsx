@@ -61,6 +61,21 @@ afterEach(() => {
 });
 
 describe("WorkspaceChips", () => {
+  it("offers branch creation and Commit history below the branch list", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    renderChips({ onCreateBranch: create });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(
+      screen.getByRole("menuitem", { name: "Commit history" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Create branch/ }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    const input = screen.getByRole("textbox", { name: "Branch name" });
+    fireEvent.change(input, { target: { value: "feature/new" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(create).toHaveBeenCalledWith("feature/new"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
   it("shows the parent project and the worktree branch", () => {
     renderChips({
       context: {

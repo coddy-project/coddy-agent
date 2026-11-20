@@ -578,6 +578,7 @@ export function Composer(props: {
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorkspaceCreateBranch?: ((name: string) => Promise<void>) | undefined;
   onWorktreeToggle?: () => void;
   /** Fetches the remotes while the branch list shows; resolves with the outcome. */
   onWorkspaceRefreshBranches?:
@@ -3001,6 +3002,7 @@ export function Composer(props: {
               worktreePref: props.worktreePref ?? false,
               onPickFolder: props.onWorkspacePickFolder,
               onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+              onCreateBranch: props.onWorkspaceCreateBranch,
               onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
               onRefreshBranches: props.onWorkspaceRefreshBranches,
               opensUp: !props.isEmpty,

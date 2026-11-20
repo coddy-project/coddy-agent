@@ -21,6 +21,7 @@
     "check:telegram": "node scripts/telegram-mini-app-check.mjs",
     "check:diagrams": "node scripts/diagram-check.mjs",
     "check:files": "node scripts/files-check.mjs",
+    "check:git": "node scripts/git-workspace-check.mjs",
     "check:desktop": "node scripts/desktop-check.mjs",
     "check:simple": "node scripts/simple-mode-check.mjs",
     "bench:simple": "node scripts/simple-mode-bench.mjs",
