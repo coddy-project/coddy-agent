@@ -263,6 +263,8 @@ func installWindowsUpdate(req windowsUpdateRequest, helperPath string, out io.Wr
 	// a reason to keep a second copy of the executable on disk.
 	defer func() { _ = os.Remove(backup) }()
 
+	// Replace the existing Start menu target, not the link or its icon. A
+	// deleted link stays deleted; a temporary helper must not provision one.
 	_, _ = fmt.Fprintln(out, "Installing downloaded update...")
 	if err := renameWithRetry(req.StagedPath, req.TargetPath, out); err != nil {
 		_ = os.Remove(req.StagedPath)

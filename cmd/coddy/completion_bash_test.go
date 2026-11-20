@@ -54,3 +54,9 @@ func TestBashCompletionOfDocsReadsLangWithAnEqualsSign(t *testing.T) {
 		}
 	}
 }
+
+func TestBashCompletionOfDesktopShortcut(t *testing.T) {
+	if got := completeBash(t, "coddy", "desktop", "--install-"); !slices.Contains(got, "--install-shortcut") {
+		t.Fatalf("no shortcut flag in completions: %v", got)
+	}
+}
