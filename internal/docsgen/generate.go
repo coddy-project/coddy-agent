@@ -2,6 +2,7 @@ package docsgen
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -223,6 +224,7 @@ func Generate(o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	res.Problems = append(res.Problems, checkInstructionSizes(o.Root)...)
 	res.Problems = append(res.Problems, CheckLinksIn(o.Root, linkFiles, read)...)
 	return res, nil
 }
@@ -266,6 +268,27 @@ func renderFullWithOverlay(nav *Nav, o Options, overlay map[string]string) (stri
 	return RenderLLMSFull(nav, dir, o.RawBase)
 }
 
+func checkInstructionSizes(root string) []Problem {
+	var problems []Problem
+	for _, limit := range []struct {
+		name  string
+		bytes int64
+	}{{"AGENTS.md", 48 * 1024}, {"DESIGN.md", 8 * 1024}} {
+		info, err := os.Stat(filepath.Join(root, limit.name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			problems = append(problems, Problem{limit.name, err.Error()})
+			continue
+		}
+		if info.Size() > limit.bytes {
+			problems = append(problems, Problem{limit.name, fmt.Sprintf("%d bytes exceeds the %d-byte prompt budget; move details to specs/ and link to them", info.Size(), limit.bytes)})
+		}
+	}
+	return problems
+}
+
 // markdownToCheck lists the markdown files whose links are verified: the
 // documentation tree, generated files included, and the root documents.
 func markdownToCheck(root string) ([]string, error) {
@@ -277,6 +300,25 @@ func markdownToCheck(root string) ([]string, error) {
 		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
 			files = append(files, f)
 		}
+	}
+	specRoot := filepath.Join(root, "specs")
+	if err := filepath.WalkDir(specRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			if path == specRoot && os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !entry.IsDir() && filepath.Ext(path) == ".md" {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			files = append(files, filepath.ToSlash(rel))
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	sort.Strings(files)
 	return files, nil
