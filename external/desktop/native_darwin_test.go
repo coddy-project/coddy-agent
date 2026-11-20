@@ -1005,28 +1005,33 @@ func nativePointerGesture(ctx context.Context, x, y, dx, dy, clicks int) error {
 		steps = append(steps, struct{ kind, dx, dy int }{6, dx, dy})
 	}
 	steps = append(steps, struct{ kind, dx, dy int }{2, dx, dy})
-	for _, step := range steps {
-		done := make(chan struct{})
-		enqueueOnMain(func() {
-			defer close(done)
-			w := activeWindow()
-			frame := objc.Send[nsRect](w.window, sel("frame"))
+	// The press and the release leave in one dispatch: a pause between them
+	// gave the shell room to rebuild its tab row, which detaches the node the
+	// press landed on, and WebKit then drops the click instead of letting it
+	// reach the tab's listener. With no gap there is nothing to detach from.
+	done := make(chan struct{})
+	enqueueOnMain(func() {
+		defer close(done)
+		w := activeWindow()
+		frame := objc.Send[nsRect](w.window, sel("frame"))
+		windowNumber := objc.Send[int64](w.window, sel("windowNumber"))
+		for _, step := range steps {
 			event := class("NSEvent").Send(sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
 				step.kind, nsPoint{X: float64(x + step.dx), Y: frame.Size.Height - float64(y+step.dy)}, uint64(0), objc.Send[float64](class("NSProcessInfo").Send(sel("processInfo")), sel("systemUptime")),
-				objc.Send[int64](w.window, sel("windowNumber")), objc.ID(0), int64(1), int64(clicks), float64(1))
+				windowNumber, objc.ID(0), int64(1), int64(clicks), float64(1))
 			nsApp().Send(sel("sendEvent:"), event)
-		})
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return ctx.Err()
 		}
-		// Allow WebKit's input IPC to deliver each event before the next one.
-		select {
-		case <-time.After(150 * time.Millisecond):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	})
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	// Allow WebKit's input IPC to deliver the pair before the next step.
+	select {
+	case <-time.After(150 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return nil
 }
