@@ -167,4 +167,4 @@ They are internal, and the one part of `docs/` outside `nav.yaml`: the hub does 
 
 ## The web UI design contract
 
-[`DESIGN.md`](../../DESIGN.md) at the repository root is the visual and behavioural contract of the embedded SPA: tokens, layout, component behaviour, localisation, the dev workflow. A change to `external/ui/src/` that alters what a component looks like or does updates `DESIGN.md` in the same change, and the surface page [Web UI](../surfaces/web-ui.md) when the user sees the difference. The brand files (logos, favicons, the social preview) are described in the assets index.
+[`DESIGN.md`](../../DESIGN.md) indexes the embedded SPA contracts in `specs/ui/`. Keep shared rules in the index and update the relevant specification when behaviour changes. `make docs-check` caps the root `DESIGN.md` at 8 KiB and `AGENTS.md` at 48 KiB. A change to `external/ui/src/` that alters what a component looks like or does updates its specification in the same change, and the surface page [Web UI](../surfaces/web-ui.md) when the user sees the difference. The brand files (logos, favicons, the social preview) are described in the assets index.
