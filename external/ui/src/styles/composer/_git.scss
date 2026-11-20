@@ -4,9 +4,28 @@
   gap: 8px;
 }
 
-.workspace-git-action svg {
-  width: 16px;
-  height: 16px;
+/* The fixed 14px slot keeps both action glyphs on one column - the width the
+   branch rows keep for the remote mark - and the labels on one column after
+   it; a bare glyph or the plate's icon spacing would land each elsewhere. */
+.workspace-git-action-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.workspace-git-action-icon svg {
+  display: block;
+}
+
+.workspace-git-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-dialog-backdrop {

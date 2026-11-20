@@ -65,7 +65,7 @@ The composer card has no chip row: before the chat starts, the folder, the branc
 
 ### Branch creation and Git Graph
 
-The branch menu ends with **Create and switch to new branch…** and **Git Graph**, below a separator. Creation is a centred form, at most 512px wide, with a description, labelled branch-name field, inline error, Cancel and Create and switch. It creates a local branch from the current checkout's HEAD immediately, independently of the worktree preference. The conversation lock still applies.
+The branch menu ends with **Create and switch to new branch…** and **Git Graph**, below a separator. Both action rows keep a **14px** icon slot (**`.workspace-git-action-icon`**, the muted colour, a `PlusIcon` or `BranchIcon` svg) in the column the branch rows keep for the remote mark, and the label in **`.workspace-git-action-label`** with an ellipsis, so every row of the menu shares two columns. Creation is a centred form, at most 512px wide, with a description, labelled branch-name field, inline error, Cancel and Create and switch. It creates a local branch from the current checkout's HEAD immediately, independently of the worktree preference. The conversation lock still applies.
 
 Both Git dialogs use the shared glass panel border, background, backdrop and shadow, the overlay scrim without fullscreen blur, and the app's inherited font. Their heads follow the Files window: 12px bold capitals in a 72% text tint and 30px icon controls. Buttons reuse the workspace dialog styles. Escape and a backdrop click close the window, Tab stays inside it, and closing returns focus to the branch control. Creation keeps the dialog open while a request runs and shows failures beside the field.
 

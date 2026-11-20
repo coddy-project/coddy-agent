@@ -11,7 +11,12 @@ import {
   type WorkspaceBranchFetch,
   type WorkspaceContext,
 } from "./workspaceContext";
-import { BranchIcon, FolderIcon, RemoteBranchIcon } from "./workspaceIcons";
+import {
+  BranchIcon,
+  FolderIcon,
+  PlusIcon,
+  RemoteBranchIcon,
+} from "./workspaceIcons";
 import {
   pushWorkspaceRecent,
   readWorkspaceRecents,
@@ -438,8 +443,15 @@ export function WorkspaceChips(props: Props) {
                           setGitDialog("create");
                         }}
                       >
-                        <span aria-hidden="true">＋</span>
-                        {t("git.createMenu")}
+                        <span
+                          className="workspace-git-action-icon"
+                          aria-hidden="true"
+                        >
+                          <PlusIcon />
+                        </span>
+                        <span className="workspace-git-action-label">
+                          {t("git.createMenu")}
+                        </span>
                       </button>
                     ) : null}
                     <button
@@ -451,8 +463,15 @@ export function WorkspaceChips(props: Props) {
                         setGitDialog("graph");
                       }}
                     >
-                      <BranchIcon />
-                      {t("git.graph")}
+                      <span
+                        className="workspace-git-action-icon"
+                        aria-hidden="true"
+                      >
+                        <BranchIcon className="" />
+                      </span>
+                      <span className="workspace-git-action-label">
+                        {t("git.graph")}
+                      </span>
                     </button>
                   </>
                 ) : null}
