@@ -1,14 +1,17 @@
 package session
 
-import "sync"
-
-// stubTurnMu provides a non-blocking per-session prompt lock when there is no
+// acquireStubTurnLock provides a non-blocking per-session prompt lock when there is no
 // persisted bundle directory or on platforms without flock.
 func (m *Manager) acquireStubTurnLock(sessionID string) (unlock func(), err error) {
-	v, _ := m.stubTurnMu.LoadOrStore(sessionID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	if !mu.TryLock() {
+	if _, held := m.stubTurnLocks.LoadOrStore(sessionID, struct{}{}); held {
 		return nil, ErrSessionTurnBusy
 	}
-	return func() { mu.Unlock() }, nil
+	return func() { m.stubTurnLocks.Delete(sessionID) }, nil
+}
+
+// PromptTurnLockHeld reports whether a session's prompt lock is held, including
+// the in-process fallback on platforms without flock. It does not acquire the lock.
+func (m *Manager) PromptTurnLockHeld(st *State) bool {
+	_, held := m.stubTurnLocks.Load(st.GetID())
+	return held || TurnLockHeld(st.GetPersistedSessionDir())
 }

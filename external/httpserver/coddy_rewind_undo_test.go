@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -130,6 +131,38 @@ func TestRewindUndoStopsTheEditedTurn(t *testing.T) {
 			t.Fatalf("history[%d] = %q, want %q (all: %+v)", i, m.Content, want[i], msgs)
 		}
 	}
+}
+
+func TestRewindUndoWaitsForComposerTurnLock(t *testing.T) {
+	ts, mgr, sid, _ := newRewindUndoServer(t)
+	if _, err := mgr.RewindSession(sid, 1); err != nil {
+		t.Fatalf("rewind: %v", err)
+	}
+
+	synctest.Test(t, func(t *testing.T) {
+		// A Responses handler can still own the lock after its manager turn ends.
+		unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+		if err != nil {
+			t.Fatalf("acquire composer lock: %v", err)
+		}
+		done := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/coddy/sessions/"+sid+"/rewind/undo", nil)
+			rec := httptest.NewRecorder()
+			ts.Config.Handler.ServeHTTP(rec, req)
+			done <- rec.Code
+		}()
+		synctest.Wait()
+		unlock()
+		select {
+		case status := <-done:
+			t.Fatalf("undo returned %d before the composer released its lock", status)
+		default:
+		}
+		if status := <-done; status != http.StatusOK {
+			t.Fatalf("undo after lock release: %d", status)
+		}
+	})
 }
 
 func TestRewindUndoWithNothingToUndo(t *testing.T) {

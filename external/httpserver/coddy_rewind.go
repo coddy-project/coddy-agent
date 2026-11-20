@@ -131,17 +131,21 @@ func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 	// appending onto the history the undo restores. UndoRewind holds the
 	// prompt turn lock across the restore, so a turn admitted between this
 	// wait and the restore either shows in the flag or runs after it.
-	if s.sessionTurnActive(id) {
+	// A composer handler can still hold the lock after its manager turn ends.
+	turnBusy := func() bool {
+		return s.mgr.SessionTurnActiveInProcess(id) || s.mgr.PromptTurnLockHeld(st)
+	}
+	if turnBusy() {
 		s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
 		deadline := time.Now().Add(15 * time.Second)
-		for s.sessionTurnActive(id) && time.Now().Before(deadline) {
+		for turnBusy() && time.Now().Before(deadline) {
 			select {
 			case <-r.Context().Done():
 				deadline = time.Now()
 			case <-time.After(25 * time.Millisecond):
 			}
 		}
-		if s.sessionTurnActive(id) {
+		if turnBusy() {
 			writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
 			return
 		}
