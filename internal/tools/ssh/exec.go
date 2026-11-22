@@ -104,7 +104,7 @@ func executeSSHExec(ctx context.Context, argsJSON string, env *tooling.Env) (str
 		return "", err
 	}
 
-	authMethods, agentCloser := buildAuthMethods(sshDir)
+	authMethods, agentCloser := buildAuthMethodsContext(ctx, sshDir)
 	if agentCloser != nil {
 		defer func() { _ = agentCloser.Close() }()
 	}
@@ -220,10 +220,14 @@ func parseHostUser(host, defaultUser string) (user, hostname string) {
 // Priority: SSH agent (SSH_AUTH_SOCK) first, then file-based keys from dir.
 // The caller must call Close() on the returned io.Closer when done (if non-nil).
 func buildAuthMethods(dir string) ([]gossh.AuthMethod, io.Closer) {
+	return buildAuthMethodsContext(context.Background(), dir)
+}
+
+func buildAuthMethodsContext(ctx context.Context, dir string) ([]gossh.AuthMethod, io.Closer) {
 	var methods []gossh.AuthMethod
 
 	// 1. SSH agent — preferred when SSH_AUTH_SOCK is set.
-	agentMethod, agentCloser, _ := agentAuth()
+	agentMethod, agentCloser, _ := agentAuthContext(ctx)
 	if agentMethod != nil {
 		methods = append(methods, agentMethod)
 	}

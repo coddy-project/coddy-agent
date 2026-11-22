@@ -41,13 +41,14 @@ const stallHintAfter = 60 * time.Second
 
 // startBackgroundCommand hands a run_command call to the task pool and answers
 // with the task id rather than the output.
-func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, error) {
+func startBackgroundCommand(ctx context.Context, args runCommandArgs, env *tooling.Env) (string, error) {
 	pool, err := requirePool(env)
 	if err != nil {
 		return "", err
 	}
 
 	snap, err := pool.Start(bgtask.Spec{
+		Context:         ctx,
 		SessionID:       env.SessionID,
 		Kind:            bgtask.KindCommand,
 		Command:         args.Command,
