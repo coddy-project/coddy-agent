@@ -183,7 +183,17 @@ func oidcBindings(r *http.Request) iter.Seq[string] {
 }
 
 func externalCookie(name, value, path string, secure bool, sameSite http.SameSite, seconds int) *http.Cookie {
-	return &http.Cookie{Name: name, Value: value, Path: path, Secure: secure, HttpOnly: true, SameSite: sameSite, MaxAge: seconds} //nolint:gosec // G124: OIDC always requires Secure; legacy logout follows request TLS. SameSite is Strict except for the OIDC callback binding (Lax).
+	// OIDC cookies always use Secure; legacy logout follows request TLS when insecure HTTP is explicitly enabled.
+	//nolint:gosec // G124: Secure is required for OIDC and transport-matched for legacy logout.
+	return &http.Cookie{ // nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: sameSite,
+		MaxAge:   seconds,
+	}
 }
 
 func authNavigationHeaders(w http.ResponseWriter) {

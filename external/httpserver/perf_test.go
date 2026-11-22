@@ -175,7 +175,7 @@ func BenchmarkOIDCSessionLookup(b *testing.B) {
 					b.Fatal("session capacity")
 				}
 				req[i] = httptest.NewRequest("GET", testOIDCOrigin+"/coddy/sessions", nil)
-				req[i].AddCookie(&http.Cookie{Name: oidcSessionCookie, Value: k})
+				req[i].AddCookie(&http.Cookie{Name: oidcSessionCookie, Value: k, Secure: true, HttpOnly: true})
 			}
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {

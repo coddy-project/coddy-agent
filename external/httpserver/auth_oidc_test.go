@@ -491,7 +491,7 @@ func TestOIDCInvalidConfigStaysClosed(t *testing.T) {
 		cleanup()
 		t.Fatalf("startup accepted malformed configuration: %v", s != nil)
 	}
-	if w := f.request("GET", "/coddy/sessions", "", &http.Cookie{Name: sessionCookieName(httptest.NewRequest("GET", testOIDCOrigin, nil)), Value: authOpaque()}); w.Code != 401 {
+	if w := f.request("GET", "/coddy/sessions", "", &http.Cookie{Name: sessionCookieName(httptest.NewRequest("GET", testOIDCOrigin, nil)), Value: authOpaque(), Secure: true, HttpOnly: true}); w.Code != 401 {
 		t.Fatalf("invalid config fell open: %d", w.Code)
 	}
 	if w := f.request("POST", "/coddy/auth/login", `{"user":"legacy","password":"unused-password"}`); w.Code != 403 {

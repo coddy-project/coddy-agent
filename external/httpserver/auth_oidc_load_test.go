@@ -42,7 +42,7 @@ func TestOIDCLoopbackLoad(t *testing.T) {
 					t.Fatal(err)
 				}
 				r.Host = "coddy.example"
-				r.AddCookie(&http.Cookie{Name: oidcSessionCookie, Value: token})
+				r.AddCookie(&http.Cookie{Name: oidcSessionCookie, Value: token, Secure: true, HttpOnly: true})
 				requests[i] = r
 			}
 			latencies := make([]time.Duration, n)
