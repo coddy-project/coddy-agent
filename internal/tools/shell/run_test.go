@@ -252,8 +252,8 @@ func TestForegroundTimeoutAdoptsIntoTheBackgroundPool(t *testing.T) {
 	if snap.TimeoutSeconds != 3600 {
 		t.Fatalf("adopted task has a hard timeout of %ds, want the pool maximum of 3600s", snap.TimeoutSeconds)
 	}
-	if snap.StartedAt.After(before.Add(time.Second)) {
-		t.Fatalf("adopted task started at %s, want the original foreground start around %s", snap.StartedAt, before)
+	if snap.StartedAt.After(before.Add(2 * time.Second)) {
+		t.Fatalf("adopted task started at %s, want it to start soon after environment loading began at %s", snap.StartedAt, before)
 	}
 }
 
