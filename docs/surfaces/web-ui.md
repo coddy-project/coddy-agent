@@ -283,6 +283,14 @@ The change applies without restarting Coddy.
 - The event also reads again the copy of the configuration the **Settings** drawer keeps (see [Settings: opening and saving](#settings-opening-and-saving)). An open form takes it only while it holds no edits of its own: refetching under unsaved edits would discard work, so those stay, and the **Reload** control in the form is the deliberate way to drop them.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+External browser sign-in redirects to the configured identity provider and does not use Coddy's local password, TOTP enrollment or recovery codes while enabled. Those local credentials remain stored. Signing out first ends the local session; an independently configured `httpserver.login.logout_url` may then navigate the browser to a static destination, without guaranteeing provider sign-out. See [Remote mode](../operate/remote.md#external-sign-in-through-the-browser).
+
+![The external sign-in screen of the web UI: a card with a single sign-in link on the dark theme](../assets/web-ui/sign-in-oidc-dark-1280.png)
+
+![The external sign-in screen at phone width](../assets/web-ui/sign-in-oidc-dark-390.png)
+
+*The sign-in screen under external sign-in (OIDC): a single link to the issuer, no local credential routes - at 1280 and 390 px.*
+
 ## Settings: Authentication
 
 The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config section) manages the web sign-in account in one place - the same account `coddy serve set-password` writes on the server, and nothing here needs the bearer token. Every control applies to the settings document except the enrollment calls, which write `config.yaml` on the server at once.
@@ -300,6 +308,10 @@ The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config
 ![Backup codes in a separate settings fieldset on a phone](../assets/web-ui/authentication-backup-codes-dark-390.png)
 
 *One-time backup codes in their own fieldset at 1280 and 390 px.*
+
+![The External sign-in (OIDC) fieldset and the Logout URL field in Settings → Authentication](../assets/web-ui/settings-authentication-oidc-dark-1280.png)
+
+*Authentication settings with external sign-in disabled and a stored logout URL.*
 
 Sign-in itself is described under [Sign-in](#sign-in-httpserverlogin); the API is under [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional) and [One-time codes](../operate/remote.md#one-time-codes).
 

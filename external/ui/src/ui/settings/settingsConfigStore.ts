@@ -157,16 +157,75 @@ export function ensureSettingsConfig(): Promise<SettingsConfigCopy> {
   return firstRead;
 }
 
+type Config = Record<string, unknown>;
+
+function object(value: unknown): Config | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Config)
+    : undefined;
+}
+
+function afterSavedHiddenField(
+  draft: Config,
+  sent: Config,
+  key: "logout_url" | "client_secret",
+): Config {
+  const clear = `clear_${key}`;
+  const configured = `${key}_configured`;
+  if (!(key in sent || clear in sent || configured in sent)) return draft;
+
+  // Match PUT: clear wins, a non-empty value replaces, and empty means keep.
+  const next = {
+    ...draft,
+    [configured]:
+      sent[clear] !== true &&
+      ((typeof sent[key] === "string" && sent[key] !== "") ||
+        sent[configured] === true),
+  };
+  // Keep only new write intent entered while the request was on its way.
+  if (
+    (draft[key] ?? "") === (sent[key] ?? "") &&
+    (draft[clear] === true) === (sent[clear] === true)
+  ) {
+    delete next[key];
+    delete next[clear];
+  }
+  return next;
+}
+
+/** Apply the server's redaction to a saved snapshot or rebase a newer draft. */
+export function afterSettingsConfigSaved(draft: Config, sent: Config): Config {
+  const http = object(draft.httpserver);
+  const login = object(http?.login);
+  const sentLogin = object(object(sent.httpserver)?.login);
+  if (!login || !sentLogin) return draft;
+
+  const next = afterSavedHiddenField(login, sentLogin, "logout_url");
+  const oidc = object(login.oidc);
+  const sentOidc = object(sentLogin.oidc);
+  const nextOidc =
+    oidc && sentOidc
+      ? afterSavedHiddenField(oidc, sentOidc, "client_secret")
+      : oidc;
+  if (next === login && nextOidc === oidc) return draft;
+  return {
+    ...draft,
+    httpserver: {
+      ...http,
+      login: nextOidc === oidc ? next : { ...next, oidc: nextOidc },
+    },
+  };
+}
+
 /**
- * noteSettingsConfigSaved takes the document a save just wrote as the copy, so
- * an open that comes before the read after the save lands - or after that read
- * failed - draws what was saved rather than what the save replaced (a save made
- * from that older copy would put the replaced values back). Reads issued before
- * the save are older than it and are dropped.
+ * Publish a redacted copy of what was saved, even if the follow-up read is
+ * pending or fails. Reads issued before the save are older and are dropped.
  */
-export function noteSettingsConfigSaved(config: Record<string, unknown>): void {
+export function noteSettingsConfigSaved(sent: Config): Config {
+  const config = afterSettingsConfigSaved(sent, sent);
   applied = issued;
   publish({ schema: current.schema, config, error: null });
+  return config;
 }
 
 /** refreshSettingsConfig reads the schema and the config again now. */

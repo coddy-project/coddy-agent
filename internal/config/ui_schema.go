@@ -992,13 +992,28 @@ func UISchemaMap() map[string]interface{} {
 	// key belongs to the Sessions tab.
 	password := strProp("Password", "Set a new sign-in password; leave empty to keep the existing password.")
 	password["writeOnly"] = true
+	logoutURL := strProp("Logout URL", "Static HTTP(S) destination; do not include secrets or identity data.")
+	logoutURL["writeOnly"] = true
+	clientSecret := strProp("Client secret", "Leave empty to keep the stored secret.")
+	clientSecret["writeOnly"] = true
 	props["httpserver"] = objectSchema("Account", "Web sign-in account", map[string]interface{}{
 		"login": objectSchema("Sign-in", "", map[string]interface{}{
-			"enable":            boolProp("Enable sign-in", "Require a web sign-in."),
-			"user":              strProp("User", "The account name."),
-			"password":          password,
+			"enable":           boolProp("Enable sign-in", "Require a web sign-in."),
+			"user":             strProp("User", "The account name."),
+			"password":         password,
+			"logout_url":       logoutURL,
+			"clear_logout_url": boolProp("Clear logout URL", "Remove the stored logout destination."),
+			"oidc": objectSchema("OIDC", "External sign-in", map[string]interface{}{
+				"enable":              boolProp("Enable OIDC", "Use external sign-in."),
+				"issuer":              strProp("Issuer", "HTTPS issuer URL."),
+				"client_id":           strProp("Client ID", "OIDC client identifier."),
+				"client_secret":       clientSecret,
+				"clear_client_secret": boolProp("Clear client secret", "Remove the stored client secret."),
+				"redirect_url":        strProp("Redirect URL", "Public HTTPS callback URL."),
+				"required_role":       strProp("Required role", "Exact role required in the ID token."),
+			}, []string{"enable", "issuer", "client_id", "client_secret", "clear_client_secret", "redirect_url", "required_role"}, nil),
 			"session_ttl_hours": intProp("Session duration", "Persistent session duration in hours; defaults to 24. Unchecked remember me still uses a browser-session cookie."),
-		}, []string{"enable", "user", "password", "session_ttl_hours"}, nil),
+		}, []string{"enable", "user", "password", "session_ttl_hours", "logout_url", "clear_logout_url", "oidc"}, nil),
 	}, []string{"login"}, nil)
 	rootOrder := []string{
 		"providers", "models", "toolsets",

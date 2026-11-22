@@ -667,10 +667,75 @@
         "login": {
           "additionalProperties": false,
           "properties": {
+            "clear_logout_url": {
+              "description": "Remove the stored logout destination.",
+              "title": "Clear logout URL",
+              "type": "boolean"
+            },
             "enable": {
               "description": "Require a web sign-in.",
               "title": "Enable sign-in",
               "type": "boolean"
+            },
+            "logout_url": {
+              "description": "Static HTTP(S) destination; do not include secrets or identity data.",
+              "title": "Logout URL",
+              "type": "string",
+              "writeOnly": true
+            },
+            "oidc": {
+              "additionalProperties": false,
+              "description": "External sign-in",
+              "properties": {
+                "clear_client_secret": {
+                  "description": "Remove the stored client secret.",
+                  "title": "Clear client secret",
+                  "type": "boolean"
+                },
+                "client_id": {
+                  "description": "OIDC client identifier.",
+                  "title": "Client ID",
+                  "type": "string"
+                },
+                "client_secret": {
+                  "description": "Leave empty to keep the stored secret.",
+                  "title": "Client secret",
+                  "type": "string",
+                  "writeOnly": true
+                },
+                "enable": {
+                  "default": false,
+                  "description": "Use external sign-in.",
+                  "title": "Enable OIDC",
+                  "type": "boolean"
+                },
+                "issuer": {
+                  "description": "HTTPS issuer URL.",
+                  "title": "Issuer",
+                  "type": "string"
+                },
+                "redirect_url": {
+                  "description": "Public HTTPS callback URL.",
+                  "title": "Redirect URL",
+                  "type": "string"
+                },
+                "required_role": {
+                  "description": "Exact role required in the ID token.",
+                  "title": "Required role",
+                  "type": "string"
+                }
+              },
+              "title": "OIDC",
+              "type": "object",
+              "x-coddy-property-order": [
+                "enable",
+                "issuer",
+                "client_id",
+                "client_secret",
+                "clear_client_secret",
+                "redirect_url",
+                "required_role"
+              ]
             },
             "password": {
               "description": "Set a new sign-in password; leave empty to keep the existing password.",
@@ -695,7 +760,10 @@
             "enable",
             "user",
             "password",
-            "session_ttl_hours"
+            "session_ttl_hours",
+            "logout_url",
+            "clear_logout_url",
+            "oidc"
           ]
         }
       },

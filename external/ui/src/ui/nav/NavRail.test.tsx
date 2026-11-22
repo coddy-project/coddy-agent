@@ -493,6 +493,7 @@ describe("NavRail on a phone: the More menu", () => {
     setAuthState({
       loginRequired: true,
       authRequired: true,
+      oidcEnabled: false,
       authenticated: true,
       user: "demo",
       secondFactor: "",

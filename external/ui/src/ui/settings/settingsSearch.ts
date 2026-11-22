@@ -16,6 +16,7 @@ import {
   type JsonSchema,
   type SchemaFormGroup,
 } from "./SchemaForm";
+import { supportsOidc } from "./AuthenticationSection";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import {
   modelFormGroups,
@@ -295,7 +296,7 @@ export type SettingsLandmark = {
   keyPath?: string;
   place: "before" | "after";
   /** The block's own predicate: false where the tab does not draw it. */
-  shown?: (doc: PlainObject) => boolean;
+  shown?: (doc: PlainObject, schema: JsonSchema | null) => boolean;
   /** Present for a block of a list's row form; says whether this row draws it. */
   row?: (row: Record<string, unknown>) => boolean;
 };
@@ -313,9 +314,14 @@ function landmark(
 
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("httpserver", "account", "authAccount", "before"),
-  landmark("httpserver", "authenticator", "authAuthenticator", "before"),
+  landmark("httpserver", "authenticator", "authAuthenticator", "before", {
+    shown: localEnrollmentShown,
+  }),
   landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
     shown: backupCodesShown,
+  }),
+  landmark("httpserver", "oidc", "authOidc", "before", {
+    shown: (_doc, schema) => oidcSupported(schema),
   }),
   landmark("statistics", "enable", "statisticsEnable", "before"),
   landmark("statistics", "timezone", "statisticsCounters", "before"),
@@ -359,8 +365,33 @@ function asObject(v: unknown): PlainObject {
     : {};
 }
 
-function backupCodesShown(doc: PlainObject): boolean {
+function oidcEnabledInDoc(doc: PlainObject): boolean {
+  return (
+    asObject(asObject(asObject(doc.httpserver).login).oidc).enable === true
+  );
+}
+
+function oidcSupported(schema: JsonSchema | null): boolean {
+  return supportsOidc(schema?.properties?.httpserver?.properties?.login);
+}
+
+// External sign-in hides enrollment only on a server whose schema supports it.
+function localEnrollmentShown(
+  doc: PlainObject,
+  schema: JsonSchema | null,
+): boolean {
+  return !oidcSupported(schema) || !oidcEnabledInDoc(doc);
+}
+
+function backupCodesConfigured(doc: PlainObject): boolean {
   return asObject(asObject(doc.httpserver).login).totp_configured === true;
+}
+
+function backupCodesShown(
+  doc: PlainObject,
+  schema: JsonSchema | null,
+): boolean {
+  return backupCodesConfigured(doc) && localEnrollmentShown(doc, schema);
 }
 
 function asArray(v: unknown): unknown[] {
@@ -389,7 +420,8 @@ export function settingsIndexRowsKey(doc: PlainObject): string {
         key === "providers" ? text(asObject(row)["type"]) : "",
       ]),
     ),
-    backupCodes: backupCodesShown(doc),
+    backupCodes: backupCodesConfigured(doc),
+    oidcEnabled: oidcEnabledInDoc(doc),
   });
 }
 
@@ -568,9 +600,10 @@ function landmarkEntries(
   landmarks: readonly SettingsLandmark[],
   row: string | null,
   doc: PlainObject,
+  schema: JsonSchema | null,
 ): void {
   for (const l of landmarks) {
-    if (l.shown !== undefined && !l.shown(doc)) {
+    if (l.shown !== undefined && !l.shown(doc, schema)) {
       continue;
     }
     const text: DrawnText = SETTINGS_TEXTS[l.heading];
@@ -741,7 +774,14 @@ export function buildSettingsSearchIndex(input: {
     const blocks = (place: "before" | "after") =>
       landmarks.filter((l) => l.row === undefined && l.place === place);
 
-    landmarkEntries(out, section, blocks("before"), null, input.doc);
+    landmarkEntries(
+      out,
+      section,
+      blocks("before"),
+      null,
+      input.doc,
+      input.schema,
+    );
     for (const { form, value } of generated.forms) {
       walkForm({ out, section, form, row: null, doc: input.doc }, value, tab);
     }
@@ -776,9 +816,17 @@ export function buildSettingsSearchIndex(input: {
         landmarks.filter((l) => l.row?.(row) === true),
         label,
         input.doc,
+        input.schema,
       );
     }
-    landmarkEntries(out, section, blocks("after"), null, input.doc);
+    landmarkEntries(
+      out,
+      section,
+      blocks("after"),
+      null,
+      input.doc,
+      input.schema,
+    );
   }
   return out;
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // backupFileName is the single config backup sidecar written next to config.yaml.
@@ -125,7 +127,7 @@ func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	cfg.Paths = paths
 	applyDefaults(&cfg)
 	if err := validateSubconfigs(&cfg); err != nil {
-		return nil, err
+		return &cfg, err // YAML decoded; only semantic validation failed.
 	}
 	return &cfg, nil
 }
@@ -135,10 +137,98 @@ func ParseConfigYAML(data []byte, paths Paths) (*Config, error) {
 	if enc := utf16Encoding(data); enc != "" {
 		return nil, fmt.Errorf("config is %s text, not UTF-8; %s", enc, utf16Fix)
 	}
-	return parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+	if err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
-// tryRecoverFromBackup loads config.yaml.bak; if valid, restores it over configPath and returns the config.
+const oidcRecoverySuffix = ".oidc-recovery"
+
+var errUntrustedOIDCBackup = errors.New("backup enables OIDC; review it and restore the primary manually")
+
+// checkAutomaticRecovery checks only the marker's presence. Damaged contents
+// (or an unexpected type) must not make a marked path eligible for recovery.
+func checkAutomaticRecovery(path string) error {
+	marker := path + oidcRecoverySuffix
+	if _, err := os.Lstat(marker); !errors.Is(err, os.ErrNotExist) {
+		if err != nil {
+			return fmt.Errorf("automatic config recovery disabled: check OIDC marker: %w", err)
+		}
+		return fmt.Errorf("automatic config recovery disabled by %s; repair or restore the primary manually", marker)
+	}
+	return nil
+}
+
+// prepareOIDCPrimary runs only for valid typed YAML. A protected path can
+// return to legacy auth, but omission (including an empty document) must not
+// look like an intentional disable.
+func prepareOIDCPrimary(cfg *Config, expanded string) error {
+	if cfg.HTTPServer.Login.OIDC.Enable {
+		return recordOIDCRecoveryProtection(cfg)
+	}
+	marker := cfg.Paths.ConfigPath + oidcRecoverySuffix
+	if _, err := os.Lstat(marker); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("check OIDC recovery marker: %w", err)
+	}
+	var doc struct {
+		HTTPServer struct {
+			Login struct {
+				OIDC struct {
+					Enable *bool `yaml:"enable"`
+				} `yaml:"oidc"`
+			} `yaml:"login"`
+		} `yaml:"httpserver"`
+	}
+	if err := yaml.Unmarshal([]byte(expanded), &doc); err != nil {
+		return relocateSyntaxError(err, expanded)
+	}
+	if enable := doc.HTTPServer.Login.OIDC.Enable; enable == nil || *enable {
+		return fmt.Errorf("config protected by %s: set httpserver.login.oidc.enable explicitly to false to disable OIDC", marker)
+	}
+	return nil
+}
+
+func recordOIDCRecoveryProtection(cfg *Config) error {
+	if !cfg.HTTPServer.Login.OIDC.Enable {
+		return nil
+	}
+	// Sticky even after a deliberate disable: resetting a marker and changing
+	// the primary/backup would otherwise require a multi-file transaction.
+	marker := cfg.Paths.ConfigPath + oidcRecoverySuffix
+	if info, err := os.Lstat(marker); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("OIDC recovery marker %s is not a regular file", marker)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check OIDC recovery marker: %w", err)
+	} else if err := AtomicWriteFile(marker, []byte("automatic config recovery disabled after OIDC configuration\n"), credentialFileMode); err != nil {
+		return fmt.Errorf("write OIDC recovery marker: %w", err)
+	}
+	// Also sync on retry if a previous attempt renamed the marker but failed
+	// to flush the directory.
+	if err := platform.SyncDir(filepath.Dir(marker)); err != nil {
+		return fmt.Errorf("sync OIDC recovery marker: %w", err)
+	}
+	return nil
+}
+
+// ProtectConfigYAMLWrite records OIDC recovery protection for a validated
+// candidate before a config transaction changes the primary or backup. It
+// does not replace the caller's normal config validation or error handling.
+func ProtectConfigYAMLWrite(paths Paths, data []byte) error {
+	expanded := expandConfigBody(string(data), paths)
+	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	if err != nil {
+		return nil
+	}
+	return prepareOIDCPrimary(cfg, expanded)
+}
+
+// tryRecoverFromBackup loads config.yaml.bak; if valid and eligible, restores it.
 func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	bak := BackupPath(paths.ConfigPath)
 	raw, err := os.ReadFile(bak)
@@ -149,6 +239,9 @@ func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.HTTPServer.Login.OIDC.Enable {
+		return nil, errUntrustedOIDCBackup
 	}
 	if err := AtomicWriteConfigYAML(paths.ConfigPath, raw); err != nil {
 		return nil, err

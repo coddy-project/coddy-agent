@@ -1416,6 +1416,15 @@
                 "hashes": {"type": "array", "description": "SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored.", "items": {"type": "string"}}
               }
             },
+            "logout_url": {"type": "string", "description": "Optional static HTTP(S) logout destination. Do not include secrets, tokens, identity data or user-specific parameters. Hidden from configuration output.", "default": ""},
+            "oidc": {"type": "object", "description": "External OIDC sign-in configuration.", "additionalProperties": false, "properties": {
+              "enable": {"type": "boolean", "description": "Enable external OIDC sign-in.", "default": false},
+              "issuer": {"type": "string", "description": "HTTPS OIDC issuer URL.", "default": ""},
+              "client_id": {"type": "string", "description": "OIDC client identifier.", "default": ""},
+              "client_secret": {"type": "string", "description": "OIDC client secret. Hidden from configuration output.", "default": ""},
+              "redirect_url": {"type": "string", "description": "Public HTTPS callback URL.", "default": ""},
+              "required_role": {"type": "string", "description": "Exact role required in the ID token roles array.", "default": ""}
+            }},
             "session_ttl_hours": {
               "type": "integer",
               "description": "How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked.",

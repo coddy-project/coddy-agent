@@ -44,7 +44,11 @@ func (s *Server) decorateConfigDocument(dto *config.ConfigJSON) {
 	// account may come from the environment, which is nowhere in this document.
 	dto.HTTPServer.LoginConfigured = pol.login.enabled && !pol.login.broken
 	if dto.HTTPServer.LoginConfigured {
-		dto.HTTPServer.LoginSource = pol.login.account.source
+		if pol.login.oidc {
+			dto.HTTPServer.LoginSource = "oidc"
+		} else {
+			dto.HTTPServer.LoginSource = pol.login.account.source
+		}
 	}
 	// login.user stays whatever the file says, even when the live account came
 	// from the environment: this document is what a save writes back, and an

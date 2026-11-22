@@ -246,6 +246,15 @@ token of the environment selector and is never gated here.
   the challenge. A refusal clears the password and the code, because a code - or the challenge a
   completed verify call took - is spent once. Nothing explains the screen in prose - a form with
   two fields under a title that says Sign in needs no caption.
+- **External sign-in (OIDC)** replaces every local route: when **`/coddy/auth/me`** answers
+  **`oidc_enabled`**, the refresh runs none of the alternate sign-ins (the Mini App launch data and
+  the panel ticket are never posted, even when **`telegram_login`** or **`browser_login`** is also
+  advertised) and the card holds a single link (**`a.auth-oidc-link`**, drawn like the submit
+  button) that hands the browser to the issuer with a same-origin GET of
+  **`/coddy/auth/oidc/start`** - a top-level navigation, never a fetch. No password field, no
+  one-time or backup code field, no Telegram note and no QR stands beside it: the cookie the
+  provider's callback sets is the only way in. A trusted desktop is unchanged, because the
+  desktop shell's trust lives server-side and never reaches this screen.
 - **The wordmark** (**`.auth-logo`**, **`min(240px, 72%)`** of the column, centred) is the
   rectangular logo with the product name in it, not a text line:
   **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
@@ -267,6 +276,12 @@ token of the environment selector and is never gated here.
 - **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), below
   Settings, rendered only while a form is configured and this browser has passed it. Narrow rail:
   icon plus a tooltip naming the account (**`Sign out (pasha)`**); wide rail: icon plus label.
+  A **`POST /coddy/auth/logout`** that succeeds reloads the page, unless the answer marks a
+  continuation: the **`X-Coddy-Logout-Continue: 1`** header has the rail navigate the top level to
+  same-origin **`GET /coddy/auth/logout/continue`** instead, where the server spends the ticket it
+  left and sends the browser to the configured **logout_url**, or back here when there is none. A
+  refused or unreachable POST does nothing - no reload and no navigation - so a session the server
+  still holds is not pretended away.
 
 ### Desktop shell (`external/desktop/shell`)
 

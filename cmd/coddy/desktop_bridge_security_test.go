@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop"
+	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/localipc"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -158,4 +159,33 @@ func startDesktopSecurityStand(t *testing.T, attached, noAuth bool, adjust ...fu
 		waitDesktopHTTPStatus(t, base+"/v1/models", http.StatusUnauthorized)
 	}
 	return base
+}
+
+// The attached bridge chooses its own mode, including when the shared
+// service replaced local browser sign-in with external authentication.
+func TestDesktopBridgeExternalAuthBoundary(t *testing.T) {
+	for _, noAuth := range []bool{false, true} {
+		name, want := "explicit-auth", http.StatusUnauthorized
+		if noAuth {
+			name, want = "trusted-default", http.StatusOK
+		}
+		t.Run(name, func(t *testing.T) {
+			base := startDesktopSecurityStand(t, true, noAuth, func(c *config.Config) {
+				c.HTTPServer.Login.OIDC = config.HTTPOIDCConfig{Enable: true, Issuer: "https://identity.example", ClientID: "client", ClientSecret: "fixture", RequiredRole: "operator", RedirectURL: "https://public.example/coddy/auth/oidc/callback"}
+			})
+			req, err := http.NewRequest(http.MethodGet, base+"/v1/models", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(httpserver.DesktopNoAuthHeader, "1")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			if res.StatusCode != want {
+				t.Fatalf("got %d, want %d", res.StatusCode, want)
+			}
+		})
+	}
 }

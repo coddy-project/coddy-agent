@@ -556,6 +556,9 @@ func resolveAlias(n *yaml.Node) *yaml.Node {
 
 // describe names what a node is, for the "got ..." half of a message.
 func describe(n *yaml.Node, path string) string {
+	if n.Kind == yaml.ScalarNode && isSecretPath(path) {
+		return "<redacted>"
+	}
 	switch n.Kind {
 	case yaml.MappingNode:
 		return "a section (mapping)"

@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ConfirmProvider } from "../components/useConfirm";
+import { AGENT_SCHEMA } from "./settingsServer.fakes";
 import { AuthenticationSection } from "./AuthenticationSection";
 import { resetEnrollment } from "./authEnrollmentStore";
 import { setLocale } from "../i18n/i18n";
@@ -1042,4 +1043,206 @@ test("a result arriving after reopening cannot replace fresh server metadata", a
   });
   await waitFor(() => expect(screen.queryByText("STALE-PRIVATE")).toBeNull());
   expect(onChange).not.toHaveBeenCalled();
+});
+
+function OidcForm({ login }: { login: Record<string, unknown> }) {
+  const [value, setValue] = useState<Record<string, unknown>>({
+    login: { enable: true, user: "operator", ...login },
+  });
+  return (
+    <>
+      <ConfirmProvider>
+        <AuthenticationSection
+          loginSchema={AGENT_SCHEMA.properties?.httpserver?.properties?.login}
+          value={value}
+          onChange={setValue}
+        />
+      </ConfirmProvider>
+      <output data-testid="document">{JSON.stringify(value)}</output>
+    </>
+  );
+}
+
+function oidcDoc() {
+  return JSON.parse(screen.getByTestId("document").textContent!).login.oidc;
+}
+
+describe("external sign-in (OIDC)", () => {
+  test("draws its searchable fieldset and every field", () => {
+    render(<OidcForm login={{}} />);
+    const group = screen.getByRole("group", {
+      name: "External sign-in (OIDC)",
+    });
+    expect(group).toHaveAttribute(
+      "data-settings-anchor",
+      "landmark:httpserver:oidc",
+    );
+    expect(
+      within(group).getByRole("switch", { name: "External sign-in" }),
+    ).toBeTruthy();
+    for (const label of [
+      "Issuer URL",
+      "Client ID",
+      "Client secret",
+      "Redirect URL",
+      "Required role",
+    ]) {
+      expect(within(group).getByLabelText(label)).toBeTruthy();
+    }
+  });
+
+  test("edits the fields under login.oidc without disturbing the rest", () => {
+    render(
+      <OidcForm
+        login={{
+          totp_configured: true,
+          oidc: { enable: false, issuer: "https://idp.example.com" },
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Issuer URL"), {
+      target: { value: "https://sso.example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Required role"), {
+      target: { value: "coddy-admin" },
+    });
+    expect(oidcDoc()).toMatchObject({
+      enable: false,
+      issuer: "https://sso.example.com",
+      required_role: "coddy-admin",
+    });
+    // The dormant local enrollment stays in the document untouched.
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).login
+        .totp_configured,
+    ).toBe(true);
+  });
+
+  test("toggles external sign-in through login.oidc.enable", () => {
+    render(<OidcForm login={{}} />);
+    fireEvent.click(screen.getByRole("switch", { name: "External sign-in" }));
+    expect(oidcDoc().enable).toBe(true);
+  });
+
+  test("keeps a stored client secret until Clear asks for its removal", () => {
+    render(<OidcForm login={{ oidc: { client_secret_configured: true } }} />);
+    const secret = screen.getByLabelText("Client secret");
+    expect(secret).toHaveAttribute(
+      "placeholder",
+      "Set. Leave empty to keep it",
+    );
+    expect(secret).toHaveValue("");
+    // An empty field preserves the stored secret, so removal is explicit.
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(oidcDoc()).toMatchObject({
+      client_secret: "",
+      clear_client_secret: true,
+    });
+  });
+
+  test.each(["Client secret", "Logout URL"])(
+    "shows removal pending and can undo for %s",
+    (label) => {
+      render(
+        <OidcForm
+          login={
+            label === "Client secret"
+              ? { oidc: { client_secret_configured: true } }
+              : { logout_url_configured: true }
+          }
+        />,
+      );
+      const field = screen.getByLabelText(label);
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+      expect(screen.getByText("Will be removed on save")).toBeVisible();
+      expect(field).not.toHaveAttribute(
+        "placeholder",
+        "Set. Leave empty to keep it",
+      );
+      expect(
+        screen.queryByRole("button", { name: "Clear" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      expect(
+        screen.queryByText("Will be removed on save"),
+      ).not.toBeInTheDocument();
+      expect(field).toHaveAttribute(
+        "placeholder",
+        "Set. Leave empty to keep it",
+      );
+      expect(screen.getByTestId("document").textContent).not.toMatch(
+        /clear_client_secret|clear_logout_url/,
+      );
+    },
+  );
+
+  test("typing a new client secret drops a pending clear", () => {
+    render(<OidcForm login={{ oidc: { client_secret_configured: true } }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.change(screen.getByLabelText("Client secret"), {
+      target: { value: "fresh-secret" },
+    });
+    expect(oidcDoc()).toMatchObject({
+      client_secret: "fresh-secret",
+      clear_client_secret: false,
+    });
+  });
+
+  test("keeps a stored logout URL until Clear asks for its removal", () => {
+    render(<OidcForm login={{ logout_url_configured: true }} />);
+    const field = screen.getByLabelText("Logout URL");
+    expect(field).toHaveAttribute("placeholder", "Set. Leave empty to keep it");
+    expect(field).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).login,
+    ).toMatchObject({ logout_url: "", clear_logout_url: true });
+  });
+
+  test("typing a new logout URL drops a pending clear", () => {
+    render(<OidcForm login={{ logout_url_configured: true }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.change(screen.getByLabelText("Logout URL"), {
+      target: { value: "https://sso.example.com/logout" },
+    });
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).login,
+    ).toMatchObject({
+      logout_url: "https://sso.example.com/logout",
+      clear_logout_url: false,
+    });
+  });
+
+  test("hides the local enrollment controls while external sign-in is on", () => {
+    render(
+      <OidcForm
+        login={{
+          totp_configured: true,
+          backup_codes_configured: true,
+          backup_codes_count: 3,
+          oidc: { enable: true },
+        }}
+      />,
+    );
+    // The stored credentials are dormant, not deleted: only their controls
+    // leave the screen while the document keeps them.
+    expect(
+      screen.queryByRole("group", { name: "Authenticator app" }),
+    ).toBeNull();
+    expect(screen.queryByRole("group", { name: "Backup codes" })).toBeNull();
+    expect(screen.getByLabelText("Login")).toBeTruthy();
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).login,
+    ).toMatchObject({
+      totp_configured: true,
+      backup_codes_configured: true,
+      oidc: { enable: true },
+    });
+    // Turning external sign-in back off returns the controls untouched.
+    fireEvent.click(screen.getByRole("switch", { name: "External sign-in" }));
+    expect(
+      screen.getByRole("group", { name: "Authenticator app" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Backup codes" })).toBeTruthy();
+  });
 });

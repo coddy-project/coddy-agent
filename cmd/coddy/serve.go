@@ -451,8 +451,8 @@ func httpAuth(cfg *config.Config, extraAuth, extraLogin bool) (token, login bool
 	// An `enable: true` with no account behind it is not a sign-in: the server
 	// refuses to start on it, and announcing one here would be the last thing
 	// the operator read before that error.
-	login = !cfg.HTTPServer.Login.IsExplicitlyDisabled() &&
-		(extraLogin || cfg.HTTPServer.Login.HasAccount())
+	login = cfg.HTTPServer.Login.OIDC.Enable || (!cfg.HTTPServer.Login.IsExplicitlyDisabled() &&
+		(extraLogin || cfg.HTTPServer.Login.HasAccount()))
 	return token, login
 }
 
@@ -479,6 +479,10 @@ func webUIAccess(cfg *config.Config, extraAuth, extraLogin bool) gateway.WebUIAc
 func httpAuthSummary(cfg *config.Config, extraAuth, extraLogin bool) string {
 	token, login := httpAuth(cfg, extraAuth, extraLogin)
 	switch {
+	case token && cfg.HTTPServer.Login.OIDC.Enable:
+		return "bearer auth, external web sign-in (OIDC)"
+	case cfg.HTTPServer.Login.OIDC.Enable:
+		return "external web sign-in (OIDC), no token for API clients"
 	case token && login:
 		return "bearer auth, web sign-in"
 	case token:

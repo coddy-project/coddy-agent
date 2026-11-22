@@ -4,7 +4,12 @@ import { LIGHT_THEMES } from "../theme/themeCookie";
 import { readAppliedUiTheme } from "../theme/uiTheme";
 import { motionIsReduced, subscribeUiSimple } from "../theme/uiSimple";
 import { totpPeriodLeft } from "../settings/totpPeriod";
-import { signIn, snapshotAuth, verifySignIn } from "./authState";
+import {
+  signIn,
+  snapshotAuth,
+  verifySignIn,
+  OIDC_START_HREF,
+} from "./authState";
 // Both wordmarks are small enough that Vite inlines them into the bundle, so
 // the screen paints with no second request - which matters on the one page a
 // browser sees before it has any credential at all.
@@ -136,6 +141,37 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
       setError(t("auth.signIn.failed", { status: String(res.status) }));
     }
   };
+
+  // External sign-in (OIDC): no local credential route can open a session -
+  // no password, no one-time or backup code, no Telegram or panel ticket -
+  // so the whole card is one link that hands the browser to the issuer and
+  // brings it back signed in.
+  if (auth.oidcEnabled) {
+    return (
+      <div className="auth-screen" data-testid="sign-in-screen">
+        <div className="auth-shell">
+          <img
+            className="auth-logo"
+            src={wordmark}
+            alt={t("auth.signIn.logoAlt")}
+            width={188}
+            height={56}
+          />
+          <div className="auth-card">
+            <h1 className="auth-title">{t("auth.signIn.title")}</h1>
+            <p className="auth-copy">{t("auth.signIn.oidcHint")}</p>
+            <a
+              className="auth-submit auth-oidc-link"
+              href={OIDC_START_HREF}
+              data-testid="oidc-start"
+            >
+              {t("auth.signIn.oidc")}
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-screen" data-testid="sign-in-screen">

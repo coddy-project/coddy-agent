@@ -92,6 +92,23 @@ export const messagesRu: Record<string, string> = {
     "Учётные данные из переменных окружения имеют приоритет над этими настройками.",
   "settings.auth.showPassword": "Показать пароль",
   "settings.auth.hidePassword": "Скрыть пароль",
+  "settings.auth.logoutUrl": "URL выхода",
+  "settings.auth.logoutUrlHint":
+    'Статический HTTP(S)-адрес, на который попадёт браузер после выхода. Оставьте пустым, чтобы сохранить заданный; "Очистить" удалит его.',
+  "settings.auth.clear": "Очистить",
+  "settings.auth.clearPending": "Будет удалено при сохранении",
+  "settings.auth.undoClear": "Отменить",
+  "settings.auth.oidc": "Внешний вход (OIDC)",
+  "settings.auth.oidc.enable": "Внешний вход",
+  "settings.auth.oidc.hint":
+    "Внешний вход включён: локальная учётная запись, аутентификатор и резервные коды остаются сохранёнными, но не используются.",
+  "settings.auth.oidc.issuer": "URL издателя",
+  "settings.auth.oidc.clientId": "ID клиента",
+  "settings.auth.oidc.clientSecret": "Секрет клиента",
+  "settings.auth.oidc.clientSecretShow": "Показать секрет клиента",
+  "settings.auth.oidc.clientSecretHide": "Скрыть секрет клиента",
+  "settings.auth.oidc.redirectUrl": "URL перенаправления",
+  "settings.auth.oidc.requiredRole": "Требуемая роль",
   "settings.userAgent.openai": "OpenAI/Go (по умолчанию)",
   "settings.userAgent.anthropic": "Anthropic/Go (по умолчанию)",
   "settings.userAgent.coddy": "Coddy/version",
@@ -367,6 +384,9 @@ export const messagesRu: Record<string, string> = {
     "Открыть Coddy из Telegram могут только админы бота.",
   "auth.signIn.telegramRetry":
     "Вход через Telegram не прошёл. Закройте Mini App и откройте заново.",
+  "auth.signIn.oidc": "Войти через SSO",
+  "auth.signIn.oidcHint":
+    "Coddy передаст вас на страницу входа вашей организации и вернёт обратно.",
   "auth.signOut.action": "Выйти",
   "auth.signOut.tooltipUser": "Выйти ({user})",
 

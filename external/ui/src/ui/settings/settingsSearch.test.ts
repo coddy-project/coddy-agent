@@ -121,6 +121,38 @@ test("the authenticator and backup codes blocks are searchable in both languages
   ).toEqual(["Резервные коды"]);
 });
 
+test("the external sign-in block is searchable and hides the local enrollment", () => {
+  const index = indexOf(AGENT_SCHEMA);
+  expect(only(index, landmarkAnchor("httpserver", "oidc"))).toMatchObject({
+    kind: "landmark",
+    section: "httpserver",
+    names: ["External sign-in (OIDC)"],
+  });
+  expectFound(index, ["external sign-in"], ["External sign-in (OIDC)"]);
+
+  // With external sign-in enabled the authenticator and backup codes blocks
+  // are hidden - their stored credentials stay, but nothing points at a block
+  // the drawer does not draw.
+  const external = indexOf(AGENT_SCHEMA, {
+    httpserver: {
+      login: {
+        enable: true,
+        totp_configured: true,
+        oidc: { enable: true },
+      },
+    },
+  });
+  expect(
+    entriesAt(external, landmarkAnchor("httpserver", "authenticator")),
+  ).toEqual([]);
+  expect(
+    entriesAt(external, landmarkAnchor("httpserver", "backupCodes")),
+  ).toEqual([]);
+  expect(only(external, landmarkAnchor("httpserver", "oidc")).names).toEqual([
+    "External sign-in (OIDC)",
+  ]);
+});
+
 function indexOf(
   schema: JsonSchema,
   doc: SettingsDoc = configFromSchema(schema),

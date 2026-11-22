@@ -112,6 +112,18 @@ The same fieldset issues ten **backup codes** (`XXXXXXXX-XXXXXXXX`) and shows th
 - **The logo in the app.** The QR code names Coddy's icon, and FreeOTP shows it. Google Authenticator, Microsoft Authenticator and most others choose their icons themselves and show the name **Coddy** without it.
 - **The key is a secret.** A code can only be checked against the key itself, so it is stored as it is and `config.yaml` becomes as sensitive as the key: keep the file readable by its owner alone. `GET /coddy/config` never returns the key, and a save from the settings screen keeps it.
 
+### External sign-in through the browser
+
+The `httpserver.login.oidc` configuration uses `enable`, `issuer`, `client_id`, `client_secret`, `redirect_url` and `required_role`. Configure the identity provider to put the exact, case-sensitive required role in the top-level `roles` array of its ID token. Confirm that the provider supports this claim before deployment. Set both `issuer` and `redirect_url` to absolute HTTPS URLs without userinfo, query strings or fragments. The callback must use the exact path `/coddy/auth/oidc/callback`. Register that URL with the provider. Coddy connects to provider endpoints only over HTTPS using public IP addresses; private-network identity providers are not supported.
+
+A matching role grants full operator access, including shell commands, configuration and all chats. External sign-in replaces the local password and Coddy's TOTP and recovery steps while enabled; the stored local credentials remain dormant and return when it is disabled. Bearer tokens remain separate, fully privileged machine credentials. External authentication supports one server process, not multiple workers or replicas. Browser sessions last at most 15 minutes and no longer than the ID token; a role removal can therefore take that long to affect an existing session. Accepted turns may finish after browser access ends, including their side effects.
+
+**Config recovery.** When Coddy validates an OIDC-enabled configuration for load, reload or save, it records a marker next to the primary file, for example `config.yaml.oidc-recovery`. The marker holds no credentials. On a marked path, Coddy will not replace an invalid primary from `config.yaml.bak` or start with defaults if the primary is missing. Review and repair or restore the primary yourself. To switch back to local sign-in deliberately, set `httpserver.login.oidc.enable` to `false` explicitly in a valid configuration. The marker stays, so future restores still require review.
+
+Keep the marker with the primary when backing up, renaming or moving it. The marker follows the configured pathname, not a file's identity across aliases or moves. An unreadable YAML policy cannot be inferred. If the primary is already malformed before Coddy has ever recorded a marker, and the backup has no OIDC enabled, legacy recovery still applies. Verify the primary at the configured path before exposing a new or migrated installation. An OIDC-enabled backup is never restored automatically.
+
+The independent optional `httpserver.login.logout_url` is a static HTTP(S) destination for browser navigation after local logout. Do not put secrets, tokens, identity data or user-specific parameters in it. Its use does not guarantee single logout at the identity provider. Local logout succeeds independently of the destination. The destination is hidden from configuration responses but is visible to the navigating browser and destination server; configure proxies not to log redirect locations or callback query strings.
+
 ## CORS for the web UI
 
 A browser that loaded the UI from one origin and calls the API of another needs the remote server to opt into CORS:

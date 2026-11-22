@@ -89,6 +89,7 @@ type loginPolicy struct {
 	// rather than swinging open, and the startup path refuses this outright;
 	// only a hot reload can reach it.
 	broken bool
+	oidc   bool
 }
 
 // SetExtraLogin registers the account supplied out of band (CODDY_HTTP_USER and
@@ -130,6 +131,9 @@ func (s *Server) loginPolicyNow() loginPolicy {
 	if c := s.activeCfg(); c != nil {
 		cfgLogin = c.HTTPServer.Login
 	}
+	if cfgLogin.OIDC.Enable {
+		return loginPolicy{enabled: true, oidc: true}
+	}
 	if cfgLogin.IsExplicitlyDisabled() {
 		return loginPolicy{}
 	}
@@ -162,6 +166,9 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /coddy/auth/login", s.coddyAuthLoginPost)
 	s.mux.HandleFunc("POST /coddy/auth/login/verify", s.coddyAuthLoginVerifyPost)
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
+	s.mux.HandleFunc("GET "+logoutContinuePath, s.logoutContinue)
+	s.mux.HandleFunc("GET "+oidcStartPath, s.oidcStart)
+	s.mux.HandleFunc("GET "+oidcCallbackPath, s.oidcCallback)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)
 	s.mux.HandleFunc("POST /coddy/auth/telegram", s.coddyAuthTelegramPost)
 	s.mux.HandleFunc("POST /coddy/auth/browser", s.coddyAuthBrowserPost)
@@ -174,7 +181,7 @@ func (s *Server) registerAuthRoutes() {
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /coddy/auth/login", "POST /coddy/auth/login/verify", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
+	case "GET " + logoutContinuePath, "GET " + oidcStartPath, "GET " + oidcCallbackPath, "POST /coddy/auth/login", "POST /coddy/auth/login/verify", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram", "POST /coddy/auth/browser":
 		return true
 	}
 	return false
@@ -182,7 +189,7 @@ func isAuthRoutePattern(pattern string) bool {
 
 // sessionFromRequest returns the live session a request's cookie names.
 func (s *Server) sessionFromRequest(r *http.Request, pol loginPolicy) (webauth.Session, bool) {
-	if !pol.enabled || pol.broken {
+	if !pol.enabled || pol.broken || pol.oidc {
 		return webauth.Session{}, false
 	}
 	c, err := r.Cookie(sessionCookieName(r))
@@ -244,19 +251,36 @@ func originMatchesHost(origin, host string) bool {
 }
 
 func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
-	pol := s.loginPolicyNow()
+	authNavigationHeaders(w)
+	writeJSON(w, http.StatusOK, s.authMeState(r))
+}
+
+func (s *Server) authMeState(r *http.Request) map[string]any {
+	s.external.mu.Lock()
+	defer s.external.mu.Unlock()
 	auth := s.authPolicyForRequest(r)
-	if !auth.enabled {
-		pol.enabled = false
-	}
+	pol := auth.login
 	out := map[string]interface{}{
 		// login_required is what makes the app draw a sign-in screen instead of
 		// the composer; auth_required tells it that a server it cannot sign in
 		// to still wants a credential, so it can say so rather than render an
 		// empty page over a row of 401s.
 		"login_required": pol.enabled,
+		"oidc_enabled":   pol.oidc,
 		"auth_required":  auth.enabled,
 		"authenticated":  false,
+	}
+	if pol.oidc {
+		out["telegram_login"] = false
+		out["browser_login"] = false
+		if sess, ok := s.lookupOIDC(r); ok {
+			out["authenticated"] = true
+			out["user"] = sess.subject
+			out["expires_at"] = sess.until.UTC().Format(time.RFC3339)
+		} else if acceptBearer(auth.tokens, bearerToken(r)) {
+			out["authenticated"] = true
+		}
+		return out
 	}
 	if pol.enabled && !pol.broken {
 		out["mode"] = config.LoginModePassword
@@ -293,11 +317,15 @@ func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 		// has no sign-in to do.
 		out["authenticated"] = true
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
-	pol := s.loginPolicyNow()
+	pol, gen := s.localLoginSnapshot()
+	if pol.oidc {
+		oidcRefused(w, http.StatusForbidden)
+		return
+	}
 	if !pol.enabled {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "sign-in is not enabled on this server"})
 		return
@@ -356,6 +384,12 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pol.account.totpSecret != "" {
+		s.external.mu.Lock()
+		defer s.external.mu.Unlock()
+		if gen != s.external.legacyModeGeneration || s.loginPolicyNow().account.fingerprint() != pol.account.fingerprint() {
+			oidcRefused(w, http.StatusForbidden)
+			return
+		}
 		ttl := pol.account.ttl
 		if !req.Remember {
 			ttl = 0
@@ -374,10 +408,17 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	if !req.Remember {
 		account.ttl = 0
 	}
-	s.issueLoginSession(w, r, account, client)
+	s.issueLoginSession(w, r, account, client, gen)
 }
 
-func (s *Server) issueLoginSession(w http.ResponseWriter, r *http.Request, account loginAccount, client string) {
+func (s *Server) issueLoginSession(w http.ResponseWriter, r *http.Request, account loginAccount, client string, gen uint64) {
+	s.external.mu.Lock()
+	defer s.external.mu.Unlock()
+	pol := s.loginPolicyNow()
+	if gen != s.external.legacyModeGeneration || !pol.enabled || pol.oidc || pol.broken || pol.account.fingerprint() != account.fingerprint() {
+		oidcRefused(w, http.StatusForbidden)
+		return
+	}
 	token, sess, err := s.sessions.Issue(account.user, account.fingerprint(), account.ttl)
 	if err != nil {
 		s.log.Error("web sign-in could not open a session", "error", err)
@@ -440,25 +481,6 @@ func (s *Server) authNow() time.Time {
 		return s.sessions.Now()
 	}
 	return time.Now()
-}
-
-func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
-	if !isSameOriginRequest(r) {
-		writeJSON(w, http.StatusForbidden, map[string]interface{}{"error": "cross-site request refused"})
-		return
-	}
-	if c, err := r.Cookie(sessionCookieName(r)); err == nil && c != nil && c.Value != "" {
-		s.sessions.Revoke(c.Value)
-	}
-	s.clearTelegramSession(w, r)
-	s.clearBrowserSession(w, r)
-	// Clear the cookie whatever happened, so a browser holding a session this
-	// server no longer knows about stops sending it.
-	clear := sessionCookie(r, "", 0) //nolint:gosec // G124: sessionCookie sets HttpOnly and SameSite=Strict, and Secure whenever the request came over TLS
-	clear.MaxAge = -1
-	clear.Expires = time.Unix(0, 0)
-	http.SetCookie(w, clear)
-	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
 // sessionCookie builds the cookie for one session.

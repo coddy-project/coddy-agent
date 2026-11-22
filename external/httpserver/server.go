@@ -70,6 +70,7 @@ type Server struct {
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
+	external        externalAuth
 
 	// desktopWindow is what the tab shell of a desktop window drives
 	// (httpserver.Options.DesktopWindow). Nil everywhere else.
@@ -103,6 +104,8 @@ type Server struct {
 	// App (auth_telegram.go), and tgReplay the launches already used.
 	tgSessions *webauth.SessionStore
 	tgReplay   webauth.ReplayGuard
+	// Optional replay recorder override, installed before serving.
+	recordTelegramLaunch func(string, time.Time, time.Time) (bool, error)
 	// browserSessions holds the side panels of Coddy for Browser signed in
 	// by a ticket of the extension's endpoint (auth_browser.go), and
 	// browserEndpoint is that endpoint on this server's mux.
@@ -215,6 +218,10 @@ func (s *Server) Drain() {
 	if s.browserEndpoint.Close != nil {
 		s.browserEndpoint.Close()
 	}
+	s.external.mu.Lock()
+	s.external.stopped = true
+	s.external.reset()
+	s.external.mu.Unlock()
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
 	s.cancelOpenCodeAuthLogins("")
@@ -235,6 +242,7 @@ func (s *Server) Drain() {
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
 		workspaceMediaKey:    rand.Text(),
+		external:             newExternalAuth(),
 		mgr:                  mgr,
 		log:                  log,
 		defaultCWD:           defaultCWD,
@@ -357,7 +365,23 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {
 		return
 	}
+	s.external.mu.Lock()
 	prev := s.cfgAt.Swap(c)
+	if !sameTelegramAuthPolicy(prev, c) {
+		s.external.telegramGeneration++
+	}
+	before, after := externalSettings(prev), externalSettings(c)
+	if !sameExternalPolicy(prev, c) {
+		s.external.reset()
+		if before.enabled != after.enabled {
+			s.external.legacyModeGeneration++
+			s.sessions.RevokeAll()
+			s.tgSessions.RevokeAll()
+			s.browserSessions.RevokeAll()
+			s.challenges.clear()
+		}
+	}
+	s.external.mu.Unlock()
 	// An extension connected with a key the configuration no longer holds
 	// is disconnected; it comes back with the new one, or not at all.
 	if prev != nil && browserEndpointKey(prev) != browserEndpointKey(c) && s.browserEndpoint.Disconnect != nil {
@@ -1184,7 +1208,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		ToolCallID: last.ToolCallID,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	turnCtx, cancelTurn := context.WithCancel(ctx)
+	turnCtx, cancelTurn := context.WithCancel(acceptedTurnContext(ctx))
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
 	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, statisticsSourceFromHTTP(req.Metadata), bridge, clientTools, genOpts)
@@ -1280,6 +1304,8 @@ func (s *Server) acquireComposerTurnLock(w http.ResponseWriter, sessionID string
 func profileTurnContext(ctx context.Context, st *session.State, stream bool) (context.Context, context.CancelFunc) {
 	if stream {
 		ctx = context.WithoutCancel(ctx)
+	} else {
+		ctx = acceptedTurnContext(ctx)
 	}
 	turnCtx, cancel := context.WithCancel(ctx)
 	st.SetCancel(cancel)

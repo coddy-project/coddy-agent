@@ -159,6 +159,9 @@ func (w *FileWatcher) Poll() bool {
 		if !w.differsFromLive(next) {
 			return nil
 		}
+		if err := prepareOIDCPrimary(next, expandConfigBody(string(data), w.Paths)); err != nil {
+			return err
+		}
 		if err := WriteBackup(w.Paths.ConfigPath, data); err != nil {
 			w.logger().Warn("config backup could not be updated", "path", w.Paths.ConfigPath, "error", err)
 		}
@@ -170,7 +173,7 @@ func (w *FileWatcher) Poll() bool {
 		return nil
 	}); err != nil {
 		w.stableCount = stablePolls - 1
-		w.logger().Warn("config file changed while being reloaded, keeping the running configuration", "path", w.Paths.ConfigPath, "error", err)
+		w.logger().Warn("config file could not be reloaded, keeping the running configuration", "path", w.Paths.ConfigPath, "error", err)
 		return false
 	}
 	w.stableCount = 0

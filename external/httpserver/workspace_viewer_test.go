@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -344,4 +345,38 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestWorkspaceRawExplicitCapabilityIsAuthoritative(t *testing.T) {
+	e := newChangesEnv(t)
+	writeInWorkspace(t, e.cwd, "a.txt", "content")
+	cfg := *e.srv.activeCfg()
+	cfg.HTTPServer.Login.OIDC = config.HTTPOIDCConfig{Enable: true, Issuer: "https://issuer.example", ClientID: "client", ClientSecret: "fixture", RedirectURL: testOIDCOrigin + oidcCallbackPath, RequiredRole: "operator"}
+	e.srv.SetExtraAuthTokens([]string{"machine"})
+	e.srv.ReplaceConfig(&cfg)
+	headers := map[string]string{"Authorization": "Bearer machine"}
+	minted := workspaceRequest(e, "POST", "media-token", []byte(`{"path_rel":"a.txt"}`), headers)
+	var scoped struct{ Token string }
+	if minted.Code != 200 || json.Unmarshal(minted.Body.Bytes(), &scoped) != nil || scoped.Token == "" {
+		t.Fatalf("mint scoped token: %d", minted.Code)
+	}
+	tokenQuery := "access_token=" + url.QueryEscape(scoped.Token)
+	badSignature, _, ok := strings.Cut(scoped.Token, ".")
+	if !ok {
+		t.Fatal("missing capability signature")
+	}
+
+	for _, method := range []string{"GET", "HEAD"} {
+		if w := workspaceRequest(e, method, "raw?path_rel=a.txt", nil, headers); w.Code != http.StatusOK {
+			t.Fatalf("absent capability: %d", w.Code)
+		}
+		if w := workspaceRequest(e, method, "raw?path_rel=a.txt&"+tokenQuery, nil, nil); w.Code != 200 {
+			t.Fatalf("valid scoped token: %d", w.Code)
+		}
+		for _, query := range []string{"access_token=", "access_token", "access_token=invalid", "access_token=%GG", tokenQuery + "&access_token=invalid", "access_token=" + url.QueryEscape(badSignature+".AA")} {
+			if w := workspaceRequest(e, method, "raw?path_rel=a.txt&"+query, nil, headers); w.Code != http.StatusUnauthorized {
+				t.Errorf("%s %s: %d", method, query, w.Code)
+			}
+		}
+	}
 }
