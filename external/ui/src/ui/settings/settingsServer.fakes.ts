@@ -57,6 +57,20 @@ export function schemaWithout(
   };
 }
 
+/** Schema fixtures for nodes that do not advertise one or both auth features. */
+export function authSchemaWithout(...keys: string[]): JsonSchema {
+  const schema = structuredClone(AGENT_SCHEMA);
+  const http = schema.properties!.httpserver!.properties!;
+  http.login = schemaWithout(http.login!, ...keys);
+  return schema;
+}
+
+export const LEGACY_AUTH_SCHEMA = authSchemaWithout(
+  "oidc",
+  "logout_url",
+  "clear_logout_url",
+);
+
 /** Values that look like secrets; no search may ever find one. */
 export const SECRET_VALUES = {
   apiKey: "sk-live-9f3c1d7a52e4b608",

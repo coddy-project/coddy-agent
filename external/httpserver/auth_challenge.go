@@ -55,6 +55,12 @@ func (c *challengeStore) issue(fingerprint string, ttl time.Duration, now time.T
 	c.entries[token] = challengeEntry{fingerprint: fingerprint, expires: now.Add(challengeTTL), ttl: ttl}
 	return token, nil
 }
+func (c *challengeStore) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
+}
+
 func (c *challengeStore) take(token string, now time.Time) (challengeEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -63,6 +69,11 @@ func (c *challengeStore) take(token string, now time.Time) (challengeEntry, bool
 	return entry, ok && now.Before(entry.expires)
 }
 func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request) {
+	pol, gen := s.localLoginSnapshot()
+	if pol.oidc {
+		oidcRefused(w, http.StatusForbidden)
+		return
+	}
 	if !isSameOriginRequest(r) {
 		writeJSON(w, 403, map[string]interface{}{"error": "cross-site sign-in refused"})
 		return
@@ -84,7 +95,6 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 		}
 	}
 	entry, ok := s.challenges.take(req.Challenge, s.authNow())
-	pol := s.loginPolicyNow()
 	if !ok || !pol.enabled || pol.broken || pol.account.totpSecret == "" || entry.fingerprint != pol.account.fingerprint() {
 		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
 		return
@@ -105,7 +115,7 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 	}
 	// Recheck after verification so a rotation cannot yield a usable old session.
 	pol = s.loginPolicyNow()
-	if !pol.enabled || pol.broken || pol.account.fingerprint() != entry.fingerprint {
+	if !pol.enabled || pol.broken || pol.oidc || pol.account.fingerprint() != entry.fingerprint {
 		writeJSON(w, 401, map[string]interface{}{"error": "invalid credentials"})
 		return
 	}
@@ -114,14 +124,14 @@ func (s *Server) coddyAuthLoginVerifyPost(w http.ResponseWriter, r *http.Request
 	if entry.ttl == 0 || (account.ttl > 0 && entry.ttl < account.ttl) {
 		account.ttl = entry.ttl
 	}
-	s.issueLoginSession(w, r, account, client)
+	s.issueLoginSession(w, r, account, client, gen)
 }
 
 func (s *Server) consumeLoginBackup(fingerprint, code string) (bool, error) {
 	consumed := false
 	err := config.WithConfigFileLock(func() error {
 		pol := s.loginPolicyNow()
-		if !pol.enabled || pol.broken || pol.account.fingerprint() != fingerprint {
+		if !pol.enabled || pol.broken || pol.oidc || pol.account.fingerprint() != fingerprint {
 			return nil
 		}
 		c := s.activeCfg()

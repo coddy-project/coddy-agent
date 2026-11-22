@@ -88,6 +88,23 @@ export const messagesEn: Record<string, string> = {
     "Environment credentials take precedence over these account settings.",
   "settings.auth.showPassword": "Show password",
   "settings.auth.hidePassword": "Hide password",
+  "settings.auth.logoutUrl": "Logout URL",
+  "settings.auth.logoutUrlHint":
+    "A static HTTP(S) destination the browser lands on after sign-out. Leave empty to keep the stored one; Clear removes it.",
+  "settings.auth.clear": "Clear",
+  "settings.auth.clearPending": "Will be removed on save",
+  "settings.auth.undoClear": "Undo",
+  "settings.auth.oidc": "External sign-in (OIDC)",
+  "settings.auth.oidc.enable": "External sign-in",
+  "settings.auth.oidc.hint":
+    "External sign-in is on: the local account, the authenticator and the backup codes stay stored but unused.",
+  "settings.auth.oidc.issuer": "Issuer URL",
+  "settings.auth.oidc.clientId": "Client ID",
+  "settings.auth.oidc.clientSecret": "Client secret",
+  "settings.auth.oidc.clientSecretShow": "Show client secret",
+  "settings.auth.oidc.clientSecretHide": "Hide client secret",
+  "settings.auth.oidc.redirectUrl": "Redirect URL",
+  "settings.auth.oidc.requiredRole": "Required role",
   "settings.userAgent.openai": "OpenAI/Go (default)",
   "settings.userAgent.anthropic": "Anthropic/Go (default)",
   "settings.userAgent.coddy": "Coddy/version",
@@ -361,6 +378,9 @@ export const messagesEn: Record<string, string> = {
     "Only the bot's admins can open Coddy from Telegram.",
   "auth.signIn.telegramRetry":
     "Telegram's sign-in did not go through. Close the Mini App and open it again.",
+  "auth.signIn.oidc": "Sign in with SSO",
+  "auth.signIn.oidcHint":
+    "Coddy hands you to your organisation's sign-in and brings you back.",
   "auth.signOut.action": "Sign out",
   "auth.signOut.tooltipUser": "Sign out ({user})",
 

@@ -1507,9 +1507,17 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return llmMsgsToCoddyOpenAIForSession("", "", "", msgs)
 }
 
-// isRegularFile reports whether path is a regular file, a link not followed.
-func isRegularFile(path string) bool {
-	info, err := os.Lstat(path)
+func validSessionAssetName(name string) bool {
+	return name != "." && filepath.IsLocal(name) && filepath.Base(name) == name && !strings.ContainsAny(name, `/\\`)
+}
+
+// bundleHasRegularFile checks metadata without leaving the bundle or following
+// a symlink in place of the file itself.
+func bundleHasRegularFile(root *os.Root, rel string) bool {
+	if root == nil {
+		return false
+	}
+	info, err := root.Lstat(rel)
 	return err == nil && info.Mode().IsRegular()
 }
 
@@ -1526,10 +1534,25 @@ func recordedAsset(assetsDir, path string) string {
 	if dir != filepath.Clean(assetsDir) && filepath.Base(dir) != filepath.Base(session.AssetsPath("")) {
 		return ""
 	}
-	return filepath.Base(path)
+	name := filepath.Base(path)
+	if !validSessionAssetName(name) {
+		return ""
+	}
+	return name
 }
 
 func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm.Message) []map[string]interface{} {
+	openBundle := sync.OnceValue(func() *os.Root {
+		// The HTTP asset routes use the same session bundle boundary.
+		root, _ := os.OpenRoot(filepath.Dir(assetsDir))
+		return root
+	})
+	var bundle *os.Root
+	defer func() {
+		if bundle != nil {
+			_ = bundle.Close()
+		}
+	}()
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -1618,14 +1641,16 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				// the agent can write there, and the prompt tells it where - would
 				// make it serve whatever it points at.
 				if asset := recordedAsset(assetsDir, part.FilePath); sessionID != "" && asset != "" {
+					bundle = openBundle()
+					assetsRel := filepath.Base(assetsDir)
 					if m.Role == llm.RoleAssistant {
 						file["asset"] = asset
 					}
-					if part.ThumbnailPath != "" && isRegularFile(session.ThumbnailPathInAssets(assetsDir, asset)) {
+					if part.ThumbnailPath != "" && bundleHasRegularFile(bundle, session.ThumbnailPathInAssets(assetsRel, asset)) {
 						file["preview_url"] = session.AssetThumbnailRoute(sessionID, asset)
 					}
 					// The full-size original, for a preview card to open enlarged.
-					if isRegularFile(filepath.Join(assetsDir, asset)) {
+					if bundleHasRegularFile(bundle, filepath.Join(assetsRel, asset)) {
 						file["url"] = session.AssetRoute(sessionID, asset)
 					}
 				}
@@ -1692,7 +1717,7 @@ func (s *Server) coddySessionAsset(w http.ResponseWriter, r *http.Request) (sess
 		return "", "", false
 	}
 	name = strings.TrimSpace(r.PathValue("name"))
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+	if !validSessionAssetName(name) {
 		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
 		return "", "", false
 	}
@@ -1918,10 +1943,14 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	}
 	msgs, rev := st.MessagesWithRev()
 	page := session.PageMessages(msgs, query)
+	var assetsDir string
+	if sessionDir := strings.TrimSpace(st.GetPersistedSessionDir()); sessionDir != "" {
+		assetsDir = session.AssetsPath(sessionDir)
+	}
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), st.GetCWD(), msgs[page.Offset:page.End]),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, assetsDir, st.GetCWD(), msgs[page.Offset:page.End]),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,

@@ -128,6 +128,13 @@ func configuredServer(ctx context.Context, opts Options) (*Server, func(), error
 	}
 	s.SetNoAuth(opts.NoAuth)
 	s.SetNoAuthHeader(opts.NoAuthHeader)
+	if !opts.NoAuth {
+		if err := validateExternalLogin(s.activeCfg()); err != nil {
+			s.Drain()
+			return nil, nil, err
+		}
+	}
+
 	s.SetDesktopWindow(opts.DesktopWindow)
 	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)

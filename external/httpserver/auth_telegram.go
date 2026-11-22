@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,46 @@ func (s *Server) telegramBot() (*config.TelegramGatewayConfig, string, bool) {
 	tg := &cfg.Gateways.Telegram
 	token := tg.EffectiveToken()
 	return tg, token, token != ""
+}
+
+// sameTelegramAuthPolicy compares only the settings used to verify a launch.
+func sameTelegramAuthPolicy(a, b *config.Config) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	x, y := &a.Gateways.Telegram, &b.Gateways.Telegram
+	return x.Enabled == y.Enabled && x.Token == y.Token && slices.Equal(x.Admins, y.Admins)
+}
+
+type telegramAuthGeneration struct{ mode, bot uint64 }
+
+func (s *Server) telegramAuthGenerationLocked() telegramAuthGeneration {
+	return telegramAuthGeneration{s.external.legacyModeGeneration, s.external.telegramGeneration}
+}
+
+func (s *Server) telegramAdmission() (*config.TelegramGatewayConfig, string, telegramAuthGeneration, bool) {
+	s.external.mu.Lock()
+	defer s.external.mu.Unlock()
+	if s.external.stopped || s.loginPolicyNow().oidc {
+		return nil, "", telegramAuthGeneration{}, false
+	}
+	tg, token, _ := s.telegramBot()
+	return tg, token, s.telegramAuthGenerationLocked(), true
+}
+
+func (s *Server) commitTelegramSession(gen telegramAuthGeneration, userID int64, token string) (string, webauth.Session, time.Duration, bool, error) {
+	s.external.mu.Lock()
+	defer s.external.mu.Unlock()
+	if s.external.stopped || gen != s.telegramAuthGenerationLocked() || s.loginPolicyNow().oidc {
+		return "", webauth.Session{}, 0, false, nil
+	}
+	tg, current, ok := s.telegramBot()
+	if !ok || !subtleEqual(current, token) || !tg.IsAdmin(userID) {
+		return "", webauth.Session{}, 0, false, nil
+	}
+	ttl := s.tgSessionTTL()
+	key, sess, err := s.tgSessions.Issue(tgSessionUserPrefix+strconv.FormatInt(userID, 10), tgCredential(token), ttl)
+	return key, sess, ttl, true, err
 }
 
 // tgCredential is the fingerprint Mini App sessions are bound to.
@@ -106,12 +147,16 @@ func (s *Server) telegramSessionFromRequest(r *http.Request) (webauth.Session, b
 var errNotAnAdmin = errors.New("only the bot's admins can open Coddy here")
 
 func (s *Server) coddyAuthTelegramPost(w http.ResponseWriter, r *http.Request) {
+	tg, token, gen, available := s.telegramAdmission()
+	if !available {
+		oidcRefused(w, http.StatusForbidden)
+		return
+	}
 	if !isSameOriginRequest(r) {
 		writeJSON(w, http.StatusForbidden, map[string]interface{}{"error": "cross-site sign-in refused"})
 		return
 	}
-	tg, token, ok := s.telegramBot()
-	if !ok {
+	if token == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Telegram sign-in is not available on this server"})
 		return
 	}
@@ -138,7 +183,11 @@ func (s *Server) coddyAuthTelegramPost(w http.ResponseWriter, r *http.Request) {
 	// One launch signs one browser in: a copy of the launch data replayed
 	// within its hour opens nothing, and a launch the used-launch record
 	// cannot durably take signs nobody in.
-	used, err := s.tgReplay.Use(launch.Hash, launch.AuthDate.Add(telegramLaunchMaxAge+time.Minute), now)
+	record := s.recordTelegramLaunch
+	if record == nil {
+		record = s.tgReplay.Use
+	}
+	used, err := record(launch.Hash, launch.AuthDate.Add(telegramLaunchMaxAge+time.Minute), now)
 	if err != nil {
 		s.log.Error("telegram sign-in could not record the used launch", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})
@@ -148,8 +197,11 @@ func (s *Server) coddyAuthTelegramPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"error": "this Telegram launch was already used; open the Mini App again"})
 		return
 	}
-	ttl := s.tgSessionTTL()
-	tok, sess, err := s.tgSessions.Issue(tgSessionUserPrefix+strconv.FormatInt(launch.UserID, 10), tgCredential(token), ttl)
+	tok, sess, ttl, current, err := s.commitTelegramSession(gen, launch.UserID, token)
+	if !current {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Telegram sign-in is no longer available for this launch"})
+		return
+	}
 	if err != nil {
 		s.log.Error("telegram sign-in could not open a session", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "could not open a session"})

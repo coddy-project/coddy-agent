@@ -17,9 +17,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { ConfirmProvider } from "../components/useConfirm";
 import { Settings } from "./Settings";
 import {
   noteSettingsConfigReloaded,
+  snapshotSettingsConfig,
   resetSettingsConfigForTests,
 } from "./settingsConfigStore";
 import {
@@ -36,6 +38,8 @@ import { OpenRailScreen } from "../nav/railEscape.fakes";
 import { pressBack } from "../telegram/backButton";
 import {
   AGENT_SCHEMA,
+  authSchemaWithout,
+  LEGACY_AUTH_SCHEMA,
   RELAY_SCHEMA,
   configFromSchema,
   mountSettings,
@@ -501,6 +505,148 @@ test("a reopen right after a save draws what was saved, even when the read after
     "45",
   );
 });
+
+test.each([
+  ["legacy", LEGACY_AUTH_SCHEMA, false, false, true],
+  ["logout only", authSchemaWithout("oidc"), false, true, true],
+  [
+    "OIDC only",
+    authSchemaWithout("logout_url", "clear_logout_url"),
+    true,
+    false,
+    true,
+  ],
+  ["absent", schemaWithout(AGENT_SCHEMA, "httpserver"), false, false, false],
+] as const)(
+  "authentication controls and search follow the %s schema",
+  async (_name, schema, oidc, logout, auth) => {
+    await openSettings({
+      section: "httpserver",
+      schema,
+      config: {
+        httpserver: {
+          login: {
+            totp_configured: true,
+            oidc: { enable: true, issuer: "https://old.example" },
+          },
+        },
+      },
+    });
+    expect(Boolean(screen.queryByLabelText("Issuer URL"))).toBe(oidc);
+    expect(Boolean(screen.queryByLabelText("Logout URL"))).toBe(logout);
+    expect(
+      Boolean(screen.queryByRole("group", { name: "Authenticator app" })),
+    ).toBe(auth && !oidc);
+    const search = screen.getByRole("combobox", { name: "Search settings" });
+    for (const [text, shown] of [
+      ["External sign-in (OIDC)", oidc],
+      ["Logout URL", logout],
+    ] as const) {
+      fireEvent.change(search, { target: { value: text } });
+      expect(screen.queryAllByRole("option").length > 0).toBe(shown);
+    }
+  },
+);
+
+test.each(["replace", "clear", "keep", "unset", "edit during PUT"])(
+  "reopening after a failed refresh uses only the redacted saved baseline: %s",
+  async (intent) => {
+    const configured = intent === "clear" || intent === "keep";
+    const replacing = intent === "replace" || intent === "edit during PUT";
+    const savedConfigured = replacing || intent === "keep";
+    const view = await openSettings({
+      section: "httpserver",
+      config: {
+        httpserver: {
+          login: {
+            logout_url_configured: configured,
+            oidc: { client_secret_configured: configured },
+          },
+        },
+      },
+    });
+    const { fetch } = view;
+    const secret = "submitted-test-secret";
+    const url = "https://submitted.example/logout";
+    if (intent === "clear") {
+      screen
+        .getAllByRole("button", { name: "Clear" })
+        .forEach((button) => fireEvent.click(button));
+    } else if (replacing) {
+      fireEvent.change(screen.getByLabelText("Client secret"), {
+        target: { value: secret },
+      });
+      fireEvent.change(screen.getByLabelText("Logout URL"), {
+        target: { value: url },
+      });
+    }
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (path, init) => {
+      if (init?.method === "PUT") await held;
+      if (!init?.method && path.startsWith("/coddy/config")) {
+        return { ok: false, status: 502, json: async () => ({}) };
+      }
+      return answer(path, init);
+    });
+    const save = screen.getByTestId("settings-save");
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
+        true,
+      ),
+    );
+    if (intent === "edit during PUT") {
+      fireEvent.change(screen.getByLabelText("Client secret"), {
+        target: { value: "new-unsaved-secret" },
+      });
+      fireEvent.change(screen.getByLabelText("Login"), {
+        target: { value: "new-unsaved-login" },
+      });
+    }
+    await act(async () => release());
+    const baseline = snapshotSettingsConfig().config;
+    expect(baseline).toEqual({
+      httpserver: {
+        login: {
+          logout_url_configured: savedConfigured,
+          oidc: { client_secret_configured: savedConfigured },
+        },
+      },
+    });
+    if (intent === "edit during PUT") {
+      expect(save).toHaveClass("is-dirty");
+      expect(screen.getByLabelText("Client secret")).toHaveValue(
+        "new-unsaved-secret",
+      );
+      expect(screen.getByLabelText("Login")).toHaveValue("new-unsaved-login");
+    } else {
+      expect(save).toHaveClass("is-saved");
+      expect(screen.getByLabelText("Client secret")).toHaveValue("");
+    }
+    expect(screen.getByLabelText("Logout URL")).toHaveValue("");
+    view.unmount();
+    render(
+      <ConfirmProvider>
+        <Settings onClose={() => {}} initialSection="httpserver" />
+      </ConfirmProvider>,
+    );
+    const placeholder = savedConfigured
+      ? "Set. Leave empty to keep it"
+      : "Not set";
+    for (const name of ["Client secret", "Logout URL"]) {
+      expect(screen.getByLabelText(name)).toHaveValue("");
+      expect(screen.getByLabelText(name)).toHaveAttribute(
+        "placeholder",
+        placeholder,
+      );
+    }
+    expect(screen.getByTestId("settings-save")).not.toHaveClass("is-dirty");
+  },
+);
 
 // Reload drops the edits the form held when it was pressed; a field typed
 // into while its read is on its way keeps what was typed.

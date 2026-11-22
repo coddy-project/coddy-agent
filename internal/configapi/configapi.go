@@ -271,6 +271,9 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return errSerialize
 		}
+		if err := config.ProtectConfigYAMLWrite(paths, yb); err != nil {
+			return err
+		}
 		if err := config.BackupCurrent(cfgPath); err != nil {
 			b.log().Error("coddy config backup", "error", err)
 			return errBackup

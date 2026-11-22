@@ -617,6 +617,9 @@ func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResul
 	if err := os.MkdirAll(filepath.Dir(paths.ConfigPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create config directory: %w", err)
 	}
+	if err := ProtectConfigYAMLWrite(paths, updated); err != nil {
+		return nil, err
+	}
 	if existed {
 		if err := WriteBackup(paths.ConfigPath, previous); err != nil {
 			return nil, fmt.Errorf("backup config: %w", err)
@@ -744,8 +747,12 @@ func rollbackConfigFromSnapshotLocked(paths Paths) (*ConfigRollbackResult, error
 		current = []byte{}
 	}
 	expanded := expandConfigBody(string(snapshot), paths)
-	if _, err := parseValidateYAMLBytes(expanded, paths); err != nil {
+	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	if err != nil {
 		return nil, fmt.Errorf("pre-commit snapshot %s is invalid: %w", snapshotPath, err)
+	}
+	if err := prepareOIDCPrimary(cfg, expanded); err != nil {
+		return nil, err
 	}
 	result := &ConfigRollbackResult{
 		SnapshotPath: snapshotPath,

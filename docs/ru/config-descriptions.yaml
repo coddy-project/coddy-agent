@@ -945,3 +945,28 @@ supervisor.max_chain_sessions:
 providers[].user_agent:
   en: "Client identity for types openai and anthropic. Empty (the default), openai or anthropic keeps the current provider SDK identity (OpenAI/Go or Anthropic/Go); coddy sends Coddy/<running version>. Applies to completions and model listing. Ignored for other provider types."
   ru: "Имя клиента для провайдеров типов openai и anthropic. Пустое значение (по умолчанию), openai и anthropic сохраняют имя SDK текущего протокола (OpenAI/Go или Anthropic/Go); coddy передаёт Coddy/<running version>. Настройка действует для запросов к модели и списка моделей. Другие типы провайдеров её игнорируют."
+
+httpserver.login.logout_url:
+  en: "Optional static HTTP(S) logout destination. Do not include secrets, tokens, identity data or user-specific parameters. Hidden from configuration output."
+  ru: "Необязательный статический HTTP(S)-адрес выхода. Не включайте секреты, токены, данные идентификации или параметры конкретного пользователя. Значение скрыто в выводе конфигурации."
+httpserver.login.oidc:
+  en: "External OIDC sign-in configuration."
+  ru: "Настройки внешнего входа через OIDC."
+httpserver.login.oidc.enable:
+  en: "Enable external OIDC sign-in."
+  ru: "Включить внешний вход через OIDC."
+httpserver.login.oidc.issuer:
+  en: "HTTPS OIDC issuer URL."
+  ru: "HTTPS-адрес издателя OIDC."
+httpserver.login.oidc.client_id:
+  en: "OIDC client identifier."
+  ru: "Идентификатор клиента OIDC."
+httpserver.login.oidc.client_secret:
+  en: "OIDC client secret. Hidden from configuration output."
+  ru: "Секрет клиента OIDC. Значение скрыто в выводе конфигурации."
+httpserver.login.oidc.redirect_url:
+  en: "Public HTTPS callback URL."
+  ru: "Публичный HTTPS-адрес обратного вызова."
+httpserver.login.oidc.required_role:
+  en: "Exact role required in the ID token roles array."
+  ru: "Значение, с которым должна точно совпадать одна из ролей в массиве roles ID-токена."

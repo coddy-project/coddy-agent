@@ -1802,7 +1802,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Whether this server wants a sign-in, and whether the caller has one",
 					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
-						"**login_required** is true when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
+						"**login_required** is true when OIDC is enabled or when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
 						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
 						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. " +
 						"**second_factor** is `totp` when the form also asks for a one-time code from an authenticator app (`httpserver.login.totp_secret`, enrolled in the web UI under Settings, Authentication). See https://coddy.dev/docs/operate/remote.",
@@ -1816,7 +1816,8 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"login_required":     map[string]string{"type": "boolean", "description": "A password sign-in form is configured."},
+											"login_required":     map[string]string{"type": "boolean", "description": "Browser sign-in is configured."},
+											"oidc_enabled":       map[string]string{"type": "boolean", "description": "External OIDC sign-in replaces the password, TOTP, Telegram and extension sign-in routes."},
 											"auth_required":      map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /coddy/*."},
 											"authenticated":      map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
 											"mode":               map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
@@ -1827,7 +1828,7 @@ func openAPISpec() map[string]interface{} {
 											"telegram_login":     map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
 											"browser_login":      map[string]string{"type": "boolean", "description": "A page opened in the side panel of Coddy for Browser can sign in with the ticket the extension's endpoint gave it (POST /coddy/auth/browser)."},
 										},
-										"required": []string{"login_required", "auth_required", "authenticated"},
+										"required": []string{"login_required", "auth_required", "authenticated", "oidc_enabled"},
 									},
 								},
 							},
@@ -1949,7 +1950,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
 					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
 						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
-						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt, **500** when the record of used launches cannot be read or durably written; a launch may already be spent if the write committed before durability failed, so retry with a new Mini App launch.",
+						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin, a cross-site attempt or a sign-in policy change before the session is issued, **500** when the record of used launches cannot be read or durably written; a launch may already be spent if the write committed before durability failed, so retry with a new Mini App launch.",
 					"operationId": "authTelegram",
 					"security":    []interface{}{map[string]interface{}{}},
 					"requestBody": map[string]interface{}{
@@ -2302,15 +2303,19 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			oidcStartPath:      authOIDCStartOperation(),
+			oidcCallbackPath:   authRedirectOperation("completeOIDCSignIn", "Complete external browser sign-in", "303 to the Coddy root with a new opaque session cookie, after validating the ID token and exact operator role.", "400", "401", "429", "503"),
+			logoutContinuePath: authRedirectOperation("continueBrowserLogout", "Continue browser logout", "303 to the configured static destination once for a valid continuation, otherwise to the Coddy root."),
 			"/coddy/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) and the Coddy for Browser side panel's (`" + browserSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) and the Coddy for Browser side panel's (`" + browserSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt. Also atomically revokes external sessions and pending external sign-in. When the response carries `X-Coddy-Logout-Continue: 1`, the browser may navigate to `GET /coddy/auth/logout/continue`.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Signed out",
+							"headers":     map[string]any{logoutContinueHeader: map[string]any{"description": "1 when this browser may navigate to the same-origin logout continuation.", "schema": map[string]any{"type": "string", "enum": []string{"1"}}}},
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -5928,4 +5933,19 @@ func browserFileSchema() map[string]interface{} {
 		},
 		"required": []string{"name"},
 	}
+}
+
+func authOIDCStartOperation() map[string]any {
+	op := authRedirectOperation("startOIDCSignIn", "Start external browser sign-in", "303 to the same start route with binding=1 and a Secure browser-session cookie when establishing the binding; otherwise 303 to the configured issuer. No transaction is admitted until the browser returns the binding.", "400", "404", "429", "503")
+	get := op["get"].(map[string]any)
+	get["parameters"] = []any{map[string]any{"name": "binding", "in": "query", "description": "Marker set by the same-origin redirect; returns 400 if the browser did not send the binding cookie.", "schema": map[string]any{"type": "string", "enum": []string{"1"}}}}
+	return op
+}
+
+func authRedirectOperation(id, summary, description string, errors ...string) map[string]any {
+	responses := map[string]any{"303": map[string]any{"description": description, "headers": map[string]any{"Location": map[string]any{"schema": map[string]string{"type": "string"}}}}}
+	for _, status := range errors {
+		responses[status] = errorResponseRef()
+	}
+	return map[string]any{"get": map[string]any{"operationId": id, "summary": summary, "security": []any{map[string]any{}}, "responses": responses}}
 }

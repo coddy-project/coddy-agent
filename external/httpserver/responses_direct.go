@@ -130,7 +130,7 @@ func (s *Server) handleDirectResponses(w http.ResponseWriter, r *http.Request, r
 		messages[len(messages)-1].ImageParts = parts
 	}
 	st.ReplaceMessagesFromClient(messages)
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(acceptedTurnContext(r.Context()))
 	st.SetCancel(cancel)
 	defer cancel()
 	provider, err := s.directYAMLProvider(ctx, st, req.Model, opts)

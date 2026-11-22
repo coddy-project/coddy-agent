@@ -7,7 +7,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
-import { signOut, snapshotAuth, subscribeAuth } from "../auth/authState";
+import {
+  LOGOUT_CONTINUE_HREF,
+  signOut,
+  snapshotAuth,
+  subscribeAuth,
+} from "../auth/authState";
 import {
   appNavHrefDocs,
   appNavHrefHistory,
@@ -329,7 +334,8 @@ export function NavRail(props: {
       ? `${t("nav.schedulerAriaLabel")}, ${tp("nav.activeRuns", schedulerActiveCount)}`
       : t("nav.schedulerAriaLabel");
   const pillWide = props.canWidenRail && props.railLabelsWide;
-  const signedIn = auth.loginRequired && auth.authenticated;
+  const signedIn =
+    auth.authenticated && (auth.loginRequired || auth.oidcEnabled);
   // Below 1200px the rail is a top bar; on a phone it folds what does not fit
   // behind More (navOverflow.ts). The desktop rail never folds.
   const stacked = useSyncExternalStore(
@@ -435,10 +441,17 @@ export function NavRail(props: {
   // Only a server that actually dropped the session is worth reloading for:
   // the cookie is HttpOnly, so reloading after a refusal would sign the
   // browser straight back in and the button would look broken instead of
-  // refused.
+  // refused. A logout that the server marked for continuation leaves the page
+  // instead: the same-origin GET spends the ticket and sends the browser to
+  // the configured destination, or back here.
   const doSignOut = () => {
-    void signOut().then((ok) => {
-      if (ok) {
+    void signOut().then((res) => {
+      if (!res.ok) {
+        return;
+      }
+      if (res.logoutContinue) {
+        window.location.assign(LOGOUT_CONTINUE_HREF);
+      } else {
         window.location.reload();
       }
     });

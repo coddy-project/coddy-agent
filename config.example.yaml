@@ -624,6 +624,14 @@ tools:
 #     backup_codes:
 #       generation: "..."
 #       hashes: ["..."]
+#     logout_url: "" # Static HTTP(S) URL; never include secrets or identity data.
+#     oidc:
+#       enable: false
+#       issuer: "https://identity.example"
+#       client_id: "coddy"
+#       client_secret: "${CODDY_OIDC_CLIENT_SECRET}"
+#       redirect_url: "https://coddy.example/coddy/auth/oidc/callback"
+#       required_role: "operator"
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about

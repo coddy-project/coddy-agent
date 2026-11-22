@@ -159,6 +159,60 @@ describe("AuthGate", () => {
     renderGate();
     expect(await screen.findByTestId("the-app")).toBeInTheDocument();
   });
+
+  it("shows the external sign-in when the server reports OIDC", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        authenticated: false,
+        oidc_enabled: true,
+      });
+    renderGate();
+    expect(await screen.findByTestId("sign-in-screen")).toBeInTheDocument();
+    expect(screen.getByTestId("oidc-start")).toBeInTheDocument();
+    expect(screen.queryByTestId("the-app")).not.toBeInTheDocument();
+  });
+
+  it("lets the app through once the external sign-in has happened", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        authenticated: true,
+        oidc_enabled: true,
+        user: "operator",
+      });
+    renderGate();
+    expect(await screen.findByTestId("the-app")).toBeInTheDocument();
+    expect(screen.queryByTestId("sign-in-screen")).not.toBeInTheDocument();
+  });
+});
+
+describe("SignInScreen under external sign-in", () => {
+  it("shows one link to the issuer and none of the local credential routes", async () => {
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        authenticated: false,
+        oidc_enabled: true,
+        second_factor: "totp",
+        telegram_login: true,
+        browser_login: true,
+      });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    const start = screen.getByTestId("oidc-start");
+    expect(start.tagName).toBe("A");
+    expect(start).toHaveAttribute("href", "/coddy/auth/oidc/start");
+    expect(document.querySelector("form")).toBeNull();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("User")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("One-time code")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Backup code")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("telegram-note")).not.toBeInTheDocument();
+    expect(document.querySelector(".auth-enrollment-qr")).toBeNull();
+    // The only call a screen like this may make is the state read itself.
+    expect(seen).toEqual([{ url: "/coddy/auth/me", body: undefined }]);
+  });
 });
 
 describe("SignInScreen", () => {

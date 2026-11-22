@@ -75,7 +75,18 @@ const (
 // $CODDY_HOME/.env), which is why the switch is a pointer: nil means "on when
 // an account is configured anywhere", and only an explicit false turns the form
 // off with the variables still set.
+type HTTPOIDCConfig struct {
+	Enable       bool   `yaml:"enable"`
+	Issuer       string `yaml:"issuer"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	RedirectURL  string `yaml:"redirect_url"`
+	RequiredRole string `yaml:"required_role"`
+}
+
 type HTTPLoginConfig struct {
+	OIDC      HTTPOIDCConfig `yaml:"oidc"`
+	LogoutURL string         `yaml:"logout_url"`
 	// Enabled turns the sign-in form on or off explicitly. Nil follows the
 	// credentials: a configured account enables the form, no account leaves the
 	// server exactly as it was before this option existed.
@@ -145,6 +156,12 @@ func (l *HTTPLoginConfig) Normalize() {
 // document it would then write back to disk. The server resolves both sources
 // and refuses to start when a form is asked for that nobody can pass.
 func (l *HTTPLoginConfig) Validate() error {
+	if l.LogoutURL != "" && !ValidLogoutURL(l.LogoutURL) {
+		return fmt.Errorf("httpserver.login.logout_url must be an absolute HTTP(S) URL without userinfo or fragment")
+	}
+	if err := l.OIDC.Validate(); err != nil {
+		return err
+	}
 	switch l.Mode {
 	case "", LoginModePassword:
 	default:
@@ -169,6 +186,55 @@ func (l *HTTPLoginConfig) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidLogoutURL validates a static browser navigation destination.
+func ValidLogoutURL(value string) bool {
+	if strings.ContainsAny(value, "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f") || strings.Contains(value, "#") {
+		return false
+	}
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.Hostname() != "" && u.User == nil && u.Opaque == ""
+}
+
+// OIDCCallbackPath is the exact path registered by the external sign-in handler.
+const OIDCCallbackPath = "/coddy/auth/oidc/callback"
+
+// Validate reports configuration errors without echoing any configured values.
+func (o HTTPOIDCConfig) Validate() error {
+	if !o.Enable {
+		return nil
+	}
+	if parseOIDCConfigURL(o.Issuer) == nil {
+		return fmt.Errorf("httpserver.login.oidc.issuer must be an absolute HTTPS URL without userinfo, query or fragment")
+	}
+	if _, err := o.CallbackURL(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(o.ClientID) == "" || strings.TrimSpace(o.ClientSecret) == "" || strings.TrimSpace(o.RequiredRole) == "" {
+		return fmt.Errorf("httpserver.login.oidc requires client_id, client_secret and required_role")
+	}
+	return nil
+}
+
+// CallbackURL returns the verified public callback URL used by the listener.
+func (o HTTPOIDCConfig) CallbackURL() (*url.URL, error) {
+	u := parseOIDCConfigURL(o.RedirectURL)
+	if u == nil || u.EscapedPath() != OIDCCallbackPath {
+		return nil, fmt.Errorf("httpserver.login.oidc.redirect_url must be an absolute HTTPS URL with the exact path %s and no userinfo, query or fragment", OIDCCallbackPath)
+	}
+	return u, nil
+}
+
+func parseOIDCConfigURL(value string) *url.URL {
+	if !ValidLogoutURL(value) || !strings.HasPrefix(value, "https://") || strings.Contains(value, `\`) {
+		return nil
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.ForceQuery || u.RawQuery != "" {
+		return nil
+	}
+	return u
 }
 
 // HasAccount reports whether this file carries a complete account.

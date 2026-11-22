@@ -42,6 +42,7 @@ export function AuthGate(props: { children: React.ReactNode }) {
   }
   if (
     (state.loginRequired ||
+      state.oidcEnabled ||
       state.telegramRefused ||
       state.telegramProblem !== "") &&
     !state.authenticated

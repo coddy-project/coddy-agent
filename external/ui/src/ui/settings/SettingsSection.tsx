@@ -376,8 +376,22 @@ export function overrideTexts(
   schema: JsonSchema,
   doc?: Record<string, unknown>,
 ): false | null | OverrideTexts {
-  if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
-    return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+  if (domain === "httpserver.login") {
+    if (path === "logout_url") {
+      return {
+        primary: translate(SETTINGS_TEXTS.authLogoutUrl.label!),
+        primaryDesc: translate(SETTINGS_TEXTS.authLogoutUrl.desc!),
+      };
+    }
+    // The clear flags are controls of their field, not fields of their own,
+    // and the oidc block is searched through its landmark: its fields are not
+    // indexed separately.
+    if (path === "clear_logout_url" || path === "oidc") {
+      return false;
+    }
+    if (AUTHENTICATION_FIELD_TEXTS[path]) {
+      return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+    }
   }
   const label = () =>
     schemaFieldLabel(
@@ -845,6 +859,7 @@ export function SettingsSection(props: {
   if (section.kind === "authentication") {
     return (
       <AuthenticationSection
+        loginSchema={props_.httpserver?.properties?.login}
         value={asObject(doc.httpserver)}
         onChange={(v) => setKey("httpserver", v)}
       />
