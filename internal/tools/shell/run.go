@@ -127,7 +127,7 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 	}
 
 	if args.Background {
-		return startBackgroundCommand(args, env)
+		return startBackgroundCommand(ctx, args, env)
 	}
 
 	timeout := defaultForegroundTimeoutSeconds
@@ -135,12 +135,19 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 		timeout = args.TimeoutSeconds
 	}
 
-	sc, err := startForeground(args.Command, env, commandShell)
+	started := time.Now()
+	startCtx, cancelStart := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	sc, err := startForegroundContext(startCtx, args.Command, env, commandShell)
+	cancelStart()
 	if err != nil {
 		return fmt.Sprintf("command failed: %v", err), nil
 	}
 
-	timer := time.NewTimer(time.Duration(timeout) * time.Second)
+	remaining := time.Duration(timeout)*time.Second - time.Since(started)
+	if remaining < 0 {
+		remaining = 0
+	}
+	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 
 	select {

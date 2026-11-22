@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -59,18 +60,27 @@ type startedCommand struct {
 // call, and a command that outlives its timeout is precisely the one that must
 // survive it to be adopted.
 func startForeground(command string, env *tooling.Env, commandShell platform.Shell) (*startedCommand, error) {
-	return startForegroundInto(command, env, commandShell, nil)
+	return startForegroundContext(context.Background(), command, env, commandShell)
+}
+
+func startForegroundContext(ctx context.Context, command string, env *tooling.Env, commandShell platform.Shell) (*startedCommand, error) {
+	return startForegroundInto(ctx, command, env, commandShell, nil)
 }
 
 // startForegroundInto is startForeground with the output sink attached before
 // the child starts. A sink handed over afterwards would leave a window in
 // which output still lands in the unbounded buffer, which is the whole thing a
 // bounded sink exists to prevent.
-func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
+func startForegroundInto(ctx context.Context, command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
 	executable, commandArgs := commandShell.Command(command)
 	cmd := exec.Command(executable, commandArgs...) // the command is operator-approved shell input, same as the background runner
 	if env != nil {
 		cmd.Dir = env.CWD
+	}
+
+	cmd.Env = platform.UserEnvironment(ctx, cmd.Dir)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	writer := &switchWriter{target: sink}

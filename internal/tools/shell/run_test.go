@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -58,6 +59,28 @@ func TestExecuteRunCommandWithCurrentShell(t *testing.T) {
 	}
 	if !strings.Contains(out, "coddy-shell-ok") {
 		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestRunCommandCancellationPreventsCommandStart(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "started")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	args, err := json.Marshal(runCommandArgs{Command: fmt.Sprintf("printf started > %q", output)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := executeRunCommandWithShell(ctx, string(args), &tooling.Env{CWD: dir}, platform.Shell{Kind: platform.ShellBash, Path: "/bin/bash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "context canceled") {
+		t.Fatalf("result = %q, want context cancellation", result)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("cancelled command created %s", output)
 	}
 }
 

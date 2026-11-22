@@ -8,6 +8,7 @@
 package bgtask
 
 import (
+	"context"
 	"strings"
 	"time"
 )
@@ -100,6 +101,9 @@ type AgentInfo struct {
 
 // Spec describes work handed to the pool.
 type Spec struct {
+	// Context bounds startup work such as reading the user's shell environment.
+	// It is not persisted and does not control the task after Start returns.
+	Context   context.Context
 	SessionID string
 	Kind      Kind
 	// Label is the short human-facing name shown in the tasks drawer. The pool

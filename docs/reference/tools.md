@@ -62,6 +62,8 @@ The `background_*` tools are registered only while `tools.background` is enabled
 | `canvas_inspect` | Read what the browser running a canvas frame reported: loaded or not, its title, console errors and warnings, uncaught exceptions; waits for a report on the current files; `file` names the canvas, default the chat's | `file`, `frame`, `wait_seconds` | none | agent |
 | `ssh_run_command` | Run a command on a remote host over SSH, using the agent socket and then key files ([Configuration](../getting-started/configuration.md#ssh-remote-execution)) | `host`, `command`, `port`, `timeout_seconds`, `permission_rationale` | always | agent |
 
+On Bash hosts, `run_command` reads the exported environment from a fresh interactive Bash before every foreground or background command. Changes to `~/.bashrc`, such as `nvm` updating `PATH`, therefore apply without restarting Coddy. `ssh_run_command` uses the same fresh environment to locate `SSH_AUTH_SOCK` before it tries key files. If Bash is unavailable, its startup files fail, or the 10-second environment probe expires, Coddy falls back to the environment of its own process. The requested command itself still runs non-interactively; startup-file aliases and functions are not imported into it.
+
 ## Web
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
