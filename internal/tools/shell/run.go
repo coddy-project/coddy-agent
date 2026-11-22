@@ -136,9 +136,7 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 	}
 
 	started := time.Now()
-	startCtx, cancelStart := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	sc, err := startForegroundContext(startCtx, args.Command, env, commandShell)
-	cancelStart()
+	sc, err := startForegroundContext(ctx, args.Command, env, commandShell)
 	if err != nil {
 		return fmt.Sprintf("command failed: %v", err), nil
 	}
