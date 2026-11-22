@@ -172,6 +172,26 @@ func TestUserEnvironmentTimeoutReapsStartupChildren(t *testing.T) {
 	}
 }
 
+func TestUserEnvironmentFallsBackWhenStartupTimesOut(t *testing.T) {
+	requireBash(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("CODDY_USER_ENV_TIMEOUT", "process")
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("sleep 60\nexport CODDY_USER_ENV_TIMEOUT=startup\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	env := UserEnvironment(context.Background(), home)
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("environment probe took %s, want it to fall back promptly", elapsed)
+	}
+	if got := environmentValue(env, "CODDY_USER_ENV_TIMEOUT"); got != "process" {
+		t.Fatalf("CODDY_USER_ENV_TIMEOUT = %q, want the fallback environment", got)
+	}
+}
+
 func processAlive(process *os.Process, pid int) bool {
 	if err := process.Signal(syscall.Signal(0)); err != nil {
 		return false

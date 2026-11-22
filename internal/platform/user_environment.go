@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	userEnvironmentTimeout   = 10 * time.Second
-	userEnvironmentWaitDelay = time.Second
+	userEnvironmentTimeout   = time.Second
+	userEnvironmentWaitDelay = 250 * time.Millisecond
 )
 
 // UserEnvironment returns the exported environment of the user's current
