@@ -66,6 +66,9 @@ func (r *CommandRunner) Start(spec Spec, out io.Writer) (Handle, error) {
 		probeCtx = context.Background()
 	}
 	cmd.Env = platform.UserEnvironment(probeCtx, spec.CWD)
+	if spec.SessionID != "" {
+		cmd.Env = append(cmd.Env, "CODDY_SESSION_ID="+spec.SessionID)
+	}
 	if err := probeCtx.Err(); err != nil {
 		return nil, err
 	}

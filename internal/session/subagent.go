@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -40,6 +41,39 @@ var ErrSessionGone = errors.New("session is no longer live")
 // ErrTreeUnstable is returned by DeleteSessionTree when descendants kept
 // appearing across the maximum number of rescans; nothing was removed.
 var ErrTreeUnstable = errors.New("session tree kept growing while it was being marked; nothing was deleted")
+
+// ErrForeignSessionTask reports a live process task not owned by the deleting pool.
+var ErrForeignSessionTask = errors.New("session has a foreign active task")
+
+// SessionDeleteConflict identifies the session that prevented deletion.
+type SessionDeleteConflict struct {
+	SessionID string
+	Cause     error
+}
+
+func (e *SessionDeleteConflict) Error() string {
+	return fmt.Sprintf("session %s: %s", e.SessionID, e.Cause)
+}
+func (e *SessionDeleteConflict) Unwrap() error { return e.Cause }
+
+// SessionRemovalError reports a failure while removing a bundle from disk.
+// Earlier removals, or the failed RemoveAll itself, may have removed files.
+type SessionRemovalError struct {
+	SessionID string
+	Cause     error
+}
+
+func (e *SessionRemovalError) Error() string {
+	return fmt.Sprintf("remove session %s: %v", e.SessionID, e.Cause)
+}
+func (e *SessionRemovalError) Unwrap() error { return e.Cause }
+
+func sessionTaskStopError(sessionID, taskID string, err error) error {
+	if errors.Is(err, bgtask.ErrStopNotSettled) {
+		return &SessionDeleteConflict{SessionID: sessionID, Cause: err}
+	}
+	return fmt.Errorf("stop task %s for session %s: %w", taskID, sessionID, err)
+}
 
 // maxTreeRescans bounds DeleteSessionTree's mark-and-rescan loop. Every round
 // marks the nodes found so far and a child under a marked parent is refused,
@@ -926,27 +960,128 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	if err := m.cancelAndAwaitTurns(nodes); err != nil {
 		return err
 	}
+	locks := make(map[string]func())
+	defer func() {
+		for _, unlock := range locks {
+			unlock()
+		}
+	}()
+	for round := 0; ; round++ {
+		if round >= maxTreeRescans {
+			return fmt.Errorf("%w: %s", ErrTreeUnstable, rootID)
+		}
+		for _, n := range nodes {
+			if _, ok := locks[n.ID]; ok {
+				continue
+			}
+			dir := m.store.SessionPath(n.ID)
+			if _, err := os.Stat(dir); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return fmt.Errorf("stat session %s: %w", n.ID, err)
+			}
+			unlock, err := m.acquireDeleteTurnLock(n.ID, dir)
+			if err != nil {
+				if errors.Is(err, ErrSessionTurnBusy) {
+					return &SessionDeleteConflict{SessionID: n.ID, Cause: ErrSessionTurnBusy}
+				}
+				return fmt.Errorf("lock session %s: %w", n.ID, err)
+			}
+			locks[n.ID] = unlock
+		}
+		again, err := m.SessionTree(rootID)
+		if err != nil {
+			return err
+		}
+		fresh := false
+		for _, n := range again {
+			if !marked[n.ID] {
+				fresh = true
+			}
+		}
+		if !fresh {
+			nodes = again
+			break
+		}
+		mark(again)
+		if err := m.cancelAndAwaitTurns(again); err != nil {
+			return err
+		}
+		nodes = again
+	}
+	for _, n := range nodes {
+		if err := m.refuseForeignTasks(n.ID, pool); err != nil {
+			return err
+		}
+		if n.SubagentRun && n.ParentSessionID != "" && n.SubagentTaskID != "" {
+			if err := m.refuseForeignTask(n.ParentSessionID, n.SubagentTaskID, pool); err != nil {
+				return err
+			}
+		}
+	}
 	if pool != nil {
 		for _, n := range nodes {
 			if n.SubagentRun && n.ParentSessionID != "" && n.SubagentTaskID != "" {
-				if _, err := pool.Stop(n.ParentSessionID, n.SubagentTaskID); err != nil && !errors.Is(err, bgtask.ErrNotFound) {
-					m.log.Warn("stop subagent task before delete", "session", n.ID, "task", n.SubagentTaskID, "error", err)
+				for _, task := range pool.List(n.ParentSessionID) {
+					if task.ID != n.SubagentTaskID {
+						continue
+					}
+					if _, err := pool.StopWithTimeout(n.ParentSessionID, task.ID, deleteSettleTimeout); err != nil && !errors.Is(err, bgtask.ErrNotFound) {
+						return sessionTaskStopError(n.ID, task.ID, err)
+					}
+					break
 				}
 			}
 		}
 		for _, n := range nodes {
-			pool.StopSession(n.ID)
+			for _, task := range pool.List(n.ID) {
+				if task.Status.Finished() {
+					continue
+				}
+				if _, err := pool.StopWithTimeout(n.ID, task.ID, deleteSettleTimeout); err != nil && !errors.Is(err, bgtask.ErrNotFound) {
+					return sessionTaskStopError(n.ID, task.ID, err)
+				}
+			}
 		}
 	}
 	for i := len(nodes) - 1; i >= 0; i-- {
 		n := nodes[i]
 		m.ForgetLiveSession(n.ID)
 		if err := os.RemoveAll(m.store.SessionPath(n.ID)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove session %s: %w", n.ID, err)
+			return &SessionRemovalError{SessionID: n.ID, Cause: err}
 		}
 		// The bundle is gone; the index must not answer for it again, or an
 		// id minted later could be resolved to the path this one had.
 		m.store.ForgetChildDir(n.ID)
+	}
+	return nil
+}
+
+func (m *Manager) refuseForeignTasks(id string, pool *bgtask.Pool) error {
+	return m.refuseForeignTask(id, "", pool)
+}
+
+func (m *Manager) refuseForeignTask(id, taskID string, pool *bgtask.Pool) error {
+	managed := map[string]bgtask.Snapshot{}
+	if pool != nil {
+		for _, task := range pool.List(id) {
+			managed[task.ID] = task
+		}
+	}
+	for _, task := range bgtask.LoadPersisted(m.store.SessionPath(id)) {
+		if taskID != "" && task.ID != taskID {
+			continue
+		}
+		if task.Status != bgtask.StatusOrphaned || task.PID <= 0 {
+			continue
+		}
+		if own, ok := managed[task.ID]; ok && own.PID == task.PID && own.ProcessStartedAt.Equal(task.ProcessStartedAt) {
+			continue
+		}
+		if platform.ProcessGroupAlive(task.PID, task.ProcessStartedAt) {
+			return &SessionDeleteConflict{SessionID: id, Cause: ErrForeignSessionTask}
+		}
 	}
 	return nil
 }

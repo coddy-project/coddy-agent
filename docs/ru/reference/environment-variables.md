@@ -63,12 +63,12 @@
 
 ## Переменные, передаваемые хукам
 
-Процесс хука наследует всё окружение Coddy и дополнительно получает переменные ниже (`internal/hooks/runner.go`). Их задают для хука, сам Coddy их не читает.
+Процесс хука наследует всё окружение Coddy и дополнительно получает переменные ниже (`internal/hooks/runner.go`).
 
 | Переменная | Кто читает | Значение | Где описано |
 |---|---|---|---|
 | `CODDY_PROJECT_DIR`, `CLAUDE_PROJECT_DIR` | процесс хука | Рабочий каталог сессии, под обоими именами, чтобы хук Claude Code работал без изменений. | [Хуки](../features/hooks.md#что-получает-хук) |
-| `CODDY_SESSION_ID` | процесс хука | Сессия, к которой относится событие. | [Хуки](../features/hooks.md#что-получает-хук) |
+| `CODDY_SESSION_ID` | хуки и `run_command` | ID сессии, которая запустила хук или команду. | [Хуки](../features/hooks.md#что-получает-хук) |
 | `CODDY_HOOK_EVENT` | процесс хука | Имя события, например `PreToolUse`. | [Хуки](../features/hooks.md#что-получает-хук) |
 | `CODDY_HOME` | процесс хука | Итоговый каталог состояния, если он известен. | [Хуки](../features/hooks.md#что-получает-хук) |
 
@@ -132,4 +132,4 @@ MCP-серверы, запущенные через stdio, получают ок
 | `SEC_SCANNERS`, `SEC_FAIL_TRIVY`, `SEC_FAIL_SEMGREP`, `SEC_FAIL_GOVULNCHECK`, `GOVULNCHECK_TAGS`, `SEC_DOCKER`, `SEMGREP_CONFIGS` | `scripts/security-scan.sh` | Какие сканеры AppSec запускает `make security`, где проходит порог (`CRITICAL` для находок trivy об уязвимостях и секретах, выключен для semgrep, вызов уязвимой функции для govulncheck), с какими тегами сборки govulncheck загружает код, разрешён ли закреплённый запасной вариант через docker и какие наборы правил из реестра загружает semgrep. | [Сканирование AppSec](../contributing/security-scanning.md) |
 | `SEMGREP_APP_TOKEN` | `scripts/security-scan.sh`, передаётся semgrep | Необязательный токен реестра Semgrep. Снимает ограничения частоты для анонимных запросов и включает правила Pro. Пул-реквестам из форков он недоступен. | [Сканирование AppSec](../contributing/security-scanning.md) |
 
-<!-- docsgen:source sha256=e492af1e16cd6dd0 -->
+<!-- docsgen:source sha256=a19e314ce8ba8e59 -->

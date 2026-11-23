@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/desktop"
@@ -60,6 +61,10 @@ func serveAttachedDesktop(client *localipc.Client, noAuth bool, window *desktop.
 	return func(ctx context.Context, addr string) error {
 		upstream := client.ProxyHandler()
 		withMode := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/coddy-local-ipc/") {
+				http.NotFound(w, r)
+				return
+			}
 			// A browser cannot select the private mode itself, least of all when
 			// the operator explicitly asked for --auth.
 			r.Header.Del(httpserver.DesktopNoAuthHeader)

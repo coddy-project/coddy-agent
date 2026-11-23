@@ -287,19 +287,6 @@
     "output": 0,
     "cached": 0
   },
-  "gpt-3.5-turbo": {
-    "input": 0.5,
-    "output": 1.5,
-    "cached": 0
-  },
-  "gpt-4": {
-    "input": 30,
-    "output": 60
-  },
-  "gpt-4-turbo": {
-    "input": 10,
-    "output": 30
-  },
   "gpt-4.1": {
     "input": 2,
     "output": 8,
@@ -310,19 +297,10 @@
     "output": 1.6,
     "cached": 0.1
   },
-  "gpt-4.1-nano": {
-    "input": 0.1,
-    "output": 0.4,
-    "cached": 0.025
-  },
   "gpt-4o": {
     "input": 2.5,
     "output": 10,
     "cached": 1.25
-  },
-  "gpt-4o-2024-05-13": {
-    "input": 5,
-    "output": 15
   },
   "gpt-4o-2024-08-06": {
     "input": 2.5,
@@ -837,33 +815,14 @@
     "input": 0,
     "output": 0
   },
-  "o1": {
-    "input": 15,
-    "output": 60,
-    "cached": 7.5
-  },
-  "o1-pro": {
-    "input": 150,
-    "output": 600
-  },
   "o3": {
     "input": 2,
     "output": 8,
     "cached": 0.5
   },
-  "o3-mini": {
-    "input": 1.1,
-    "output": 4.4,
-    "cached": 0.55
-  },
   "o3-pro": {
     "input": 20,
     "output": 80
-  },
-  "o4-mini": {
-    "input": 1.1,
-    "output": 4.4,
-    "cached": 0.275
   },
   "pulse-alpha-free": {
     "input": 0,

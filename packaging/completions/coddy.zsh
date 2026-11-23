@@ -11,7 +11,7 @@ _coddy() {
         'acp:Agent Client Protocol server on stdio'
         'serve:run every subsystem enabled in config.yaml'
         'desktop:open Coddy as a window on this machine'
-        'sessions:list or export stored sessions'
+        'sessions:manage stored sessions'
         'skills:manage skills'
         'plugin:manage plugins and marketplaces'
         'mcp:list and trust MCP servers'
@@ -43,14 +43,31 @@ _coddy() {
         argument)
             case $words[1] in
                 sessions)
-                    if (( CURRENT > 2 )) && [[ $words[2] == list ]]; then
-                        _arguments \
-                            '--cwd[only the sessions saved with this directory]:directory:_files -/' \
-                            '--origin[only the sessions of one surface]:origin:(local gateway print)' \
-                            '--sessions-dir[sessions root]:directory:_files -/'
-                    else
-                        _values 'subcommand' list export
-                    fi
+                    case $words[2] in
+                        list)
+                            _arguments \
+                                '--cwd[only sessions saved with this directory]:directory:_files -/' \
+                                '--origin[only sessions of one surface]:origin:(local gateway print)' \
+                                '--sessions-dir[sessions root]:directory:_files -/' \
+                                '--format[output format]:format:(text json)'
+                            ;;
+                        show)
+                            _arguments '--sessions-dir[sessions root]:directory:_files -/' '--format[output format]:format:(text json)'
+                            ;;
+                        update)
+                            _arguments '--sessions-dir[sessions root]:directory:_files -/' '--format[output format]:format:(text json)' \
+                                '--title[session title]:title:' '--tags[replace tags, comma separated]:tags:' \
+                                '--archived[archive state]:state:(true false)'
+                            ;;
+                        delete)
+                            _arguments '--sessions-dir[sessions root]:directory:_files -/' '--format[output format]:format:(text json)' '--yes[confirm deletion]'
+                            ;;
+                        export)
+                            _arguments '--sessions-dir[sessions root]:directory:_files -/' '--format[export format]:format:(md html json jsonl)' \
+                                '--out[output file]:file:_files' '--no-tools[omit tool calls]' '--no-thinking[omit thinking]'
+                            ;;
+                        *) _values 'subcommand' list show update delete export ;;
+                    esac
                     ;;
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)

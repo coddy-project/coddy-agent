@@ -63,12 +63,12 @@ A provider's key is resolved in this order: the literal `api_key`, the stdout of
 
 ## Variables passed to hooks
 
-A hook process inherits Coddy's whole environment and gets these on top (`internal/hooks/runner.go`). They are set for the hook, never read by Coddy.
+A hook process inherits Coddy's whole environment and gets these on top (`internal/hooks/runner.go`).
 
 | Variable | Read by | Meaning | Documented in |
 |---|---|---|---|
 | `CODDY_PROJECT_DIR`, `CLAUDE_PROJECT_DIR` | the hook process | The session working directory, under both names so a Claude Code hook works unchanged. | [Hooks](../features/hooks.md#what-a-hook-receives) |
-| `CODDY_SESSION_ID` | the hook process | The session the event belongs to. | [Hooks](../features/hooks.md#what-a-hook-receives) |
+| `CODDY_SESSION_ID` | hooks and `run_command` | The ID of the session that started the hook or shell command. | [Hooks](../features/hooks.md#what-a-hook-receives) |
 | `CODDY_HOOK_EVENT` | the hook process | The event name, such as `PreToolUse`. | [Hooks](../features/hooks.md#what-a-hook-receives) |
 | `CODDY_HOME` | the hook process | The resolved state directory, when known. | [Hooks](../features/hooks.md#what-a-hook-receives) |
 
