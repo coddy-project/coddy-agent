@@ -16,7 +16,7 @@ func setKimiIdentityHeaders(req *http.Request, deviceID string) error {
 		}
 	}
 	if !kimiDeviceIDPattern.MatchString(deviceID) {
-		return errors.New("kimi: invalid device identifier")
+		return errKimiInvalidDeviceID
 	}
 	v := version.Get()
 	req.Header.Set("User-Agent", "coddy/"+v)

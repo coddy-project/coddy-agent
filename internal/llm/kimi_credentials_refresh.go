@@ -38,7 +38,11 @@ const (
 	kimiUnauthorizedRecoveryWait = 100 * time.Millisecond
 )
 
-var errKimiRefreshRateLimited = errors.New("kimi credentials: refresh rate limited")
+var (
+	errKimiRefreshRateLimited            = errors.New("kimi credentials: refresh rate limited")
+	errKimiRefreshTemporarilyUnavailable = errors.New("kimi credentials: refresh temporarily unavailable")
+	errKimiInvalidDeviceID               = errors.New("kimi credentials: invalid device identifier")
+)
 
 // kimiNeedsRefresh mirrors the upstream rule: a forced call always
 // refreshes; otherwise a token refreshes once its remaining lifetime falls
@@ -169,7 +173,8 @@ func NewKimiCredentialRefresherForRegion(store *KimiCredentialStore, region stri
 // AccessToken returns a valid access token, refreshing once the stored one
 // is inside the refresh window.
 func (r *KimiCredentialRefresher) AccessToken(ctx context.Context) (string, error) {
-	return r.accessToken(ctx, false)
+	cred, err := r.credential(ctx, false)
+	return cred.AccessToken, err
 }
 
 // ForceAccessToken refreshes even outside the refresh window, unless the
@@ -177,25 +182,26 @@ func (r *KimiCredentialRefresher) AccessToken(ctx context.Context) (string, erro
 // acquired (a peer rotation or a fresh login), in which case that credential
 // is returned.
 func (r *KimiCredentialRefresher) ForceAccessToken(ctx context.Context) (string, error) {
-	return r.accessToken(ctx, true)
+	cred, err := r.credential(ctx, true)
+	return cred.AccessToken, err
 }
 
-func (r *KimiCredentialRefresher) accessToken(ctx context.Context, force bool) (string, error) {
+func (r *KimiCredentialRefresher) credential(ctx context.Context, force bool) (KimiCredential, error) {
 	// The fast path reads without the intent check: a live refresh by a
 	// peer (or a queued sibling goroutine) legitimately has one
 	// outstanding, and only the post-lock re-read can tell it from a dead
 	// one. A leftover intent from a crash still surfaces in lockedRefresh.
 	cred, st, err := r.store.loadState(r.region, false)
 	if err != nil {
-		return "", err
+		return KimiCredential{}, err
 	}
 	switch st {
 	case KimiCredentialMissing:
-		return "", ErrKimiCredentialMissing
+		return KimiCredential{}, ErrKimiCredentialMissing
 	case KimiCredentialRevoked:
-		return "", ErrKimiCredentialUnauthorized
+		return KimiCredential{}, ErrKimiCredentialUnauthorized
 	case KimiCredentialUncertain:
-		return "", ErrKimiCredentialUncertain
+		return KimiCredential{}, ErrKimiCredentialUncertain
 	}
 	if !kimiNeedsRefresh(cred, force, r.now()) {
 		if r.hookAfterLoad != nil {
@@ -203,10 +209,10 @@ func (r *KimiCredentialRefresher) accessToken(ctx context.Context, force bool) (
 		}
 		current, state, err := r.store.Load(r.region)
 		if err != nil {
-			return "", err
+			return KimiCredential{}, err
 		}
 		if state == KimiCredentialValid && !kimiNeedsRefresh(current, false, r.now()) {
-			return current.AccessToken, nil
+			return current, nil
 		}
 	}
 	if r.hookAfterLoad != nil {
@@ -217,19 +223,19 @@ func (r *KimiCredentialRefresher) accessToken(ctx context.Context, force bool) (
 
 // lockedRefresh runs the refresh critical section under the identity lock:
 // re-read, intent, request, commit, intent cleanup.
-func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock KimiCredential, force bool) (string, error) {
+func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock KimiCredential, force bool) (KimiCredential, error) {
 	credPath, lockPath, intentPath, err := r.store.paths(r.region)
 	if err != nil {
-		return "", err
+		return KimiCredential{}, err
 	}
 	// Windows retains the intent on observed failures but cannot guarantee it
 	// survives a power loss. Other platforms require a durable directory flush.
 	if !kimiDirSyncDurable && runtime.GOOS != "windows" {
-		return "", fmt.Errorf("%w: no durable directory flush on %s", ErrKimiStoreUnsupported, runtime.GOOS)
+		return KimiCredential{}, fmt.Errorf("%w: no durable directory flush on %s", ErrKimiStoreUnsupported, runtime.GOOS)
 	}
 	scoped, release, err := r.store.acquireScopedLock(ctx, lockPath, credPath)
 	if err != nil {
-		return "", err
+		return KimiCredential{}, err
 	}
 	defer release()
 	copy := *r
@@ -240,36 +246,36 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 	// again while we waited.
 	cred, st, err := r.store.Load(r.region)
 	if err != nil {
-		return "", err
+		return KimiCredential{}, err
 	}
 	switch st {
 	case KimiCredentialMissing:
 		// A logout won the race; a stale response must not resurrect it.
-		return "", ErrKimiCredentialMissing
+		return KimiCredential{}, ErrKimiCredentialMissing
 	case KimiCredentialRevoked:
-		return "", ErrKimiCredentialUnauthorized
+		return KimiCredential{}, ErrKimiCredentialUnauthorized
 	case KimiCredentialUncertain:
-		return "", ErrKimiCredentialUncertain
+		return KimiCredential{}, ErrKimiCredentialUncertain
 	}
 	if !kimiNeedsRefresh(cred, force, r.now()) {
-		return cred.AccessToken, nil
+		return cred, nil
 	}
-	if force && (cred.Generation != preLock.Generation || cred.AccessToken != preLock.AccessToken || cred.RefreshToken != preLock.RefreshToken) {
+	if force && cred != preLock {
 		// A peer rotated while we waited; their credential wins.
-		return cred.AccessToken, nil
+		return cred, nil
 	}
 	if cred.RefreshToken == "" {
-		return "", ErrKimiCredentialUnauthorized
+		return KimiCredential{}, ErrKimiCredentialUnauthorized
 	}
 	deviceID := cred.DeviceID
 	if deviceID == "" {
 		deviceID, err = kimiDeviceID()
 		if err != nil {
-			return "", errors.New("kimi credentials: cannot generate device identifier")
+			return KimiCredential{}, errors.New("kimi credentials: cannot generate device identifier")
 		}
 	}
 	if !kimiDeviceIDPattern.MatchString(deviceID) {
-		return "", errors.New("kimi credentials: invalid device identifier")
+		return KimiCredential{}, errKimiInvalidDeviceID
 	}
 
 	// Intent before the request: a process that dies between here
@@ -283,7 +289,7 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 		StartedAt:     r.now(),
 	}
 	if err := r.store.writeIntent(r.region, intent); err != nil {
-		return "", fmt.Errorf("kimi credentials: cannot write refresh intent: %w", err)
+		return KimiCredential{}, fmt.Errorf("kimi credentials: cannot write refresh intent: %w", err)
 	}
 
 	next, refreshErr := r.refreshRequest(ctx, cred.RefreshToken, deviceID)
@@ -291,35 +297,35 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 		if errors.Is(refreshErr, ErrKimiCredentialUnauthorized) {
 			return r.resolveUnauthorized(cred, intentPath)
 		}
-		if isDialFailure(refreshErr) || errors.Is(refreshErr, errKimiRefreshRateLimited) {
+		if isDialFailure(refreshErr) || errors.Is(refreshErr, errKimiRefreshRateLimited) || errors.Is(refreshErr, errKimiRefreshTemporarilyUnavailable) {
 			if err := r.store.removeIntent(intentPath); err != nil {
-				return "", fmt.Errorf("kimi credentials: cannot clear refresh intent: %w", err)
+				return KimiCredential{}, fmt.Errorf("kimi credentials: cannot clear refresh intent: %w", err)
 			}
-			return "", refreshErr
+			return KimiCredential{}, refreshErr
 		}
 		// The server may have rotated even if the response was lost.
-		return "", fmt.Errorf("%w: %w", ErrKimiCredentialUncertain, refreshErr)
+		return KimiCredential{}, fmt.Errorf("%w: %w", ErrKimiCredentialUncertain, refreshErr)
 	}
 
 	next.Generation = intent.Target
 	data, err := json.Marshal(next) //nolint:gosec // G117: this writes the credential file itself, private (0600)
 	if err != nil {
-		return "", err
+		return KimiCredential{}, err
 	}
 	if err := r.store.writeDurable(credPath, data); err != nil {
 		// The server rotated the refresh token and the new credential
 		// could not be persisted. Leave the intent in place: the
 		// credential is now uncertain and must be logged in again, never
 		// retried with the old token.
-		return "", fmt.Errorf("%w: rotated credential could not be persisted", ErrKimiCredentialUncertain)
+		return KimiCredential{}, fmt.Errorf("%w: rotated credential could not be persisted", ErrKimiCredentialUncertain)
 	}
 	if err := r.store.removeIntent(intentPath); err != nil {
 		// The new credential is committed and the stale intent is inert
 		// (its target matches the committed generation), so report the
 		// cleanup failure without misrepresenting the state.
-		return "", fmt.Errorf("kimi credentials: rotated credential committed but intent cleanup failed: %w", err)
+		return KimiCredential{}, fmt.Errorf("kimi credentials: rotated credential committed but intent cleanup failed: %w", err)
 	}
-	return next.AccessToken, nil
+	return next, nil
 }
 
 // resolveUnauthorized decides what a 401/invalid_grant means. A peer that
@@ -329,31 +335,31 @@ func (r *KimiCredentialRefresher) lockedRefresh(ctx context.Context, preLock Kim
 // reads the credential alone (checkIntent=false): a moved file is a peer
 // write regardless of intent bookkeeping - including our own intent, which
 // is present by construction.
-func (r *KimiCredentialRefresher) resolveUnauthorized(current KimiCredential, intentPath string) (string, error) {
+func (r *KimiCredentialRefresher) resolveUnauthorized(current KimiCredential, intentPath string) (KimiCredential, error) {
 	r.sleep(kimiUnauthorizedRecoveryWait)
 	recred, st, err := r.store.loadState(r.region, false)
 	if err != nil {
-		return "", fmt.Errorf("kimi credentials: cannot re-read after rejection: %w", err)
+		return KimiCredential{}, fmt.Errorf("kimi credentials: cannot re-read after rejection: %w", err)
 	}
 	{
 		switch st {
 		case KimiCredentialValid:
-			if recred.RefreshToken != current.RefreshToken {
+			if recred != current {
 				if err := r.store.removeIntent(intentPath); err != nil {
-					return "", fmt.Errorf("kimi credentials: peer credential found but intent cleanup failed: %w", err)
+					return KimiCredential{}, fmt.Errorf("kimi credentials: peer credential found but intent cleanup failed: %w", err)
 				}
-				return recred.AccessToken, nil
+				return recred, nil
 			}
 		case KimiCredentialRevoked:
 			// A peer already tombstoned; nothing left to write.
-			return "", ErrKimiCredentialUnauthorized
+			return KimiCredential{}, ErrKimiCredentialUnauthorized
 		case KimiCredentialMissing:
-			return "", ErrKimiCredentialMissing
+			return KimiCredential{}, ErrKimiCredentialMissing
 		}
 	}
 	credPath, _, _, perr := r.store.paths(r.region)
 	if perr != nil {
-		return "", perr
+		return KimiCredential{}, perr
 	}
 	tombstone := KimiCredential{
 		Scope:      current.Scope,
@@ -367,12 +373,12 @@ func (r *KimiCredentialRefresher) resolveUnauthorized(current KimiCredential, in
 	if err != nil {
 		// The tombstone could not be committed; the intent stays so the
 		// credential fails closed rather than retrying a dead token.
-		return "", fmt.Errorf("%w: rejected refresh could not be tombstoned", ErrKimiCredentialUncertain)
+		return KimiCredential{}, fmt.Errorf("%w: rejected refresh could not be tombstoned", ErrKimiCredentialUncertain)
 	}
 	if err := r.store.removeIntent(intentPath); err != nil {
-		return "", fmt.Errorf("kimi credentials: tombstone committed but intent cleanup failed: %w", err)
+		return KimiCredential{}, fmt.Errorf("kimi credentials: tombstone committed but intent cleanup failed: %w", err)
 	}
-	return "", ErrKimiCredentialUnauthorized
+	return KimiCredential{}, ErrKimiCredentialUnauthorized
 }
 
 // refreshRequest sends a single token request. An ambiguous failure must not
@@ -405,6 +411,11 @@ func (r *KimiCredentialRefresher) refreshRequest(ctx context.Context, refreshTok
 			tokenType = "Bearer"
 		}
 		return KimiCredential{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken, ExpiresAt: r.now() + int64(out.ExpiresIn), ExpiresIn: int64(out.ExpiresIn), Scope: out.Scope, TokenType: tokenType, DeviceID: deviceID}, nil
+	}
+	// An explicit OAuth temporary rejection is not evidence that the token was
+	// consumed. A bare 5xx, malformed reply, or lost response stays ambiguous.
+	if status >= 400 && status <= 599 && out.Error == "temporarily_unavailable" && out.AccessToken == "" && out.RefreshToken == "" {
+		return KimiCredential{}, fmt.Errorf("%w (status %d)", errKimiRefreshTemporarilyUnavailable, status)
 	}
 	if status == http.StatusUnauthorized || status == http.StatusForbidden || out.Error == "invalid_grant" {
 		return KimiCredential{}, fmt.Errorf("%w (status %d)", ErrKimiCredentialUnauthorized, status)

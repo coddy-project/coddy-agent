@@ -41,6 +41,14 @@ When no Coddy-managed credential exists, an eligible subscription row can read a
 
 The CLI credential directory is `KIMI_CODE_HOME`, or `~/.kimi-code` when unset. The global and China credentials occupy separate files under its `credentials` directory.
 
+For inference, Coddy uses the device ID saved at sign-in. With a CLI token it reads `device_id` from the CLI directory. If the CLI file is missing or invalid, Coddy uses its own process-local ID and leaves the file alone.
+
+## Streamed tool calls
+
+If a Kimi Chat Completions response omits the ID of an otherwise valid tool call, Coddy assigns one and keeps it with the result. If a call has no name or its arguments are not a JSON object, the agent runs none of the calls in that response. It can ask the model once to send a valid call, within the turn's step limit. If that fails again, the error identifies the call by its stream index and reports the finish reason and argument size without printing the arguments. An invalid tool call does not require signing in again.
+
+When Kimi stops at its output limit, Coddy withholds the last announced tool call even if its arguments parse. For example, a `write` call may contain less file content than the model intended. Earlier complete calls can run; the agent asks the model to split the unfinished work into smaller calls.
+
 ## Usage and proxy
 
 Subscription usage has four independent windows when the server supplies them: five hours, seven days, monthly total and monthly code. A missing window remains unknown. Booster wallet data is omitted; it is not displayed as a ruble balance. Platform mode does not provide subscription usage.
@@ -49,4 +57,4 @@ Provider requests use `providers[].proxy`, including device authorization, polli
 
 ## Credential safety
 
-Managed credentials are stored outside `config.yaml` under `$CODDY_HOME/providers/kimi-identities/<identity>/`, with separate region files. On Unix the files have owner-only permissions; on Windows they inherit the store directory's ACL. The non-secret identity in the provider row keeps a deleted and recreated row from inheriting the old managed login. Discarding an unsaved draft can leave an unused identity directory; inspect the configured identities and active drafts before removing one yourself. Coddy does not delete these directories automatically. Treat the credential directories as secrets. Subscription destinations are constrained to the selected region; do not send OAuth tokens to a Platform endpoint. If a refresh has an uncertain outcome, sign in again rather than retrying a potentially rotated token. Token updates from different processes use a shared lock. Windows does not guarantee that a directory change survives sudden power loss.
+Managed credentials are stored outside `config.yaml` under `$CODDY_HOME/providers/kimi-identities/<identity>/`, with separate region files. On Unix the files have owner-only permissions; on Windows they inherit the store directory's ACL. The non-secret identity in the provider row keeps a deleted and recreated row from inheriting the old managed login. Discarding an unsaved draft can leave an unused identity directory; inspect the configured identities and active drafts before removing one yourself. Coddy does not delete these directories automatically. Treat the credential directories as secrets. Subscription destinations are constrained to the selected region; do not send OAuth tokens to a Platform endpoint. If the OAuth server explicitly rejects a refresh with `temporarily_unavailable`, retry later with the same login. If a refresh has an uncertain outcome, sign in again rather than retrying a potentially rotated token. Token updates from different processes use a shared lock. Windows does not guarantee that a directory change survives sudden power loss.

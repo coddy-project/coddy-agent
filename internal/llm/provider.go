@@ -226,6 +226,9 @@ type Response struct {
 	ServiceTier string
 	Content     string
 	ToolCalls   []ToolCall
+	// CutToolCall identifies an announced but withheld call for output-limit recovery.
+	// It is never part of the executable ToolCalls batch or the transcript.
+	CutToolCall *ToolCall `json:"-"`
 	// Reasoning is the exact (unmodified) reasoning text, when the provider returns one.
 	Reasoning string
 	// ReasoningSignature pairs with Reasoning for providers that sign reasoning blocks (Anthropic).

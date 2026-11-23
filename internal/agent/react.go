@@ -940,6 +940,8 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenRetries int
+	var malformedCallNudged bool
+	discardedIDs := make(map[string]bool)
 	// Steps in a row the model's output limit cut off, each answered with a
 	// message of output_limit.go; reset with the rest.
 	var outputLimitRecoveries int
@@ -968,6 +970,7 @@ func (a *Agent) runReActLoop(
 	// not. Explicit continuations keep their own configured bounds.
 	resetRetries := func(reason string) {
 		retryAllowance = nil
+		malformedCallNudged = false
 		emptyContinuations, emptyReissues, firstTokenRetries, outputLimitRecoveries = 0, 0, 0, 0
 		standing = nil
 		nextCallReason = reason
@@ -1317,7 +1320,7 @@ func (a *Agent) runReActLoop(
 		// The calls this stream has announced. ACP draws a row for every
 		// tool_call, so a call announced by name is not announced again when it
 		// completes: everything after the first is a tool_call_update.
-		announced := make(map[string]bool)
+		announced := make(map[string]string)
 		agentTools := a.newAgentToolRows(sessionID)
 		a.stepAgentTools = agentTools
 		// The calls of this response get ids no other call of the session
@@ -1327,6 +1330,9 @@ func (a *Agent) runReActLoop(
 			callSessionDir = st.GetPersistedSessionDir()
 		}
 		callIDs := newToolCallIDs(messages, callSessionDir)
+		for id := range discardedIDs {
+			callIDs.history[id] = true
+		}
 		streamCtx = latency.begin(streamCtx, transport.agent)
 		streamCtx = statistics.WithReasoning(streamCtx, a.state.EffectiveReasoning(a.cfg))
 		var generatedParts []llm.ImagePart
@@ -1446,10 +1452,10 @@ func (a *Agent) runReActLoop(
 				maybeMarkReasonEnd(now)
 				stopFirstTokenTimer()
 				id := strings.TrimSpace(announce.ID)
-				if id != "" && announced[id] {
+				if id != "" && announced[id] != "" {
 					return
 				}
-				announced[id] = true
+				announced[id] = announce.Name
 				if st := sessionStatePtr(a.state); st != nil {
 					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(announce.ID) != "" {
 						_ = session.WriteToolCallMeta(sd, announce.ID, session.ToolCallMeta{
@@ -1473,6 +1479,7 @@ func (a *Agent) runReActLoop(
 		latency.finish(ctx)
 		if response != nil {
 			response.ToolCalls = callIDs.calls(response.ToolCalls)
+			response.CutToolCall = callIDs.retag(response.CutToolCall)
 		}
 		// The agent's calls the stream left open end with it.
 		switch {
@@ -1483,7 +1490,19 @@ func (a *Agent) runReActLoop(
 		default:
 			agentTools.close("failed")
 		}
-		if streamErr != nil {
+		var malformed *llm.StreamedToolCallError
+		if errors.As(streamErr, &malformed) {
+			// Discard the entire batch, including name-only and delta-only rows.
+			for id := range inputProgress {
+				if _, ok := announced[id]; !ok {
+					announced[id] = ""
+				}
+			}
+			for id, name := range announced {
+				discardedIDs[id] = true // also reserve ids in sessions without a bundle
+				a.finishToolCall(callSessionDir, sessionID, llm.ToolCall{ID: id, Name: name}, "not run: invalid streamed tool call in this batch", nil, "failed")
+			}
+		} else if streamErr != nil {
 			status := "failed"
 			if streamCtx.Err() != nil {
 				status = "cancelled"
@@ -1597,6 +1616,24 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			if malformed != nil {
+				if a.keepInterruptedAnswer(transport.model, answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd) {
+					messages = append(messages, keptAnswerOf(a.state.GetMessages()))
+					standing = nil
+				}
+				if a.state.IsUserCancelledTurn() || session.IsQueuedTurnInterrupt(ctx, sessionID) {
+					return string(acp.StopReasonCancelled), nil
+				}
+				if malformedCallNudged || turn+1 >= maxTurns || ctx.Err() != nil || !retryAllowance.TakeRetry() {
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
+				}
+				const nudge = "None of the tool calls from your previous step ran. Send the needed calls again with a tool name and a complete JSON object for each call's arguments."
+				malformedCallNudged = true
+				nextCallReason = "streamed_tool_call_nudge"
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge, Ephemeral: true})
+				standing = append(standing, nudge)
+				continue
+			}
 			// The provider named the moment its limit lifts and the operator
 			// asked the turn to wait for it: the countdown reaches the client,
 			// then the same call runs again (nothing was persisted for the
@@ -1913,7 +1950,6 @@ func (a *Agent) runReActLoop(
 		var cutCall *llm.ToolCall
 		if tc, ok := cutOffToolCall(response); ok {
 			cutCall = &tc
-			response.ToolCalls = response.ToolCalls[:len(response.ToolCalls)-1]
 			a.dropCutOffToolCall(tc)
 		}
 

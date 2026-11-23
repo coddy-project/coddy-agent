@@ -31,3 +31,8 @@ Feature: Kimi Code credentials serve Coddy's agent
     Given a Kimi Platform provider configured with a local proxy
     When Coddy requests Platform discovery and inference in both regions
     Then each Platform request reaches the configured proxy
+
+  Scenario: A streamed tool call without a provider id keeps its result
+    Given a Kimi subscription stand in the global region
+    When Kimi streams a named tool call without an id
+    Then Coddy sends the tool result with the id it announced

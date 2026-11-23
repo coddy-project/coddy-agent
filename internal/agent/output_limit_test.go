@@ -42,8 +42,10 @@ type outputLimitStep struct {
 	stop      string
 	// calls are the tool calls the step asks for.
 	calls []llm.ToolCall
+	cut   *llm.ToolCall
 	// err fails the call after its text and reasoning were streamed.
-	err error
+	err    error
+	chunks []llm.StreamChunk
 	// during runs in the middle of the call, before it answers.
 	during func()
 }
@@ -74,10 +76,13 @@ func (p *outputLimitProvider) Stream(_ context.Context, msgs []llm.Message, _ []
 	if step.text != "" {
 		emit(llm.StreamChunk{TextDelta: step.text})
 	}
+	for _, chunk := range step.chunks {
+		emit(chunk)
+	}
 	if step.err != nil {
 		return nil, step.err
 	}
-	return &llm.Response{Content: step.text, Reasoning: step.reasoning, ReasoningSignature: step.signature, ToolCalls: step.calls, StopReason: step.stop, OutputTokens: 7}, nil
+	return &llm.Response{Content: step.text, Reasoning: step.reasoning, ReasoningSignature: step.signature, ToolCalls: step.calls, CutToolCall: step.cut, StopReason: step.stop, OutputTokens: 7}, nil
 }
 
 func outputLimitAgent(t *testing.T, p llm.Provider, adjust func(*config.Config)) (*Agent, *session.State) {

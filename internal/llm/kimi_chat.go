@@ -3,6 +3,8 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +43,7 @@ func newKimiChatProvider(transport *KimiInferenceTransport, input ProviderInput)
 	return &kimiChatProvider{transport: transport, input: input}
 }
 
-func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool, wire *map[string]any) (*http.Response, error) {
+func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tools []ToolDefinition, stream bool, wire *[]byte) (*http.Response, error) {
 	if p.transport == nil {
 		return nil, errors.New("kimi chat: missing transport")
 	}
@@ -97,7 +99,7 @@ func (p *kimiChatProvider) request(ctx context.Context, messages []Message, tool
 		return nil, fmt.Errorf("kimi chat encode: %w", err)
 	}
 	if wire != nil {
-		*wire = body
+		*wire = data
 	}
 	resp, err := p.transport.do(ctx, bytes.NewReader(data), false, "kimi chat")
 	if err != nil {
@@ -152,18 +154,20 @@ func (p *kimiChatProvider) Complete(ctx context.Context, messages []Message, too
 	return result, nil
 }
 
-func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (_ *Response, retErr error) {
-	var wire map[string]any
+func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+	var wire []byte
 	resp, err := p.request(ctx, messages, tools, true, &wire)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { retErr = withToolSchemaRequest(retErr, wire, false) }()
 	defer func() { _ = resp.Body.Close() }()
 	result := &Response{UsageIncomplete: true}
 	builders := map[int]*ToolCall{}
 	named := map[int]bool{}
+	idPresent := map[int]bool{}
 	progress := map[int]int{}
+	lastAnnounced := 0
+	finishReason := ""
 	emitted := false
 	done := false
 	emit := func(c StreamChunk) {
@@ -181,6 +185,9 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 			break
 		}
 		if bytes.Equal(payload, []byte("[DONE]")) {
+			if finishReason == "" {
+				finishReason = "[DONE]"
+			}
 			done = true
 			break
 		}
@@ -212,7 +219,8 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 		}
 		c := chunk.Choices[0]
 		if c.FinishReason != "" {
-			result.StopReason = mapOpenAIStopReason(string(c.FinishReason))
+			finishReason = string(c.FinishReason)
+			result.StopReason = mapOpenAIStopReason(finishReason)
 			done = true
 		}
 		if c.Delta.Content != "" {
@@ -230,14 +238,25 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 				b = &ToolCall{}
 				builders[i] = b
 			}
-			if tc.ID != "" {
+			if strings.TrimSpace(tc.ID) != "" {
+				idPresent[i] = true
+			}
+			if strings.TrimSpace(tc.ID) != "" && !named[i] {
 				b.ID = tc.ID
 			}
 			if tc.Function.Name != "" {
 				b.Name = tc.Function.Name
 			}
 			b.InputJSON += tc.Function.Arguments
-			if !named[i] && b.ID != "" && b.Name != "" {
+			if !named[i] && strings.TrimSpace(b.Name) != "" && strings.TrimSpace(b.ID) == "" {
+				var id [16]byte
+				if _, e := rand.Read(id[:]); e != nil {
+					return nil, fmt.Errorf("kimi chat stream: generate tool call id: %w", e)
+				}
+				b.ID = "call_" + hex.EncodeToString(id[:])
+			}
+			if !named[i] && b.ID != "" && strings.TrimSpace(b.Name) != "" {
+				lastAnnounced = i
 				named[i] = true
 				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: b.ID, Name: b.Name}})
 			}
@@ -262,6 +281,9 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 		}
 	}
 	if err != nil {
+		// Only upstream/transport failures can be schema refusals. Final tool
+		// validation below never attaches request metadata to its diagnostic.
+		err = withToolSchemaRequest(err, wire, false)
 		if errors.Is(err, context.Canceled) {
 			for _, i := range kimiChatToolIndices(builders) {
 				result.ToolCalls = append(result.ToolCalls, *builders[i])
@@ -272,21 +294,29 @@ func (p *kimiChatProvider) Stream(ctx context.Context, messages []Message, tools
 		}
 		return nil, fmt.Errorf("kimi chat stream: %w", err)
 	}
-	for _, i := range kimiChatToolIndices(builders) {
+	indices := kimiChatToolIndices(builders)
+	for _, i := range indices {
 		b := builders[i]
+		if result.StopReason == "max_tokens" && named[i] && i == lastAnnounced {
+			continue
+		}
 		if !kimiChatValidToolCall(*b) {
-			err := &streamUndecodableError{snippet: "invalid tool call", cause: errors.New("invalid tool call")}
+			err := kimiStreamedToolError(i, finishReason, idPresent[i], *b, p.input, resp)
+			err.RequestID = kimiChatRequestID(resp, wire, result, builders)
 			if result.Content != "" || result.Reasoning != "" {
 				return result, fmt.Errorf("kimi chat stream: %w", err)
 			}
 			return nil, fmt.Errorf("kimi chat stream: %w", err)
 		}
 	}
-	for _, i := range kimiChatToolIndices(builders) {
-		b := builders[i]
-		result.ToolCalls = append(result.ToolCalls, *b)
-		tc := *b
-		emit(StreamChunk{ToolCall: &tc})
+	for _, i := range indices {
+		b := *builders[i]
+		if result.StopReason == "max_tokens" && named[i] && i == lastAnnounced {
+			result.CutToolCall = &ToolCall{ID: b.ID, Name: b.Name}
+			continue
+		}
+		result.ToolCalls = append(result.ToolCalls, b)
+		emit(StreamChunk{ToolCall: &b})
 	}
 	if result.StopReason == "" {
 		if len(result.ToolCalls) > 0 {
@@ -310,4 +340,125 @@ func kimiChatToolIndices(builders map[int]*ToolCall) []int {
 func kimiChatValidToolCall(call ToolCall) bool {
 	var args map[string]json.RawMessage
 	return strings.TrimSpace(call.ID) != "" && strings.TrimSpace(call.Name) != "" && json.Unmarshal([]byte(call.InputJSON), &args) == nil && args != nil
+}
+
+// StreamedToolCallError describes invalid terminal model output without retaining arguments.
+type StreamedToolCallError struct {
+	Index                                            int
+	FinishReason                                     string
+	IDPresent, NamePresent                           bool
+	ArgumentBytes                                    int
+	JSONErrorClass, JSONKind                         string
+	RequestID, Model, Mode, Region, CredentialSource string
+}
+
+func (e *StreamedToolCallError) Error() string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "invalid streamed tool call: index=%d id_present=%t name_present=%t argument_bytes=%d", e.Index, e.IDPresent, e.NamePresent, e.ArgumentBytes)
+	for _, field := range [...]struct{ key, value string }{
+		{"finish", e.FinishReason}, {"json_error", e.JSONErrorClass}, {"json_kind", e.JSONKind},
+		{"request_id", e.RequestID}, {"model", e.Model}, {"mode", e.Mode}, {"region", e.Region}, {"credential_source", e.CredentialSource},
+	} {
+		if field.value != "" {
+			fmt.Fprintf(&out, " %s=%q", field.key, field.value)
+		}
+	}
+	return out.String()
+}
+
+func kimiStreamedToolError(index int, finish string, idPresent bool, call ToolCall, input ProviderInput, resp *http.Response) *StreamedToolCallError {
+	e := &StreamedToolCallError{
+		Index: index, IDPresent: idPresent, NamePresent: strings.TrimSpace(call.Name) != "",
+		ArgumentBytes: len(call.InputJSON), CredentialSource: kimiResponseCredentialSource(resp),
+	}
+	switch finish {
+	case "stop", "tool_calls", "length", "content_filter", "function_call", "[DONE]":
+		e.FinishReason = finish
+	}
+	switch input.Mode {
+	case "", "subscription":
+		e.Mode = "subscription"
+	case "platform":
+		e.Mode = input.Mode
+	}
+	switch input.Region {
+	case "", "global":
+		e.Region = "global"
+	case "china":
+		e.Region = input.Region
+	}
+	// The model comes from local configuration, never a response field.
+	if len(input.Model) <= 256 && !strings.ContainsAny(input.Model, "\r\n") && !kimiChatReflectsIdentity(input.Model, resp.Request) {
+		e.Model = input.Model
+	}
+	e.JSONKind, e.JSONErrorClass = kimiChatArgumentKind(call.InputJSON)
+	return e
+}
+
+func kimiChatArgumentKind(args string) (kind, errorClass string) {
+	if !json.Valid([]byte(args)) {
+		return "", "syntax"
+	}
+	// Valid JSON has a non-whitespace first byte that identifies its kind, even
+	// for a number beyond float64's range. No decoded argument data is retained.
+	switch strings.TrimLeft(args, " \t\r\n")[0] {
+	case '{':
+		return "object", ""
+	case '[':
+		return "array", ""
+	case '"':
+		return "string", ""
+	case 'n':
+		return "null", ""
+	case 't', 'f':
+		return "boolean", ""
+	default:
+		return "number", ""
+	}
+}
+
+func kimiChatRequestID(resp *http.Response, wire []byte, result *Response, builders map[int]*ToolCall) string {
+	for _, key := range []string{"X-Trace-Id", "X-Request-Id", "Request-Id"} {
+		for _, id := range resp.Header.Values(key) {
+			if !safeKimiRequestID(id) || kimiChatReflectsIdentity(id, resp.Request) ||
+				bytes.Contains(wire, []byte(id)) || strings.Contains(result.Content, id) || strings.Contains(result.Reasoning, id) {
+				continue
+			}
+			reflected := false
+			for _, call := range builders {
+				if call.ID == id || call.Name == id || strings.Contains(call.InputJSON, id) {
+					reflected = true
+					break
+				}
+			}
+			if !reflected {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
+// A reflected credential or device ID may look like an ordinary trace ID.
+func kimiChatReflectsIdentity(value string, request *http.Request) bool {
+	if request == nil || value == "" {
+		return false
+	}
+	token := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
+	device := request.Header.Get("X-Msh-Device-Id")
+	return (token != "" && strings.Contains(value, token)) ||
+		(device != "" && strings.Contains(strings.ToLower(value), strings.ToLower(device)))
+}
+
+func safeKimiRequestID(s string) bool {
+	if len(s) == 0 || len(s) > 128 {
+		return false
+	}
+	for _, c := range s {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
