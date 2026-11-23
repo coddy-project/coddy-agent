@@ -33,8 +33,10 @@ func TestSystemWindowChrome(t *testing.T) {
 	for selector, fragments := range map[string][]string{
 		`:root[data-frame="system"] .window-btns,
 :root[data-frame="system"] #resize-edges`: {"display: none;"},
-		`:root[data-frame="system"] body`:                       {"--window-radius: 0;"},
-		`:root[data-frame="system"][data-framed="false"] .tabs`: {"padding-left: calc(var(--window-left-inset, 0px) - 7px);"},
+		`:root[data-frame="system"] body`:                 {"--window-radius: 0;"},
+		`:root[data-frame="system"][data-framed="false"]`: {"--strip-start: max(0px, calc(var(--window-left-inset, 0px) - 7px));"},
+		`.tabs`: {"padding: 5px 8px 0 var(--strip-start, 8px);"},
+		`.menu`: {"left: var(--strip-start, 8px);"},
 	} {
 		rule := regexp.MustCompile(regexp.QuoteMeta(selector) + `\s*\{([^}]*)\}`).FindStringSubmatch(css)
 		if len(rule) != 2 {

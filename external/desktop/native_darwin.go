@@ -220,6 +220,8 @@ type nativeWindow struct {
 	log       *slog.Logger
 	// Only the main-thread geometry handler reads or writes gesture geometry.
 	moveStart, resizeStart windowRect
+	buttonOffsets          [3]nativeButtonOffset
+	buttonShift            float64
 }
 
 var _ WindowControl = (*nativeWindow)(nil)
@@ -330,7 +332,7 @@ func (w *nativeWindow) refreshFrame() {
 		right = max(right, frame.Origin.X+frame.Size.Width)
 	}
 	if right > 0 {
-		chrome.LeftInset = int(right + left)
+		chrome.LeftInset = int(right + left - 2*w.buttonShift)
 	}
 	w.mu.Lock()
 	w.chrome = chrome
@@ -342,12 +344,39 @@ func (w *nativeWindow) refreshFrame() {
 // 1px border below. The native test holds it to the page's real boxes.
 const stripCentreY = 21
 
+type nativeButtonOffset struct {
+	button, parent    objc.ID
+	original, shifted float64
+}
+
+// restoreStandardButtons leaves AppKit's own subsequent changes untouched.
+func (w *nativeWindow) restoreStandardButtons() {
+	for i, offset := range w.buttonOffsets {
+		button := w.window.Send(sel("standardWindowButton:"), i)
+		if button != 0 && button == offset.button && button.Send(sel("superview")) == offset.parent {
+			frame := objc.Send[nsRect](button, sel("frame"))
+			if frame.Origin.X == offset.shifted {
+				frame.Origin.X = offset.original
+				button.Send(sel("setFrameOrigin:"), frame.Origin)
+			}
+		}
+		w.buttonOffsets[i] = nativeButtonOffset{}
+	}
+	w.buttonShift = 0
+}
+
+// The inset names the menu SVG; its hitbox begins seven points earlier.
+func nativeButtonShift(left, right float64) float64 {
+	return max(0, min(2, float64(int(left+right))-7-right))
+}
+
 // alignStandardButtons centres the native buttons on the shell's visible row.
 // The 38px border-box strip has 5px top padding and a 1px bottom border, so
 // its menu and + centres are 21px from the top, aligned with the tab labels.
 // An empty UnifiedCompact toolbar reserves 40px on macOS 26; keep the page's
 // 38px strip and adjust only the real buttons, after AppKit lays them out.
 func (w *nativeWindow) alignStandardButtons() {
+	w.restoreStandardButtons()
 	if objc.Send[uint64](w.window, sel("styleMask"))&nsWindowStyleMaskFullSizeContentView == 0 {
 		return
 	}
@@ -359,6 +388,18 @@ func (w *nativeWindow) alignStandardButtons() {
 	}
 	root.Send(sel("layoutSubtreeIfNeeded"))
 	top := objc.Send[nsRect](w.window, sel("frame")).Size.Height
+	left, right, count := 1e9, 0.0, 0
+	for _, kind := range []int{0, 1, 2} {
+		button := w.window.Send(sel("standardWindowButton:"), kind)
+		if button == 0 {
+			continue
+		}
+		frame := objc.Send[nsRect](button.Send(sel("superview")), sel("convertRect:toView:"), objc.Send[nsRect](button, sel("frame")), w.webview)
+		left, right, count = min(left, frame.Origin.X), max(right, frame.Origin.X+frame.Size.Width), count+1
+	}
+	if count == 3 {
+		w.buttonShift = nativeButtonShift(left, right)
+	}
 	for _, kind := range []int{0, 1, 2} {
 		button := w.window.Send(sel("standardWindowButton:"), kind)
 		if button == 0 {
@@ -368,6 +409,9 @@ func (w *nativeWindow) alignStandardButtons() {
 		frame := objc.Send[nsRect](parent, sel("convertRect:toView:"), objc.Send[nsRect](button, sel("frame")), objc.ID(0))
 		frame.Origin.Y = top - stripCentreY - frame.Size.Height/2
 		frame = objc.Send[nsRect](parent, sel("convertRect:fromView:"), frame, objc.ID(0))
+		original := frame.Origin.X
+		frame.Origin.X += w.buttonShift
+		w.buttonOffsets[kind] = nativeButtonOffset{button, parent, original, frame.Origin.X}
 		button.Send(sel("setFrameOrigin:"), frame.Origin)
 	}
 }
@@ -379,9 +423,11 @@ func (w *nativeWindow) perform(action, x, y int) {
 	}
 	switch action {
 	case nativeUndecorate:
+		w.restoreStandardButtons()
 		w.decorate(false)
 		w.refreshFrame()
 	case nativeDecorate:
+		w.restoreStandardButtons()
 		w.decorate(true)
 		w.refreshFrame()
 	case nativeMinimise:

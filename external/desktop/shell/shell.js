@@ -49,6 +49,8 @@
   const frames = document.getElementById("coddy-desktop-frames");
   const root = document.documentElement;
   const newTabButton = document.getElementById("new-tab");
+  const copyStatus = document.getElementById("copy-status");
+  let copyStatusTimer;
   const titleBar = document.getElementById("coddy-desktop-tabs");
   const dragZone = document.getElementById("drag");
   const menuButton = document.getElementById("menu-btn");
@@ -1614,6 +1616,28 @@
     }
   }
 
+  async function copyActivePageLink() {
+    let message = "Could not copy link";
+    try {
+      const url = new URL(frameOf.get(activeUid).contentWindow.location.href);
+      if (url.origin === location.origin && /^https?:$/.test(url.protocol)) {
+        // Workspace handoff parameters are private to the desktop launcher.
+        for (const key of ["desktop_workspace", "desktop_workspace_pending"]) {
+          if (url.searchParams.has(key)) url.searchParams.delete(key);
+        }
+        url.username = "";
+        url.password = "";
+        await navigator.clipboard.writeText(url.href);
+        message = "Link copied";
+      }
+    } catch {
+      // A frame in transit can be unreadable, and clipboard access can be denied.
+    }
+    copyStatus.textContent = message;
+    clearTimeout(copyStatusTimer);
+    copyStatusTimer = setTimeout(() => { copyStatus.textContent = ""; }, 2000);
+  }
+
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // --- the desktop menu ---------------------------------------------------
@@ -1886,6 +1910,8 @@
     if (pickedDuringResolution) postWorkspaceResolved(tab);
   });
 
+  document.getElementById("reload-tab").addEventListener("click", reloadActiveFrame);
+  document.getElementById("copy-page-link").addEventListener("click", copyActivePageLink);
   newTabButton.addEventListener("click", () => openTab());
   scrollLeft.addEventListener("click", () => scrollStrip(-1));
   scrollRight.addEventListener("click", () => scrollStrip(1));

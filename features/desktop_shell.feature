@@ -30,6 +30,7 @@ Feature: The tab shell of the desktop window
     And a window of this machine was opened on it
     When a browser with no credential opens the tab shell
     Then the shell frames the web UI of this server
+    And its tab strip offers reload and copy link for the active page
     And the session list it draws its titles from is still behind the gate
 
   Scenario: The window opens on the chat, not on a sign-in form

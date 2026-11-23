@@ -123,8 +123,13 @@ log; the window and the rest keep running. The configuration on disk is not rewr
 | Switch | click a tab, or `Ctrl`+`1` ... `Ctrl`+`9` |
 | Next, previous | `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab`, which wrap at both ends |
 | Reorder | drag a tab to its new place in the row |
-| Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
+| Reload the active tab | `Ctrl`+`R` or the reload button in the strip, which reloads that tab and leaves the others alone |
+| Copy the active tab address | the link button next to reload copies the live same-origin HTTP(S) URL, preserving its route but omitting `desktop_workspace`, `desktop_workspace_pending` and userinfo, and answers **Link copied** |
 | Walk a long row | the two arrows after the empty part of the strip, which appear once the tabs are wider than the bar |
+
+![The strip's page buttons with the "Link copied" answer under them](../assets/desktop/desktop-copy-link-dark-1280.png)
+
+*The page buttons of the strip on X11: reload the active tab, copy its address.*
 
 A middle click on **New chat**, a conversation in **History**, or a rail item such as **Settings**,
 **Scheduler**, **Docs** or **Swarm** opens that route in a new tab of this window instead of another
@@ -184,13 +189,11 @@ origin shares a single connection.
 ## The window itself
 
 On X11 and native macOS the tab strip is the title bar by default. Browser windows on macOS,
-Windows and Wayland keep the system frame. From left to right the strip carries the desktop menu,
-the tabs, `+`, the empty space that drags the window, and the arrows that walk a row too long for
-the bar.
+Windows and Wayland keep the system frame. The strip starts with the desktop menu, reload and copy link, followed by the tabs and `+`. Drag the empty space to move the window. If the tabs overflow, arrows appear on the right.
 
-On native macOS the round red, yellow and green system buttons stay at the top left, aligned with
-the menu icon, tab labels and `+`. The gap from green to the menu icon matches the left margin
-before red, measured from the system buttons at run time. With the strip as the title bar, green
+On native macOS the red, yellow and green window buttons sit just before the menu in the unified
+strip. They move slightly inward as a group without moving the menu. The menu opens directly
+below its button. With the strip as the title bar, green
 zooms or restores the window without entering full screen. A separate system frame restores
 macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window.
 AppKit draws the corners and handles resizing at the edges, so the strip draws no extra window

@@ -105,18 +105,12 @@ body {
   gap: 2px;
   flex: 0 0 auto;
   height: 38px;
-  padding: 5px 8px 0;
+  padding: 5px 8px 0 var(--strip-start, 8px);
   /* Mixed into what is behind it rather than into `--bg`: the ground here is
      the chat's own canvas, drawn on html. */
   background: color-mix(in srgb, var(--text) 4%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   user-select: none;
-}
-
-/* The menu stands first, where the screenshot of the browser this window is
-   modelled on puts its own: before the tabs, not among them. */
-.menu-btn {
-  margin-right: 6px;
 }
 
 .strip {
@@ -327,6 +321,31 @@ body {
   outline-offset: -2px;
 }
 
+.page-actions {
+  position: relative;
+  display: flex;
+  gap: 2px;
+}
+
+#copy-status {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#copy-status:empty {
+  padding: 0;
+  border: 0;
+}
+
 .new {
   margin-left: 4px;
 }
@@ -396,7 +415,7 @@ body {
 .menu {
   position: absolute;
   top: 44px;
-  left: 8px;
+  left: var(--strip-start, 8px);
   z-index: 20;
   min-width: 236px;
   padding: 6px;
@@ -526,8 +545,7 @@ body {
   --window-radius: 0;
 }
 
-:root[data-frame="system"][data-framed="false"] .tabs {
-  /* The 16px menu SVG sits 7px inside its 30px button. The inset names
-     the icon, so its gap after green matches the gap before red. */
-  padding-left: calc(var(--window-left-inset, 0px) - 7px);
+:root[data-frame="system"][data-framed="false"] {
+  /* The inset names the menu SVG, 7px inside its 30px button. */
+  --strip-start: max(0px, calc(var(--window-left-inset, 0px) - 7px));
 }
