@@ -8,7 +8,7 @@ require (
 	github.com/EvilFreelancer/tgfake v1.1.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/VictoriaMetrics/metrics v1.44.1
+	github.com/VictoriaMetrics/metrics v1.45.0
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coder/acp-go-sdk v0.13.5

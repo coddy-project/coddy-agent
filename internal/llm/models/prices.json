@@ -150,9 +150,9 @@
     "cached": 0.145
   },
   "deepseek-v4.1-flash": {
-    "input": 0.3,
-    "output": 1.2,
-    "cached": 0.006
+    "input": 0.12,
+    "output": 0.48,
+    "cached": 0.0024
   },
   "deepseek-v4.1-flash-free": {
     "input": 0,
@@ -232,6 +232,11 @@
     "output": 7.5,
     "cached": 0.075
   },
+  "gemini-4-neon": {
+    "input": 3,
+    "output": 15,
+    "cached": 0.15
+  },
   "glm-4.6": {
     "input": 0.6,
     "output": 2.2,
@@ -268,9 +273,9 @@
     "cached": 0.26
   },
   "glm-5.3": {
-    "input": 1.4,
-    "output": 4.4,
-    "cached": 0.26
+    "input": 0.56,
+    "output": 1.76,
+    "cached": 0.104
   },
   "glm-5.3-flash": {
     "input": 0.15,
@@ -475,6 +480,16 @@
     "output": 5,
     "cached": 0.05
   },
+  "gpt-6.2-astra": {
+    "input": 8,
+    "output": 40,
+    "cached": 0.4
+  },
+  "gpt-6.2-sol": {
+    "input": 2,
+    "output": 10,
+    "cached": 0.1
+  },
   "gpt-daybreak-blue-latest": {
     "input": 4,
     "output": 20,
@@ -647,6 +662,11 @@
     "input": 0,
     "output": 0,
     "cached": 0
+  },
+  "longcat-2.5": {
+    "input": 0.3,
+    "output": 1.2,
+    "cached": 0.006
   },
   "longcat-2.5-free": {
     "input": 0,
@@ -889,6 +909,11 @@
     "output": 4.5,
     "cached": 0.075
   },
+  "qwen4-max-free": {
+    "input": 0,
+    "output": 0,
+    "cached": 0
+  },
   "ring-2.6-1t-free": {
     "input": 0,
     "output": 0
@@ -924,6 +949,11 @@
   "text-embedding-ada-002": {
     "input": 0.1,
     "output": 0
+  },
+  "tidepool-alpha-free": {
+    "input": 0,
+    "output": 0,
+    "cached": 0
   },
   "trinity-large-preview-free": {
     "input": 0,
