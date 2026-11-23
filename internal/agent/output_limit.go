@@ -62,26 +62,24 @@ func plainToolName(name string) bool {
 	return true
 }
 
-// cutOffToolCall reports the last tool call of a response when the output
-// limit cut it off: the step stopped at max_tokens and the call has arguments
-// that are not a whole JSON document. Generation stops where it stops, so only
-// the last call can be cut; an earlier call that does not parse is a model
-// error, not a truncation, and runs (and fails) as it always did. Arguments that
-// parse are whole, whatever stopped the step. Empty arguments say nothing about
-// where the step stopped: the Anthropic adapter hands over a call that takes no
-// arguments as an empty string, and an OpenAI-compatible server may do the same,
-// so such a call is taken as written whole and runs. One the limit cut right
-// after its name runs with no arguments, as every call at the limit did before,
-// and the tool answers with what is missing.
+// cutOffToolCall removes the cut call from the executable batch. A provider
+// can identify the final announced call even when the response is ordered by
+// stream index and its arguments parse. Without that signal keep the legacy
+// heuristic: only malformed nonempty arguments on the last call imply a cut.
 func cutOffToolCall(response *llm.Response) (llm.ToolCall, bool) {
-	if response == nil || response.StopReason != "max_tokens" || len(response.ToolCalls) == 0 {
+	if response == nil || response.StopReason != "max_tokens" {
 		return llm.ToolCall{}, false
 	}
-	last := response.ToolCalls[len(response.ToolCalls)-1]
-	if !argumentsStopShort(last.InputJSON) {
-		return llm.ToolCall{}, false
+	if cut := response.CutToolCall; cut != nil {
+		return *cut, true
 	}
-	return last, true
+	if n := len(response.ToolCalls); n > 0 {
+		if last := response.ToolCalls[n-1]; argumentsStopShort(last.InputJSON) {
+			response.ToolCalls = response.ToolCalls[:n-1]
+			return last, true
+		}
+	}
+	return llm.ToolCall{}, false
 }
 
 // argumentsStopShort says whether a tool call has arguments and they are not a

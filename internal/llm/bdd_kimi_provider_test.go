@@ -16,16 +16,17 @@ import (
 const kimiBDDToken = "synthetic-kimi-bdd-access"
 
 type kimiBDDState struct {
-	t      *testing.T
-	server *httptest.Server
-	store  *KimiCredentialStore
-	source *KimiSubscriptionSource
-	answer *Response
-	proxy  *httptest.Server
-	hits   chan string
-	seen   []string
-	region string
-	body   map[string]any
+	t          *testing.T
+	server     *httptest.Server
+	store      *KimiCredentialStore
+	source     *KimiSubscriptionSource
+	answer     *Response
+	proxy      *httptest.Server
+	hits       chan string
+	seen       []string
+	region     string
+	body       map[string]any
+	progressID string
 }
 
 func (s *kimiBDDState) stand() error {
@@ -55,6 +56,11 @@ func (s *kimiBDDState) stand() error {
 			}
 			s.body = nil
 			_ = json.NewDecoder(r.Body).Decode(&s.body)
+			if s.body["stream"] == true {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+				return
+			}
 			// The subscription endpoint takes only temperature 1 and refuses
 			// any other value, whatever the model.
 			if temp, ok := s.body["temperature"]; ok && temp != float64(1) {
@@ -159,6 +165,46 @@ func (s *kimiBDDState) ask() error {
 	var err error
 	s.answer, err = newKimiChatProvider(transport, ProviderInput{Model: "kimi-stand"}).Complete(context.Background(), []Message{{Role: RoleUser, Content: "Hello"}}, nil)
 	return err
+}
+
+func (s *kimiBDDState) toolProvider() *kimiChatProvider {
+	return newKimiChatProvider(&KimiInferenceTransport{
+		endpoint: s.server.URL + "/chat/completions", client: s.server.Client(),
+		source: func(context.Context) (string, error) { return kimiBDDToken, nil },
+	}, ProviderInput{Model: "kimi-stand"})
+}
+
+func (s *kimiBDDState) streamCallWithoutID() error {
+	s.progressID = ""
+	var err error
+	s.answer, err = s.toolProvider().Stream(context.Background(), nil, nil, func(chunk StreamChunk) {
+		if chunk.ToolCallNamed != nil {
+			s.progressID = chunk.ToolCallNamed.ID
+		}
+	})
+	return err
+}
+
+func (s *kimiBDDState) sendToolResult() error {
+	if s.progressID == "" || len(s.answer.ToolCalls) != 1 {
+		return fmt.Errorf("expected one announced call with an id")
+	}
+	call := s.answer.ToolCalls[0]
+	history := []Message{{Role: RoleAssistant, ToolCalls: []ToolCall{call}}, {Role: RoleTool, ToolCallID: call.ID, Content: "found"}}
+	if _, err := s.toolProvider().Complete(context.Background(), history, nil); err != nil {
+		return err
+	}
+	messages, _ := s.body["messages"].([]any)
+	if len(messages) != 2 {
+		return fmt.Errorf("expected a call and its result in the next request")
+	}
+	assistant := messages[0].(map[string]any)
+	calls := assistant["tool_calls"].([]any)
+	result := messages[1].(map[string]any)
+	if len(calls) != 1 || calls[0].(map[string]any)["id"] != s.progressID || result["tool_call_id"] != s.progressID {
+		return fmt.Errorf("call and result do not match the announced id")
+	}
+	return nil
 }
 
 // askConfiguredTemperature runs the request of a models[] row that configures
@@ -356,6 +402,8 @@ func TestKimiProviderFeature(t *testing.T) {
 		Options: &godog.Options{Format: "pretty", Paths: paths, TestingT: t, Strict: true},
 		ScenarioInitializer: func(ctx *godog.ScenarioContext) {
 			ctx.Step(`^a Kimi subscription stand in the global region$`, state.stand)
+			ctx.Step(`^Kimi streams a named tool call without an id$`, state.streamCallWithoutID)
+			ctx.Step(`^Coddy sends the tool result with the id it announced$`, state.sendToolResult)
 			ctx.Step(`^the operator completes the Kimi device authorization$`, state.signIn)
 			ctx.Step(`^Coddy stores its own credential for the global region$`, state.stored)
 			ctx.Step(`^the subscription model catalog uses that credential$`, state.catalog)

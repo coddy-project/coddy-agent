@@ -37,7 +37,7 @@ func TestKimiChatSchemaUnconstrainedProperties(t *testing.T) {
 }
 
 func TestKimiChatStreamRejectsInvalidFinalTools(t *testing.T) {
-	cases := []struct{ name, id, tool, args string }{{"missing-id", "", "f", "{}"}, {"blank-id", " ", "f", "{}"}, {"missing-name", "id", "", "{}"}, {"invalid-json", "id", "f", "{"}, {"array", "id", "f", "[]"}, {"null", "id", "f", "null"}, {"string", "id", "f", `"x"`}}
+	cases := []struct{ name, id, tool, args string }{{"missing-name", "id", "", "{}"}, {"invalid-json", "id", "f", "{"}, {"array", "id", "f", "[]"}, {"null", "id", "f", "null"}, {"string", "id", "f", `"x"`}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			frame, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "partial", "tool_calls": []any{map[string]any{"index": 0, "id": tc.id, "function": map[string]any{"name": tc.tool, "arguments": tc.args}}}}, "finish_reason": "tool_calls"}}})

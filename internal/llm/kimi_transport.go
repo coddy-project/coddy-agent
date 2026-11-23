@@ -99,22 +99,21 @@ func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, context
 		return nil, errors.New("kimi: cannot read inference request")
 	}
 	var ticket kimiCredentialTicket
-	var token string
 	if t.catalogTicket != nil {
 		ticket = *t.catalogTicket
-		token = ticket.token
 	} else if t.recovery != nil {
 		ticket, err = t.recovery.ticket(ctx)
-		token = ticket.token
 	} else {
-		token, err = t.source(ctx)
+		ticket.token, err = t.source(ctx)
 	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if errors.Is(err, ErrKimiCLILoginRequired) {
-			return nil, ErrKimiCLILoginRequired
+		for _, safe := range []error{ErrKimiCLILoginRequired, errKimiInvalidDeviceID, errKimiRefreshTemporarilyUnavailable} {
+			if errors.Is(err, safe) {
+				return nil, safe
+			}
 		}
 		return nil, errors.New("kimi: credential unavailable")
 	}
@@ -122,19 +121,21 @@ func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, context
 		if requestErr != nil || label == "" || resp == nil || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
 			return resp, requestErr
 		}
-		return nil, t.statusError(ctx, label, resp, token)
+		return nil, t.statusError(ctx, label, resp, ticket.token)
 	}
-	resp, err := t.send(ctx, data, token, contextManagement)
+	resp, err := t.send(ctx, data, ticket, contextManagement)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.recovery == nil {
 		return finish(resp, err)
 	}
 	if err := resp.Body.Close(); err != nil {
 		return nil, errors.New("kimi: cannot close rejected response")
 	}
-	token, err = t.recovery.rejectedTicket(ctx, ticket)
+	ticket, err = t.recovery.recoverTicket(ctx, ticket)
 	if err != nil {
-		if errors.Is(err, ErrKimiCLILoginRequired) {
-			return nil, ErrKimiCLILoginRequired
+		for _, safe := range []error{ErrKimiCLILoginRequired, errKimiInvalidDeviceID, errKimiRefreshTemporarilyUnavailable} {
+			if errors.Is(err, safe) {
+				return nil, safe
+			}
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -145,21 +146,22 @@ func (t *KimiInferenceTransport) do(ctx context.Context, body io.Reader, context
 		if t.validateCredential == nil {
 			return nil, errors.New("kimi: catalog validation unavailable")
 		}
-		if err := t.validateCredential(ctx, token); err != nil {
+		if err := t.validateCredential(ctx, ticket.token); err != nil {
 			return nil, err
 		}
 	}
-	return finish(t.send(ctx, data, token, contextManagement))
+	return finish(t.send(ctx, data, ticket, contextManagement))
 }
 
-func (t *KimiInferenceTransport) send(ctx context.Context, data []byte, token string, contextManagement bool) (*http.Response, error) {
+func (t *KimiInferenceTransport) send(ctx context.Context, data []byte, ticket kimiCredentialTicket, contextManagement bool) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, errors.New("kimi: invalid inference request")
 	}
-	if err := setKimiIdentityHeaders(req, ""); err != nil {
-		return nil, errors.New("kimi: cannot set identity headers")
+	if err := setKimiIdentityHeaders(req, ticket.deviceID); err != nil {
+		return nil, err
 	}
+	token := ticket.token
 	if strings.TrimSpace(token) == "" || strings.ContainsAny(token, "\r\n") {
 		return nil, errors.New("kimi: invalid credential")
 	}
@@ -180,5 +182,25 @@ func (t *KimiInferenceTransport) send(ctx context.Context, data []byte, token st
 		}
 		return nil, errors.New("kimi: inference request failed")
 	}
+	// Annotate the response using the request we actually sent, not wire data.
+	// The key and value never leave this process or retain a credential snapshot.
+	resp.Request = req.WithContext(context.WithValue(req.Context(), kimiResponseSourceKey{}, ticket.kind))
 	return resp, nil
+}
+
+type kimiResponseSourceKey struct{}
+
+// kimiResponseCredentialSource returns the locally selected source for this
+// response. Platform keys and opaque credential functions have no source label.
+func kimiResponseCredentialSource(resp *http.Response) string {
+	if resp == nil || resp.Request == nil {
+		return ""
+	}
+	kind, _ := resp.Request.Context().Value(kimiResponseSourceKey{}).(KimiSourceKind)
+	switch kind {
+	case KimiSourceManaged, KimiSourceCLI:
+		return string(kind)
+	default:
+		return ""
+	}
 }

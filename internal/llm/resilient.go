@@ -553,6 +553,10 @@ func isRetryableLLMError(err error) bool {
 		// replaying after emitted deltas would show the same text twice.
 		return !trunc.emitted
 	}
+	var toolErr *StreamedToolCallError
+	if errors.As(err, &toolErr) {
+		return false
+	}
 	var und *streamUndecodableError
 	if errors.As(err, &und) {
 		// A frame that is not JSON is a corrupt stream, not a cut: final
