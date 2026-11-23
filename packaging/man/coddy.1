@@ -238,7 +238,42 @@ in the Start menu.
 List stored sessions, the runs of one\-shot mode included:
 .BI \-\-cwd " DIR" ,
 .BR \-\-origin " local|gateway|print" ,
-.BI \-\-sessions\-dir " DIR" .
+.BI \-\-sessions\-dir " DIR" ,
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions show " id
+Inspect metadata of a session by full id or unique prefix. Accepts
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions update " id
+Update supplied metadata with
+.BI \-\-title " TEXT" ,
+.BI \-\-tags " comma,separated"
+or
+.BR \-\-archived=true|false .
+Accepts
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions delete " id
+Delete a session tree after confirmation.
+.B \-\-yes
+confirms non-interactively;
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json"
+select the root and output. Update and delete require a running local
+.B coddy serve
+or
+.B coddy desktop
+with the same home and sessions root. Foreign live work is refused.
+The current session and its ancestors are protected when
+.B CODDY_SESSION_ID
+is set. Direct verbs accept archived and print sessions, but not scheduler
+sessions or children.
 .TP
 .BI "sessions export " id
 Write a stored session to a file:

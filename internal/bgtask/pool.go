@@ -204,6 +204,12 @@ func (p *Pool) Draining() bool {
 	return p.draining
 }
 
+type terminationAttempt struct {
+	reason Status
+	done   chan struct{}
+	err    error // published by closing done; writes also hold task.mu
+}
+
 // task is the pool's private bookkeeping for one unit of work.
 type task struct {
 	mu   sync.Mutex
@@ -214,10 +220,7 @@ type task struct {
 	handle Handle
 	done   chan struct{}
 
-	// termReason records why the task is being terminated. Exactly one caller
-	// wins the claim, so a stop that lands microseconds before the timeout is
-	// still reported as a stop rather than as a timeout.
-	termReason Status
+	termination *terminationAttempt
 
 	// exitObserved is set the moment the process is reaped, which makes a
 	// termination claim that arrives afterwards lose: work that already
@@ -228,39 +231,53 @@ type task struct {
 	resultAcknowledged bool
 }
 
-// claimTermination records the reason a task is about to be terminated and
-// returns the handle to act on. Only the winning caller gets ok, so the handle
-// is never stopped twice and the recorded reason never flips.
-func (t *task) claimTermination(reason Status) (Handle, bool) {
+// requestTermination joins a pending or successful attempt. Only a completed
+// failure can be replaced, and existing callers keep its result.
+func (t *task) requestTermination(reason Status) *terminationAttempt {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.exitObserved || t.snap.Status.Finished() || t.termReason != "" {
-		return nil, false
+	if t.snap.Status.Finished() {
+		return nil
 	}
-	t.termReason = reason
-	return t.handle, true
+	if t.exitObserved || (t.termination != nil && t.termination.err == nil) {
+		return t.termination
+	}
+	a := &terminationAttempt{reason: reason, done: make(chan struct{})}
+	t.termination = a
+	if t.handle != nil {
+		go t.runTermination(a, t.handle)
+	}
+	return a
 }
 
-// attachHandle publishes the started handle and reports whether termination was
-// already claimed while the runner was starting. A task can be stopped in that
-// window (drain, an impatient operator), and the claim would otherwise have had
-// no handle to act on.
-func (t *task) attachHandle(h Handle) (terminateNow bool) {
+func (t *task) runTermination(a *terminationAttempt, h Handle) {
+	err := h.Stop(defaultStopGrace)
+	t.mu.Lock()
+	a.err = err
+	close(a.done)
+	t.mu.Unlock()
+}
+
+// attachHandle starts any attempt that was requested while the runner was starting.
+func (t *task) attachHandle(h Handle) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.handle = h
 	if h != nil {
 		t.snap.PID = h.PID()
 		t.snap.ProcessStartedAt = h.ProcessStartedAt()
+		if t.termination != nil {
+			go t.runTermination(t.termination, h)
+		}
 	}
-	return t.termReason != ""
 }
 
 // markExitObserved is called as soon as the process is reaped.
-func (t *task) markExitObserved() {
+func (t *task) markExitObserved() *terminationAttempt {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.exitObserved = true
-	t.mu.Unlock()
+	return t.termination
 }
 
 // AdoptFunc hands the pool's output sink to work that is already running and
@@ -403,16 +420,18 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 		t.snap.Status = StatusFailed
 		t.snap.Error = err.Error()
 		t.snap.FinishedAt = &finished
+		if a := t.termination; a != nil {
+			a.err = err
+			close(a.done)
+		}
 		t.mu.Unlock()
-		close(t.done)
 		p.persist(t)
+		close(t.done)
 		p.notify(t.Snapshot(p.now()))
 		return t.Snapshot(p.now()), err
 	}
 
-	if terminateNow := t.attachHandle(handle); terminateNow {
-		_ = handle.Stop(defaultStopGrace)
-	}
+	t.attachHandle(handle)
 	p.persist(t)
 
 	snap := t.Snapshot(now)
@@ -462,16 +481,16 @@ func (p *Pool) registerLocked(t *task) {
 // elapses first.
 func (p *Pool) supervise(t *task, timeout time.Duration) {
 	type exitResult struct {
-		code int
-		err  error
+		code    int
+		err     error
+		attempt *terminationAttempt
 	}
 	exited := make(chan exitResult, 1)
 	go func() {
 		code, err := t.handle.Wait()
 		// Reaped: from here on a termination claim must lose, so work that
 		// already finished is never relabelled as stopped or timed out.
-		t.markExitObserved()
-		exited <- exitResult{code: code, err: err}
+		exited <- exitResult{code: code, err: err, attempt: t.markExitObserved()}
 	}()
 
 	// A task without a limit never arms the timer: a nil channel blocks
@@ -487,21 +506,24 @@ func (p *Pool) supervise(t *task, timeout time.Duration) {
 	select {
 	case result = <-exited:
 	case <-expired:
-		if handle, ok := t.claimTermination(StatusTimedOut); ok && handle != nil {
-			_ = handle.Stop(defaultStopGrace)
-		}
+		t.requestTermination(StatusTimedOut)
 		result = <-exited
 	}
 
 	t.sink.Close()
 	finished := p.now()
+	// Wait already returned, so a Stop that needs the handle to be reaped
+	// can finish. Do not classify or publish settlement until its result is known.
+	if result.attempt != nil {
+		<-result.attempt.done
+	}
 
 	t.mu.Lock()
 	switch {
-	case t.termReason != "":
+	case result.attempt != nil && result.attempt.err == nil:
 		// The process was killed on purpose; its exit error is expected and
 		// says nothing useful.
-		t.snap.Status = t.termReason
+		t.snap.Status = result.attempt.reason
 	case result.err != nil:
 		t.snap.Status = StatusFailed
 		t.snap.Error = result.err.Error()
@@ -652,13 +674,25 @@ func (p *Pool) Output(sessionID, taskID string, tailLines int) (string, Snapshot
 	return t.sink.Tail(tailLines), t.Snapshot(p.now()), nil
 }
 
-// Stop terminates a running task and waits for it to settle. Stopping a task
-// that already finished, or that another caller is already terminating, is a
-// no-op that still returns the settled snapshot.
+// Stop terminates a running task and waits for it to settle. Concurrent callers
+// share the termination attempt and receive its error if it fails.
 //
 // A task this process never started - a survivor of an earlier coddy, recorded
 // in the session bundle - is reached by its recorded process group instead.
 func (p *Pool) Stop(sessionID, taskID string) (Snapshot, error) {
+	return p.stop(sessionID, taskID, 0)
+}
+
+// StopWithTimeout bounds the wait for a managed task's stop attempt and
+// subsequent settlement. A timeout does not cancel the shared attempt.
+func (p *Pool) StopWithTimeout(sessionID, taskID string, timeout time.Duration) (Snapshot, error) {
+	return p.stop(sessionID, taskID, timeout)
+}
+
+// ErrStopNotSettled reports that a task did not finish within the stop wait.
+var ErrStopNotSettled = errors.New("task did not settle after stop")
+
+func (p *Pool) stop(sessionID, taskID string, timeout time.Duration) (Snapshot, error) {
 	t, err := p.lookup(sessionID, taskID)
 	if err != nil {
 		if survivor, ok := p.stopSurvivor(sessionID, taskID); ok {
@@ -667,17 +701,33 @@ func (p *Pool) Stop(sessionID, taskID string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	handle, claimed := t.claimTermination(StatusStopped)
-	if claimed && handle != nil {
-		if err := handle.Stop(defaultStopGrace); err != nil {
-			return t.Snapshot(p.now()), err
+	var expired <-chan struct{}
+	if timeout > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		expired = ctx.Done()
+	}
+	if a := t.requestTermination(StatusStopped); a != nil {
+		// Do not race task completion against the result of the joined attempt.
+		select {
+		case <-a.done:
+		case <-expired:
+			select {
+			case <-a.done:
+			default:
+				return t.Snapshot(p.now()), ErrStopNotSettled
+			}
+		}
+		if a.err != nil {
+			return t.Snapshot(p.now()), a.err
 		}
 	}
-
-	// A task reserved but not yet started has no handle; Start honours the
-	// claim as soon as the runner hands one over, so the wait still resolves.
-	<-t.done
-	return t.Snapshot(p.now()), nil
+	select {
+	case <-t.done:
+		return t.Snapshot(p.now()), nil
+	case <-expired:
+		return t.Snapshot(p.now()), ErrStopNotSettled
+	}
 }
 
 // Wait blocks until the task finishes, the timeout elapses, or ctx is done. A

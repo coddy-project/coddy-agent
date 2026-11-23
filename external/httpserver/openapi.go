@@ -2449,7 +2449,7 @@ func openAPISpec() map[string]interface{} {
 				"delete": map[string]interface{}{
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
-						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
+						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first. Prompt locks are held where supported, and detected foreign active process tasks prevent removal; arbitrary writers are not excluded. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "coddySessionDelete",
 					"parameters": []interface{}{
@@ -2476,14 +2476,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "Nothing was removed: either a cancelled turn of the session tree was still running after the settle timeout, or descendants kept appearing while the tree was being marked. Retry once the tree is quiet.",
+							"description": "No bundles were removed: a cancelled turn or stopped task did not settle, the tree kept growing, another process held a prompt lock, or a foreign active task was detected. The response identifies the affected session for unsettled tasks and foreign work. Retry once the tree is quiet.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
 								},
 							},
 						},
-						"500": errorResponseRef(),
+						"500": map[string]interface{}{"description": "Delete failed. A removal failure may have already removed some files or descendant bundles; preflight failures do not remove bundles.", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"}}}},
 						"503": errorResponseRef(),
 					},
 				},

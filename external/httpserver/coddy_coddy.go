@@ -2236,10 +2236,40 @@ func (s *Server) deleteSessionBundle(id string) error {
 // route answers with: a tree that would not settle is a retryable conflict,
 // anything else is a server error.
 func sessionDeleteStatus(err error) int {
-	if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+	if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) || errors.Is(err, session.ErrSessionTurnBusy) || errors.Is(err, session.ErrForeignSessionTask) || errors.Is(err, bgtask.ErrStopNotSettled) {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
+}
+
+func sessionDeleteConflictMessage(err error) string {
+	var conflict *session.SessionDeleteConflict
+	if errors.As(err, &conflict) && session.ValidateFolderSessionID(conflict.SessionID) == nil {
+		if errors.Is(err, session.ErrSessionTurnBusy) {
+			return fmt.Sprintf("session %s has an active turn", conflict.SessionID)
+		}
+		if errors.Is(err, session.ErrForeignSessionTask) {
+			return fmt.Sprintf("session %s has a foreign active task", conflict.SessionID)
+		}
+		if errors.Is(err, bgtask.ErrStopNotSettled) {
+			return fmt.Sprintf("session %s has a task that did not stop in time", conflict.SessionID)
+		}
+	}
+	if errors.Is(err, session.ErrTurnNotSettled) {
+		return session.ErrTurnNotSettled.Error()
+	}
+	if errors.Is(err, session.ErrTreeUnstable) {
+		return session.ErrTreeUnstable.Error()
+	}
+	return "session tree is busy"
+}
+
+func sessionDeleteFailureMessage(err error) string {
+	var removal *session.SessionRemovalError
+	if errors.As(err, &removal) {
+		return "delete failed; the session may be partially deleted"
+	}
+	return "delete failed"
 }
 
 func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
@@ -2259,14 +2289,11 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.deleteSessionBundle(id); err != nil {
 		status := sessionDeleteStatus(err)
 		if status == http.StatusConflict {
-			// A turn of the tree ignored its cancellation, or descendants
-			// kept appearing while the tree was being marked; nothing was
-			// removed, the client may retry once the tree is quiet.
-			http.Error(w, errorJSON(err.Error()), status)
+			http.Error(w, errorJSON(sessionDeleteConflictMessage(err)), status)
 			return
 		}
 		s.log.Error("coddy session delete", "error", err)
-		http.Error(w, `{"error":{"message":"delete failed"}}`, status)
+		http.Error(w, errorJSON(sessionDeleteFailureMessage(err)), status)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -2534,7 +2561,7 @@ func bulkDeleteSessions(targets []string, del func(string) error) (requested int
 		if err := del(id); err != nil {
 			message := "delete failed"
 			if sessionDeleteStatus(err) == http.StatusConflict {
-				message = err.Error()
+				message = sessionDeleteConflictMessage(err)
 			}
 			failed = append(failed, map[string]string{"id": id, "error": message})
 			continue

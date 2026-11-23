@@ -79,6 +79,9 @@ func startForegroundInto(ctx context.Context, command string, env *tooling.Env, 
 	}
 
 	cmd.Env = platform.UserEnvironment(ctx, cmd.Dir)
+	if env != nil && env.SessionID != "" {
+		cmd.Env = append(cmd.Env, "CODDY_SESSION_ID="+env.SessionID)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
