@@ -424,6 +424,27 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		if err != nil {
 			return err
 		}
+		var shift float64
+		if err := nativeOnMain(ctx, func(w *nativeWindow) {
+			shift = w.buttonShift
+			for range 5 {
+				w.refreshFrame()
+			}
+		}); err != nil {
+			return err
+		}
+		after, err := nativeObservedChrome(ctx)
+		if err != nil {
+			return err
+		}
+		if len(chrome.Buttons) != len(after.Buttons) {
+			return fmt.Errorf("%s: button count changed on refresh", label)
+		}
+		for i := range chrome.Buttons {
+			if chrome.Buttons[i] != after.Buttons[i] {
+				return fmt.Errorf("%s: button drift on refresh: before=%+v after=%+v", label, chrome.Buttons, after.Buttons)
+			}
+		}
 		if chrome.Visible != 3 || report.Frame.Kind != shell.FrameSystem || len(chrome.Buttons) != 3 || len(report.BarItems) != 3 || len(report.Buttons) != 2 || report.BarHeight != 38 {
 			return fmt.Errorf("%s: native=%+v page=%+v", label, chrome, report)
 		}
@@ -445,7 +466,11 @@ func driveNativeWindow(ctx context.Context, handle *WindowHandle, ask func() int
 		}
 		menu := report.BarItems[0]
 		gap := menu.X - chrome.ZoomRight
-		if high-low > 1 || math.Abs(gap-chrome.LeftMargin) > 2 || math.Abs(float64(report.Frame.LeftInset)-menu.X) > 1 {
+		originalInset := int(chrome.ZoomRight + chrome.LeftMargin - 2*shift)
+		if shift < 0 || shift > 2 || report.Frame.LeftInset != originalInset {
+			return fmt.Errorf("%s: shift=%.1f inset=%d original inset=%d", label, shift, report.Frame.LeftInset, originalInset)
+		}
+		if high-low > 1 || math.Abs(gap-(chrome.LeftMargin-2*shift)) > 2 || math.Abs(float64(report.Frame.LeftInset)-menu.X) > 1 {
 			return fmt.Errorf("%s: centres=%v menu icon gap=%.1f red margin=%.1f inset=%d icon left=%.1f", label, centres, gap, chrome.LeftMargin, report.Frame.LeftInset, menu.X)
 		}
 		for _, button := range report.Buttons {
@@ -1207,4 +1232,15 @@ func nativeWindowDiagnostics(ctx context.Context) string {
 	}
 	b, _ := json.Marshal(state)
 	return string(b)
+}
+
+func TestNativeButtonShift(t *testing.T) {
+	for _, tc := range []struct{ left, right, want float64 }{
+		{14, 70, 2}, {9, 70, 1}, {8, 70, 0}, {7, 70, 0}, {3, 70, 0},
+		{9.5, 70.75, 1.25},
+	} {
+		if got := nativeButtonShift(tc.left, tc.right); got != tc.want {
+			t.Errorf("shift(%g, %g) = %g, want %g", tc.left, tc.right, got, tc.want)
+		}
+	}
 }

@@ -291,16 +291,16 @@ SPA and a window backend has to reach it whether or not the SPA build has run. I
 over one **`<iframe>`** per chat, each frame the web UI of this same server.
 
 - **The strip** is a 38px header with 5px padding above and 8px at the sides, and with no system frame it is the
-  window's title bar as well. Left to right: the menu (**`#menu-btn`**), the tabs (**`#strip`**,
-  **`role="tablist"`**, scrolling sideways with no scrollbar when they do not fit), the **`+`** of a
-  new chat (**`#new-tab`**), the empty space that drags the window (**`#drag`**), the two arrows
-  that walk a row too long for the bar (**`#scroll-btns`**, drawn only while
-  **`scrollWidth > clientWidth`**, each going dim at its end of the row rather than disappearing,
-  so the buttons beside it do not move under the pointer), and minimise,
-  maximise and close at the right edge (**`#window-btns`**, only for a driven window without
-  system chrome). Native macOS keeps its standard red/yellow/green buttons at the left; the shell
-  aligns their centres with the menu icon, tab labels and **`+`**. The 16px menu SVG sits 7px
-  inside its 30px button; the inset puts the icon one measured left margin after green. AppKit
+  window's title bar as well. On every platform the strip starts with the menu (**`#menu-btn`**),
+  reload (**`#reload-tab`**) and copy link (**`#copy-page-link`**). The tabs (**`#strip`**,
+  **`role="tablist"`**) immediately follow the page actions. Reload, like **`Ctrl`+`R`**, affects
+  only the active frame. Copy uses that frame's current same-origin HTTP(S) URL, keeps its route
+  and removes `desktop_workspace`, `desktop_workspace_pending` and URL credentials. The status
+  appears below the buttons for two seconds. After the tabs come **`#new-tab`**, the drag area
+  (**`#drag`**), scroll arrows (**`#scroll-btns`**, visible on overflow) and **`#window-btns`**
+  (only for a driven window without system chrome). Native macOS moves the three standard buttons
+  slightly inward in the unified strip without changing the menu anchor. Its popup aligns with
+  the button. AppKit
   owns the window buttons, resize edges and corner radius. In the unified strip, green zooms
   without entering full screen; a separate system frame restores the window's original collection
   behavior. The empty bar and its padding drag the window.
