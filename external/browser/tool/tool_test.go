@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -202,21 +203,37 @@ func TestScreenshotsAreCheckedAndAttached(t *testing.T) {
 		t.Fatalf("a model without images got a screenshot: %v", err)
 	}
 	var attached []byte
+	var attachedName, attachedMIME string
 	env.AttachImage = func(name, mime string, data []byte) error {
-		if name != "browser.png" || mime != "image/png" {
-			t.Fatalf("attached %s %s", name, mime)
-		}
+		attachedName, attachedMIME = name, mime
 		attached = data
 		return nil
 	}
 	if _, err := run(t, env, map[string]any{"action": "screenshot", "tab_id": 1}); err != nil || !bytes.Equal(attached, buf.Bytes()) {
 		t.Fatalf("screenshot: %v", err)
 	}
+	if attachedName != "browser.png" || attachedMIME != "image/png" {
+		t.Fatalf("attached %s %s", attachedName, attachedMIME)
+	}
+	var jpegBuf bytes.Buffer
+	if err := jpeg.Encode(&jpegBuf, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatal(err)
+	}
+	jpegData := jpegBuf.Bytes()
 	ext.Handle = func(browsertest.Command) browsertest.Answer {
-		return browsertest.Answer{Result: map[string]string{"dataUrl": "data:image/jpeg;base64,AAAA"}}
+		return browsertest.Answer{Result: map[string]string{"dataUrl": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(jpegData)}}
+	}
+	if _, err := run(t, env, map[string]any{"action": "screenshot", "tab_id": 1}); err != nil || !bytes.Equal(attached, jpegData) {
+		t.Fatalf("JPEG screenshot: %v", err)
+	}
+	if attachedName != "browser.jpg" || attachedMIME != "image/jpeg" {
+		t.Fatalf("attached %s %s", attachedName, attachedMIME)
+	}
+	ext.Handle = func(browsertest.Command) browsertest.Answer {
+		return browsertest.Answer{Result: map[string]string{"dataUrl": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())}}
 	}
 	if _, err := run(t, env, map[string]any{"action": "screenshot", "tab_id": 1}); err == nil {
-		t.Fatal("a JPEG passed as a PNG")
+		t.Fatal("a PNG passed as a JPEG")
 	}
 }
 
