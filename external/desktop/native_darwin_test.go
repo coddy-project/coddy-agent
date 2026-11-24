@@ -1236,7 +1236,7 @@ func nativeWindowDiagnostics(ctx context.Context) string {
 
 func TestNativeButtonShift(t *testing.T) {
 	for _, tc := range []struct{ left, right, want float64 }{
-		{14, 70, 2}, {8, 70, 1}, {7, 70, 0}, {3, 70, 0},
+		{14, 70, 2}, {9, 70, 1}, {8, 70, 0}, {7, 70, 0}, {3, 70, 0},
 		{9.5, 70.75, 1.25},
 	} {
 		if got := nativeButtonShift(tc.left, tc.right); got != tc.want {

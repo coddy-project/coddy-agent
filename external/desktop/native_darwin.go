@@ -367,7 +367,7 @@ func (w *nativeWindow) restoreStandardButtons() {
 
 // The inset names the menu SVG; its hitbox begins seven points earlier.
 func nativeButtonShift(left, right float64) float64 {
-	return max(0, min(2, float64(int(left+right))-7-right))
+	return max(0, min(2, float64(int(left+right))-8-right))
 }
 
 // alignStandardButtons centres the native buttons on the shell's visible row.
