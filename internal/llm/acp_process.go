@@ -183,9 +183,15 @@ func startACPProcess(ctx context.Context, spec acpSpec, log *slog.Logger) (*acpP
 	hctx, cancel := context.WithTimeout(ctx, acpStartTimeout)
 	defer cancel()
 	var initRaw json.RawMessage
+	// Cursor rewrites its saved model parameters on session/new unless the
+	// client advertises parameterizedModelPicker. The flag is on every
+	// handshake, and an agent that does not know the key ignores it.
 	err = p.call(hctx, "initialize", acpsdk.InitializeRequest{
 		ProtocolVersion: acpsdk.ProtocolVersionNumber,
 		ClientInfo:      &acpsdk.Implementation{Name: "coddy", Title: acpsdk.Ptr("Coddy"), Version: version.Version},
+		ClientCapabilities: acpsdk.ClientCapabilities{
+			Meta: map[string]any{"parameterizedModelPicker": true},
+		},
 	}, &initRaw)
 	if err == nil {
 		if p.init, err = decodeACPInitialize(initRaw); err != nil {

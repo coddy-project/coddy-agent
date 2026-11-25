@@ -160,12 +160,16 @@ func TestACPProviderStreamsTheAgentsAnswer(t *testing.T) {
 				Read  bool `json:"readTextFile"`
 				Write bool `json:"writeTextFile"`
 			} `json:"fs"`
-			Terminal bool `json:"terminal"`
+			Terminal bool           `json:"terminal"`
+			Meta     map[string]any `json:"_meta"`
 		} `json:"clientCapabilities"`
 	}
 	_ = json.Unmarshal(readLog(t, logPath, "initialize")[0].Params, &init)
 	if init.ClientCapabilities.FS.Read || init.ClientCapabilities.FS.Write || init.ClientCapabilities.Terminal {
 		t.Fatalf("the client advertised capabilities it does not serve: %+v", init)
+	}
+	if init.ClientCapabilities.Meta["parameterizedModelPicker"] != true {
+		t.Fatalf("initialize did not advertise parameterizedModelPicker: %+v", init.ClientCapabilities.Meta)
 	}
 }
 
@@ -948,6 +952,30 @@ func TestACPProviderDepthGuard(t *testing.T) {
 	}
 	if len(acptest.ReadLog(t, logPath)) != 0 {
 		t.Fatal("an agent started past the depth limit")
+	}
+}
+
+func TestACPThoughtLevelsReadsTheModelTheAgentIsOn(t *testing.T) {
+	in, logPath := acpRow(t, acptest.Script{
+		Models:        []string{"grok-4.7", "small"},
+		ThoughtLevels: []string{"low", "medium", "high", "xhigh"},
+	})
+	got, err := ACPThoughtLevels(context.Background(), in, "grok-4.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "low,medium,high,xhigh" {
+		t.Fatalf("levels = %v", got)
+	}
+	other, err := ACPThoughtLevels(context.Background(), in, "small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other != nil {
+		t.Fatalf("another model = %v, want nothing rather than a selection", other)
+	}
+	if n := len(readLog(t, logPath, "session/set_config_option")); n != 0 {
+		t.Fatalf("reading the levels sent %d set_config_option", n)
 	}
 }
 

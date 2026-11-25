@@ -17,6 +17,8 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/acptest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -497,5 +499,62 @@ func TestToolsetOnTheWireForANewChat(t *testing.T) {
 	get("/coddy/info", &info)
 	if strings.Join(info.Toolsets, ",") != "lean" {
 		t.Fatalf("info toolsets = %v", info.Toolsets)
+	}
+}
+
+// An acp provider's reasoning levels are the thought_level option of the model
+// the agent is on. Another of its models is not selected, so the fetch does
+// not write the agent's configuration.
+func TestReasoningLevelsReadsTheACPAgentsCurrentModel(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "acp.log")
+	cmd, args := acptest.Command(t, acptest.Script{
+		Log:           logPath,
+		Models:        []string{"grok-4.7", "small"},
+		ThoughtLevels: []string{"low", "medium", "high", "xhigh"},
+	})
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := `providers:
+  - name: cursor
+    type: acp
+    acp:
+      command: agent
+models:
+  - model: cursor/grok-4.7
+    max_tokens: 100
+agent:
+  model: cursor/grok-4.7
+`
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers[0].ACP.Command = cmd
+	cfg.Providers[0].ACP.Args = args
+	t.Cleanup(llm.StopACPAgents)
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	ts := httptest.NewServer(New(cfg, mgr, slog.Default(), home).Handler())
+	t.Cleanup(ts.Close)
+
+	code, reply := getReasoningLevels(t, ts, "?model="+url.QueryEscape("cursor/grok-4.7")+"&provider_type=acp")
+	if code != http.StatusOK || !reply.OK || !reply.Detected || strings.Join(reply.Levels, ",") != "low,medium,high,xhigh" {
+		t.Fatalf("grok levels: %d %+v", code, reply)
+	}
+	code, reply = getReasoningLevels(t, ts, "?model="+url.QueryEscape("cursor/small")+"&provider_type=acp")
+	if code != http.StatusOK || !reply.OK || reply.Detected || len(reply.Levels) != 0 {
+		t.Fatalf("small levels: %d %+v", code, reply)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "session/set_config_option") {
+		t.Fatal("reading the levels selected an option")
 	}
 }

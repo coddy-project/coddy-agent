@@ -1517,3 +1517,53 @@ func listACPModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) 
 	}
 	return out, nil
 }
+
+// ACPThoughtLevels returns the reasoning levels the agent offers for modelID
+// when that model is the one it is currently on: the values of its
+// thought_level option. Cursor files the effort under that category. The
+// call does not select a model, because selecting one writes some agents'
+// configuration. A different model yields a nil slice. An agent that is on
+// this model and offers no such option yields an empty slice.
+func ACPThoughtLevels(ctx context.Context, in ProviderInput, modelID string) ([]string, error) {
+	spec, err := resolveACPSpec(in, "", "")
+	if err != nil {
+		return nil, err
+	}
+	entry, release, err := acpAgents.acquire(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	proc := entry.proc
+	cwd := spec.sessionCWD
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	sessionID, err := proc.newSession(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	defer proc.closeSession(sessionID)
+	st := proc.stateOf(sessionID)
+	current := ""
+	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
+		current = opt.current()
+	} else if st.Models != nil {
+		current = st.Models.CurrentModelID
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID != "" && modelID != acpDefaultModel && modelID != current {
+		return nil, nil
+	}
+	opt, ok := optionOf(st.ConfigOptions, "thought_level")
+	if !ok {
+		return []string{}, nil
+	}
+	levels := make([]string, 0, len(opt.values()))
+	for _, v := range opt.values() {
+		if v.Value != "" {
+			levels = append(levels, v.Value)
+		}
+	}
+	return levels, nil
+}
