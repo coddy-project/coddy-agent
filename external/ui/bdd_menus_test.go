@@ -39,6 +39,9 @@ func TestWebUIMenusFeature(t *testing.T) {
 		{`^a branch is picked from the list while the remotes refresh$`,
 			"src/ui/chat/WorkspaceChips.test.tsx",
 			"WorkspaceChips picks a branch while the remotes refresh"},
+		{`^a refused active remote refreshes its configured token$`,
+			"src/ui/env/activeHealthConfiguredToken.test.ts",
+			"refreshes a refused token from local config after an in-place remote switch"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_menus",

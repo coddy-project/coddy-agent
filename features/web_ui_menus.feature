@@ -33,3 +33,6 @@ Feature: The menus of the web UI stay with what they serve
   Scenario: The branch list shows the branches it knows while the remotes are fetched
     Then the branch list opens with the branches it already has while the remotes refresh
     And a branch is picked from the list while the remotes refresh
+
+  Scenario: A refused remote token is refreshed from local config
+    Then a refused active remote refreshes its configured token

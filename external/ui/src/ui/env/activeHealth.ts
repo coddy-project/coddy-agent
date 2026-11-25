@@ -5,6 +5,7 @@
 
 import { useEffect } from "react";
 import { useSyncExternalStore } from "react";
+import { refreshConfiguredRemotes } from "./configuredRemotes";
 import {
   environmentKey,
   getEnv,
@@ -87,6 +88,11 @@ async function tick(): Promise<void> {
   const mine = ++asked;
   askedToken = env.token;
   const probe = await probeActiveEnv(env);
+  if (probe?.reach === "unauthorized") {
+    // The browser may hold a token that was rotated in the local config.
+    // syncActiveToken starts another probe when the configured token differs.
+    await refreshConfiguredRemotes();
+  }
   // A newer ask is on its way, or the app moved to another remote while this
   // one was asked: this answer is not the one to keep.
   if (mine !== asked || environmentKey(getEnv()) !== environmentKey(env)) {
@@ -103,7 +109,9 @@ onEnvironmentSwitch(() => {
   if (!started) {
     return;
   }
-  if (environmentKey(getEnv()) !== stateKey) {
+  const nextKey = environmentKey(getEnv());
+  if (nextKey !== stateKey) {
+    stateKey = nextKey;
     set({ health: "checking", probe: null });
   }
   void tick();
