@@ -12,6 +12,10 @@ import {
 import { ChatScreen } from "./ChatScreen";
 import type { BackgroundTask } from "../tasks/types";
 import type { TranscriptItem } from "./types";
+import {
+  phoneMaxWidthMediaQuery,
+  shellStackMaxWidthMediaQuery,
+} from "../shellBreakpoint";
 
 afterEach(() => cleanup());
 
@@ -957,6 +961,247 @@ test("on the stacked shell the composer block rises above an overlaying keyboard
 test("the empty hero has no scroll-to-bottom button", () => {
   render(<ChatScreen {...scrollBase} sessionId="" title="" items={[]} />);
   expect(screen.queryByTestId("chat-scroll-bottom")).toBeNull();
+});
+
+function stubPhoneTier() {
+  const phone = Object.assign(new EventTarget(), { matches: true });
+  vi.stubGlobal("matchMedia", (query: string) =>
+    query === phoneMaxWidthMediaQuery
+      ? phone
+      : Object.assign(new EventTarget(), {
+          matches: query === shellStackMaxWidthMediaQuery,
+        }),
+  );
+  return (matches: boolean) => {
+    act(() => {
+      phone.matches = matches;
+      phone.dispatchEvent(new Event("change"));
+    });
+  };
+}
+
+test("nonempty phone chat follows and jumps on #messages, not the document", async () => {
+  stubPhoneTier();
+  const frames = fakeFrameClock();
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    expect(document.documentElement.dataset.phoneChatScroll).toBe("inner");
+    expect(
+      viewport.parentElement?.style.getPropertyValue("--chat-composer-reserve"),
+    ).toBe("0px");
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+    await waitFor(() => expect(scrollButtonShown()).toBe(true));
+    viewport.scrollTop = 800;
+    fireEvent.scroll(window);
+    expect(scrollButtonShown()).toBe(true);
+    viewport.scrollTop = 200;
+    fireEvent.click(screen.getByTestId("chat-scroll-bottom"));
+    frames.advance(220);
+    expect(viewport.scrollTop).toBe(800);
+    expect(scrollButtonShown()).toBe(false);
+    expect(scrollTo).not.toHaveBeenCalled();
+  } finally {
+    cleanup();
+    scrollTo.mockRestore();
+    frames.restore();
+    vi.unstubAllGlobals();
+  }
+});
+
+test("phone chat sizes to the visual viewport and tears down on tier and hero transitions", () => {
+  const setPhone = stubPhoneTier();
+  const vv = Object.assign(new EventTarget(), {
+    height: window.innerHeight - 300.75,
+    offsetTop: 20.25,
+    scale: 1,
+  });
+  vi.stubGlobal("visualViewport", vv);
+  const root = document.documentElement;
+  const height = () => root.style.getPropertyValue("--coddy-phone-chat-height");
+  const inset = () => root.style.getPropertyValue("--coddy-keyboard-inset");
+  try {
+    const { rerender, unmount } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    expect(height()).toBe(`${window.innerHeight - 280}px`);
+    expect(inset()).toBe("281px");
+
+    vv.offsetTop += 30;
+    act(() => vv.dispatchEvent(new Event("scroll")));
+    expect(height()).toBe(`${window.innerHeight - 250}px`);
+    expect(inset()).toBe("251px");
+
+    vv.scale = 2;
+    vv.height = 100;
+    act(() => vv.dispatchEvent(new Event("resize")));
+    expect(height()).toBe(`${window.innerHeight - 250}px`);
+    expect(inset()).toBe("0px");
+    vv.scale = 1;
+    vv.height = Number.NaN;
+    act(() => vv.dispatchEvent(new Event("resize")));
+    expect(height()).toBe(`${window.innerHeight - 250}px`);
+    expect(inset()).toBe("0px");
+
+    vv.height = window.innerHeight - vv.offsetTop;
+    setPhone(false);
+    expect(root.dataset.phoneChatScroll).toBeUndefined();
+    expect(height()).toBe("");
+    act(() => vv.dispatchEvent(new Event("resize")));
+    expect(height()).toBe("");
+    setPhone(true);
+    expect(root.dataset.phoneChatScroll).toBe("inner");
+    expect(height()).toBe(`${window.innerHeight}px`);
+
+    rerender(<ChatScreen {...scrollBase} items={[]} />);
+    expect(root.dataset.phoneChatScroll).toBeUndefined();
+    expect(height()).toBe("");
+    expect(inset()).toBe("0px");
+    rerender(<ChatScreen {...scrollBase} items={firstTurn} />);
+    expect(root.dataset.phoneChatScroll).toBe("inner");
+    unmount();
+    act(() => vv.dispatchEvent(new Event("scroll")));
+    expect(root.dataset.phoneChatScroll).toBeUndefined();
+    expect(height()).toBe("");
+    expect(inset()).toBe("");
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a phone chat without VisualViewport uses innerHeight and follows only while parked during dock resizes", () => {
+  stubPhoneTier();
+  vi.stubGlobal("visualViewport", undefined);
+  const observers = new Map<Element, () => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      private target?: Element;
+      constructor(private readonly notify: () => void) {}
+      observe(target: Element) {
+        this.target = target;
+        observers.set(target, this.notify);
+      }
+      disconnect() {
+        if (this.target) observers.delete(this.target);
+      }
+    },
+  );
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    const height = () =>
+      document.documentElement.style.getPropertyValue(
+        "--coddy-phone-chat-height",
+      );
+    expect(height()).toBe(`${window.innerHeight}px`);
+    vi.stubGlobal("innerHeight", 640);
+    fireEvent.resize(window);
+    expect(height()).toBe("640px");
+
+    const resize = observers.get(viewport);
+    expect(resize).toBeTypeOf("function");
+    viewport.scrollTop = 800;
+    fireEvent.scroll(viewport);
+    Object.defineProperty(viewport, "clientHeight", { value: 250 });
+    act(() => resize?.());
+    expect(viewport.scrollTop).toBe(950);
+
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+    Object.defineProperty(viewport, "clientHeight", { value: 400 });
+    act(() => resize?.());
+    expect(viewport.scrollTop).toBe(200);
+    expect(scrollButtonShown()).toBe(true);
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+  }
+});
+
+test("changing tier cancels pending writes to the old scrollport", () => {
+  const setPhone = stubPhoneTier();
+  setPhone(false);
+  const frames = fakeFrameClock();
+  const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    frames.advance(16); // One of the two document-follow frames is still pending.
+    setPhone(true);
+    expect(viewport.scrollTop).toBe(800);
+    frames.advance(16);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+    fireEvent.click(screen.getByTestId("chat-scroll-bottom"));
+    frames.advance(50);
+    const jumpPosition = viewport.scrollTop;
+    expect(jumpPosition).toBeGreaterThan(200);
+    expect(jumpPosition).toBeLessThan(800);
+    setPhone(false);
+    frames.advance(500);
+    frames.advance(16);
+    expect(viewport.scrollTop).toBe(jumpPosition);
+    expect(scrollTo).toHaveBeenCalled();
+  } finally {
+    cleanup();
+    scrollTo.mockRestore();
+    frames.restore();
+    vi.unstubAllGlobals();
+  }
+});
+
+test("Telegram phone chat keeps document scrolling and the keyboard inset", () => {
+  stubPhoneTier();
+  vi.stubGlobal(
+    "visualViewport",
+    Object.assign(new EventTarget(), {
+      height: window.innerHeight - 300,
+      offsetTop: 0,
+      scale: 1,
+    }),
+  );
+  const root = document.documentElement;
+  root.dataset.telegramMiniApp = "true";
+  try {
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
+    expect(root.dataset.phoneChatScroll).toBeUndefined();
+    expect(root.style.getPropertyValue("--coddy-phone-chat-height")).toBe("");
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("300px");
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+    expect(scrollButtonShown()).toBe(false);
+  } finally {
+    cleanup();
+    delete root.dataset.telegramMiniApp;
+    vi.unstubAllGlobals();
+  }
 });
 
 // The live line and the chip share one count of running tasks (taskStatus.ts).
