@@ -232,6 +232,75 @@ describe("phone composer", () => {
   });
 });
 
+describe("phone inner chat scroll", () => {
+  const scope = 'html[data-phone-chat-scroll="inner"]';
+
+  test("locks the document and bounds the real shell without hiding the rail", () => {
+    for (const selector of [scope, `${scope} body`]) {
+      const rule = declarations(phone, selector);
+      expectDecl(rule, "overflow", /^hidden$/);
+      expectDecl(rule, "height", /^100% !important$/);
+      expectDecl(rule, "min-height", /^0$/);
+    }
+    const shell = declarations(phone, `${scope} .shell`);
+    expectDecl(
+      shell,
+      "height",
+      /^var\(--coddy-phone-chat-height, 100dvh\) !important$/,
+    );
+    expectDecl(shell, "min-height", /^0$/);
+    expect(shell).not.toMatch(/overflow\s*:\s*hidden/);
+    expect(declarations(phone, `${scope} .rail-column`)).toBe("");
+  });
+
+  test("gives the actual app flex chain a shrinkable transcript", () => {
+    for (const selector of [
+      ".shell-main",
+      ".shell-main > .main:not(.is-empty)",
+      ".chat-stack",
+    ]) {
+      expectDecl(
+        declarations(phone, `${scope} ${selector}`),
+        "min-height",
+        /^0$/,
+      );
+    }
+    const messages = declarations(phone, `${scope} #messages.chat-scroll`);
+    expectDecl(messages, "flex", /^1 1 0$/);
+    expectDecl(messages, "overflow-y", /^auto !important$/);
+    expectDecl(messages, "overscroll-behavior-y", /^contain$/);
+    expectDecl(messages, "padding-bottom", /^0$/);
+    expectDecl(
+      declarations(phone, `${scope} .chat-scroll-sticky-head`),
+      "top",
+      /^0$/,
+    );
+    expectDecl(
+      declarations(phone, `${scope} .chat-scroll-tail`),
+      "height",
+      /^0$/,
+    );
+  });
+
+  test("keeps the dock in flow without clipping its controls or doubling padding", () => {
+    const main = declarations(
+      phone,
+      `${scope} .shell-main > .main:not(.is-empty)`,
+    );
+    expectDecl(main, "padding-bottom", /^0$/);
+    const bottom = declarations(phone, `${scope} .chat-bottom`);
+    expectDecl(bottom, "position", /^static$/);
+    expectDecl(bottom, "flex", /^none$/);
+    expectDecl(bottom, "padding-inline", /^0$/);
+    expectDecl(
+      bottom,
+      "padding-bottom",
+      /^max\(12px, env\(safe-area-inset-bottom, 0px\)\)$/,
+    );
+    expect(bottom).not.toMatch(/overflow\s*:\s*hidden/);
+  });
+});
+
 describe("phone settings", () => {
   test("a section tile spells its whole name: the title wraps to two lines instead of an ellipsis", () => {
     // A phone has no hover, so the title tooltip behind a cut name is out of

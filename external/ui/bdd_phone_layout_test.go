@@ -64,6 +64,9 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^the composer block and its scroll-to-bottom button rise above an overlaying keyboard$`, func() error {
 				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx", "on the stacked shell the composer block rises above an overlaying keyboard")
 			})
+			sc.Step(`^the phone chat follows and jumps to the newest message without scrolling the document$`, func() error {
+				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx", "nonempty phone chat follows and jumps on #messages, not the document")
+			})
 			sc.Step(`^the scroll-to-bottom button never moves the chat up$`, func() error {
 				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx", "the scroll-to-bottom button never moves the transcript up")
 			})

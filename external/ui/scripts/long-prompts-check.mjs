@@ -547,6 +547,40 @@ try {
         `card ${kb.card.top.toFixed(0)}-${kb.card.bottom.toFixed(0)}, visible ${offsetTop}-${visibleBottom}`,
       );
     }
+    // Scroll through the conversation with the keyboard still open. A
+    // fixed composer over a scrolling document flickered on Firefox for iOS.
+    await page.tap('[data-testid="composer-expand"]');
+    await page.focus("#composer");
+    const docked = await page.evaluate(async () => {
+      const messages = document.querySelector("#messages");
+      const dock = document.querySelector(".chat-bottom");
+      const settle = () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(done)),
+        );
+      const y = window.scrollY;
+      const bottom = dock.getBoundingClientRect().bottom;
+      messages.scrollTop = messages.scrollHeight - messages.clientHeight - 220;
+      await settle();
+      const away =
+        messages.scrollHeight - messages.clientHeight - messages.scrollTop;
+      messages.scrollTop = messages.scrollHeight;
+      await settle();
+      return (
+        away > 100 &&
+        messages.scrollHeight - messages.clientHeight - messages.scrollTop <
+          5 &&
+        window.scrollY === y &&
+        Math.abs(dock.getBoundingClientRect().bottom - bottom) <= 1 &&
+        Math.abs(bottom - visualViewport.offsetTop - visualViewport.height) <=
+          1 &&
+        document.activeElement?.id === "composer"
+      );
+    });
+    check(
+      "390x844: scrolling back to the answer with the keyboard open leaves the composer in place",
+      docked,
+    );
     await context.close();
   }
 } finally {
