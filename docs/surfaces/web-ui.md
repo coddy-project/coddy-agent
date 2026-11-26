@@ -1132,6 +1132,8 @@ After **`--reasoning `** (or **`-r`**) the list holds **`default`** and the leve
 
 ## Transcript message types
 
+Use your screen reader's heading list to find the start of a message. Look for the level 2 headings "Your message" and "Agent reply". Markdown headings inside a reply also appear in the list at their original levels.
+
 ![A thinking block expanded above the answer](../assets/thinking-block-open-dark-1280.png)
 
 *A thinking block expanded above the answer*

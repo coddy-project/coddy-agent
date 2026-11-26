@@ -2691,6 +2691,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.agentTokensTitle": "Токены на входе {input}, на выходе {output}",
   "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
 
+  "messages.userHeading": "Ваше сообщение",
+  "messages.assistantHeading": "Ответ агента",
   "messages.preparingResponse": "Готовлю ответ",
   "messages.copyCode": "Копировать код",
   "messages.copy": "Копировать",
