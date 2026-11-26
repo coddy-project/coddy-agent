@@ -1,9 +1,9 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { useConfirm } from "../components/useConfirm";
-import { Chevron } from "../components/Chevron";
 import { extensionRequest, useExtensions } from "./ExtensionsProvider";
 import type { ExtensionEntry } from "./runtime";
+import { IconTrash } from "../settings/SchemaForm";
 
 export function ExtensionsSection() {
   const context = useExtensions();
@@ -80,7 +80,6 @@ function ExtensionList({
   };
   return (
     <div className="extensions-section">
-      <p className="settings-field-desc">{t("extensions.lead")}</p>
       <p className="extensions-risk">{t("extensions.risk")}</p>
       <div className="extensions-actions">
         <button
@@ -129,47 +128,59 @@ function ExtensionList({
         <p className="settings-muted">{t("extensions.empty")}</p>
       ) : null}
       {context.entries.map((entry) => (
-        <article key={entry.id} className="extension-card">
-          <div>
-            <strong>{entry.name}</strong>{" "}
-            <span className="settings-muted">{entry.version}</span>
+        <article
+          key={entry.id}
+          className={`extension-card${entry.enabled ? "" : " is-disabled"}`}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={entry.enabled}
+            className="skill-switch"
+            disabled={busy}
+            onClick={() => void toggle(entry)}
+            title={t(
+              entry.enabled
+                ? "extensions.switch.enabledTitle"
+                : "extensions.switch.disabledTitle",
+            )}
+            aria-label={t(
+              entry.enabled
+                ? "extensions.switch.disableAria"
+                : "extensions.switch.enableAria",
+              { name: entry.name },
+            )}
+            data-testid={`extensions-toggle-${entry.id}`}
+          >
+            <span className="skill-switch-thumb" />
+          </button>
+          <div className="extension-card-text">
+            <div className="extension-card-name">
+              {entry.name}
+              <span className="extension-card-version">v{entry.version}</span>
+            </div>
+            {entry.description ? (
+              <div className="extension-card-desc">{entry.description}</div>
+            ) : null}
+            {snapshot.errors[entry.id] ? (
+              <p role="alert" className="extension-card-error">
+                {snapshot.errors[entry.id]}
+              </p>
+            ) : null}
           </div>
-          <p className="settings-field-desc">{entry.description}</p>
-          <p className="settings-muted">
-            {entry.enabled ? t("extensions.enabled") : t("extensions.disabled")}
-          </p>
-          <details>
-            <summary>
-              <Chevron />
-              SHA-256
-            </summary>
-            <code>{entry.sha256}</code>
-          </details>
-          {snapshot.errors[entry.id] ? (
-            <p role="alert">{snapshot.errors[entry.id]}</p>
-          ) : null}
-          <div className="extensions-actions">
-            <button
-              type="button"
-              className="settings-btn"
-              disabled={busy}
-              aria-pressed={entry.enabled}
-              onClick={() => void toggle(entry)}
-            >
-              {t(entry.enabled ? "extensions.disable" : "extensions.enable")}
-            </button>
-            <button
-              type="button"
-              className="settings-btn"
-              disabled={busy}
-              onClick={() => void remove(entry)}
-            >
-              {t("extensions.remove")}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="settings-btn settings-btn-icon settings-btn-danger"
+            disabled={busy}
+            onClick={() => void remove(entry)}
+            title={t("extensions.remove")}
+            aria-label={t("extensions.removeAria", { name: entry.name })}
+            data-testid={`extensions-remove-${entry.id}`}
+          >
+            <IconTrash />
+          </button>
         </article>
       ))}
-      <p className="settings-field-desc">{t("extensions.format")}</p>
     </div>
   );
 }

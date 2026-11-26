@@ -133,6 +133,11 @@ export const messagesEn: Record<string, string> = {
   "extensions.reloadHint":
     "The page will reload to unload extension code. Other open browsers reload when they next check the extension list. Reload them yourself to revoke access immediately.",
   "extensions.remove": "Remove",
+  "extensions.removeAria": "Remove {name}",
+  "extensions.switch.enabledTitle": "Enabled - click to disable",
+  "extensions.switch.disabledTitle": "Disabled - click to enable",
+  "extensions.switch.disableAria": "Disable {name}",
+  "extensions.switch.enableAria": "Enable {name}",
   "extensions.removeTitle": "Remove {name}?",
   "extensions.manage": "Manage extensions…",
   "extensions.format":

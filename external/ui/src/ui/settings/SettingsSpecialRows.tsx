@@ -21,6 +21,7 @@ import {
   type SettingsRowDescriptor,
 } from "../extensions/settingsRowAlter";
 import { LegendWithHint } from "./FieldHint";
+import type { JsonSchema } from "./SchemaForm";
 import {
   SETTINGS_TEXTS,
   landmarkAnchor,
@@ -114,7 +115,7 @@ export type SpecialRowPlanItem = {
 export function buildSpecialRowPlan(input: {
   section: string;
   doc: PlainObject;
-  schema: JsonSchema | undefined;
+  schema?: JsonSchema | undefined;
   rowName?: string | null;
   landmarks?: readonly SettingsLandmark[];
   blocks?: readonly Owned<SettingsBlock>[];
@@ -250,6 +251,7 @@ export function useSettingsBlocks(): Owned<SettingsBlock>[] {
 export function useSpecialRowPlan(input: {
   section: string;
   doc: PlainObject;
+  schema?: JsonSchema | undefined;
   rowName?: string | null;
   landmarks?: readonly SettingsLandmark[];
   blocks?: readonly Owned<SettingsBlock>[];

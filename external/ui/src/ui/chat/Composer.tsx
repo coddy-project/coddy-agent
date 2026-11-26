@@ -480,6 +480,10 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Image generation: the chip after toolset and its toggle. */
+  llmModelImageGen?: boolean;
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
   /** Optional shared attachment state for composer layout transitions. */
   attachedFiles?: File[];
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;

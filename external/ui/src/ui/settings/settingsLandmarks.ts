@@ -1,5 +1,7 @@
 import { notificationsShown } from "../pwa/NotificationsSetting";
 import { MCP_SECTION_ID, type SettingsTextId } from "./settingsSections";
+import { supportsOidc } from "./AuthenticationSection";
+import type { JsonSchema } from "./SchemaForm";
 
 /** A block a Settings tab draws by hand rather than through SchemaForm. */
 export type SettingsLandmark = {
@@ -11,7 +13,10 @@ export type SettingsLandmark = {
   /** Generated forms are the reorder boundary between the two slots. */
   place: "before" | "after";
   /** The block's own predicate: false where the tab does not draw it. */
-  shown?: (doc: Record<string, unknown>) => boolean;
+  shown?: (
+    doc: Record<string, unknown>,
+    schema: JsonSchema | null | undefined,
+  ) => boolean;
   /** Present for a block of a list's row form; says whether this row draws it. */
   row?: (row: Record<string, unknown>) => boolean;
 };
@@ -26,17 +31,50 @@ function landmark(
   return { section, id, heading, place, ...more };
 }
 
-export function backupCodesShown(doc: Record<string, unknown>): boolean {
-  const http = (doc.httpserver ?? {}) as Record<string, unknown>;
-  const login = (http.login ?? {}) as Record<string, unknown>;
-  return login.totp_configured === true;
+function asObject(v: unknown): Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+}
+
+function oidcEnabledInDoc(doc: Record<string, unknown>): boolean {
+  return (
+    asObject(asObject(asObject(doc.httpserver).login).oidc).enable === true
+  );
+}
+
+function oidcSupported(schema: JsonSchema | null | undefined): boolean {
+  return supportsOidc(schema?.properties?.httpserver?.properties?.login);
+}
+
+// External sign-in hides enrollment only on a server whose schema supports it.
+export function localEnrollmentShown(
+  doc: Record<string, unknown>,
+  schema: JsonSchema | null | undefined,
+): boolean {
+  return !oidcSupported(schema) || !oidcEnabledInDoc(doc);
+}
+
+export function backupCodesShown(
+  doc: Record<string, unknown>,
+  schema: JsonSchema | null | undefined,
+): boolean {
+  return (
+    asObject(asObject(doc.httpserver).login).totp_configured === true &&
+    localEnrollmentShown(doc, schema)
+  );
 }
 
 export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
   landmark("httpserver", "account", "authAccount", "before"),
-  landmark("httpserver", "authenticator", "authAuthenticator", "before"),
+  landmark("httpserver", "authenticator", "authAuthenticator", "before", {
+    shown: localEnrollmentShown,
+  }),
   landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
     shown: backupCodesShown,
+  }),
+  landmark("httpserver", "oidc", "authOidc", "before", {
+    shown: (_doc, schema) => oidcSupported(schema),
   }),
   landmark("statistics", "enable", "statisticsEnable", "before"),
   landmark("statistics", "timezone", "statisticsCounters", "before"),

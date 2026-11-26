@@ -137,6 +137,11 @@ export const messagesRu: Record<string, string> = {
   "extensions.reloadHint":
     "Страница перезагрузится, чтобы выгрузить код расширений. Другие открытые браузеры перезагрузятся при следующей проверке списка расширений. Для немедленного отзыва доступа перезагрузите их сами.",
   "extensions.remove": "Удалить",
+  "extensions.removeAria": "Удалить {name}",
+  "extensions.switch.enabledTitle": "Включено - нажмите, чтобы выключить",
+  "extensions.switch.disabledTitle": "Выключено - нажмите, чтобы включить",
+  "extensions.switch.disableAria": "Выключить {name}",
+  "extensions.switch.enableAria": "Включить {name}",
   "extensions.removeTitle": "Удалить {name}?",
   "extensions.manage": "Управление расширениями…",
   "extensions.format":

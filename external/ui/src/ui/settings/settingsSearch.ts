@@ -772,6 +772,7 @@ export function buildSettingsSearchIndex(input: {
           alters,
           true,
           null,
+          input.schema,
         );
       }
       continue;
@@ -829,6 +830,10 @@ export function buildSettingsSearchIndex(input: {
         [...tab, label],
       );
       const rowLandmarks = landmarks.filter((l) => l.row !== undefined);
+      specialEntries(
+        out,
+        section,
+        input.doc,
         rowLandmarks,
         registeredBlocks,
         alters,
