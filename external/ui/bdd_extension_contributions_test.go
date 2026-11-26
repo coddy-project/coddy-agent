@@ -123,12 +123,12 @@ func TestExtensionContributionsFeature(t *testing.T) {
 		sc.Step(`^an OK, coddy panel and its addon$`, func() {})
 		sc.Step(`^the addon invokes the tricks hook with disco$`, func() {})
 		sc.Step(`^the panel performs the trick through its own handler$`, func() error {
-			return runVitestScenario("src/ui/extensions/examples.test.ts", "the addon invokes the panel owner's trick without touching its DOM")
+			return runVitestScenario("src/ui/extensions/hooks.test.ts", "hooks in interface elements invoke calls the slot owner instead of reaching into its DOM")
 		})
 		sc.Step(`^a provider and model that need onboarding$`, func() {})
 		sc.Step(`^the extension upserts them by name in one call$`, func() {})
 		sc.Step(`^provider and model are installed in one configuration transaction$`, func() error {
-			return runVitestScenario("src/ui/extensions/examples.test.ts", "onboarding writes provider and model once, by name")
+			return runVitestScenario("src/ui/extensions/providers.test.ts", "the providers API upsert names the provider and models, sending one atomic write")
 		})
 		sc.Step(`^nested schema-driven Settings rows and row alter passes$`, func() {})
 		sc.Step(`^a pass hides, retitles and reorders rows$`, func() {})
@@ -149,7 +149,10 @@ func TestExtensionContributionsFeature(t *testing.T) {
 		sc.Step(`^a special block matching neuraldeep and an uptime API answer$`, func() {})
 		sc.Step(`^the provider row mounts the block$`, func() {})
 		sc.Step(`^it renders current status and daily history through the server proxy$`, func() error {
-			return runVitestScenario("src/ui/extensions/neuraldeepStabilityExample.test.js", "the NeuralDeep stability example matches only neuraldeep and renders uptime through the server proxy")
+			if err := runVitestScenario("src/ui/settings/SettingsSpecialRows.test.tsx", "special Settings rows provider-row blocks receive only sanitized row metadata in matching, mounting and search"); err != nil {
+				return err
+			}
+			return runVitestScenario("src/ui/extensions/network.test.ts", "server proxy preserves binary data, explicit credentials and HTTP errors")
 		})
 		sc.Step(`^Appearance landmarks and a provider-row extension block$`, func() {})
 		sc.Step(`^alter passes hide, retitle and reorder special rows$`, func() {})
