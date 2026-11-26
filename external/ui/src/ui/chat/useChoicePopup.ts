@@ -51,10 +51,12 @@ export function useChoicePopup<K extends string>({
   onOpen,
   onClose,
   fallbackFocus,
+  findTrigger,
 }: {
   onOpen?: (kind: K) => void;
   onClose?: () => void;
   fallbackFocus?: () => HTMLElement | null;
+  findTrigger?: (kind: K) => HTMLElement | null;
 } = {}) {
   const id = useId();
   const hidden = useContext(PaneHidden);
@@ -104,8 +106,26 @@ export function useChoicePopup<K extends string>({
       }
       return;
     }
-    if (hidden || !opening.anchor.isConnected) {
-      close(!hidden);
+    if (hidden) {
+      close(false);
+      return;
+    }
+    if (!opening.anchor.isConnected) {
+      // An extension can move the trigger across composer rows and remount it.
+      const replacement = findTrigger?.(opening.kind);
+      if (replacement?.isConnected) {
+        const next = {
+          ...opening,
+          anchor: replacement,
+          rect: replacement.getBoundingClientRect(),
+          origin:
+            opening.origin === opening.anchor ? replacement : opening.origin,
+        };
+        active.current = next;
+        setOpening(next);
+      } else {
+        close();
+      }
       return;
     }
     const role = el.getAttribute("role");

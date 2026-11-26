@@ -6,6 +6,18 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "extension_values": {
+      "type": "object",
+      "title": "UI extension values",
+      "description": "Persistent scalar values for UI extensions, keyed by extension id and field id. Registered fields appear in existing Settings sections. Values are ordinary configuration, not write-only secrets; at most 128 fields per extension and 256 KiB in total.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 32 },
+      "additionalProperties": {
+        "type": "object",
+        "maxProperties": 128,
+        "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+      }
+    },
     "providers": {
       "type": "array",
       "title": "LLM providers",

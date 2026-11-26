@@ -128,16 +128,19 @@ func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The edited turn is still running: it is stopped first, or it would keep
-	// appending onto the history the undo restores. UndoRewind holds the
-	// prompt turn lock across the restore, so a turn admitted between this
-	// wait and the restore either shows in the flag or runs after it.
-	// A composer handler can still hold the lock after its manager turn ends.
+	// appending onto the history the undo restores. UndoRewind holds the prompt
+	// turn lock across the restore. The active edge and the turn mutex are
+	// released separately, and another admission can race the restore, so an
+	// active refusal from UndoRewind goes through the same cancel-and-wait again
+	// under one deadline instead of leaking a transient 409 to the caller.
 	turnBusy := func() bool {
 		return s.mgr.SessionTurnActiveInProcess(id) || s.mgr.PromptTurnLockHeld(st)
 	}
-	if turnBusy() {
-		s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
-		deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if turnBusy() {
+			s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
+		}
 		for turnBusy() && time.Now().Before(deadline) {
 			select {
 			case <-r.Context().Done():
@@ -149,29 +152,38 @@ func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 			writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
 			return
 		}
-	}
 
-	rev, err := s.mgr.UndoRewind(id)
-	if err != nil {
-		switch {
-		case errors.Is(err, session.ErrRewindUndoUnavailable),
-			errors.Is(err, session.ErrSessionTurnActive),
-			errors.Is(err, session.ErrSubagentReadOnly),
-			errors.Is(err, session.ErrSchedulerSessionReadOnly):
-			writeSubagentsError(w, http.StatusConflict, err.Error())
-		default:
-			s.log.Error("rewind undo", "session", id, "error", err)
-			http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
+		rev, err := s.mgr.UndoRewind(id)
+		if errors.Is(err, session.ErrSessionTurnActive) && time.Now().Before(deadline) {
+			select {
+			case <-r.Context().Done():
+				deadline = time.Now()
+			case <-time.After(25 * time.Millisecond):
+			}
+			continue
 		}
+		if err != nil {
+			switch {
+			case errors.Is(err, session.ErrRewindUndoUnavailable),
+				errors.Is(err, session.ErrSessionTurnActive),
+				errors.Is(err, session.ErrSubagentReadOnly),
+				errors.Is(err, session.ErrSchedulerSessionReadOnly):
+				writeSubagentsError(w, http.StatusConflict, err.Error())
+			default:
+				s.log.Error("rewind undo", "session", id, "error", err)
+				http.Error(w, errorJSON(err.Error()), http.StatusInternalServerError)
+			}
+			return
+		}
+
+		s.publishSessionRewound(id, rev)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"object":      "coddy.session_rewind_undone",
+			"sessionId":   id,
+			"messagesRev": rev,
+		})
 		return
 	}
-
-	s.publishSessionRewound(id, rev)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":      "coddy.session_rewind_undone",
-		"sessionId":   id,
-		"messagesRev": rev,
-	})
 }

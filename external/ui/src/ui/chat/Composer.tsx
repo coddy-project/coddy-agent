@@ -1,7 +1,15 @@
 import { type ServiceTierControl, serviceTierLabelKey } from "./serviceTier";
 import { composerAutoFocusAllowed } from "./composerFocus";
 import { choiceProps, useChoicePopup } from "./useChoicePopup";
+import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
+import { useExtensions } from "../extensions/ExtensionsProvider";
+import type {
+  ComposerControlDescriptor,
+  ComposerHostControlDescriptor,
+} from "../extensions/composerControls";
+import { composerBridge } from "../extensions/composerBridge";
 import {
+  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -437,6 +445,9 @@ function commandGroup(
  */
 const COMPOSITION_END_KEY_WINDOW_MS = 100;
 
+const noComposerControlSubscribe = () => () => {};
+const noComposerControlVersion = () => 0;
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -470,6 +481,10 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Image generation: the chip after toolset and its toggle. */
+  llmModelImageGen?: boolean;
+  imageGenOn?: boolean;
+  onImageGenToggle?: () => void;
   /** Optional shared attachment state for composer layout transitions. */
   attachedFiles?: File[];
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
@@ -593,6 +608,13 @@ export function Composer(props: {
   cardTop?: ReactNode | ((goalMark: ReactNode) => ReactNode);
 }) {
   const { t, tp, locale } = useT();
+  const composerControlHost = useExtensions()?.runtime.composerHost;
+  const composerControlsOwner = useRef({});
+  useSyncExternalStore(
+    composerControlHost?.subscribe ?? noComposerControlSubscribe,
+    composerControlHost?.getSnapshot ?? noComposerControlVersion,
+    noComposerControlVersion,
+  );
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -604,12 +626,13 @@ export function Composer(props: {
     snapshotTouchOnly,
     serverSnapshotTouchOnly,
   );
-  // The selector chips, so a settings command picked in the / menu can open
-  // the menu of its control (settingsControlFor).
+  // Resolve selector chips for slash commands and after an extension moves one.
+  const modeChipRef = useRef<HTMLButtonElement | null>(null);
   const llmChipRef = useRef<HTMLButtonElement | null>(null);
   const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const toolsetChipRef = useRef<HTMLButtonElement | null>(null);
+  const tierChipRef = useRef<HTMLButtonElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const [llmQuery, setLlmQuery] = useState("");
   const menu = useChoicePopup<
@@ -617,6 +640,15 @@ export function Composer(props: {
   >({
     onClose: () => setLlmQuery(""),
     fallbackFocus: () => taRef.current,
+    findTrigger: (kind) =>
+      ({
+        mode: modeChipRef,
+        llm: llmChipRef,
+        reasoning: reasoningChipRef,
+        permission: permissionChipRef,
+        toolset: toolsetChipRef,
+        service_tier: tierChipRef,
+      })[kind].current,
   });
   const menuOpen = menu.opening?.kind;
   const menuAnchorRect = menu.opening?.rect;
@@ -661,6 +693,41 @@ export function Composer(props: {
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
   const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
+  // The extension surface of the composer: the draft and the picks, reported
+  // fresh every render and withdrawn when the composer goes away.
+  useEffect(() => {
+    composerBridge.report({
+      getText: () => props.value,
+      setText: (text) => props.onChange(text),
+      insertText: (text) => {
+        const el = taRef.current;
+        if (!el) {
+          props.onChange(props.value + text);
+          return;
+        }
+        const start = el.selectionStart ?? props.value.length;
+        const end = el.selectionEnd ?? start;
+        const next =
+          props.value.slice(0, start) + text + props.value.slice(end);
+        props.onChange(next);
+        const caret = start + text.length;
+        setCaretPos(caret);
+        el.setSelectionRange(caret, caret);
+      },
+      attachFiles: (files) => {
+        setAttachedFiles((prev) => [...prev, ...files]);
+      },
+      getMode: () => props.mode,
+      setMode: (mode) => props.onModeChange(mode),
+      getModel: () => props.llmModel ?? "",
+      setModel: (modelId) => props.onLlmModelChange?.(modelId),
+      getReasoning: () => props.llmReasoning ?? "",
+      setReasoning: (level) => props.onLlmReasoningChange?.(level),
+      getPermissionMode: () => props.permissionMode ?? "",
+      textarea: taRef.current,
+    });
+    return () => composerBridge.report(null);
+  });
   /** Transient reason a paste/drop was rejected (non-multimodal model); auto-clears. */
   const [attachHint, setAttachHint] = useState<string | null>(null);
   /** Files are being dragged over the composer card (drop-target affordance). */
@@ -3002,6 +3069,452 @@ export function Composer(props: {
           />
         ) : null));
 
+  const sendControlTitle = queueArmed
+    ? t("composer.queueSend")
+    : props.generating
+      ? t("composer.stopGeneration")
+      : props.editingMessage
+        ? t("composer.sendEdit")
+        : t("composer.send");
+  const declaredComposerControls: ComposerHostControlDescriptor[] = [
+    ...(props.llmModelMultimodal
+      ? [
+          {
+            id: "attach",
+            key: "host/attach",
+            placement: "tabs" as const,
+            title: t("composer.attachFile"),
+          },
+        ]
+      : []),
+    {
+      id: "mode",
+      key: "host/mode",
+      placement: "tabs",
+      title: t("composer.mode"),
+    },
+    ...(showLlm && props.onLlmModelChange
+      ? [
+          {
+            id: "model",
+            key: "host/model",
+            placement: "tabs" as const,
+            title: t("composer.modelTitle"),
+          },
+        ]
+      : []),
+    ...(showReasoning
+      ? [
+          {
+            id: "reasoning",
+            key: "host/reasoning",
+            placement: "tabs" as const,
+            title: t("composer.reasoningLevelTitle"),
+          },
+        ]
+      : []),
+    ...(props.serviceTierControl
+      ? [
+          {
+            id: "service-tier",
+            key: "host/service-tier",
+            placement: "tabs" as const,
+            title: t("composer.serviceTier"),
+          },
+        ]
+      : []),
+    ...(props.onPermissionModeChange
+      ? [
+          {
+            id: "permission",
+            key: "host/permission",
+            placement: "tabs" as const,
+            title: t("composer.permissionTitle", {
+              configured: displayPermission(
+                props.configuredPermissionMode || "ask",
+              ),
+            }),
+          },
+        ]
+      : []),
+    ...(props.toolsetControl
+      ? [
+          {
+            id: "toolset",
+            key: "host/toolset",
+            placement: "tabs" as const,
+            title: t("composer.toolsetTitle"),
+          },
+        ]
+      : []),
+    ...(props.llmModelImageGen && props.onImageGenToggle
+      ? [
+          {
+            id: "image-generation",
+            key: "host/image-generation",
+            placement: "tabs" as const,
+            title: t("composer.imageGenerationTitle"),
+          },
+        ]
+      : []),
+    ...(overrideLines.length > 0
+      ? [
+          {
+            id: "overrides",
+            key: "host/overrides",
+            placement: "tabs" as const,
+            title: t("composer.overridesTitle", {
+              list: overrideLines.join("\n"),
+            }),
+          },
+        ]
+      : []),
+    {
+      id: "context",
+      key: "host/context",
+      placement: "actions",
+      title: t("composer.contextUsage"),
+    },
+    {
+      id: "send",
+      key: "host/send",
+      placement: "actions",
+      title: sendControlTitle,
+    },
+  ];
+  useLayoutEffect(() => {
+    composerControlHost?.declareHostControls(
+      declaredComposerControls,
+      composerControlsOwner.current,
+    );
+  }, [composerControlHost, declaredComposerControls]);
+  useLayoutEffect(
+    () => () =>
+      composerControlHost?.clearHostControls(composerControlsOwner.current),
+    [composerControlHost],
+  );
+
+  function renderHostControl(descriptor: ComposerControlDescriptor) {
+    switch (descriptor.key) {
+      case "host/attach":
+        return (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
+              data-testid="composer-file-input"
+              onChange={(ev) => {
+                // Copied now: the input's FileList is live, and clearing
+                // the input below empties it before React runs the update.
+                const files = Array.from(ev.target.files ?? []);
+                if (files.length === 0) return;
+                attachFiles(files);
+                ev.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className="composer-tab composer-attach-btn"
+              aria-label={descriptor.title}
+              title={descriptor.title}
+              data-testid="composer-attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <PaperclipIcon size={14} />
+            </button>
+          </>
+        );
+      case "host/mode":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={modeChipRef}
+              className={`composer-tab mode-btn ${MODE_TAB_CLASS[props.mode || "agent"] ?? "mode-agent"}`}
+              aria-label={selectorName(
+                descriptor.title ?? menuLabel.mode,
+                modeLabel,
+              )}
+              title={descriptor.title}
+              {...menu.triggerProps("mode")}
+            >
+              {modeLabel}
+            </button>
+          </div>
+        );
+      case "host/model":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={llmChipRef}
+              className="composer-tab mode-btn mode-llm"
+              aria-label={selectorName(
+                menuLabel.llm,
+                distinctModelName(llmVal),
+              )}
+              title={descriptor.title}
+              {...menu.triggerProps("llm", llmShowFilter ? "dialog" : "menu")}
+            >
+              {llmLabel}
+            </button>
+            <ExtensionAnchor name="composer.model" />
+          </div>
+        );
+      case "host/reasoning":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={reasoningChipRef}
+              className="composer-tab mode-btn mode-reasoning"
+              aria-label={selectorName(menuLabel.reasoning, reasoningLabel)}
+              title={descriptor.title}
+              {...menu.triggerProps("reasoning")}
+            >
+              {reasoningLabel}
+            </button>
+          </div>
+        );
+      case "host/service-tier":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={tierChipRef}
+              className="composer-tab mode-btn"
+              aria-label={selectorName(
+                descriptor.title ?? menuLabel.service_tier,
+                tierLabel,
+              )}
+              title={descriptor.title}
+              {...menu.triggerProps("service_tier")}
+            >
+              {tierLabel}
+            </button>
+          </div>
+        );
+      case "host/permission":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={permissionChipRef}
+              className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
+              aria-label={selectorName(
+                menuLabel.permission,
+                displayPermission(permissionVal),
+              )}
+              title={descriptor.title}
+              data-testid="composer-permission"
+              {...menu.triggerProps("permission")}
+            >
+              {displayPermission(permissionVal)}
+            </button>
+          </div>
+        );
+      case "host/toolset":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              ref={toolsetChipRef}
+              className="composer-tab mode-btn mode-toolset"
+              aria-label={selectorName(
+                menuLabel.toolset,
+                displayToolset(props.toolsetControl?.value ?? ""),
+              )}
+              title={descriptor.title}
+              data-testid="composer-toolset"
+              {...menu.triggerProps("toolset")}
+            >
+              {props.toolsetControl
+                ? displayToolset(props.toolsetControl.value)
+                : ""}
+            </button>
+          </div>
+        );
+      case "host/image-generation":
+        return (
+          <div className="mode">
+            <button
+              type="button"
+              className={`composer-tab mode-btn mode-imagegen${props.imageGenOn ? " is-on" : ""}`}
+              aria-label={t("composer.imageGeneration")}
+              title={descriptor.title}
+              aria-pressed={props.imageGenOn === true}
+              data-testid="composer-imagegen"
+              onClick={props.onImageGenToggle}
+            >
+              {t("composer.imageGeneration")}
+            </button>
+          </div>
+        );
+      case "host/overrides":
+        return (
+          <span
+            className="composer-overrides"
+            data-testid="composer-overrides"
+            title={descriptor.title}
+          >
+            {overrideLines[0]}
+            {overrideLines.length > 1 ? ` +${overrideLines.length - 1}` : ""}
+          </span>
+        );
+      case "host/context":
+        return (
+          <div
+            className={[
+              "composer-context-tip-host",
+              contextTipSuppressed ? "composer-context-tip-suppressed" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            ref={contextHostRef}
+            tabIndex={0}
+            aria-label={descriptor.title}
+            aria-expanded={contextPopoverOpen}
+            data-testid="composer-context-ring-host"
+            onMouseLeave={() => setContextTipSuppressed(false)}
+            onClick={() => {
+              if (contextPopoverOpen) {
+                closeContextPopover();
+              } else {
+                props.onContextRingOpen?.();
+                setContextPopoverOpen(true);
+              }
+            }}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault();
+                if (contextPopoverOpen) {
+                  closeContextPopover();
+                } else {
+                  props.onContextRingOpen?.();
+                  setContextPopoverOpen(true);
+                }
+              }
+            }}
+          >
+            <ContextUsageRing fill01={pct01} />
+            {!contextPopoverOpen && !contextTipSuppressed ? (
+              <span className="rail-tip composer-context-tip" role="tooltip">
+                {tip}
+              </span>
+            ) : null}
+          </div>
+        );
+      case "host/send":
+        return (
+          <>
+            <button
+              type="button"
+              className={[
+                "composer-icon composer-run-icon",
+                props.generating && !queueArmed
+                  ? "composer-send-stop composer-run-icon--stop"
+                  : "composer-send-play composer-run-icon--play",
+                queueArmed ? "composer-run-icon--queue" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              id="btn-send"
+              data-queue={queueArmed ? "true" : undefined}
+              aria-label={descriptor.title}
+              disabled={
+                !props.generating && (idleSendDisabled || props.sessionLoading)
+              }
+              onClick={() => {
+                if (queueArmed) {
+                  queueDraft();
+                  return;
+                }
+                if (props.generating) {
+                  props.onStop?.();
+                  return;
+                }
+                if (runLocalCommandFromDraft()) {
+                  return;
+                }
+                const txt = props.value.trim();
+                if (!txt && sendableAttachedFiles.length === 0) {
+                  return;
+                }
+                fold();
+                if (sendableAttachedFiles.length > 0) {
+                  const files = [...sendableAttachedFiles];
+                  setAttachedFiles([]);
+                  props.onSend(txt, files);
+                } else {
+                  props.onSend(txt);
+                }
+              }}
+            >
+              {props.generating && !queueArmed ? (
+                <span className="composer-send-glyph" aria-hidden="true">
+                  <span className="composer-stop-square" />
+                </span>
+              ) : (
+                <span className="composer-send-glyph" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 12 12"
+                    fill="currentColor"
+                    width="17"
+                    height="17"
+                  >
+                    <path d="M2 0L11 6L2 12Z" />
+                  </svg>
+                </span>
+              )}
+            </button>
+            <ExtensionAnchor name="composer.send" />
+          </>
+        );
+      default:
+        return null;
+    }
+  }
+
+  function renderComposerControls(placement: "actions" | "tabs") {
+    const descriptors = composerControlHost
+      ? composerControlHost.descriptors(placement, declaredComposerControls)
+      : declaredComposerControls.filter(
+          (descriptor) => descriptor.placement === placement,
+        );
+    const rendered = new Set<string>();
+    return descriptors
+      .filter(
+        (descriptor) =>
+          descriptor.placement === placement && descriptor.visible !== false,
+      )
+      .map((descriptor) => {
+        if (!descriptor.key || rendered.has(descriptor.key)) return null;
+        rendered.add(descriptor.key);
+        if (descriptor.key.startsWith("host/")) {
+          return (
+            <Fragment key={descriptor.key}>
+              {renderHostControl(descriptor)}
+            </Fragment>
+          );
+        }
+        if (!composerControlHost) return null;
+        return (
+          <ExtensionAnchor
+            key={descriptor.key}
+            name={
+              placement === "actions" ? "composer.actions" : "composer.tabs"
+            }
+            controlKey={descriptor.key}
+            registerAnchor={false}
+          />
+        );
+      });
+  }
+
   return (
     <>
       <footer
@@ -3200,6 +3713,11 @@ export function Composer(props: {
               setDragOverCard(false);
             }}
             onDrop={(ev) => {
+              if (composerBridge.claimDrop(ev)) {
+                ev.preventDefault();
+                setDragOverCard(false);
+                return;
+              }
               const files = ev.dataTransfer
                 ? Array.from(ev.dataTransfer.files || [])
                 : [];
@@ -3376,6 +3894,10 @@ export function Composer(props: {
                     preEnhanceRef.current = null;
                     setEnhanceErr(null);
                     props.onChange(v);
+                    composerBridge.draftChanged();
+                    preEnhanceRef.current = null;
+                    setEnhanceErr(null);
+                    props.onChange(v);
                     updatePickerMenus(v, caret);
                   }}
                   onScroll={() => syncComposerScroll()}
@@ -3411,6 +3933,10 @@ export function Composer(props: {
                     }
                   }}
                   onPaste={(ev) => {
+                    if (composerBridge.claimPaste(ev)) {
+                      ev.preventDefault();
+                      return;
+                    }
                     const images = clipboardImageFiles(ev.clipboardData);
                     if (images.length === 0) {
                       return; // plain-text paste: keep the browser default
@@ -3758,282 +4284,22 @@ export function Composer(props: {
                 className="composer-tabs"
                 aria-label={t("composer.composerOptions")}
               >
-                {props.llmModelMultimodal ? (
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="sr-only"
-                      aria-hidden="true"
-                      tabIndex={-1}
-                      data-testid="composer-file-input"
-                      onChange={(ev) => {
-                        // Copied now: the input's FileList is live, and clearing
-                        // the input below empties it before React runs the
-                        // update, which it defers whenever the app has other
-                        // updates queued - as it does all through a turn.
-                        const files = Array.from(ev.target.files ?? []);
-                        if (files.length === 0) return;
-                        attachFiles(files);
-                        ev.target.value = "";
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="composer-tab composer-attach-btn"
-                      aria-label={t("composer.attachFile")}
-                      title={t("composer.attachFile")}
-                      data-testid="composer-attach-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <PaperclipIcon size={14} />
-                    </button>
-                  </>
-                ) : null}
-                <div className="mode">
-                  <button
-                    type="button"
-                    className={`composer-tab mode-btn ${MODE_TAB_CLASS[props.mode || "agent"] ?? "mode-agent"}`}
-                    aria-label={selectorName(menuLabel.mode, modeLabel)}
-                    title={t("composer.mode")}
-                    {...menu.triggerProps("mode")}
-                  >
-                    {modeLabel}
-                  </button>
-                </div>
-
-                {showLlm && props.onLlmModelChange ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      ref={llmChipRef}
-                      className="composer-tab mode-btn mode-llm"
-                      aria-label={selectorName(
-                        menuLabel.llm,
-                        distinctModelName(llmVal),
-                      )}
-                      title={t("composer.modelTitle")}
-                      {...menu.triggerProps(
-                        "llm",
-                        llmShowFilter ? "dialog" : "menu",
-                      )}
-                    >
-                      {llmLabel}
-                    </button>
-                  </div>
-                ) : null}
-
-                {showReasoning ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      ref={reasoningChipRef}
-                      className="composer-tab mode-btn mode-reasoning"
-                      aria-label={selectorName(
-                        menuLabel.reasoning,
-                        reasoningLabel,
-                      )}
-                      title={t("composer.reasoningLevelTitle")}
-                      {...menu.triggerProps("reasoning")}
-                    >
-                      {reasoningLabel}
-                    </button>
-                  </div>
-                ) : null}
-
-                {props.serviceTierControl ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      className="composer-tab mode-btn"
-                      aria-label={selectorName(
-                        menuLabel.service_tier,
-                        tierLabel,
-                      )}
-                      title={t("composer.serviceTier")}
-                      {...menu.triggerProps("service_tier")}
-                    >
-                      {tierLabel}
-                    </button>
-                  </div>
-                ) : null}
-
-                {props.onPermissionModeChange ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      ref={permissionChipRef}
-                      className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
-                      aria-label={selectorName(
-                        menuLabel.permission,
-                        displayPermission(permissionVal),
-                      )}
-                      title={t("composer.permissionTitle", {
-                        configured: displayPermission(
-                          props.configuredPermissionMode || "ask",
-                        ),
-                      })}
-                      {...menu.triggerProps("permission")}
-                      data-testid="composer-permission"
-                    >
-                      {displayPermission(permissionVal)}
-                    </button>
-                  </div>
-                ) : null}
-
-                {props.toolsetControl ? (
-                  <div className="mode">
-                    <button
-                      type="button"
-                      ref={toolsetChipRef}
-                      className="composer-tab mode-btn mode-toolset"
-                      aria-label={selectorName(
-                        menuLabel.toolset,
-                        displayToolset(props.toolsetControl.value),
-                      )}
-                      title={t("composer.toolsetTitle")}
-                      {...menu.triggerProps("toolset")}
-                      data-testid="composer-toolset"
-                    >
-                      {displayToolset(props.toolsetControl.value)}
-                    </button>
-                  </div>
-                ) : null}
-
-                {overrideLines.length > 0 ? (
-                  <span
-                    className="composer-overrides"
-                    data-testid="composer-overrides"
-                    title={t("composer.overridesTitle", {
-                      list: overrideLines.join("\n"),
-                    })}
-                  >
-                    {overrideLines[0]}
-                    {overrideLines.length > 1
-                      ? ` +${overrideLines.length - 1}`
-                      : ""}
-                  </span>
-                ) : null}
+                <ExtensionAnchor
+                  name="composer.tabs"
+                  mountComposerControls={false}
+                />
+                {renderComposerControls("tabs")}
               </div>
 
               <div className="composer-bar-actions">
-                <div
-                  className={[
-                    "composer-context-tip-host",
-                    contextTipSuppressed
-                      ? "composer-context-tip-suppressed"
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  ref={contextHostRef}
-                  tabIndex={0}
-                  aria-label={t("composer.contextUsage")}
-                  aria-expanded={contextPopoverOpen}
-                  data-testid="composer-context-ring-host"
-                  onMouseLeave={() => setContextTipSuppressed(false)}
-                  onClick={() => {
-                    if (contextPopoverOpen) {
-                      closeContextPopover();
-                    } else {
-                      props.onContextRingOpen?.();
-                      setContextPopoverOpen(true);
-                    }
-                  }}
-                  onKeyDown={(ev) => {
-                    if (ev.key === "Enter" || ev.key === " ") {
-                      ev.preventDefault();
-                      if (contextPopoverOpen) {
-                        closeContextPopover();
-                      } else {
-                        props.onContextRingOpen?.();
-                        setContextPopoverOpen(true);
-                      }
-                    }
-                  }}
-                >
-                  <ContextUsageRing fill01={pct01} />
-                  {!contextPopoverOpen && !contextTipSuppressed ? (
-                    <span
-                      className="rail-tip composer-context-tip"
-                      role="tooltip"
-                    >
-                      {tip}
-                    </span>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className={[
-                    "composer-icon composer-run-icon",
-                    props.generating && !queueArmed
-                      ? "composer-send-stop composer-run-icon--stop"
-                      : "composer-send-play composer-run-icon--play",
-                    queueArmed ? "composer-run-icon--queue" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  id="btn-send"
-                  data-queue={queueArmed ? "true" : undefined}
-                  aria-label={
-                    queueArmed
-                      ? t("composer.queueSend")
-                      : props.generating
-                        ? t("composer.stopGeneration")
-                        : props.editingMessage
-                          ? t("composer.sendEdit")
-                          : t("composer.send")
-                  }
-                  disabled={
-                    !props.generating &&
-                    (idleSendDisabled || props.sessionLoading)
-                  }
-                  onClick={() => {
-                    if (queueArmed) {
-                      queueDraft();
-                      return;
-                    }
-                    if (props.generating) {
-                      props.onStop?.();
-                      return;
-                    }
-                    if (runLocalCommandFromDraft()) {
-                      return;
-                    }
-                    const txt = props.value.trim();
-                    if (!txt && sendableAttachedFiles.length === 0) {
-                      return;
-                    }
-                    fold();
-                    if (sendableAttachedFiles.length > 0) {
-                      const files = [...sendableAttachedFiles];
-                      setAttachedFiles([]);
-                      props.onSend(txt, files);
-                    } else {
-                      props.onSend(txt);
-                    }
-                  }}
-                >
-                  {props.generating && !queueArmed ? (
-                    <span className="composer-send-glyph" aria-hidden="true">
-                      <span className="composer-stop-square" />
-                    </span>
-                  ) : (
-                    <span className="composer-send-glyph" aria-hidden="true">
-                      <svg
-                        viewBox="0 0 12 12"
-                        fill="currentColor"
-                        width="17"
-                        height="17"
-                      >
-                        <path d="M2 0L11 6L2 12Z" />
-                      </svg>
-                    </span>
-                  )}
-                </button>
+                <ExtensionAnchor
+                  name="composer.actions"
+                  mountComposerControls={false}
+                />
+                {renderComposerControls("actions")}
               </div>
             </div>
+            <ExtensionAnchor name="composer" />
           </div>
         </div>
       </footer>

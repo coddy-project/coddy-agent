@@ -12,6 +12,9 @@ export type SectionKind =
   | "appearance"
   | "sessions"
   | "status"
+  | "extensions"
+  /** A settings section an extension registered (`ext:<owner>/<id>`). */
+  | "ext_section"
   | "authentication";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
@@ -38,6 +41,7 @@ export type SectionDescriptor = {
  * sections keep their server-provided title and description.
  */
 const SECTION_LABEL_KEYS = {
+  extensions: "extensions.title",
   httpserver: "settings.section.httpserver.label",
   statistics: "stats.title",
   appearance: "settings.section.appearance.label",
@@ -73,6 +77,7 @@ const SECTION_LABEL_KEYS = {
  * switch re-renders the tiles.
  */
 const SECTION_DESC_KEYS = {
+  extensions: "extensions.description",
   httpserver: "settings.section.httpserver.desc",
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
@@ -190,6 +195,12 @@ export function deriveSettingsSections(
   // sessions the Sessions tab manages and the status route exist only on an
   // agent.
   const relay = opts.relay === true || schema?.["x-coddy-relay"] === true;
+  const extensions: SectionDescriptor = {
+    id: "extensions",
+    label: labelFor("extensions"),
+    description: translate(SECTION_DESC_KEYS.extensions),
+    kind: "extensions",
+  };
   const statistics: SectionDescriptor = {
     id: "statistics",
     label: labelFor("statistics"),
@@ -198,7 +209,7 @@ export function deriveSettingsSections(
   };
   const head = relay
     ? [appearance]
-    : [appearance, sessionsManager, status, statistics];
+    : [appearance, extensions, sessionsManager, status, statistics];
   if (!schema || schema.type !== "object" || !schema.properties) {
     return head;
   }
