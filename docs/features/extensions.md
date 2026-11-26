@@ -4,7 +4,7 @@ The web UI can load operator-installed JavaScript extensions. Open **Extensions*
 
 An extension can add pages, panels and menu actions, process incoming turn data, observe lifecycle events and every stream frame, render tool calls and transcript rows, decorate permission prompts, paint with and override the app's theme colours, translate its own strings, add fields and sections to Settings and narrow the session list. This first version covers the browser UI. Native executables, agent tools, composer controls and marketplaces from the [extension issue](https://github.com/coddy-project/coddy-agent/issues/347) and [expanded specification](https://gist.github.com/hijera/95b016e1721608e8c3974fe3b80e29dc) are not implemented.
 
-Start with [Your first JavaScript extension](../tutorials/first-extension.md) for a short walkthrough, or use the [example index](../../examples/extensions/README.md).
+Start with [Your first JavaScript extension](../tutorials/first-extension.md) for a short walkthrough, or use the [example index](https://github.com/coddy-project/coddy-extentions/blob/main/README.md).
 
 ## Install and enable
 
@@ -56,7 +56,7 @@ The optional top-level `permissions` lists the scopes the package declares: `ui.
 
 `required_features` names the API capabilities the package needs, such as `composer.controls`, `stream.text`, `providers.upsert` or `theme.color`. `engines.coddy` holds space-separated semver comparisons, for example `>=1.4.23 <2.0.0`. Coddy checks both before it reads or imports the module. A missing feature or an incompatible host leaves an actionable error in Settings and runs no package code.
 
-`coddy.host.info()` returns `{sdk_version, coddy_version, features}` so an extension can make its own capability decision. The public TypeScript declarations live in `external/ui/src/ui/extensions/sdk.d.ts`; the manifest schema is `examples/extensions/manifest.schema.json`.
+`coddy.host.info()` returns `{sdk_version, coddy_version, features}` so an extension can make its own capability decision. The public TypeScript declarations live in `external/ui/src/ui/extensions/sdk.d.ts`; the manifest schema is [`manifest.schema.json`](https://github.com/coddy-project/coddy-extentions/blob/main/manifest.schema.json).
 
 The optional `ui.compat_styles` lists CSS files of the ZIP that load only on a legacy engine, layered over the ordinary styles. A modern engine never applies them; both are covered under the engine tier below.
 
@@ -177,7 +177,7 @@ export function activate(coddy) {
 
 `activate` may return a cleanup function or a promise for one. The host gives activation 10 seconds. Failed activation removes its registrations, requests, styles and blob URL; the error appears in Settings. The host does not retry failed code on its own; the list refresh leaves a failed package alone. **Refresh** in **Settings → Extensions** asks again, and only for what failed before any code ran - a module whose code has already been evaluated still needs a page reload. Closing a page calls its mount cleanup. Disposal removes everything the extension holds: registrations, styles, compat styles and theme overrides. The first effects snapshot an extension reads is the baseline its `onEffectsChange` listeners are registered against; they hear a change, never the state the world was already in. Cleanup is cooperative and cannot revoke arbitrary same-origin JavaScript.
 
-The [Hello example](../../examples/extensions/hello/manifest.json) includes a module, CSS and HTML. From `examples/extensions/hello`, run:
+The [Hello example](https://github.com/coddy-project/coddy-extentions/blob/main/hello/manifest.json) includes a module, CSS and HTML. From `hello` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions), run:
 
 ```sh
 python -m zipfile -c hello.zip manifest.json main.js style.css panel.html
@@ -321,7 +321,7 @@ const watched = coddy.theme.onChange(paint);
 
 `coddy.theme.get()` returns a frozen snapshot. `id` names the theme (`dark`, `light`, `midnight`, `solarized-dark`, `monokai`, `nord` or `rose-pine`), `mode` is `light` or `dark`, and `colors` maps `bg`, `text`, `muted`, `accent`, `danger`, `link`, `border` and `surface` to computed colours (`rgb()` or `rgba()`, and `color(srgb ...)` for a token written with `color-mix()`) that a canvas and an element style can both use. `surface` is the frosted ground of `--coddy-glass-panel-bg`, `border` its border.
 
-`coddy.theme.onChange(listener)` hands the new frozen snapshot on every theme switch and returns a `remove()` handle. Delivery runs by extension id in ascending ASCII order, then registration order. The host consumes rejected promises, removes a failing listener and reports its error in Settings, as it does for the lifecycle events. The lifetime signal removes listeners, and `get` and `onChange` stop with the lifetime the way registrations do. The [Hello example](../../examples/extensions/hello/main.js) paints its swatches this way.
+`coddy.theme.onChange(listener)` hands the new frozen snapshot on every theme switch and returns a `remove()` handle. Delivery runs by extension id in ascending ASCII order, then registration order. The host consumes rejected promises, removes a failing listener and reports its error in Settings, as it does for the lifecycle events. The lifetime signal removes listeners, and `get` and `onChange` stop with the lifetime the way registrations do. The [Hello example](https://github.com/coddy-project/coddy-extentions/blob/main/hello/main.js) paints its swatches this way.
 
 `coddy.theme.getEffects()` returns a frozen `{reducedMotion, engine}` snapshot. `reducedMotion` is on when `prefers-reduced-motion` asks for it or the host root carries `data-effects="reduced"`; `engine` is the engine tier. `coddy.theme.onEffectsChange(listener)` returns a `remove()` handle and hands over the new snapshot only when it changes - the first read is the baseline listeners are registered against.
 
@@ -329,7 +329,7 @@ const watched = coddy.theme.onChange(paint);
 
 `coddy.theme.parseColor(value)` turns hex, rgb(a), hsl(a), `color(srgb)`, `oklch` and computed browser colours into `{h, s, l}`, including tokens written with `var()` or `color-mix()`. `coddy.theme.formatColor(hsl)` returns a CSS colour accepted by `override()`, so an extension does not need its own colour parser.
 
-The [Theme Lab example](../../examples/extensions/theme-lab/main.js) opens a slide-over panel with hue, saturation and lightness sliders that shift every colour token of the theme at once and a colour input per token, repainting the app in real time; its manifest declares `"permissions": ["ui.page"]`. The [NeuralDeep Setup example](../../examples/extensions/neuraldeep-onboarding/main.js) is an onboarding dialog of the same shape: it asks for a key, shows where to get one, and writes the `neuraldeep` provider and its `neuraldeep/qwen3.6-35b-a3b` model through `coddy.providers.upsert`, preserving every other provider field and using one transaction. From `examples/extensions/theme-lab`, package it with the following command.
+The [Theme Lab example](https://github.com/coddy-project/coddy-extentions/blob/main/theme-lab/main.js) opens a slide-over panel with hue, saturation and lightness sliders that shift every colour token of the theme at once and a colour input per token, repainting the app in real time; its manifest declares `"permissions": ["ui.page"]`. The [NeuralDeep Setup example](https://github.com/coddy-project/coddy-extentions/blob/main/neuraldeep-onboarding/main.js) is an onboarding dialog of the same shape: it asks for a key, shows where to get one, and writes the `neuraldeep` provider and its `neuraldeep/qwen3.6-35b-a3b` model through `coddy.providers.upsert`, preserving every other provider field and using one transaction. From `theme-lab` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions), package it with the following command.
 
 ```sh
 python -m zipfile -c theme-lab.zip manifest.json main.js style.css
@@ -367,7 +367,7 @@ An anchor is a named box of the host surface: `composer.actions`, `composer.tabs
 
 An interface element extends the API with its own description: a panel or page registration carries `hooks: ["summary", "actions"]`, and each name opens a slot other extensions fill. The declaring side renders `coddy.hooks.slot(name, element)` where the block belongs, and the contributing side answers with `coddy.hooks.register({id, into: "<owner>/<name>", mount})`. A slot draws nothing while no contribution matches, mounts them in owner-id order, and updates live: a contribution that arrives later mounts into the open slot, and one that leaves runs its cleanup and takes its box away - the boxes that stay keep their DOM and state.
 
-A mount that throws is dropped with its registration and reported in Settings; its neighbours stay. `coddy.hooks.list()` names every declared hook, so an extension can look for places to contribute. The `examples/extensions/ok-coddy` panel declares `hooks: ["tricks", "footer"]` and renders both slots; `examples/extensions/ok-coddy-addon` fills them - one more trick button and a footer note - without the panel knowing it exists.
+A mount that throws is dropped with its registration and reported in Settings; its neighbours stay. `coddy.hooks.list()` names every declared hook, so an extension can look for places to contribute. The [`ok-coddy`](https://github.com/coddy-project/coddy-extentions/tree/main/ok-coddy) panel declares `hooks: ["tricks", "footer"]` and renders both slots; [`ok-coddy-addon`](https://github.com/coddy-project/coddy-extentions/tree/main/ok-coddy-addon) fills them - one more trick button and a footer note - without the panel knowing it exists.
 
 ## Strings of an extension
 
@@ -412,7 +412,7 @@ Values live in the server's `config.yaml`, under `extension_values.<extension-id
 
 `get` reads the saved value, or the registered default when none is stored; unsaved form edits are not returned. `set` uses the normal authenticated config transaction and revision merge, preserves neighbouring values, then refreshes the Settings cache. It accepts scalar variables even without a registered control. Calls stop with the extension lifetime. Saving reloads configuration as an ordinary Settings save does. Passing `null` removes a key, so a registered default applies again.
 
-The [Workflow tools example](../../examples/extensions/workflow-tools/main.js) combines events, a `demo__status` card and fields in ReAct loop and MCP servers settings. From `examples/extensions/workflow-tools`, package it with the following command.
+The [Workflow tools example](https://github.com/coddy-project/coddy-extentions/blob/main/workflow-tools/main.js) combines events, a `demo__status` card and fields in ReAct loop and MCP servers settings. From `workflow-tools` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions), package it with the following command.
 
 ```sh
 python -m zipfile -c workflow-tools.zip manifest.json main.js
@@ -420,7 +420,7 @@ python -m zipfile -c workflow-tools.zip manifest.json main.js
 
 ## Provider-row blocks and uptime data
 
-The [NeuralDeep Stability example](../../examples/extensions/neuraldeep-stability/main.js) registers one special block that appears only when the open provider has `type: "neuraldeep"`. It shows the overall status, per-component uptime and the last 30 daily history bars from `status.neuraldeep.ru/api/v2/uptime.json`, with a retry action and a link to the public status page. The request goes through the Coddy server's existing proxy, not browser CORS:
+The [NeuralDeep Stability example](https://github.com/coddy-project/coddy-extentions/blob/main/neuraldeep-stability/main.js) registers one special block that appears only when the open provider has `type: "neuraldeep"`. It shows the overall status, per-component uptime and the last 30 daily history bars from `status.neuraldeep.ru/api/v2/uptime.json`, with a retry action and a link to the public status page. The request goes through the Coddy server's existing proxy, not browser CORS:
 
 ```js
 const block = coddy.settings.registerBlock({
@@ -440,7 +440,7 @@ const block = coddy.settings.registerBlock({
 });
 ```
 
-Package the example from `examples/extensions/neuraldeep-stability` with the following command.
+Package the example from `neuraldeep-stability` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions) with the following command.
 
 ```sh
 python -m zipfile -c neuraldeep-stability.zip manifest.json main.js style.css
@@ -496,7 +496,7 @@ Network calls are asynchronous. Use them in activation or UI callbacks, or to re
 
 *Calling a local API through the Coddy server.*
 
-The [Local API example](../../examples/extensions/local-api/main.js) provides a URL field, GET/POST requests and cancellation. From `examples/extensions/local-api`, package it with the following command.
+The [Local API example](https://github.com/coddy-project/coddy-extentions/blob/main/local-api/main.js) provides a URL field, GET/POST requests and cancellation. From `local-api` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions), package it with the following command.
 
 ```sh
 python -m zipfile -c local-api.zip manifest.json main.js
@@ -552,13 +552,13 @@ The processor's `remove()` handle and `coddy.signal` end its registration. Frame
 
 Processing affects the live stream in this browser. The server keeps the original history and LLM context. A later history read can replace the transformed display with that original data. This API does not intercept outgoing requests, REST history, authentication, assets or the shared `/coddy/events` stream.
 
-The [Stream tools example](../../examples/extensions/stream-tools/main.js) uppercases incoming assistant text and shows the last received frame on its own page.
+The [Stream tools example](https://github.com/coddy-project/coddy-extentions/blob/main/stream-tools/main.js) uppercases incoming assistant text and shows the last received frame on its own page.
 
 ![Processing incoming turn data in an extension](../assets/extensions/extensions-stream-dark-1280.png)
 
 *Stream tools shows the incoming payload while the chat displays the transformed text.*
 
-From `examples/extensions/stream-tools`, package it with:
+From `stream-tools` in a clone of the [coddy-extentions repository](https://github.com/coddy-project/coddy-extentions), package it with:
 
 ```sh
 python -m zipfile -c stream-tools.zip manifest.json main.js
@@ -566,7 +566,7 @@ python -m zipfile -c stream-tools.zip manifest.json main.js
 
 ## Gaps for alternative interfaces
 
-An alternative interface built as an extension - the `examples/extensions/ok-coddy` drawer after the coddy-duck-prototype - draws its own surfaces, reads the theme layer, observes the live stream, and reaches the network, the configuration and the hook slots. What the API still owes such an interface is listed below by area. Every item marks where the work lands: **frontend** is the SPA layer of the SDK (wrappers, placements and registries over routes the server already serves), and **host** is Go and server work. Most of the conversation surface is frontend: the endpoints exist and the SPA already calls them.
+An alternative interface built as an extension - the `ok-coddy` panel after the coddy-duck-prototype - draws its own surfaces, reads the theme layer, observes the live stream, and reaches the network, the configuration and the hook slots. What the API still owes such an interface is listed below by area. Every item marks where the work lands: **frontend** is the SPA layer of the SDK (wrappers, placements and registries over routes the server already serves), and **host** is Go and server work. Most of the conversation surface is frontend: the endpoints exist and the SPA already calls them.
 
 ### Conversation and sessions
 

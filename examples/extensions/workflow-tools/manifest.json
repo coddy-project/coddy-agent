@@ -1,9 +1,0 @@
-{
-  "api": 1,
-  "id": "workflow-tools",
-  "name": "Workflow tools",
-  "version": "1.0.0",
-  "description": "Lifecycle events, MCP cards and fields in existing Settings sections",
-  "required_features": ["settings.fields", "ui.pages"],
-  "ui": { "entry": "main.js" }
-}

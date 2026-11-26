@@ -4,7 +4,7 @@ Create a page with a counter, package it as one ZIP and enable it in Coddy. You 
 
 ## Create two files
 
-Make a folder with `manifest.json` and `main.js`. The complete files are in [examples/extensions/first-extension](../../examples/extensions/first-extension/).
+Make a folder with `manifest.json` and `main.js`. The complete files are in [first-extension](https://github.com/coddy-project/coddy-extentions/tree/main/first-extension).
 
 `manifest.json` identifies the package and its module.
 
@@ -19,7 +19,7 @@ Make a folder with `manifest.json` and `main.js`. The complete files are in [exa
 }
 ```
 
-`required_features` tells Coddy which stable API this package needs. `engines.coddy` can add a range such as `>=1.4.23 <2.0.0`; both are checked before any module code runs. `coddy.host.info()` reports the same feature list to the extension, and `examples/extensions/manifest.schema.json` describes the manifest.
+`required_features` tells Coddy which stable API this package needs. `engines.coddy` can add a range such as `>=1.4.23 <2.0.0`; both are checked before any module code runs. `coddy.host.info()` reports the same feature list to the extension, and [`manifest.schema.json`](https://github.com/coddy-project/coddy-extentions/blob/main/manifest.schema.json) describes the manifest.
 
 `main.js` exports the function Coddy calls after you approve the package.
 
@@ -69,10 +69,10 @@ if (!response.ok) throw new Error(`HTTP ${response.status}`);
 const status = await response.json();
 ```
 
-Start your API on that address first, or change the URL to your service. `localhost` refers to the server running Coddy. The [Local API example](../../examples/extensions/local-api/main.js) has a URL field, GET/POST requests and cancellation. Target HTTP errors are returned as responses; network and proxy errors reject the promise. The helper supports HTTP(S), buffers the response and returns redirects without following them. See the [network contract](../features/extensions.md#server-side-http-requests) for headers and limits. Incoming-stream `transform` callbacks must stay synchronous; read cached network data from them.
+Start your API on that address first, or change the URL to your service. `localhost` refers to the server running Coddy. The [Local API example](https://github.com/coddy-project/coddy-extentions/blob/main/local-api/main.js) has a URL field, GET/POST requests and cancellation. Target HTTP errors are returned as responses; network and proxy errors reject the promise. The helper supports HTTP(S), buffers the response and returns redirects without following them. See the [network contract](../features/extensions.md#server-side-http-requests) for headers and limits. Incoming-stream `transform` callbacks must stay synchronous; read cached network data from them.
 
 ## Change or remove the extension
 
 After editing the files, remove the installed package, create the ZIP again, install it and approve its new digest. Existing ids cannot be overwritten. To stop it, choose **Disable and reload** in **Settings → Extensions**.
 
-If the page does not appear, check that the files are at the ZIP root, the package is enabled and `activate` is exported. Settings shows activation errors. Use HTTPS or localhost so Web Crypto can verify the entry digest. The [API guide](../features/extensions.md) and [example index](../../examples/extensions/README.md) cover the next steps.
+If the page does not appear, check that the files are at the ZIP root, the package is enabled and `activate` is exported. Settings shows activation errors. Use HTTPS or localhost so Web Crypto can verify the entry digest. The [API guide](../features/extensions.md) and [example index](https://github.com/coddy-project/coddy-extentions/blob/main/README.md) cover the next steps.
