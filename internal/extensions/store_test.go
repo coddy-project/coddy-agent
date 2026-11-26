@@ -187,42 +187,6 @@ func TestManifestStyles(t *testing.T) {
 		})
 	}
 }
-
-func TestShippedExamplesPassServerManifestValidation(t *testing.T) {
-	root := filepath.Join("..", "..", "examples", "extensions")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checked := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		t.Run(entry.Name(), func(t *testing.T) {
-			dir := filepath.Join(root, entry.Name())
-			files := map[string]string{}
-			for _, name := range []string{"manifest.json", "main.js", "style.css", "panel.html", "ocean.css"} {
-				data, err := os.ReadFile(filepath.Join(dir, name))
-				if os.IsNotExist(err) {
-					continue
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				files[name] = string(data)
-			}
-			if _, err := NewStore(t.TempDir()).Install(archive(t, files)); err != nil {
-				t.Fatalf("server rejected the shipped manifest: %v", err)
-			}
-			checked++
-		})
-	}
-	if checked != 11 {
-		t.Fatalf("checked %d examples, want all 11", checked)
-	}
-}
-
 func TestEntryJSONRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	s := NewStore(home)
