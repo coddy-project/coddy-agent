@@ -75,6 +75,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 			return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 		}
 		if errors.Is(err, os.ErrNotExist) {
+			if guardErr := checkAutomaticRecovery(paths.ConfigPath); guardErr != nil {
+				return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, errors.Join(err, guardErr))
+			}
 			cfg := &Config{Paths: paths}
 			applyDefaults(cfg)
 			if err := validateSubconfigs(cfg); err != nil {
@@ -97,10 +100,22 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
+		if guardErr := checkAutomaticRecovery(paths.ConfigPath); guardErr != nil {
+			return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, errors.Join(err, guardErr))
+		}
+		if cfg != nil && cfg.HTTPServer.Login.OIDC.Enable {
+			return nil, fmt.Errorf("config %s: automatic config recovery disabled for an OIDC primary: %w", paths.ConfigPath, err)
+		}
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
 			return rec, nil
 		}
+		if errors.Is(rerr, errUntrustedOIDCBackup) {
+			err = errors.Join(err, rerr)
+		}
+		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
+	}
+	if err := prepareOIDCPrimary(cfg, expanded); err != nil {
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
 	_ = WriteBackup(paths.ConfigPath, originalData)

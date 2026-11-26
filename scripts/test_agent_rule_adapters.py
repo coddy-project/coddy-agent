@@ -306,6 +306,24 @@ class AdapterContractTest(unittest.TestCase):
                 )
                 self.assertIn("Every provider request follows its proxy.", context)
 
+    def test_repository_rules_scope_ui_and_spec_edits(self):
+        rules = ROOT / ".cursor/rules"
+        cases = (
+            ("internal/agent/react.go", False, False),
+            ("external/ui/src/ui/App.tsx", True, False),
+            ("specs/ui/layout.md", False, True),
+        )
+        for source in (CODEX, ZCODE):
+            module = load_module(f"scope_{source.parent.parent.name}", source)
+            with tempfile.TemporaryDirectory() as tmp:
+                for index, (path, ui, specs) in enumerate(cases):
+                    with self.subTest(adapter=source, path=path):
+                        context = run_pretool(module, rules, Path(tmp) / str(index), {"file_path": path})
+                        self.assertIn("# Workflow (features, bugs, finish)", context)
+                        self.assertEqual(ui, "# Embedded UI (`external/ui`)" in context)
+                        self.assertEqual(ui, "# UI verification" in context)
+                        self.assertEqual(specs, "# Documentation in two languages" in context)
+
     def test_session_start_preamble_is_grammatical(self):
         codex = load_module("codex_preamble", CODEX)
         zcode = load_module("zcode_preamble", ZCODE)

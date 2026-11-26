@@ -14,10 +14,9 @@ import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
 /**
- * The composer's per-turn image control: it appears only while the chosen
- * model opted in to native image output (models[].image_generation, shown by
- * GET /v1/models as image_generation), and a turn started with it on rides in
- * as metadata.image_generation.
+ * The image generation tool is included only when the chosen model enables
+ * image generation (models[].image_generation, shown by GET /v1/models as
+ * image_generation), and each turn carries metadata.image_generation.
  */
 
 const MODEL = "fake/alpha-model";
@@ -199,160 +198,12 @@ test("a model without the opt-in offers no image control", async () => {
   expect(posted[0]!.metadata?.image_generation).toBeUndefined();
 });
 
-test("the control appears for an opted-in model and stays off", async () => {
+test("model opt-in is sent on every turn", async () => {
   imageGeneration = true;
   await mountHome();
-  const chip = screen.getByTestId("composer-imagegen");
-  expect(chip.getAttribute("aria-pressed")).toBe("false");
   await sendHello();
-  expect(posted[0]!.metadata?.image_generation).toBeUndefined();
-});
-
-test("a turn started with the control on carries image_generation", async () => {
-  imageGeneration = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  expect(
-    screen.getByTestId("composer-imagegen").getAttribute("aria-pressed"),
-  ).toBe("true");
   await sendHello();
-  expect(posted[0]!.input).toBe("hello");
+  expect(posted).toHaveLength(2);
   expect(posted[0]!.metadata?.image_generation).toBe(true);
-});
-
-test("the opt-in stays on for the next send of the chat", async () => {
-  imageGeneration = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  await sendHello();
-  await sendHello();
-  expect(posted.length).toBe(2);
   expect(posted[1]!.metadata?.image_generation).toBe(true);
-});
-
-test("the image opt-in is cleared on switching to another session", async () => {
-  imageGeneration = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  act(() => {
-    window.location.hash = "#/s/sess_other";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-  });
-  await waitFor(() =>
-    expect(screen.getByTestId("composer-imagegen")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    ),
-  );
-});
-
-test("switching models clears the image opt-in, including when switching back", async () => {
-  imageGeneration = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  fireEvent.click(screen.getByRole("button", { name: "Model" }));
-  fireEvent.click(screen.getByText("beta-model"));
-  expect(screen.getByTestId("composer-imagegen")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Model" }));
-  fireEvent.click(screen.getByText("alpha-model"));
-  expect(screen.getByTestId("composer-imagegen")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-});
-
-test("retry retains the image choice of the failed turn", async () => {
-  imageGeneration = true;
-  failStream = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  await sendHello();
-  const retry = await screen.findByRole(
-    "button",
-    { name: /retry/i },
-    { timeout: 5000 },
-  );
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  fireEvent.click(retry);
-  await waitFor(() => expect(posted.length).toBe(2));
-  expect(posted[1]!.metadata?.image_generation).toBe(true);
-});
-
-test("canvas refuses an image-enabled queued prompt and retains its draft and picks", async () => {
-  imageGeneration = true;
-  holdStream = true;
-  await mountHome();
-  fireEvent.click(screen.getByTestId("composer-imagegen"));
-  await sendHello();
-  const file = new File(["image"], "keep.png", { type: "image/png" });
-  fireEvent.change(screen.getByTestId("composer-file-input"), {
-    target: { files: [file] },
-  });
-  await screen.findByText("keep.png");
-  const request = fetchMock.mock.calls.find(
-    ([url]) => String(url) === "/v1/responses",
-  )!;
-  const headers = request[1]?.headers as Record<string, string>;
-  const sid = headers["X-Coddy-Session-ID"];
-  expect(sid).toBeTruthy();
-  act(() => {
-    window.location.hash = `#/s/${sid}/files?path=canvas%2Fsite.canvas`;
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-  });
-  await screen.findByTestId("canvas-view", {}, { timeout: 10000 });
-  await waitFor(() =>
-    expect(document.querySelector("iframe.canvas-frame-page")).not.toBeNull(),
-  );
-  fireEvent.click(screen.getByTestId("canvas-mode-comment"));
-  const source = (
-    document.querySelector("iframe.canvas-frame-page") as HTMLIFrameElement
-  ).contentWindow;
-  const dispatch = (data: object) =>
-    act(() =>
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { proto: "coddy-canvas/1", ...data },
-          source,
-        }),
-      ),
-    );
-  dispatch({ type: "ready" });
-  dispatch({
-    type: "pick",
-    gen: 1,
-    selector: "main > h1",
-    tag: "h1",
-    id: "",
-    classes: ["hero"],
-    text: "Welcome",
-    html: "<h1>Welcome</h1>",
-    rect: { x: 10, y: 10, width: 200, height: 40 },
-  });
-  fireEvent.click(screen.getByTestId("canvas-popover-add"));
-  fireEvent.change(screen.getByTestId("canvas-bar-field"), {
-    target: { value: "Make it blue" },
-  });
-  expect(screen.getByTestId("canvas-send")).toHaveAttribute(
-    "aria-label",
-    "Queue for the agent",
-  );
-  fireEvent.click(screen.getByTestId("canvas-send"));
-  expect(screen.getByTestId("canvas-bar-field")).toHaveValue("Make it blue");
-  expect(screen.getByTestId("canvas-pick")).toBeVisible();
-  expect(screen.getByText("keep.png")).toBeInTheDocument();
-  expect(
-    within(screen.getByTestId("canvas-view")).getByText(
-      "Turn off Images to queue a message, or wait for the current turn to finish.",
-    ),
-  ).toBeVisible();
-  expect(
-    fetchMock.mock.calls.some(
-      ([url, init]) =>
-        String(url).includes("/queue") && init?.method === "POST",
-    ),
-  ).toBe(false);
-  expect(posted).toHaveLength(1);
 });

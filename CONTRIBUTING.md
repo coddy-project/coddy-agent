@@ -36,7 +36,7 @@ On Windows the `Makefile` targets need a Unix-like shell: run them from Git Bash
 
 A subsystem enabled in `config.yaml` but not compiled into the binary is a startup error naming the tag. The tag reference, `make install`, `make print-version` and the distribution packages (`make deb`, `make rpm`, `make brew`) are in [docs/contributing/build.md](docs/contributing/build.md).
 
-The SPA does not need a Go rebuild per edit. Run an `http`-only backend on one port and Vite's dev server on another, as the **Dev workflow** section of [DESIGN.md](DESIGN.md) describes:
+The SPA does not need a Go rebuild per edit. Run an `http`-only backend on one port and Vite's dev server on another, as the [UI development workflow](specs/ui/workflow.md#dev-workflow) describes:
 
 ```bash
 make build TAGS=http

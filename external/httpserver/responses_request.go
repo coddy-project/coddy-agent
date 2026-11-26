@@ -25,6 +25,7 @@ type responsesDirectRequest struct {
 	Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 	InlineFiles []inlineFileJSON               `json:"inline_files,omitempty"`
 
+	ServiceTier     *string         `json:"service_tier"`
 	Instructions    *string         `json:"instructions"`
 	Tools           json.RawMessage `json:"tools"`
 	ToolChoice      json.RawMessage `json:"tool_choice"`
@@ -44,7 +45,7 @@ var responsesAllowedFields = map[string]bool{
 	"attachments": true, "inline_files": true,
 	"instructions": true, "tools": true, "tool_choice": true,
 	"max_output_tokens": true, "temperature": true, "top_p": true,
-	"reasoning": true, "store": true,
+	"reasoning": true, "store": true, "service_tier": true,
 }
 
 // validateResponsesDirectFields walks the raw request object and refuses every
@@ -498,6 +499,7 @@ func responsesGenerationOptions(cfg *config.Config, model string, req *responses
 		MaxCompletionTokens: req.MaxOutputTokens,
 		Temperature:         req.Temperature,
 		ReasoningEffort:     effort,
+		ServiceTier:         req.ServiceTier,
 	}
 	return directRequestOptions(cfg, model, chat, req.TopP)
 }

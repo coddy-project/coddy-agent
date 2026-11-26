@@ -235,9 +235,9 @@ function response(body = {}) {
 function makeShell({ storedTabs, windowFetch } = {}) {
   const document = new FakeDocument();
   const ids = [
-    "strip", "coddy-desktop-frames", "new-tab", "drag", "menu-btn", "menu",
+    "coddy-desktop-tabs", "menu-btn", "strip", "coddy-desktop-frames", "new-tab", "drag", "menu",
     "window-btns", "scroll-btns", "scroll-left", "scroll-right", "resize-edges",
-    "win-min", "win-max", "win-close",
+    "win-min", "win-max", "win-close", "reload-tab", "copy-page-link", "page-actions", "copy-status",
   ];
   for (const id of ids) {
     const element = document.createElement(id === "coddy-desktop-frames" ? "main" : "div");
@@ -310,6 +310,7 @@ function makeShell({ storedTabs, windowFetch } = {}) {
   const expose = `
     globalThis.__shellTest = {
       openNewChatTab,
+      setSetting,
       resizeWindowFrom,
       syncFrameSessions,
       refreshSessions,
@@ -748,4 +749,109 @@ test("a failed old scope does not undo a successful poll of the new scope", asyn
   assert.equal(shell.api.labelOf(shell.api.tabs()[0]), "New B");
   assert.equal(shell.api.stateOf(shell.api.tabs()[0]), "busy");
   assert.equal(shell.api.locallyBusy.has("tab"), true);
+});
+
+
+test("bar padding and empty strip drag, interactive controls do not", async () => {
+  for (const system of [false, true]) for (const targetName of ["coddy-desktop-tabs", "strip", "drag", "tab", "new-tab", "menu-btn", "reload-tab", "copy-page-link"]) {
+    const actions = [];
+    const shell = makeShell({windowFetch:async (url, init={}) => {
+      if (url === "/desktop/keys") return new Promise(()=>{});
+      if (url === "/desktop/window" && init.method === "POST") actions.push(JSON.parse(init.body).action);
+      return response(url === "/desktop/window" ? {supported:true,...(system ? {frame:"system",left_inset:83} : {})} : {});
+    }});
+    await shell.settle();
+    const header=shell.document.ids.get("coddy-desktop-tabs");
+    const target=targetName === "tab" ? shell.document.ids.get("strip").children[0] : shell.document.ids.get(targetName);
+    const zone=["strip","drag"].includes(targetName) ? target : header;
+    const down=pointer(zone,100,100); down.target=target;
+    zone.dispatch("pointerdown",down);
+    zone.dispatch("pointermove",pointer(zone,120,110));
+    await shell.settle(); shell.flushFrame(); await shell.settle();
+    zone.dispatch("pointerup",pointer(zone,120,110));
+    await shell.settle();
+    const expected=["strip","drag"].includes(targetName) || (system && targetName === "coddy-desktop-tabs");
+    assert.equal(actions.includes("move-begin"),expected,`drag start for ${targetName}`);
+    assert.equal(actions.includes("move-by"),expected,`drag movement for ${targetName}`);
+  }
+});
+
+test("system chrome uses its measured inset and no custom controls", async () => {
+  const shell=makeShell({windowFetch:async (url) => {
+    if(url === "/desktop/keys") return new Promise(()=>{});
+    return response(url === "/desktop/window" ? {supported:true,frame:"system",left_inset:83} : {});
+  }});
+  await shell.settle();
+  assert.equal(shell.document.documentElement.dataset.frame,"system");
+  assert.equal(shell.document.documentElement.style.getPropertyValue("--window-left-inset"),"83px");
+  assert.equal(shell.document.ids.get("window-btns").hidden,true);
+  assert.equal(shell.document.ids.get("resize-edges").hidden,true);
+});
+
+
+test("system frame started framed retains measured room when unified again", async () => {
+ let framed=true;
+ const shell=makeShell({windowFetch:async (url,init={})=>{
+  if(url === "/desktop/keys") return new Promise(()=>{});
+  if(url === "/desktop/window") return response({supported:true,frame:"system",left_inset:83});
+  if(url === "/desktop/settings") {if(init.method === "POST") framed=JSON.parse(init.body).framed; return response({framed})}
+  return response({});
+ }});
+ await shell.settle();
+ assert.equal(shell.document.documentElement.dataset.framed,"true");
+ await shell.api.setSetting("framed",false);
+ assert.equal(shell.document.documentElement.dataset.framed,"false");
+ assert.equal(shell.document.documentElement.style.getPropertyValue("--window-left-inset"),"83px");
+});
+
+
+test("controls without system chrome leave the original root DOM unchanged", async () => {
+ for (const supported of [false,true]) {
+  const shell=makeShell({windowFetch:async (url)=>{
+   if(url === "/desktop/keys") return new Promise(()=>{});
+   return response(url === "/desktop/window" ? {supported} : {});
+  }});
+  await shell.settle();
+  const root=shell.document.documentElement;
+  assert.equal(Object.hasOwn(root.dataset,"frame"),false);
+  assert.equal(Object.hasOwn(root.dataset,"framed"),false);
+  assert.equal(root.style.getPropertyValue("--window-left-inset"),"");
+ }
+});
+
+
+test("page actions follow the selected tab and its live route, not its initial src", async () => {
+  const shell = makeShell({ storedTabs: [
+    { uid: "a", route: "#/s/first" }, { uid: "b", route: "#/s/second" },
+  ] });
+  const writes = [], reloads = [];
+  shell.context.navigator = { clipboard: { writeText: async (url) => writes.push(url) } };
+  const strip = shell.document.ids.get("strip");
+  for (const [i, uid] of ["a", "b"].entries()) {
+    const frame = shell.api.frameOf.get(uid);
+    const live = `http://desktop.test/?lang=en#/s/${uid}?view=files`;
+    frame.contentWindow.location.href = live.replace("?lang", "?desktop_workspace=%2Fprivate&desktop_workspace_pending=1&lang");
+    frame.contentWindow.location.reload = () => reloads.push(uid);
+    strip.children[i].dispatch("click");
+    shell.document.ids.get("reload-tab").dispatch("click");
+    shell.document.ids.get("copy-page-link").dispatch("click");
+    await shell.settle();
+    assert.equal(writes[i], live);
+    assert.equal(shell.document.ids.get("copy-status").textContent, "Link copied");
+  }
+  assert.deepEqual(reloads, ["a", "b"]);
+});
+
+test("copy reports failure without substituting the shell URL or overwriting the clipboard", async () => {
+  const shell = makeShell();
+  const frame = [...shell.api.frameOf.values()][0];
+  const writes = [];
+  shell.context.navigator = { clipboard: { writeText(url) { writes.push(url); return Promise.reject(new Error("denied")); } } };
+  for (const href of ["about:blank", "https://elsewhere.test/", "http://desktop.test/#/settings"]) {
+    frame.contentWindow.location.href = href;
+    shell.document.ids.get("copy-page-link").dispatch("click");
+    await shell.settle();
+    assert.equal(shell.document.ids.get("copy-status").textContent, "Could not copy link");
+  }
+  assert.deepEqual(writes, ["http://desktop.test/#/settings"]);
 });

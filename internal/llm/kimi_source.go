@@ -26,14 +26,15 @@ func (s *KimiSubscriptionSource) WithCredential(ctx context.Context, call func(s
 	if status != http.StatusUnauthorized {
 		return ticket.token, ticket.kind, err
 	}
-	token, recoveryErr := s.rejectedTicket(ctx, ticket)
+	kind := ticket.kind
+	ticket, recoveryErr := s.recoverTicket(ctx, ticket)
 	if recoveryErr != nil {
 		if errors.Is(recoveryErr, ErrKimiCLILoginRequired) {
-			return "", ticket.kind, fmt.Errorf("%w: %w", err, ErrKimiCLILoginRequired)
+			return "", kind, fmt.Errorf("%w: %w", err, ErrKimiCLILoginRequired)
 		}
-		return "", ticket.kind, recoveryErr
+		return "", kind, recoveryErr
 	}
-	return token, ticket.kind, call(token)
+	return ticket.token, ticket.kind, call(ticket.token)
 }
 
 // KimiSourceKind identifies the credential used for a particular request.
@@ -56,6 +57,7 @@ type kimiCredentialTicket struct {
 	token      string
 	kind       KimiSourceKind
 	credential KimiCredential
+	deviceID   string
 	region     string
 }
 
@@ -68,49 +70,46 @@ func (s *KimiSubscriptionSource) catalogTicket(ctx context.Context, call func(st
 	if UpstreamStatus(err) != http.StatusUnauthorized {
 		return ticket, err
 	}
-	token, recoveryErr := s.rejectedTicket(ctx, ticket)
+	ticket, recoveryErr := s.recoverTicket(ctx, ticket)
 	if recoveryErr != nil {
 		return kimiCredentialTicket{}, recoveryErr
 	}
-	cred, state, loadErr := s.refresher.store.Load(s.region)
-	if loadErr != nil {
-		return kimiCredentialTicket{}, loadErr
-	}
-	if state != KimiCredentialValid || cred.AccessToken != token {
-		return kimiCredentialTicket{}, errors.New("kimi: credential changed during catalog recovery")
-	}
-	ticket = kimiCredentialTicket{token: token, kind: KimiSourceManaged, credential: cred, region: s.region}
-	return ticket, call(token)
+	return ticket, call(ticket.token)
+}
+
+func (s *KimiSubscriptionSource) managedTicket(cred KimiCredential) kimiCredentialTicket {
+	return kimiCredentialTicket{token: cred.AccessToken, kind: KimiSourceManaged, credential: cred, deviceID: cred.DeviceID, region: s.region}
 }
 
 func (s *KimiSubscriptionSource) ticket(ctx context.Context) (kimiCredentialTicket, error) {
-	for i := 0; i < 3; i++ {
-		token, kind, err := s.AccessToken(ctx)
-		if err != nil {
+	if s.refresher != nil {
+		cred, err := s.refresher.credential(ctx, false)
+		if err == nil {
+			return s.managedTicket(cred), nil
+		}
+		if !errors.Is(err, ErrKimiCredentialMissing) {
 			return kimiCredentialTicket{}, err
-		}
-		if kind == KimiSourceCLI {
-			return kimiCredentialTicket{token: token, kind: kind, region: s.region}, nil
-		}
-		cred, state, err := s.refresher.store.Load(s.region)
-		if err != nil {
-			return kimiCredentialTicket{}, err
-		}
-		if state == KimiCredentialValid && cred.AccessToken == token {
-			return kimiCredentialTicket{token: token, kind: kind, credential: cred, region: s.region}, nil
 		}
 	}
-	return kimiCredentialTicket{}, errors.New("kimi: credential changed while preparing request")
+	token, home, err := readKimiCLIAccessToken("subscription", s.region, s.noCLI)
+	if err != nil {
+		return kimiCredentialTicket{}, err
+	}
+	return kimiCredentialTicket{token: token, kind: KimiSourceCLI, deviceID: readKimiCLIDeviceID(home), region: s.region}, nil
 }
 
-func (s *KimiSubscriptionSource) rejectedTicket(ctx context.Context, ticket kimiCredentialTicket) (string, error) {
+func (s *KimiSubscriptionSource) recoverTicket(ctx context.Context, ticket kimiCredentialTicket) (kimiCredentialTicket, error) {
 	if ticket.kind == KimiSourceCLI {
-		return "", ErrKimiCLILoginRequired
+		return kimiCredentialTicket{}, ErrKimiCLILoginRequired
 	}
 	if ticket.kind != KimiSourceManaged || s.refresher == nil {
-		return "", errors.New("kimi: unknown credential source")
+		return kimiCredentialTicket{}, errors.New("kimi: unknown credential source")
 	}
-	return s.refresher.lockedRefresh(ctx, ticket.credential, true)
+	cred, err := s.refresher.lockedRefresh(ctx, ticket.credential, true)
+	if err != nil {
+		return kimiCredentialTicket{}, err
+	}
+	return s.managedTicket(cred), nil
 }
 
 // NewKimiSubscriptionSource binds a subscription identity and its proxy. Do not

@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { type JsonSchema } from "./SchemaForm";
+import { createModelCascadeState } from "./applyModelsChange";
 import {
   deriveSettingsSections,
   knownSectionLabel,
@@ -50,6 +51,7 @@ import {
 } from "./systemStatusApi";
 import {
   ensureSettingsConfig,
+  afterSettingsConfigSaved,
   noteSettingsConfigSaved,
   refreshSettingsConfig,
   snapshotSettingsConfig,
@@ -256,6 +258,7 @@ export function Settings(props: {
     doc: copy.config ?? {},
     replaced: 0,
   }));
+  const modelCascade = useRef(createModelCascadeState()).current;
   // A save is on its way (Save, or Save and close).
   const [busy, setBusy] = useState(false);
   // A newer copy - the first read landing, the server's config reloaded by
@@ -742,6 +745,9 @@ export function Settings(props: {
       setError(translate("settings.error.otherServer"));
       return false;
     }
+    const sent = doc;
+    const editsAtSend = edits.current;
+    const replacedAtSend = draft.replaced;
     setBusy(true);
     setError(null);
     // The statistics tab writes its own route, not the configuration
@@ -759,9 +765,6 @@ export function Settings(props: {
     }
     // The green of an earlier save says nothing about this one.
     clearSaved();
-    const sent = doc;
-    const editsAtSend = edits.current;
-    const replacedAtSend = draft.replaced;
     try {
       const body = JSON.stringify(sent);
       const v = await fetch("/coddy/config/validate", {
@@ -799,20 +802,23 @@ export function Settings(props: {
       if (edits.current === editsAtSend) {
         flashSaved();
       }
-      // What was sent is what the file has now, and the kept copy says so at
-      // once (a reopen before the read below lands draws it). The copy read
-      // here, and the one config_reloaded brings, replaces it with what the
-      // server made of the save, unless the operator types something first.
-      // An edit typed while the request was on its way - a value put back as
-      // it was included - stays unsaved against what was sent. A form a
-      // newer copy took over meanwhile is left as it is.
+      // Use the redacted copy even if refresh fails. A newer edit stays in the
+      // form, but unchanged write-only inputs and consumed clear flags do not.
       if (onOtherServer()) {
         return false;
       }
+      const saved = noteSettingsConfigSaved(sent);
       setDraft((d) =>
-        d.replaced === replacedAtSend ? { ...d, base: sent } : d,
+        d.replaced === replacedAtSend
+          ? {
+              ...d,
+              seen: saved,
+              base: saved,
+              doc:
+                d.doc === sent ? saved : afterSettingsConfigSaved(d.doc, sent),
+            }
+          : d,
       );
-      noteSettingsConfigSaved(sent);
       props.onConfigSaved?.();
       setBusy(false);
       void refreshSettingsConfig();
@@ -881,6 +887,7 @@ export function Settings(props: {
               schema={schema}
               doc={doc}
               setDoc={setDoc}
+              modelCascade={modelCascade}
               onRestartOnboarding={props.onRestartOnboarding}
               // The address names a row of one section. For the render in
               // which the tab has not caught up with a new address yet,
@@ -952,6 +959,7 @@ export function Settings(props: {
               schema={{ type: "object", properties: {} } as JsonSchema}
               doc={doc}
               setDoc={setDoc}
+              modelCascade={modelCascade}
               onRestartOnboarding={props.onRestartOnboarding}
               {...(props.activeSessionId
                 ? { activeSessionId: props.activeSessionId }

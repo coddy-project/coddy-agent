@@ -1,6 +1,7 @@
 package bgtask
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -60,6 +61,17 @@ func (r *CommandRunner) Start(spec Spec, out io.Writer) (Handle, error) {
 	executable, args := sh.Command(command)
 	cmd := exec.Command(executable, args...) // the command is operator-approved shell input, same as run_command
 	cmd.Dir = spec.CWD
+	probeCtx := spec.Context
+	if probeCtx == nil {
+		probeCtx = context.Background()
+	}
+	cmd.Env = platform.UserEnvironment(probeCtx, spec.CWD)
+	if spec.SessionID != "" {
+		cmd.Env = append(cmd.Env, "CODDY_SESSION_ID="+spec.SessionID)
+	}
+	if err := probeCtx.Err(); err != nil {
+		return nil, err
+	}
 	cmd.Stdout = out
 	cmd.Stderr = out
 	platform.DetachProcessGroup(cmd)

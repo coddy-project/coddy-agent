@@ -3,6 +3,7 @@ description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config 
 paths:
   - "**/*.go"
   - "docs/**/*.md"
+  - "specs/**/*.md"
   - "README.md"
   - "CONTRIBUTING.md"
   - "DESIGN.md"
@@ -28,6 +29,8 @@ paths:
 ---
 
 # Workflow (features, bugs, finish)
+
+Changes under `specs/` run the documentation gate. Keep root instructions within the prompt budgets checked by `make docs-check`.
 
 ## Specifications live in `features/` (BDD)
 

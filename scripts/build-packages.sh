@@ -85,6 +85,18 @@ cp packaging/scripts/preremove.sh "$stage/preremove.sh"
 cp config.example.yaml "$stage/config.example.yaml"
 cp LICENSE "$stage/LICENSE"
 
+# Lean builds must not advertise a desktop command they do not carry.
+case " $(echo "$TAGS" | tr , ' ') " in
+    *" desktop "*)
+        cp packaging/desktop/coddy-desktop.desktop packaging/desktop/coddy-desktop.svg "$stage/"
+        for size in 512 256 128 64 48; do
+            cp "packaging/desktop/icons/coddy-desktop-${size}.png" "$stage/"
+        done
+        cp packaging/nfpm.yaml "$stage/nfpm.yaml"
+        ;;
+    *) sed '/# BEGIN DESKTOP CONTENTS/,/# END DESKTOP CONTENTS/d' packaging/nfpm.yaml > "$stage/nfpm.yaml" ;;
+esac
+
 for arch in $archs; do
     if [ -n "$binary" ]; then
         cp "$binary" "$stage/coddy"
@@ -113,7 +125,7 @@ for arch in $archs; do
             cd "$stage"
             PKG_ARCH="$arch" PKG_VERSION="$pkg_version" \
                 $nfpm package \
-                    --config "${root}/packaging/nfpm.yaml" \
+                    --config "$stage/nfpm.yaml" \
                     --packager "$format" \
                     --target "$target"
         )

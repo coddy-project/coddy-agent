@@ -68,7 +68,8 @@ type openAIStreamFilter struct {
 	// follows either.
 	done bool
 	// stopReason is the ACP stop reason read off coddy_meta, "" until then.
-	stopReason string
+	stopReason  string
+	serviceTier string
 	// usage sums the provider counters of every model call in the turn.
 	usage completionUsage
 }
@@ -183,6 +184,7 @@ func (f *openAIStreamFilter) named(event, data string) {
 	switch event {
 	case "coddy_meta":
 		f.stopReason = gjson.Get(data, "metadata.stop_reason").String()
+		f.serviceTier = gjson.Get(data, "metadata.service_tier").String()
 	case "token_usage":
 		var u acp.TokenUsageUpdate
 		if err := json.Unmarshal([]byte(data), &u); err == nil {
@@ -269,14 +271,18 @@ func (f *openAIStreamFilter) finish() error {
 		// real zero count (issue #576).
 		return nil
 	}
-	line, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"id":      f.chatID,
 		"object":  "chat.completion.chunk",
 		"created": f.created,
 		"model":   f.model,
 		"choices": []any{},
 		"usage":   usage,
-	})
+	}
+	if f.serviceTier != "" {
+		payload["service_tier"] = f.serviceTier
+	}
+	line, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -285,7 +291,7 @@ func (f *openAIStreamFilter) finish() error {
 
 // emitChunk writes one chunk of the filter's own with a single choice.
 func (f *openAIStreamFilter) emitChunk(delta map[string]any, finish any) error {
-	line, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"id":      f.chatID,
 		"object":  "chat.completion.chunk",
 		"created": f.created,
@@ -295,7 +301,11 @@ func (f *openAIStreamFilter) emitChunk(delta map[string]any, finish any) error {
 			"delta":         delta,
 			"finish_reason": finish,
 		}},
-	})
+	}
+	if f.serviceTier != "" {
+		payload["service_tier"] = f.serviceTier
+	}
+	line, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

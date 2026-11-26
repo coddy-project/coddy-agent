@@ -84,6 +84,9 @@ func decodeGeneratedImage(id, result string) (GeneratedImage, error) {
 
 func (p *openAIProvider) streamImageGeneration(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
 	params := buildResponsesParams(p.model, opencodeResponsesEffort(p.reasoningEffort), func(string) []json.RawMessage { return nil }, messages, tools)
+	if p.serviceTier != nil {
+		params.SetExtraFields(map[string]any{"service_tier": *p.serviceTier})
+	}
 	params.Tools = append(params.Tools, param.Override[responses.ToolUnionParam](json.RawMessage(`{"type":"image_generation"}`)))
 	if p.maxTokens > 0 {
 		params.MaxOutputTokens = openai.Int(int64(p.maxTokens))

@@ -3,10 +3,13 @@
 package httpserver
 
 import (
+	"context"
 	"crypto/subtle"
-	"github.com/EvilFreelancer/coddy-agent/external/browser"
 	"net/http"
+	"net/url"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/external/browser"
 )
 
 // authPolicy is the effective bearer-token policy for one request, snapshotting the live
@@ -32,10 +35,14 @@ func (s *Server) SetNoAuth(on bool) { s.noAuth = on }
 func (s *Server) SetNoAuthHeader(name string) { s.noAuthHeader = name }
 
 func (s *Server) authPolicyForRequest(r *http.Request) authPolicy {
-	if s.noAuthHeader != "" && r.Header.Get(s.noAuthHeader) == "1" {
+	if s.trustedNoAuth(r) {
 		return authPolicy{}
 	}
 	return s.authPolicyNow()
+}
+
+func (s *Server) trustedNoAuth(r *http.Request) bool {
+	return s.noAuthHeader != "" && r.Header.Get(s.noAuthHeader) == "1"
 }
 
 // SetDesktopWindow gives the server the window its tab shell drives. Set once,
@@ -80,57 +87,130 @@ func (s *Server) authPolicyNow() authPolicy {
 // transparent pass-through, so unauthenticated deployments behave exactly as before.
 func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pol := s.authPolicyForRequest(r)
 		_, pattern := s.mux.Handler(r)
-		// A canvas frame's address carries its own capability, which the
-		// handler checks; nothing else of the API answers an opaque origin.
-		if pattern == canvasFilePattern {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if isOpaqueOrigin(r) && pattern != "" && pattern != "/" {
+		if isOpaqueOrigin(r) && pattern != "" && pattern != "/" && pattern != canvasFilePattern {
 			http.Error(w, "requests from an opaque origin are refused", http.StatusForbidden)
 			return
 		}
-		if pattern == workspaceRawPattern && r.URL.Query().Has("access_token") {
-			if s.acceptWorkspaceCapability(r) {
-				next.ServeHTTP(w, r)
-			} else {
+		s.external.mu.Lock()
+		pol := s.authPolicyForRequest(r)
+		if pattern == workspaceRawPattern {
+			token, present, valid := workspaceRawAccessToken(r.URL.RawQuery)
+			if present {
+				if valid && s.serveFileCapability(next, w, r, pattern, pol.login.oidc, token) {
+					return
+				}
+				s.external.mu.Unlock()
 				http.Error(w, "invalid media capability", http.StatusUnauthorized)
+				return
 			}
-			return
 		}
-		if !pol.enabled || !isProtectedPattern(pattern, pol.publicDocs) {
+		if pattern == canvasFilePattern && pol.login.oidc {
+			// ServeMux hasn't populated PathValue yet.
+			token, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, canvasFilePrefix), "/")
+			if s.serveFileCapability(next, w, r, pattern, true, token) {
+				return
+			}
+		}
+		protected := isProtectedPattern(pattern, pol.publicDocs)
+		// Extension machine endpoints check their own key, but cannot mint a
+		// browser session in external mode. The canvas and media bypasses do
+		// not accept legacy capabilities when external auth is active.
+		if !pol.enabled || !protected || (pattern == canvasFilePattern && !pol.login.oidc) {
+			s.external.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 		got := bearerToken(r)
 		if got == "" && isSSETokenPattern(pattern) {
-			// EventSource cannot set an Authorization header cross-origin, so the composer-stream
-			// re-attach GET also accepts a ?access_token= query parameter (this route only).
 			got = strings.TrimSpace(r.URL.Query().Get("access_token"))
 		}
 		if acceptBearer(pol.tokens, got) {
+			if pol.login.oidc {
+				r = r.WithContext(context.WithValue(r.Context(), capabilityScopeKey{}, s.external.machineScope))
+			}
+			s.external.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A signed-in browser carries a cookie instead of a token. Same-origin
-		// requests send it on their own, which is why the SPA needs no
-		// ?access_token= on its event streams.
-		if s.hasCookieSession(r, pol.login) {
-			// A cookie travels with any request the browser makes, including one
-			// a page on another site caused, so the writes are checked for where
-			// they came from. Token clients never reach this branch.
-			if !isStateChanging(r) || isSameOriginRequest(r) {
-				next.ServeHTTP(w, r)
+		if pol.login.oidc {
+			sess, ok := s.lookupOIDC(r)
+			sameOrigin := ok && oidcHostNavigation(r, sess.host)
+			if isStateChanging(r) {
+				sameOrigin = sameOrigin && isSameOriginRequest(r)
+			}
+			s.external.mu.Unlock()
+			if ok {
+				if !sameOrigin || r.Header.Get("Upgrade") != "" {
+					http.Error(w, "cross-site request refused", http.StatusForbidden)
+					return
+				}
+				r = r.WithContext(context.WithValue(r.Context(), capabilityScopeKey{}, sess.scope))
+				s.serveOIDCRequest(next, w, r, sess)
 				return
 			}
-			http.Error(w, "cross-site request refused", http.StatusForbidden)
-			return
+		} else {
+			ok := s.hasCookieSession(r, pol.login)
+			s.external.mu.Unlock()
+			if ok {
+				if !isStateChanging(r) || isSameOriginRequest(r) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				http.Error(w, "cross-site request refused", http.StatusForbidden)
+				return
+			}
 		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// workspaceRawAccessToken distinguishes absent from malformed, including
+// an invalid escape that url.Values would otherwise silently drop.
+func workspaceRawAccessToken(raw string) (token string, present, valid bool) {
+	if raw == "" {
+		return "", false, false
+	}
+	q, err := url.ParseQuery(raw)
+	if values, ok := q["access_token"]; ok {
+		if err != nil || len(values) != 1 || values[0] == "" {
+			return "", true, false
+		}
+		return values[0], true, true
+	}
+	if err != nil {
+		for field := range strings.SplitSeq(raw, "&") {
+			name, _, _ := strings.Cut(field, "=")
+			if key, e := url.QueryUnescape(name); e == nil && key == "access_token" {
+				return "", true, false
+			}
+		}
+	}
+	return "", false, false
+}
+
+// serveFileCapability is entered with external.mu held; if it handles the
+// request it releases the lock. It cannot admit any route but the named file.
+func (s *Server) serveFileCapability(next http.Handler, w http.ResponseWriter, r *http.Request, pattern string, external bool, token string) bool {
+	var x oidcSession
+	if external {
+		scoped, session, ok := s.scopeCapability(r, token)
+		if !ok {
+			return false
+		}
+		r, x = scoped, session
+	}
+	valid := pattern == canvasFilePattern || s.acceptWorkspaceCapability(r)
+	s.external.mu.Unlock()
+	if !valid {
+		http.Error(w, "invalid media capability", http.StatusUnauthorized)
+	} else if x.life != nil {
+		s.serveOIDCRequest(next, w, r, x)
+	} else {
+		next.ServeHTTP(w, r)
+	}
+	return true
 }
 
 // isOpaqueOrigin reports a request a page in an opaque origin made: a
@@ -148,6 +228,10 @@ func isOpaqueOrigin(r *http.Request) bool {
 // session: the sign-in form's, a Telegram admin's Mini App session, or the
 // side panel of Coddy for Browser.
 func (s *Server) hasCookieSession(r *http.Request, login loginPolicy) bool {
+	if login.oidc {
+		_, ok := s.lookupOIDC(r)
+		return ok
+	}
 	if _, ok := s.sessionFromRequest(r, login); ok {
 		return true
 	}

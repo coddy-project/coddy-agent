@@ -906,6 +906,9 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the folder listing has no folder above it$`, s.folderListingHasNoParent)
 	sc.Step(`^the folder listing offers the drive list above it$`, s.folderListingParentIsDriveList)
 	registerWorkspaceFetchSteps(sc, s)
+	sc.Step(`^I create and switch to branch "([^"]+)"$`, s.createBranch)
+	sc.Step(`^I request the git graph$`, s.requestGitGraph)
+	sc.Step(`^the git graph shows HEAD on branch "([^"]+)"$`, s.graphShowsHEAD)
 }
 
 func TestWorkspaceSwitchingFeature(t *testing.T) {

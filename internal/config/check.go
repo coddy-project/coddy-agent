@@ -436,6 +436,7 @@ var yamlLineRE = regexp.MustCompile(`line (\d+): (.*)`)
 // that actually stops it parsing. A type error is left alone: it carries one
 // entry per bad value, each already on its own line.
 func syntaxFindings(err error, body string) []Finding {
+	err = sanitizeYAMLError(err)
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
 		if line := locateSyntaxError(body); line > 0 {
@@ -894,7 +895,28 @@ func (l *Locator) Locate(path string) (line, col int, ok bool) {
 // sends the operator to the same line as `coddy -t`. An error that cannot be
 // placed better, and a type error that is already placed, are returned as they
 // came.
+func sanitizeYAMLError(err error) error {
+	if err != nil && strings.Contains(err.Error(), "unknown anchor ") {
+		return fmt.Errorf("yaml: unknown anchor referenced")
+	}
+
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return err
+	}
+	messages := make([]string, 0, len(typeErr.Errors))
+	for _, entry := range typeErr.Errors {
+		if m := yamlLineRE.FindStringSubmatch(entry); m != nil {
+			messages = append(messages, "line "+m[1]+": invalid value type or duplicate key")
+		} else {
+			messages = append(messages, "invalid value type or duplicate key")
+		}
+	}
+	return &yaml.TypeError{Errors: messages}
+}
+
 func relocateSyntaxError(err error, body string) error {
+	err = sanitizeYAMLError(err)
 	var typeErr *yaml.TypeError
 	if err == nil || errors.As(err, &typeErr) {
 		return err

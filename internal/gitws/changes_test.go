@@ -1,6 +1,7 @@
 package gitws
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -176,8 +177,11 @@ func TestUncommittedChangesOutsideARepo(t *testing.T) {
 // A repository storing LF blobs next to a CRLF working copy (git's autocrlf, the
 // normal setup on Windows) must not read as "every line changed": git applies
 // its line-ending filter when it diffs, and reading the blob straight past that
-// filter would report a whole-file rewrite for a one-line edit.
-func TestUncommittedChangesIgnoresLineEndingOnlyDifferences(t *testing.T) {
+// filter would report a whole-file rewrite for a one-line edit. The change is
+// reported with the bytes as they are, though: a side's line endings are levelled
+// only when a textual diff or a comparison reads them, so the raw content a
+// caller hashes or serves is untouched.
+func TestUncommittedChangesKeepsRawBytesOverLineEndings(t *testing.T) {
 	eachBackend(t, func(t *testing.T) {
 		dir := commitRepo(t, map[string]string{"crlf.txt": "alpha\nbeta\ngamma\n"})
 		// Same text, Windows endings, with exactly one real edit.
@@ -190,21 +194,18 @@ func TestUncommittedChangesIgnoresLineEndingOnlyDifferences(t *testing.T) {
 		if len(changes) != 1 {
 			t.Fatalf("want 1 change, got %+v", changes)
 		}
-		before, after := string(changes[0].Before), string(changes[0].After)
-		if strings.Contains(before, "\r") || strings.Contains(after, "\r") {
-			t.Fatalf("sides must be normalised: before=%q after=%q", before, after)
+		if before := string(changes[0].Before); before != "alpha\nbeta\ngamma\n" {
+			t.Fatalf("before must be the blob bytes: %q", before)
 		}
-		if before != "alpha\nbeta\ngamma\n" {
-			t.Fatalf("before wrong: %q", before)
-		}
-		if after != "alpha\nBETA\ngamma\n" {
-			t.Fatalf("after wrong: %q", after)
+		if after := string(changes[0].After); after != "alpha\r\nBETA\r\ngamma\r\n" {
+			t.Fatalf("after must keep its CRLF endings: %q", after)
 		}
 	})
 }
 
 // A file that differs only in its line endings changed nothing a reader cares
-// about, so it must not be listed at all.
+// about, so it must not be listed at all: the churn comparison still levels
+// CRLF to LF even though the sides themselves stay raw.
 func TestUncommittedChangesDropsPureLineEndingChurn(t *testing.T) {
 	eachBackend(t, func(t *testing.T) {
 		dir := commitRepo(t, map[string]string{"same.txt": "one\ntwo\n"})
@@ -216,6 +217,135 @@ func TestUncommittedChangesDropsPureLineEndingChurn(t *testing.T) {
 		}
 		if len(changes) != 0 {
 			t.Fatalf("line-ending-only churn must not be reported: %+v", changes)
+		}
+	})
+}
+
+// The line-ending levelling is a courtesy for text: inside a binary file the
+// CRLF pair is just two bytes, and a rewrite that is only those bytes is a
+// change like any other. The churn comparison must not level a side that is
+// not text, or a binary file would silently disappear from the set.
+func TestUncommittedChangesKeepsBinaryLineEndingDifferences(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		before := []byte{'a', 0x00, '\r', '\n', 'b', 0x00}
+		after := []byte{'a', 0x00, '\n', 'b', 0x00}
+		dir := commitRepo(t, map[string]string{"bin.dat": string(before)})
+		if err := os.WriteFile(filepath.Join(dir, "bin.dat"), after, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changes, _, err := UncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("UncommittedChanges: %v", err)
+		}
+		if len(changes) != 1 {
+			t.Fatalf("a binary file differing in the CRLF pair is a change: %+v", changes)
+		}
+		if !bytes.Equal(changes[0].Before, before) || !bytes.Equal(changes[0].After, after) {
+			t.Fatalf("sides must keep their bytes: %x -> %x", changes[0].Before, changes[0].After)
+		}
+	})
+}
+
+// A file that looks like text for its first kilobytes is not text when a NUL
+// sits further in: the binary check reads the whole side, not a prefix, so a
+// binary file whose only difference is a CRLF pair deep into it is still a
+// change and not line-ending churn.
+func TestUncommittedChangesKeepsLineEndingDifferencesWithALateNul(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		head := append(bytes.Repeat([]byte{'a'}, 9000), 0x00)
+		before := append(append([]byte{}, head...), '\r', '\n', 'b')
+		after := append(append([]byte{}, head...), '\n', 'b')
+		dir := commitRepo(t, map[string]string{"deep.dat": string(before)})
+		if err := os.WriteFile(filepath.Join(dir, "deep.dat"), after, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changes, _, err := UncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("UncommittedChanges: %v", err)
+		}
+		if len(changes) != 1 {
+			t.Fatalf("a NUL past the sniff limit makes the file binary, not churn: %+v", changes)
+		}
+	})
+}
+
+// A signature is enough: a file that opens with a recognized image header is
+// binary whatever its bytes hold, so an ASCII-only GIF file differing only in
+// the CRLF pair is a change, not churn to be dropped.
+func TestUncommittedChangesKeepsAsciiImageLineEndingDifferences(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		before := []byte("GIF89a0000000,000000000;\r\n")
+		after := []byte("GIF89a0000000,000000000;\n")
+		dir := commitRepo(t, map[string]string{"img.gif": string(before)})
+		if err := os.WriteFile(filepath.Join(dir, "img.gif"), after, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changes, _, err := UncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("UncommittedChanges: %v", err)
+		}
+		if len(changes) != 1 {
+			t.Fatalf("an image signature makes the file binary, not churn: %+v", changes)
+		}
+	})
+}
+
+// A binary file may legitimately hold the CRLF byte pair inside it - a PNG's
+// signature does - so the sides are kept byte for byte, never levelled, and a
+// change that is only that pair inside binary data is still the file's own
+// bytes.
+func TestUncommittedChangesPreservesBinaryBytes(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		before := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0x00, 'a', '\r', '\n', 'b', 0x00}
+		after := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0x00, 'x', '\r', '\n', 'y', 0x00}
+		dir := commitRepo(t, map[string]string{"img.png": string(before)})
+		if err := os.WriteFile(filepath.Join(dir, "img.png"), after, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		changes, _, err := UncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("UncommittedChanges: %v", err)
+		}
+		if len(changes) != 1 {
+			t.Fatalf("want 1 change, got %+v", changes)
+		}
+		if !bytes.Equal(changes[0].Before, before) {
+			t.Fatalf("before was altered: %x", changes[0].Before)
+		}
+		if !bytes.Equal(changes[0].After, after) {
+			t.Fatalf("after was altered: %x", changes[0].After)
+		}
+	})
+}
+
+// An untracked file's bytes are read as they are: the all-files scope does not
+// level its line endings either.
+func TestWorktreeChangesPreservesUntrackedBytes(t *testing.T) {
+	eachBackend(t, func(t *testing.T) {
+		dir := commitRepo(t, map[string]string{"a.txt": "a\n"})
+		raw := []byte("one\r\n\x00two\r\n")
+		if err := os.WriteFile(filepath.Join(dir, "new.bin"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		changes, _, err := WorktreeChanges(dir)
+		if err != nil {
+			t.Fatalf("WorktreeChanges: %v", err)
+		}
+		var got *WorkChange
+		for i := range changes {
+			if changes[i].Path == "new.bin" {
+				got = &changes[i]
+			}
+		}
+		if got == nil {
+			t.Fatalf("new.bin not reported: %+v", changes)
+		}
+		if got.Before != nil || !bytes.Equal(got.After, raw) {
+			t.Fatalf("after was altered: %x", got.After)
 		}
 	})
 }

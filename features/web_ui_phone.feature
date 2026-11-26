@@ -64,3 +64,6 @@ Feature: The web UI on a phone
   Scenario: The scroll-to-bottom button with the on-screen keyboard open
     Then the composer block and its scroll-to-bottom button rise above an overlaying keyboard
     And the scroll-to-bottom button never moves the chat up
+
+  Scenario: Reading a growing answer with the phone keyboard open
+    Then the phone chat follows and jumps to the newest message without scrolling the document

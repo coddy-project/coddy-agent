@@ -1797,7 +1797,8 @@ async function scenarioDiscard(sid) {
     (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`,
   );
   await edits.getByTestId("dv-file-notes/release.md").hover();
-  await edits.getByTestId("dv-discard-notes/release.md").click();
+  await edits.getByTestId("dv-file-actions-notes/release.md").click();
+  await d.page.getByTestId("dv-discard-notes/release.md").click();
   const dialog = d.page.locator(".confirm-dialog");
   await dialog.waitFor();
   check("discarding asks first", /release\.md/.test(await dialog.innerText()));

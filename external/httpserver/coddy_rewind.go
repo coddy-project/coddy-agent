@@ -128,23 +128,27 @@ func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The edited turn is still running: it is stopped first, or it would keep
-	// appending onto the history the undo restores. The active edge and the turn
-	// mutex are released separately, and another admission can race the restore,
-	// so an active refusal from UndoRewind goes through the same cancel-and-wait
-	// again under one deadline instead of leaking a transient 409 to the caller.
+	// appending onto the history the undo restores. UndoRewind holds the prompt
+	// turn lock across the restore. The active edge and the turn mutex are
+	// released separately, and another admission can race the restore, so an
+	// active refusal from UndoRewind goes through the same cancel-and-wait again
+	// under one deadline instead of leaking a transient 409 to the caller.
+	turnBusy := func() bool {
+		return s.mgr.SessionTurnActiveInProcess(id) || s.mgr.PromptTurnLockHeld(st)
+	}
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		if s.sessionTurnActive(id) {
+		if turnBusy() {
 			s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
 		}
-		for s.sessionTurnActive(id) && time.Now().Before(deadline) {
+		for turnBusy() && time.Now().Before(deadline) {
 			select {
 			case <-r.Context().Done():
 				deadline = time.Now()
 			case <-time.After(25 * time.Millisecond):
 			}
 		}
-		if s.sessionTurnActive(id) {
+		if turnBusy() {
 			writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
 			return
 		}

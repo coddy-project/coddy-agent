@@ -168,6 +168,19 @@
   cursor: not-allowed;
 }
 
+/* The external sign-in's one control is a link drawn like the submit button:
+   a full GET navigation to the issuer, never a form post. */
+a.auth-oidc-link {
+  display: block;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+}
+
+a.auth-oidc-link:visited {
+  color: var(--text);
+}
+
 .auth-alt {
   display: flex;
   flex-wrap: wrap;

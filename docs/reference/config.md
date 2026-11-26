@@ -93,7 +93,7 @@ Named model entries the agent and UI can select.
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
 | `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, Anthropic, the Codex and Devin catalogs, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. |
-| `models[].image_generation` | boolean | false | Model may emit images natively through the provider's image generation tool. Off by default: the UI offers the per-turn image control only for models opted in here, and a request's metadata.image_generation is refused for a model without it. |
+| `models[].image_generation` | boolean | false | Allow the model to use the provider's native image generation tool. Off by default. The tool is available on each chat request when enabled; metadata.image_generation is refused for a model without this setting. |
 | `models[].reasoning_levels` | list of strings or null |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high), the vendor an aggregator puts in front of it left out (qwen/qwen3.8-flash reads as qwen3.8-flash). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
 | `models[].allow_reasoning_off` | boolean | false | Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. |
@@ -334,6 +334,14 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.login.backup_codes` | object |  | Opaque generation identifier and SHA-256 hashes of the recovery codes for the web account. Plaintext codes are shown only when issued, and GET /coddy/config never returns their hashes. |
 | `httpserver.login.backup_codes.generation` | string |  | Identifier of the current recovery-code set. |
 | `httpserver.login.backup_codes.hashes` | list of strings |  | SHA-256 hashes of unused recovery codes. Consumption removes a hash and records it in a separate ledger, preventing reuse after an old configuration is restored. |
+| `httpserver.login.logout_url` | string | "" | Optional static HTTP(S) logout destination. Do not include secrets, tokens, identity data or user-specific parameters. Hidden from configuration output. |
+| `httpserver.login.oidc` | object |  | External OIDC sign-in configuration. |
+| `httpserver.login.oidc.enable` | boolean | false | Enable external OIDC sign-in. |
+| `httpserver.login.oidc.issuer` | string | "" | HTTPS OIDC issuer URL. |
+| `httpserver.login.oidc.client_id` | string | "" | OIDC client identifier. |
+| `httpserver.login.oidc.client_secret` | string | "" | OIDC client secret. Hidden from configuration output. |
+| `httpserver.login.oidc.redirect_url` | string | "" | Public HTTPS callback URL. |
+| `httpserver.login.oidc.required_role` | string | "" | Exact role required in the ID token roles array. |
 | `httpserver.login.session_ttl_hours` | integer | 24 | How long a browser stays signed in. Defaults to 24 hours. The sign-in form can request this persistent cookie with remember me, or a browser-session cookie when remember me is unchecked. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
 | `httpserver.allow_insecure` | boolean | false | Say that a server without authentication is open on purpose: silences the two startup warnings about it - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or "*") - and the --dry-run findings that mirror them, and turns off the refusal of a foreign Host on loopback and of a cross-origin write. |

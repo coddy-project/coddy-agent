@@ -1,3 +1,9 @@
+import {
+  pickServiceTier,
+  readServiceTierCookie,
+  writeServiceTierCookie,
+  type ServiceTierControl,
+} from "./chat/serviceTier";
 import { browserPanelLaunch } from "./browserPanel/launch";
 import { panelTabForTurn } from "./browserPanel/bridge";
 import {
@@ -439,8 +445,8 @@ type ModelInfo = {
   ownedBy?: string;
   maxContextTokens?: number | undefined;
   multimodal?: boolean;
-  /** The model opted in to native image output (models[].image_generation). */
   imageGeneration?: boolean;
+  serviceTierChoices?: string[];
   reasoningLevels?: string[];
   reasoningDefault?: string;
   /** The toolsets[] preset the model names (models[].toolset). */
@@ -1839,6 +1845,12 @@ export function App() {
     turnEpoch: providerUsageTurnEpoch,
   });
   const [llmReasoning, setLlmReasoning] = useState("");
+  const [serviceTier, setServiceTier] = useState(readServiceTierCookie);
+  const [sessionTierChoices, setSessionTierChoices] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
   /**
    * The opened session's own model and reasoning, as its settings snapshot
    * names them, with the levels the snapshot says it may hold. Held until the
@@ -1850,6 +1862,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /** The selection object already applied to the composer; see the effect below. */
@@ -1857,6 +1871,8 @@ export function App() {
     sid: string;
     model: string;
     reasoning: string;
+    serviceTier: string;
+    tierChoices: string[];
     choices: string[];
   } | null>(null);
   /**
@@ -2483,6 +2499,51 @@ export function App() {
       document.removeEventListener("visibilitychange", visible);
     };
   }, [sessionId, refreshHomeWorkspace]);
+
+  async function createWorkspaceBranch(branch: string): Promise<void> {
+    const sid = sessionId.trim();
+    const path = workspaceCtx?.path;
+    if (!path) throw new Error(t("git.createFailed"));
+    const pick = ++workspacePickRef.current;
+    workspaceCtxGenRef.current += 1;
+    const url = sid
+      ? `/coddy/sessions/${encodeURIComponent(sid)}/workspace`
+      : `/coddy/workspace/branches?path=${encodeURIComponent(path)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(sid ? { [HDR]: sid } : {}),
+      },
+      body: JSON.stringify({ branch, ...(sid ? { create: true } : {}) }),
+    });
+    if (!response.ok) {
+      let reason = t("git.createFailed");
+      try {
+        reason = (await response.json()).error?.message || reason;
+      } catch {
+        /* Keep the localized fallback. */
+      }
+      throw new Error(reason);
+    }
+    const ctx = (await response.json()) as WorkspaceContext;
+    if (
+      pick !== workspacePickRef.current ||
+      viewedSessionRef.current.trim() !== sid
+    )
+      return;
+    workspaceCtxGenRef.current += 1;
+    if (!sid) {
+      desktopFolderPickRef.current += 1;
+      desktopWorkspaceWaitRef.current?.finish();
+      setPendingWorkspace(
+        { path: ctx.path, branch: ctx.branch || branch, worktree: false },
+        true,
+      );
+      writeLastWorkspaceDir(ctx.path);
+    }
+    setWorkspaceCtx(ctx);
+  }
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -3300,6 +3361,7 @@ export function App() {
           max_context_tokens?: number;
           multimodal?: boolean;
           image_generation?: boolean;
+          service_tier_choices?: string[];
           reasoning_levels?: string[];
           reasoning_default?: string;
           toolset?: string;
@@ -3317,6 +3379,7 @@ export function App() {
             : {}),
           multimodal: !!d.multimodal,
           imageGeneration: !!d.image_generation,
+          serviceTierChoices: d.service_tier_choices ?? [],
           reasoningLevels: Array.isArray(d.reasoning_levels)
             ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
             : [],
@@ -3331,6 +3394,7 @@ export function App() {
           multimodal: d.multimodal,
           imageGeneration: d.imageGeneration,
           reasoningLevels: d.reasoningLevels,
+          serviceTierChoices: d.serviceTierChoices,
           reasoningDefault: d.reasoningDefault,
         };
         if (d.maxContextTokens !== undefined) {
@@ -3393,6 +3457,17 @@ export function App() {
     // same chooser as every other path, with the session's value as the
     // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    setServiceTier(
+      pickServiceTier(
+        openSessionSelection.serviceTier,
+        openSessionSelection.tierChoices,
+      ),
+    );
+    setSessionTierChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices: openSessionSelection.tierChoices,
+    });
     const choices =
       nextModel === openSessionSelection.model
         ? openSessionSelection.choices
@@ -3982,6 +4057,8 @@ export function App() {
           ? snap.reasoning
           : (data.selectedReasoning || "").trim(),
         choices: snap?.reasoningChoices ?? [],
+        serviceTier: snap?.serviceTier ?? "",
+        tierChoices: snap?.serviceTierChoices ?? [],
       });
     }
     if (snap) {
@@ -4574,6 +4651,8 @@ export function App() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
+    setServiceTier(readServiceTierCookie());
+    setSessionTierChoices({ sid: "", model: "", choices: [] });
     setSessionReasoningChoices({ sid: "", model: "", choices: [] });
     // A new chat sends its level with the first message: that is its own.
     reasoningImpliedRef.current = false;
@@ -5674,7 +5753,6 @@ export function App() {
     text: string,
     opts?: {
       modeOverride?: string;
-      imageGenerationOverride?: boolean;
       runPlanSlug?: string;
       files?: File[];
       /**
@@ -5774,11 +5852,6 @@ export function App() {
           );
           setActiveDraftId("");
         }
-        setImageGenSelection((previous) =>
-          previous.on && previous.scope === imageGenScope
-            ? { ...previous, scope: `${sid}\0${llmModel}\0${llmModelImageGen}` }
-            : previous,
-        );
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -6104,13 +6177,12 @@ export function App() {
       // The turn's @coddy: mentions and the agent's documentation tools
       // follow the interface's language (webui_prompt.go, langFromHTTP).
       meta.lang = locale;
-      // The per-turn image control: only for a model the configuration
-      // opted in to native image output (models[].image_generation).
-      const imageGenForTurn =
-        (opts?.imageGenerationOverride ?? imageGenOn) && llmModelImageGen;
-      if (imageGenForTurn) meta.image_generation = true;
+      if (modelInfos.find((model) => model.id === yamlSel)?.imageGeneration) {
+        meta.image_generation = true;
+      }
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
+      meta.service_tier = pickServiceTier(serviceTier, serviceTierChoices);
       if (runSlug) meta.runPlanSlug = runSlug;
       if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
       // A toolset picked on the start screen goes with the messages of the
@@ -6151,12 +6223,6 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
-      if (res.ok)
-        retryImageGenRef.current.set(sid.trim(), {
-          text,
-          model: llmModel,
-          enabled: imageGenForTurn,
-        });
       // The server took the session's first message, and with it the pick.
       if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
         setPendingPermissionMode("");
@@ -6730,37 +6796,6 @@ export function App() {
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
-  // The model opted in to native image output: the composer offers the
-  // per-turn Images control only for one, and sends ask for it only then.
-  const llmModelImageGen = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.imageGeneration ?? false;
-  }, [modelInfos, llmModel]);
-
-  // The per-turn image control: while on, sends carry
-  // metadata.image_generation for a model opted in to native output.
-  const imageGenScope = `${sessionId.trim() || activeDraftId.trim()}\0${llmModel}\0${llmModelImageGen}`;
-  const [imageGenSelection, setImageGenSelection] = useState({
-    scope: imageGenScope,
-    on: false,
-  });
-  if (imageGenSelection.scope !== imageGenScope) {
-    setImageGenSelection({ scope: imageGenScope, on: false });
-  }
-  const imageGenOn =
-    imageGenSelection.scope === imageGenScope && imageGenSelection.on;
-  const retryImageGenRef = useRef(
-    new Map<string, { text: string; model: string; enabled: boolean }>(),
-  );
-  const onImageGenToggle = useCallback(
-    () =>
-      setImageGenSelection((v) => ({
-        scope: imageGenScope,
-        on: v.scope === imageGenScope ? !v.on : true,
-      })),
-    [imageGenScope],
-  );
-
   // Every configured model's levels: /goal --reasoning completes the levels
   // of the model its --model names.
   const llmReasoningLevelsByModel = useMemo(() => {
@@ -6854,6 +6889,12 @@ export function App() {
       return;
     }
     settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setServiceTier(snap.serviceTier);
+    setSessionTierChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.serviceTierChoices,
+    });
     setPermissionMode(snap.permissionMode);
     setConfiguredPermissionMode(snap.configuredPermissionMode);
     setSettingsOverrides(snap.overrides);
@@ -7055,6 +7096,30 @@ export function App() {
     pendingToolset,
     onToolsetChange,
   ]);
+
+  const serviceTierChoices =
+    sessionTierChoices.sid === sessionId.trim() &&
+    sessionTierChoices.model === llmModel
+      ? sessionTierChoices.choices
+      : (modelInfos.find((m) => m.id === llmModel)?.serviceTierChoices ?? []);
+  const serviceTierMenuChoices = serviceTierChoices.filter(
+    (choice) => choice !== "",
+  );
+  const serviceTierControl: ServiceTierControl | undefined =
+    serviceTierMenuChoices.length
+      ? {
+          value: pickServiceTier(serviceTier, serviceTierChoices) || "default",
+          choices: serviceTierMenuChoices,
+          onChange: (value) => {
+            setServiceTier(value);
+            writeServiceTierCookie(value);
+            if (sessionId.trim())
+              void patchSessionSettings(sessionId.trim(), {
+                selectedServiceTier: value,
+              });
+          },
+        }
+      : undefined;
 
   const onLlmReasoningChange = useCallback(
     (level: string) => {
@@ -8044,27 +8109,6 @@ export function App() {
       const body = text.trim();
       if (!sid || (!body && files.length === 0)) return;
       const fromComposer = source === "composer";
-      if (imageGenOn && llmModelImageGen) {
-        if (fromComposer) {
-          setDraft((current) => current || body);
-          if (files.length)
-            setComposerFiles((current) => [...files, ...current]);
-        } else {
-          onRefused?.(t("composer.imageGenerationQueueUnavailable"));
-          return;
-        }
-        applyStreamItemsForSession(sid, (prev) => [
-          ...prev,
-          {
-            id: newId("s"),
-            type: "system_notice",
-            level: "error",
-            message: t("composer.imageGenerationQueueUnavailable"),
-            createdAtUtc: new Date().toISOString(),
-          },
-        ]);
-        return;
-      }
       if (fromComposer) setDraft("");
       void (async () => {
         type QueueAnswer = {
@@ -8124,7 +8168,6 @@ export function App() {
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
           void sendLatest(body, {
-            imageGenerationOverride: false,
             files,
             restoreOnRefusal: fromComposer,
             ...(onRefused ? { onRefusal: onRefused } : {}),
@@ -8248,18 +8291,8 @@ export function App() {
       })();
     },
   );
-  const retryImageGen = retryImageGenRef.current.get(sessionId.trim());
-  const retryImageGenKnown =
-    !!retryImageGen &&
-    retryImageGen.text === lastUserText &&
-    retryImageGen.model === llmModel;
   const handleRetryLast = useStableHandler(
-    () =>
-      void streamResponses(lastUserText, {
-        imageGenerationOverride: retryImageGenKnown
-          ? retryImageGen.enabled
-          : false,
-      }),
+    () => void streamResponses(lastUserText),
   );
   /**
    * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
@@ -8764,6 +8797,7 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
+            onWorkspaceCreateBranch={createWorkspaceBranch}
             onWorkspaceRefreshBranches={refreshWorkspaceBranches}
             onWorktreeToggle={() =>
               setWorktreePref((v) => {
@@ -8815,9 +8849,6 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
-                  llmModelImageGen,
-                  imageGenOn,
-                  onImageGenToggle,
                   llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
@@ -8835,6 +8866,9 @@ export function App() {
             configuredPermissionMode={shownConfiguredPermissionMode}
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
+            }
+            serviceTierControl={
+              subagentTranscript ? undefined : serviceTierControl
             }
             toolsetControl={subagentTranscript ? undefined : toolsetControl}
             settingsOverrides={settingsOverrides}
@@ -8856,11 +8890,7 @@ export function App() {
             onPromptSuggestionAccepted={() => {
               promptSuggestionAcceptedRef.current = true;
             }}
-            {...(!generating &&
-            lastUserText.trim() &&
-            !subagentTranscript &&
-            (!retryImageGen || retryImageGen.model === llmModel) &&
-            (!llmModelImageGen || retryImageGenKnown)
+            {...(!generating && lastUserText.trim() && !subagentTranscript
               ? { onRetryLast: handleRetryLast }
               : {})}
             onContextRingOpen={() => {

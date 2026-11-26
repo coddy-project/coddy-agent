@@ -14,6 +14,7 @@ import (
 func TestTheEntryIsWrittenWhereTheDesktopReadsIt(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if err := writeMenuEntry("/usr/bin/coddy", []string{"/home/p/work", "/home/p/notes"}); err != nil {
 		t.Fatal(err)
 	}

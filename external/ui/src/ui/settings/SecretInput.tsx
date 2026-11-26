@@ -5,11 +5,15 @@ import { useT } from "../i18n/I18nProvider";
 export function SecretInput(
   props: InputHTMLAttributes<HTMLInputElement> & {
     children?: React.ReactNode;
+    /** The eye button's accessible label when the value is hidden. */
+    showLabel?: string;
+    /** The eye button's accessible label when the value is shown. */
+    hideLabel?: string;
   },
 ) {
   const [visible, setVisible] = useState(false);
   const { t } = useT();
-  const { children, ...inputProps } = props;
+  const { children, showLabel, hideLabel, ...inputProps } = props;
   return (
     <div className="settings-secret-input">
       <input
@@ -20,9 +24,11 @@ export function SecretInput(
       <button
         type="button"
         className="settings-btn-icon"
-        aria-label={t(
-          visible ? "settings.auth.hidePassword" : "settings.auth.showPassword",
-        )}
+        aria-label={
+          visible
+            ? (hideLabel ?? t("settings.auth.hidePassword"))
+            : (showLabel ?? t("settings.auth.showPassword"))
+        }
         aria-pressed={visible}
         onClick={() => setVisible(!visible)}
       >

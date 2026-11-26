@@ -347,3 +347,20 @@ func TestLLMSFilesAreRenderedButNotKeptInTheRepository(t *testing.T) {
 		}
 	}
 }
+
+func TestInstructionSizeBudget(t *testing.T) {
+	for name, limit := range map[string]int{"AGENTS.md": 48 * 1024, "DESIGN.md": 8 * 1024} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, size := range []int{limit, limit + 1} {
+				if err := os.WriteFile(filepath.Join(root, name), make([]byte, size), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				got := checkInstructionSizes(root)
+				if size == limit && len(got) != 0 || size > limit && (len(got) != 1 || !strings.Contains(got[0].Message, "prompt budget")) {
+					t.Fatalf("size %d: unexpected problems %v", size, got)
+				}
+			}
+		})
+	}
+}

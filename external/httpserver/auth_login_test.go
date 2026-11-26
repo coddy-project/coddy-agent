@@ -29,7 +29,7 @@ const (
 	loginTestPassword = "correct-horse"
 )
 
-func loginTestHash(t *testing.T, plain string) string {
+func loginTestHash(t testing.TB, plain string) string {
 	t.Helper()
 	h, err := webauth.HashPasswordWith(plain, loginTestHashParams)
 	if err != nil {
@@ -41,7 +41,7 @@ func loginTestHash(t *testing.T, plain string) string {
 // newLoginServer builds a Server with a login account over a real (but
 // LLM-free) session manager, so a request the gate lets through reaches a
 // handler that can answer rather than a nil pointer.
-func newLoginServer(t *testing.T, login config.HTTPLoginConfig) *Server {
+func newLoginServer(t testing.TB, login config.HTTPLoginConfig) *Server {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -60,7 +60,7 @@ func newLoginServer(t *testing.T, login config.HTTPLoginConfig) *Server {
 	return srv
 }
 
-func configuredLogin(t *testing.T) config.HTTPLoginConfig {
+func configuredLogin(t testing.TB) config.HTTPLoginConfig {
 	t.Helper()
 	return config.HTTPLoginConfig{User: loginTestUser, PasswordHash: loginTestHash(t, loginTestPassword)}
 }

@@ -168,7 +168,7 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 // must be a level the model offers, as GET /v1/models lists them; omitted,
 // null or empty, the model's reasoning_default applies.
 func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest, topP ...*float64) (llm.RequestOptions, error) {
-	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature, ServiceTier: req.ServiceTier}
 	if len(topP) > 0 {
 		opts.TopP = topP[0]
 	}
@@ -181,11 +181,13 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 	var ent *config.ModelEntry
 	providerType := ""
 	apiModel := ""
+	baseURL := ""
 	if cfg != nil {
 		if ent = cfg.FindModelEntry(model); ent != nil {
 			apiModel = ent.APIModel()
 			if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
 				providerType = prov.Type
+				baseURL = prov.APIBase
 			}
 		}
 	}
@@ -217,7 +219,7 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 		}
 		return llm.RequestOptions{}, fmt.Errorf("reasoning_effort %q is not offered by model %q (offered: %s)", level, model, strings.Join(levels, ", "))
 	}
-	return opts, opts.Validate(providerType, apiModel)
+	return opts, opts.Validate(providerType, apiModel, baseURL)
 }
 
 // directIgnoredOutputCap names output-cap fields that a Codex backend cannot

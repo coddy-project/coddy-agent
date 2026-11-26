@@ -1,11 +1,15 @@
 package ssh
 
 import (
+	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestAgentAuth_NoSocket(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// Ensure SSH_AUTH_SOCK is unset for this test.
 	orig := os.Getenv("SSH_AUTH_SOCK")
 	if err := os.Unsetenv("SSH_AUTH_SOCK"); err != nil {
@@ -30,6 +34,7 @@ func TestAgentAuth_NoSocket(t *testing.T) {
 }
 
 func TestAgentAuth_BadSocket(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// Point SSH_AUTH_SOCK at a path that does not exist.
 	orig := os.Getenv("SSH_AUTH_SOCK")
 	if err := os.Setenv("SSH_AUTH_SOCK", "/tmp/coddy-test-nonexistent.sock"); err != nil {
@@ -56,7 +61,41 @@ func TestAgentAuth_BadSocket(t *testing.T) {
 	}
 }
 
+func TestAgentAuthReadsCurrentBashEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Bash and Unix sockets are not available on Windows")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash is not available")
+	}
+	home := t.TempDir()
+	socket := filepath.Join(t.TempDir(), "agent.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv("HOME", home)
+	t.Setenv("SSH_AUTH_SOCK", filepath.Join(home, "stale.sock"))
+	rcfile := "export SSH_AUTH_SOCK=" + socket + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte(rcfile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	method, closer, err := agentAuth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method == nil || closer == nil {
+		t.Fatal("agentAuth did not use the socket exported by the current .bashrc")
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuildAuthMethods_NoAgentNoKeys(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	orig := os.Getenv("SSH_AUTH_SOCK")
 	if err := os.Unsetenv("SSH_AUTH_SOCK"); err != nil {
 		t.Fatal(err)

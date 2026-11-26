@@ -3,6 +3,7 @@ package session
 import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // BuildACPConfigOptions returns Session Config Options for the ACP protocol (mode + model selectors).
@@ -78,6 +79,10 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		}
 	}
 
+	if choices := llm.ModelServiceTierChoices(cfg, state.SessionModelID(cfg)); len(choices) > 0 {
+		out = append(out, ServiceTierOption(state.SessionServiceTier(cfg), choices))
+	}
+
 	if opt, ok := ToolsetOption(cfg, state); ok {
 		out = append(out, opt)
 	}
@@ -135,4 +140,24 @@ func PermissionModeOption(current string) acp.ConfigOption {
 			{Value: config.PermModeBypass, Name: "Bypass", Description: "Never ask for permission"},
 		},
 	}
+}
+
+// ServiceTierOption gives local and remote clients the same mode labels.
+func ServiceTierOption(current string, choices []string) acp.ConfigOption {
+	labels := map[string]string{"default": "Standard", "priority": "Fast", "ultrafast": "Ultrafast", "flex": "Flex"}
+	if current == "" {
+		current = "default"
+	}
+	values := make([]acp.ConfigOptionValue, 0, len(choices))
+	for _, value := range choices {
+		if value == "" {
+			continue
+		}
+		name := labels[value]
+		if name == "" {
+			name = value
+		}
+		values = append(values, acp.ConfigOptionValue{Value: value, Name: name})
+	}
+	return acp.ConfigOption{ID: "service_tier", Name: "Service tier", Category: "model_config", Type: "select", CurrentValue: current, Options: values}
 }

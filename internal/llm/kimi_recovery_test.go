@@ -28,12 +28,15 @@ func TestKimiRecoveryManaged401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.CompleteLogin(context.Background(), "global", id, KimiCredential{AccessToken: "old", RefreshToken: "refresh", ExpiresAt: time.Now().Add(10 * time.Minute).Unix()}); err != nil {
+	if err = store.CompleteLogin(context.Background(), "global", id, KimiCredential{AccessToken: "old", RefreshToken: "refresh", DeviceID: stage3DeviceID, ExpiresAt: time.Now().Add(10 * time.Minute).Unix()}); err != nil {
 		t.Fatal(err)
 	}
 	var rotations atomic.Int32
 	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rotations.Add(1)
+		if r.Header.Get("X-Msh-Device-Id") != stage3DeviceID {
+			t.Error("refresh used a different device")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := io.WriteString(w, `{"access_token":"new","refresh_token":"next","expires_in":3600}`); err != nil {
 			t.Errorf("write response: %v", err)
@@ -48,6 +51,10 @@ func TestKimiRecoveryManaged401(t *testing.T) {
 	var calls atomic.Int32
 	inference := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		if r.Header.Get("X-Msh-Device-Id") != stage3DeviceID {
+			t.Error("inference used a different device")
+		}
+		w.Header().Set("X-Kimi-Credential-Source", "cli")
 		b, _ := io.ReadAll(r.Body)
 		if string(b) != "body" {
 			t.Error("body changed")
@@ -65,6 +72,9 @@ func TestKimiRecoveryManaged401(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if got := kimiResponseCredentialSource(resp); got != "managed" {
+		t.Errorf("recovered response source = %q", got)
+	}
 	if resp.StatusCode != http.StatusOK || calls.Load() != 2 || rotations.Load() != 1 {
 		t.Fatalf("status=%d calls=%d rotations=%d", resp.StatusCode, calls.Load(), rotations.Load())
 	}
@@ -107,7 +117,8 @@ func TestKimiRecoveryConcurrentRejectedGeneration(t *testing.T) {
 	errs := make(chan error, n)
 	for i := 0; i < n; i++ {
 		go func() {
-			token, err := src.rejectedTicket(context.Background(), ticket)
+			recovered, err := src.recoverTicket(context.Background(), ticket)
+			token := recovered.token
 			if err == nil && token != "new" {
 				err = errors.New("wrong token")
 			}

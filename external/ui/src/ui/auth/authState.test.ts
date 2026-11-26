@@ -82,6 +82,7 @@ describe("refreshAuthState", () => {
     expect(state).toEqual({
       loginRequired: true,
       authRequired: true,
+      oidcEnabled: false,
       authenticated: true,
       user: "operator",
       secondFactor: "",
@@ -261,10 +262,27 @@ describe("signOut", () => {
 
     seen.length = 0;
     respond = () => jsonResponse(200, { ok: true });
-    expect(await signOut()).toBe(true);
+    expect(await signOut()).toEqual({ ok: true, logoutContinue: false });
     expect(seen[0]).toEqual({ url: "/coddy/auth/logout", method: "POST" });
     expect(snapshotAuth().authenticated).toBe(false);
     expect(snapshotAuth().user).toBe("");
+  });
+
+  it("reads the logout-continue signal the answer carries", async () => {
+    // A server that sends the browser on to a logout destination after the
+    // session is dropped marks the response with X-Coddy-Logout-Continue: 1;
+    // the caller navigates to the same-origin continuation route itself.
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: true });
+    await refreshAuthState();
+    respond = () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "X-Coddy-Logout-Continue": "1" }),
+        json: async () => ({ ok: true }),
+      }) as Response;
+    expect(await signOut()).toEqual({ ok: true, logoutContinue: true });
   });
 
   it("reports a refusal instead of pretending, because the cookie is the server's", async () => {
@@ -281,7 +299,7 @@ describe("signOut", () => {
       });
     };
     await refreshAuthState();
-    expect(await signOut()).toBe(false);
+    expect(await signOut()).toEqual({ ok: false, logoutContinue: false });
     expect(snapshotAuth().authenticated).toBe(true);
   });
 
@@ -292,7 +310,7 @@ describe("signOut", () => {
     respond = () => {
       throw new Error("gone");
     };
-    expect(await signOut()).toBe(false);
+    expect(await signOut()).toEqual({ ok: false, logoutContinue: false });
   });
 });
 
@@ -600,5 +618,57 @@ describe("Coddy for Browser side panel sign-in", () => {
       });
     await refreshAuthState();
     expect(seen.some((s) => s.url === "/coddy/auth/browser")).toBe(false);
+  });
+});
+
+describe("external sign-in (OIDC)", () => {
+  const ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+
+  afterEach(async () => {
+    const { resetTelegramLaunchForTests } = await import("../telegram/launch");
+    const { resetBrowserPanelLaunchForTests } =
+      await import("../browserPanel/launch");
+    resetTelegramLaunchForTests();
+    resetBrowserPanelLaunchForTests();
+  });
+
+  it("reports the flag and skips every alternate sign-in route", async () => {
+    // Both alternate routes are armed - a Mini App launch and a panel ticket
+    // the server advertises - and still the only call allowed out is
+    // /coddy/auth/me: under external sign-in nothing else opens a session.
+    const { captureTelegramLaunch } = await import("../telegram/launch");
+    const { captureBrowserPanelLaunch } =
+      await import("../browserPanel/launch");
+    window.history.replaceState(
+      null,
+      "",
+      `/#tgWebAppData=${encodeURIComponent("auth_date=1&user=%7B%22id%22%3A7%7D&hash=abc")}&tgWebAppVersion=8.0`,
+    );
+    captureTelegramLaunch(window);
+    captureBrowserPanelLaunch({
+      location: {
+        search: `?coddy_panel=${"b".repeat(64)}&coddy_panel_origin=${encodeURIComponent(ORIGIN)}`,
+        pathname: "/",
+        hash: "",
+      },
+      parent: {},
+      document,
+      sessionStorage: window.sessionStorage,
+      history: { state: null, replaceState: () => {} },
+    } as unknown as Window);
+
+    respond = () =>
+      jsonResponse(200, {
+        login_required: true,
+        auth_required: true,
+        authenticated: false,
+        oidc_enabled: true,
+        telegram_login: true,
+        browser_login: true,
+      });
+    const state = await refreshAuthState();
+    expect(state.oidcEnabled).toBe(true);
+    expect(state.authenticated).toBe(false);
+    expect(seen).toEqual([{ url: "/coddy/auth/me", method: "GET" }]);
   });
 });

@@ -22,6 +22,14 @@ _coddy() {
             COMPREPLY=($(compgen -f -- "${cur}"))
             return
             ;;
+        --format)
+            if [ "${COMP_WORDS[1]}" = sessions ] && [ "${COMP_WORDS[2]}" = export ]; then
+                COMPREPLY=($(compgen -W "md html json jsonl" -- "${cur}"))
+            else
+                COMPREPLY=($(compgen -W "text json" -- "${cur}"))
+            fi
+            return
+            ;;
         --origin)
             COMPREPLY=($(compgen -W "local gateway print" -- "${cur}"))
             return
@@ -35,9 +43,12 @@ _coddy() {
 
     case "${COMP_WORDS[1]}" in
         sessions)
-            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list export" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = list ] && COMPREPLY=($(compgen -W "--cwd --origin --sessions-dir" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = export ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
+            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list show update delete export" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = list ] && COMPREPLY=($(compgen -W "--cwd --origin --sessions-dir --format" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = export ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking --sessions-dir" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = show ] && COMPREPLY=($(compgen -W "--sessions-dir --format" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = update ] && COMPREPLY=($(compgen -W "--sessions-dir --format --title --tags --archived" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = delete ] && COMPREPLY=($(compgen -W "--sessions-dir --format --yes" -- "${cur}"))
             ;;
         skills)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))
@@ -113,7 +124,7 @@ _coddy() {
             COMPREPLY=($(compgen -W "-c --continue ${prompt_flags} --model --mode --permission-mode --session-id --cwd --remote --remote-token" -- "${cur}"))
             ;;
         desktop)
-            COMPREPLY=($(compgen -W "--window --browser --frame --auth --new-chat -t --test-config --config --home --cwd --log-level" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--window --browser --frame --auth --new-chat --install-shortcut -t --test-config --config --home --cwd --log-level" -- "${cur}"))
             ;;
         serve)
             COMPREPLY=($(compgen -W "install uninstall status stop restart set-password --user -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --add-extension --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))

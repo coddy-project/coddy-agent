@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
-import { discardSessionChanges, type DiscardSelection } from "./api";
+import {
+  deleteSessionChanges,
+  discardSessionChanges,
+  type DiscardSelection,
+} from "./api";
 import { baseName } from "./sessionChangesText";
 import type { ChangeStatus } from "./types";
 import { refreshWorkingCopy } from "./workingCopy";
@@ -17,6 +21,7 @@ export function useDiscard(sessionId: string): {
   error: string;
   discardFile: (path: string, status: ChangeStatus) => Promise<void>;
   discardAll: () => Promise<void>;
+  deleteFile: (path: string) => Promise<void>;
 } {
   const { t } = useT();
   const confirm = useConfirm();
@@ -90,5 +95,32 @@ export function useDiscard(sessionId: string): {
     }
   }, [ask, run, t]);
 
-  return { busy, error, discardFile, discardAll };
+  const deleteFile = useCallback(
+    async (path: string) => {
+      const ok = await ask({
+        title: t("changes.deleteFileConfirm", { name: baseName(path) }),
+        message: t("changes.deleteFileMessage"),
+        confirmLabel: t("changes.deleteYes"),
+        variant: "danger",
+      });
+      if (!ok) {
+        return;
+      }
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setBusy(true);
+      setError("");
+      const res = await deleteSessionChanges(sid, path);
+      setBusy(false);
+      if (!res.ok) {
+        setError(t("changes.deleteFailed", { message: res.message }));
+      }
+      refreshWorkingCopy(sid);
+    },
+    [ask, sessionId, t],
+  );
+
+  return { busy, error, discardFile, discardAll, deleteFile };
 }

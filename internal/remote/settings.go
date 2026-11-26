@@ -12,6 +12,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -90,9 +91,41 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 	if sid == "" {
 		return acp.SessionSettings{}, fmt.Errorf("remote: settings need a session id")
 	}
+	if ch.ServiceTier != nil {
+		if ch.Turns > 0 {
+			return acp.SessionSettings{}, acp.InvalidParams("service_tier is a session setting")
+		}
+		if err := h.ensureModels(ctx); err != nil {
+			return acp.SessionSettings{}, err
+		}
+		snap, err := h.SessionSettings(sid)
+		if err != nil {
+			return acp.SessionSettings{}, err
+		}
+		choices := snap.ServiceTierChoices
+		if ch.Model != nil {
+			h.mu.Lock()
+			choices = nil
+			for _, model := range h.models {
+				if model.ID == *ch.Model {
+					choices = model.ServiceTierChoices
+					break
+				}
+			}
+			h.mu.Unlock()
+		}
+		value := llm.NormalizeServiceTier(*ch.ServiceTier)
+		if value != "" && !hasReasoningLevel(choices, value) {
+			return acp.SessionSettings{}, acp.InvalidParams("unknown service tier: %q", value)
+		}
+		ch.ServiceTier = &value
+	}
 	body := map[string]interface{}{}
 	if ch.Model != nil {
 		body["selectedModelId"] = *ch.Model
+	}
+	if ch.ServiceTier != nil {
+		body["selectedServiceTier"] = *ch.ServiceTier
 	}
 	if ch.Reasoning != nil {
 		body["selectedReasoning"] = *ch.Reasoning
@@ -120,6 +153,9 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 		if ch.Turns == 0 {
 			if ch.Model != nil {
 				st.modelID = *ch.Model
+			}
+			if ch.ServiceTier != nil {
+				st.serviceTier = *ch.ServiceTier
 			}
 			if ch.Reasoning != nil {
 				st.reasoning = *ch.Reasoning
@@ -202,6 +238,8 @@ func (h *Handler) mirrorSettings(sessionID string, snap acp.SessionSettings) {
 		st.modelID = snap.Model
 	}
 	st.reasoning = snap.Reasoning
+	st.serviceTier = snap.ServiceTier
+	st.serviceTierChoices = append([]string(nil), snap.ServiceTierChoices...)
 	if snap.Mode != "" {
 		st.mode = snap.Mode
 	}
@@ -240,6 +278,9 @@ func (h *Handler) SessionSettings(sessionID string) (acp.SessionSettings, error)
 	if st.choicesModel == snap.Model && len(st.reasoningChoices) > 0 {
 		snap.ReasoningChoices = append([]string(nil), st.reasoningChoices...)
 	}
+	if st.choicesModel == snap.Model {
+		snap.ServiceTierChoices = append([]string(nil), st.serviceTierChoices...)
+	}
 	snap.Overrides = append(append([]acp.TurnOverride(nil), st.overrides...), snap.Overrides...)
 	return snap, nil
 }
@@ -255,6 +296,7 @@ func (h *Handler) localSettingsLocked(sessionID string, st *sessionState) acp.Se
 		SessionID:      sessionID,
 		Model:          model,
 		Reasoning:      st.reasoning,
+		ServiceTier:    st.serviceTier,
 		Mode:           st.mode,
 		PermissionMode: st.permissionMode,
 	}
@@ -262,6 +304,7 @@ func (h *Handler) localSettingsLocked(sessionID string, st *sessionState) acp.Se
 	for _, m := range h.models {
 		if m.ID == model {
 			snap.ReasoningChoices = append([]string(nil), m.ReasoningLevels...)
+			snap.ServiceTierChoices = append([]string(nil), m.ServiceTierChoices...)
 		}
 	}
 	for _, ch := range st.pendingSettings {

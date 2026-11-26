@@ -130,3 +130,9 @@ Feature: Opening Coddy as a desktop window
     Then the window follows it off the edge
     But a drag never puts the bar above the top of the screen
 
+
+  Scenario: System window buttons leave their measured room in the strip
+    Given a window whose frame is drawn by the system
+    Then the strip is told the frame is system with 83 pixels on the left
+    When the window control has no system frame
+    Then the strip receives only the ordinary window support answer

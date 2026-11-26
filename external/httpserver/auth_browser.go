@@ -76,6 +76,11 @@ func (s *Server) browserSessionFromRequest(r *http.Request) (webauth.Session, bo
 }
 
 func (s *Server) coddyAuthBrowserPost(w http.ResponseWriter, r *http.Request) {
+	pol, gen := s.localLoginSnapshot()
+	if pol.oidc {
+		oidcRefused(w, http.StatusForbidden)
+		return
+	}
 	if !isSameOriginRequest(r) {
 		writeJSON(w, http.StatusForbidden, map[string]interface{}{"error": "cross-site sign-in refused"})
 		return
@@ -97,6 +102,12 @@ func (s *Server) coddyAuthBrowserPost(w http.ResponseWriter, r *http.Request) {
 	if !ok || grant.KeyDigest != key {
 		s.log.Warn("browser panel sign-in refused", "reason", "unknown, used or stale ticket", "remote", loginClientAddr(r))
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"error": "the side panel's ticket is used or expired; reopen the panel"})
+		return
+	}
+	s.external.mu.Lock()
+	defer s.external.mu.Unlock()
+	if gen != s.external.legacyModeGeneration || s.loginPolicyNow().oidc {
+		oidcRefused(w, http.StatusForbidden)
 		return
 	}
 	ttl := s.tgSessionTTL()

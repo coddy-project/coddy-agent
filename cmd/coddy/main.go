@@ -239,13 +239,16 @@ func printUsage(w io.Writer) {
   %[1]s serve status | stop | restart [--home DIR]
   %[1]s desktop [flags] (open Coddy as a window on this machine: a tab strip with
         one chat per tab, over an HTTP surface on a loopback port this home
-        remembers. --frame keeps the system title bar, --browser names the
+        remembers. --frame keeps a separate system title bar, --browser names the
         browser to open it with, --auth asks for the credential the
         configuration carries; build tags http ui desktop)
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  %[1]s sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
+  %[1]s sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR] [--format text|json]
+  %[1]s sessions show <id> [--sessions-dir DIR] [--format text|json]
+  %[1]s sessions update <id> [--title TEXT] [--tags TAGS] [--archived=true|false] [--sessions-dir DIR] [--format text|json]
+  %[1]s sessions delete <id> [--yes] [--sessions-dir DIR] [--format text|json]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
   %[1]s skills enable <name>
@@ -503,23 +506,8 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 	return serve.OpenSessionStore(flagValue, cfg)
 }
 
-// sessionsUsage is the one usage line of `coddy sessions`.
-func sessionsUsage() string {
-	return fmt.Sprintf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print] | sessions export <session-id> [flags]", os.Args[0])
-}
-
 func runSessions(args []string) error {
-	// A help flag where the verb stands names this line; one after a verb
-	// belongs to that verb's own flag set (`coddy help sessions export`).
-	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Println(sessionsUsage())
-		return nil
-	}
-	if len(args) < 1 {
-		return fmt.Errorf("%s", sessionsUsage())
-	}
-	switch strings.TrimSpace(args[0]) {
-	case "export":
+	if len(args) > 0 && strings.TrimSpace(args[0]) == "export" {
 		if len(args) < 2 {
 			return errors.New(sessionsExportUsage())
 		}
@@ -532,60 +520,8 @@ func runSessions(args []string) error {
 			return fmt.Errorf("load config: %w", err)
 		}
 		return sessionsExport(os.Stdout, nil, cfg, cwd, args[1:])
-	case "list":
-		fs := flag.NewFlagSet("sessions list", flag.ContinueOnError)
-		fs.SetOutput(os.Stderr)
-		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
-		cwdFilter := fs.String("cwd", "", "only list sessions saved with this cwd (absolute)")
-		originFlag := fs.String("origin", "", "only list the sessions of one surface: local, gateway or print (one-shot runs); empty lists every one, print runs included")
-		if err := fs.Parse(args[1:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return nil
-			}
-			return err
-		}
-		origin, ok := session.ParseOriginFilter(*originFlag)
-		if !ok {
-			return fmt.Errorf("--origin must be local, gateway or print, not %q", *originFlag)
-		}
-		cfg, err := config.LoadFromCLI(config.CLIPaths{})
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		store, err := openSessionStore(*rootFlag, cfg)
-		if err != nil {
-			return err
-		}
-		if store == nil || store.Root == "" {
-			return fmt.Errorf("session store not available")
-		}
-		return sessionsList(os.Stdout, store, *cwdFilter, origin)
-	default:
-		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list or sessions export)", args[0], os.Args[0])
 	}
-}
-
-// sessionsList prints the stored sessions newest first, one tab-separated row
-// each. Unlike the pickers it lists the runs of one-shot print mode: a script
-// reads it to find the run it wants to continue with --session-id. Scheduler
-// runs and child sessions stay out.
-func sessionsList(w io.Writer, store *session.FileStore, cwd string, origin session.OriginFilter) error {
-	rows, err := store.ListSnapshotsWith(session.ListOptions{
-		CWD:              strings.TrimSpace(cwd),
-		Origin:           origin,
-		IncludePrintRuns: true,
-	})
-	if err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "SESSION_ID", "UPDATED_AT", "CWD", "TITLE")
-	for _, r := range rows {
-		title := strings.ReplaceAll(r.Title, "\t", " ")
-		title = strings.ReplaceAll(title, "\n", " ")
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.SessionID, r.UpdatedAt, r.CWD, title)
-	}
-	_, _ = fmt.Fprintf(w, "(total %d)\n", len(rows))
-	return nil
+	return localSessionsCommand().run(args)
 }
 
 // skillsUsage is the one usage line of `coddy skills`.

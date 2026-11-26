@@ -67,6 +67,23 @@ type WindowControl interface {
 	WaitForWindow(bound time.Duration) bool
 }
 
+// FrameKind identifies window chrome drawn by the operating system.
+type FrameKind string
+
+const FrameSystem FrameKind = "system"
+
+// WindowFrame describes native chrome the shell must leave clear.
+// A zero value keeps the strip's existing window controls.
+type WindowFrame struct {
+	Kind      FrameKind `json:"frame,omitempty"`
+	LeftInset int       `json:"left_inset,omitempty"`
+}
+
+// FrameSource optionally reports system chrome and its measured space to the strip.
+type FrameSource interface {
+	Frame() WindowFrame
+}
+
 // ChordSource is a window control that can also hand the strip the chords the
 // browser answers itself.
 //
@@ -97,8 +114,8 @@ type Chord struct {
 // the session's autostart folder and the system frame outlive the document, and
 // the browser scopes localStorage to the port, which moves.
 type Settings struct {
-	// Framed keeps the system title bar and borders. Without it the strip is
-	// the title bar and carries the window's own buttons.
+	// Framed keeps the separate system title bar and borders. Without it the
+	// strip is the title bar; system frame controls can still provide buttons.
 	Framed bool `json:"framed"`
 	// Tray shows Coddy's mark in the system tray while the window runs.
 	Tray bool `json:"tray"`
@@ -437,7 +454,14 @@ func serveWindowAction(w http.ResponseWriter, r *http.Request, ctl WindowControl
 		// button nothing answers would be worse than a system frame.
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(map[string]bool{"supported": ctl != nil && ctl.Supported()})
+		answer := struct {
+			Supported bool `json:"supported"`
+			WindowFrame
+		}{Supported: ctl != nil && ctl.Supported()}
+		if frame, ok := ctl.(FrameSource); ok && answer.Supported {
+			answer.WindowFrame = frame.Frame()
+		}
+		_ = json.NewEncoder(w).Encode(answer)
 		return
 	}
 	if r.Method != http.MethodPost {

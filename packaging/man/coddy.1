@@ -207,8 +207,10 @@ Closing the second window ends only that launch. Closing the original window end
 the desktop run. A macOS build with cgo uses Cocoa/WKWebView instead, which is
 what every macOS release archive is. The native window needs macOS 14 for
 isolated persistent WebKit stores and a graphical session. Auto falls back to a
-browser on older macOS versions. On X11 and native macOS the window carries no system frame: the strip is its
-title bar and holds the window's own buttons, a menu of the desktop's switches
+browser on older macOS versions. On X11 and native macOS the strip is the title bar by default. X11 draws window
+buttons at the right; native macOS keeps its round system buttons at the left,
+with green zooming instead of entering full screen. AppKit draws its corners and
+resize edges. The strip also holds a menu of the desktop's switches
 (open at login, the tray icon, start minimised, the system frame) and the
 chords
 .BR Ctrl+T ", " Ctrl+W ", " Ctrl+R " and " Ctrl+Tab ,
@@ -222,7 +224,7 @@ the browser if the required macOS version or graphical session is unavailable.
 chooses the browser (else
 .IR CODDY_DESKTOP_BROWSER ),
 .B \-\-frame
-keeps the system title bar, and
+keeps a separate system title bar and borders, and
 .B \-\-auth
 asks for the credential the configuration carries, which a window on loopback
 does not by default, and
@@ -230,18 +232,59 @@ does not by default, and
 opens a chat in
 .BI \-\-cwd ,
 asking a desktop already running rather than starting a second one \(em which
-is what a row of the application menu naming a recent workspace does. That
-menu is the entry this command writes for the current user on every launch,
-.IR ~/.local/share/applications/coddy\-desktop.desktop ,
-with the folders of this home's recent chats as its actions. Built with the
+is what a row of the application menu naming a recent workspace does. Built
+with the
 .BR http ", " ui " and " desktop
 tags.
+.RS
+.PP
+On Linux (not Android) and Windows,
+.B coddy desktop \-\-install\-shortcut
+installs or repairs the current user's application menu shortcut and exits
+without opening a window or starting a service. On Windows the shortcut is
+in the Start menu.
+.RE
 .TP
 .BI "sessions list"
 List stored sessions, the runs of one\-shot mode included:
 .BI \-\-cwd " DIR" ,
 .BR \-\-origin " local|gateway|print" ,
-.BI \-\-sessions\-dir " DIR" .
+.BI \-\-sessions\-dir " DIR" ,
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions show " id
+Inspect metadata of a session by full id or unique prefix. Accepts
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions update " id
+Update supplied metadata with
+.BI \-\-title " TEXT" ,
+.BI \-\-tags " comma,separated"
+or
+.BR \-\-archived=true|false .
+Accepts
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json" .
+.TP
+.BI "sessions delete " id
+Delete a session tree after confirmation.
+.B \-\-yes
+confirms non-interactively;
+.BI \-\-sessions\-dir " DIR"
+and
+.BI \-\-format " text|json"
+select the root and output. Update and delete require a running local
+.B coddy serve
+or
+.B coddy desktop
+with the same home and sessions root. Foreign live work is refused.
+The current session and its ancestors are protected when
+.B CODDY_SESSION_ID
+is set. Direct verbs accept archived and print sessions, but not scheduler
+sessions or children.
 .TP
 .BI "sessions export " id
 Write a stored session to a file:

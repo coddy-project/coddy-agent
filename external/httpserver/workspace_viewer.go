@@ -489,15 +489,17 @@ func (s *Server) workspaceMediaToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	encoded := base64.RawURLEncoding.EncodeToString(payload)
-	mac := hmac.New(sha256.New, s.workspaceSigningKey())
+	scope := scopeIn(r.Context())
+	mac := hmac.New(sha256.New, scope.signingKey(s.workspaceSigningKey()))
 	_, _ = mac.Write([]byte(encoded))
 	token := encoded + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"token": token, "expires_at": time.Unix(exp, 0).UTC()})
+	writeJSON(w, 200, map[string]any{"token": scope.wrap(token), "expires_at": time.Unix(exp, 0).UTC()})
 }
 
 func (s *Server) acceptWorkspaceCapability(r *http.Request) bool {
-	token := r.URL.Query().Get("access_token")
+	scope := scopeIn(r.Context())
+	token := scope.unwrap(r.URL.Query().Get("access_token"))
 	if len(token) > 16384 {
 		return false
 	}
@@ -509,7 +511,7 @@ func (s *Server) acceptWorkspaceCapability(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	mac := hmac.New(sha256.New, s.workspaceSigningKey())
+	mac := hmac.New(sha256.New, scope.signingKey(s.workspaceSigningKey()))
 	_, _ = mac.Write([]byte(parts[0]))
 	if !hmac.Equal(signature, mac.Sum(nil)) {
 		return false

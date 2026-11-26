@@ -24,7 +24,7 @@ import { FieldLabel, LegendWithHint } from "./FieldHint";
 import { SecretInput } from "./SecretInput";
 import { totpPeriodLeft } from "./totpPeriod";
 import { IconCopy, IconDownload, IconSync } from "./icons";
-import { fieldAnchor } from "./SchemaForm";
+import { fieldAnchor, type JsonSchema } from "./SchemaForm";
 import { landmarkAnchor, SETTINGS_TEXTS } from "./settingsSections";
 
 export const AUTHENTICATION_FIELD_TEXTS: Record<string, string> = {
@@ -34,11 +34,51 @@ export const AUTHENTICATION_FIELD_TEXTS: Record<string, string> = {
   session_ttl_hours: "settings.auth.ttl",
 };
 
+export function supportsOidc(loginSchema?: JsonSchema): boolean {
+  return loginSchema?.properties?.oidc?.properties?.enable != null;
+}
+
+function HiddenValueAction({
+  configured,
+  clearing,
+  onClear,
+  onUndo,
+}: {
+  configured: boolean;
+  clearing: boolean;
+  onClear: () => void;
+  onUndo: () => void;
+}) {
+  const { t } = useT();
+  if (clearing) {
+    return (
+      <>
+        <span className="settings-muted" role="status">
+          {t("settings.auth.clearPending")}
+        </span>
+        <button type="button" className="settings-btn" onClick={onUndo}>
+          {t("settings.auth.undoClear")}
+        </button>
+      </>
+    );
+  }
+  return configured ? (
+    <button
+      type="button"
+      className="settings-btn settings-btn-danger"
+      onClick={onClear}
+    >
+      {t("settings.auth.clear")}
+    </button>
+  ) : null;
+}
+
 type Props = {
+  loginSchema?: JsonSchema | undefined;
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
 };
-export function AuthenticationSection({ value, onChange }: Props) {
+export function AuthenticationSection({ value, onChange, loginSchema }: Props) {
   const { t, tp } = useT();
   const confirm = useConfirm();
   const id = useId();
@@ -210,8 +250,33 @@ export function AuthenticationSection({ value, onChange }: Props) {
       if (url) URL.revokeObjectURL(url);
     }
   };
-  const update = (key: string, v: unknown) =>
-    onChange({ ...value, login: { ...login, [key]: v } });
+  const updateLogin = (patch: Record<string, unknown>) =>
+    onChange({ ...value, login: { ...login, ...patch } });
+  const update = (key: string, v: unknown) => updateLogin({ [key]: v });
+  const oidc = (
+    login.oidc && typeof login.oidc === "object" ? login.oidc : {}
+  ) as Record<string, unknown>;
+  const updateOidc = (patch: Record<string, unknown>) =>
+    updateLogin({ oidc: { ...oidc, ...patch } });
+  // External sign-in replaces every local credential route without deleting
+  // them: the stored account, authenticator and backup codes stay in the
+  // document, dormant, only their controls leave the screen.
+  const oidcSupported = supportsOidc(loginSchema);
+  const oidcOn = oidcSupported && oidc.enable === true;
+  const logoutClearing = login.clear_logout_url === true;
+  const secretClearing = oidc.clear_client_secret === true;
+  const undoLogoutClear = () => {
+    const { logout_url: _value, clear_logout_url: _clear, ...rest } = login;
+    onChange({ ...value, login: rest });
+  };
+  const undoSecretClear = () => {
+    const {
+      client_secret: _value,
+      clear_client_secret: _clear,
+      ...rest
+    } = oidc;
+    updateLogin({ oidc: rest });
+  };
   // The bar and the label are computed from Date.now() at every paint, so
   // they can never drift from the period the authenticator app shows; the
   // timer only asks for a new frame, once a second under reduced motion.
@@ -312,178 +377,226 @@ export function AuthenticationSection({ value, onChange }: Props) {
               }}
             />
           </div>
+          {loginSchema?.properties?.logout_url != null && (
+            <div
+              className="settings-row"
+              data-settings-anchor={fieldAnchor(
+                "httpserver.login",
+                "logout_url",
+              )}
+            >
+              <FieldLabel
+                label={t("settings.auth.logoutUrl")}
+                description={t("settings.auth.logoutUrlHint")}
+              />
+              <input
+                id={`${id}-logout-url`}
+                className="settings-input"
+                type="url"
+                autoComplete="off"
+                aria-label={t("settings.auth.logoutUrl")}
+                placeholder={
+                  logoutClearing
+                    ? undefined
+                    : login.logout_url_configured === true
+                      ? t("settings.secret.keep")
+                      : t("settings.secret.unset")
+                }
+                value={String(login.logout_url ?? "")}
+                onChange={(e) =>
+                  updateLogin({
+                    logout_url: e.target.value,
+                    clear_logout_url: false,
+                  })
+                }
+              />
+              <HiddenValueAction
+                configured={login.logout_url_configured === true}
+                clearing={logoutClearing}
+                onClear={() =>
+                  updateLogin({ logout_url: "", clear_logout_url: true })
+                }
+                onUndo={undoLogoutClear}
+              />
+            </div>
+          )}
         </div>
       </fieldset>
-      <fieldset
-        className="settings-fieldset auth-enrollment"
-        data-settings-anchor={landmarkAnchor("httpserver", "authenticator")}
-      >
-        <legend>{t("settings.auth.authenticator")}</legend>
-        <SwitchField
-          checked={enrolling || login.totp_configured === true}
-          disabled={login.totp_configured === true || busy}
-          label={t("settings.auth.requireCode")}
-          onChange={(next) => {
-            setEnrolling(next);
-            if (next) void setup();
-            else {
-              setupSequence.current++;
-              setQr("");
-              setSecret("");
-            }
-          }}
-        />
-        {login.totp_configured === true && (
-          <button
-            type="button"
-            className="settings-btn auth-edit-secret"
-            onClick={() => {
-              setEnrolling(true);
-              if (!qr) void setup();
+      {/* Local enrollment is hidden while external sign-in is enabled, not
+          deleted: the stored account, secret and backup codes stay in the
+          document and return untouched when OIDC is turned back off. */}
+      {!oidcOn && (
+        <fieldset
+          className="settings-fieldset auth-enrollment"
+          data-settings-anchor={landmarkAnchor("httpserver", "authenticator")}
+        >
+          <legend>{t("settings.auth.authenticator")}</legend>
+          <SwitchField
+            checked={enrolling || login.totp_configured === true}
+            disabled={login.totp_configured === true || busy}
+            label={t("settings.auth.requireCode")}
+            onChange={(next) => {
+              setEnrolling(next);
+              if (next) void setup();
+              else {
+                setupSequence.current++;
+                setQr("");
+                setSecret("");
+              }
             }}
-          >
-            {t("settings.auth.editSecret")}
-          </button>
-        )}
-        {enrolling && (
-          <div className="auth-enrollment-grid">
-            <div className="auth-enrollment-qr-column">
-              {qr ? (
-                <img
-                  className="auth-enrollment-qr"
-                  src={qr}
-                  alt={t("settings.auth.qr")}
-                />
-              ) : (
-                <div
-                  className="auth-enrollment-qr auth-enrollment-qr--placeholder"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="auth-enrollment-hint">
-                {t("settings.auth.scanHint")}
-              </span>
-            </div>
-            <div className="auth-enrollment-fields">
-              <div className="settings-row">
-                <label className="settings-label" htmlFor={`${id}-secret`}>
-                  {t("settings.auth.secret")}
-                </label>
-                <SecretInput
-                  id={`${id}-secret`}
-                  value={secret ?? ""}
-                  readOnly={login.totp_configured === true}
-                  disabled={busy}
-                  autoComplete="off"
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setSecret(next);
-                    if (next.trim()) void setup(next);
-                    else {
-                      setupSequence.current++;
-                      setQr("");
-                    }
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="settings-btn-icon settings-secret-copy"
-                    title={t("settings.auth.copySecret")}
-                    aria-label={t("settings.auth.copySecret")}
-                    disabled={!secret || busy}
-                    onClick={() => void copyText(secret)}
-                  >
-                    <IconCopy />
-                  </button>
-                  <button
-                    type="button"
-                    className="settings-btn-icon settings-secret-refresh"
-                    title={t("settings.auth.refreshSecret")}
-                    aria-label={t("settings.auth.refreshSecret")}
+          />
+          {login.totp_configured === true && (
+            <button
+              type="button"
+              className="settings-btn auth-edit-secret"
+              onClick={() => {
+                setEnrolling(true);
+                if (!qr) void setup();
+              }}
+            >
+              {t("settings.auth.editSecret")}
+            </button>
+          )}
+          {enrolling && (
+            <div className="auth-enrollment-grid">
+              <div className="auth-enrollment-qr-column">
+                {qr ? (
+                  <img
+                    className="auth-enrollment-qr"
+                    src={qr}
+                    alt={t("settings.auth.qr")}
+                  />
+                ) : (
+                  <div
+                    className="auth-enrollment-qr auth-enrollment-qr--placeholder"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="auth-enrollment-hint">
+                  {t("settings.auth.scanHint")}
+                </span>
+              </div>
+              <div className="auth-enrollment-fields">
+                <div className="settings-row">
+                  <label className="settings-label" htmlFor={`${id}-secret`}>
+                    {t("settings.auth.secret")}
+                  </label>
+                  <SecretInput
+                    id={`${id}-secret`}
+                    value={secret ?? ""}
+                    readOnly={login.totp_configured === true}
                     disabled={busy}
-                    onClick={() => {
-                      setCode("");
-                      void setup();
+                    autoComplete="off"
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setSecret(next);
+                      if (next.trim()) void setup(next);
+                      else {
+                        setupSequence.current++;
+                        setQr("");
+                      }
                     }}
                   >
-                    <IconSync />
-                  </button>
-                </SecretInput>
-              </div>
-              <div className="settings-row">
-                <div className="auth-code-heading">
-                  <label className="settings-label" htmlFor={`${id}-code`}>
-                    {t("settings.auth.code")}
-                  </label>
-                  <div
-                    className="auth-period auth-period--inline"
-                    data-testid="auth-period"
-                    role="timer"
-                    aria-live="off"
-                    aria-label={tp("settings.auth.period", period.seconds)}
-                  >
-                    <span className="auth-period-track" aria-hidden="true">
-                      <span
-                        className="auth-period-fill"
-                        style={{ width: `${period.fraction * 100}%` }}
-                      />
-                    </span>
-                    <span className="auth-period-seconds" aria-hidden="true">
-                      {t("settings.auth.seconds", { count: period.seconds })}
-                    </span>
-                  </div>
+                    <button
+                      type="button"
+                      className="settings-btn-icon settings-secret-copy"
+                      title={t("settings.auth.copySecret")}
+                      aria-label={t("settings.auth.copySecret")}
+                      disabled={!secret || busy}
+                      onClick={() => void copyText(secret)}
+                    >
+                      <IconCopy />
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn-icon settings-secret-refresh"
+                      title={t("settings.auth.refreshSecret")}
+                      aria-label={t("settings.auth.refreshSecret")}
+                      disabled={busy}
+                      onClick={() => {
+                        setCode("");
+                        void setup();
+                      }}
+                    >
+                      <IconSync />
+                    </button>
+                  </SecretInput>
                 </div>
-                <input
-                  id={`${id}-code`}
-                  className="settings-input"
-                  disabled={busy}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  value={code}
-                  onChange={(event) =>
-                    setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                />
-              </div>
-              <div className="auth-enrollment-actions">
-                <button
-                  type="button"
-                  className="settings-btn settings-btn-primary"
-                  disabled={!/^\d{6}$/.test(code) || !qr || busy}
-                  onClick={() => void verify()}
-                >
-                  {t("settings.auth.verify")}
-                </button>
+                <div className="settings-row">
+                  <div className="auth-code-heading">
+                    <label className="settings-label" htmlFor={`${id}-code`}>
+                      {t("settings.auth.code")}
+                    </label>
+                    <div
+                      className="auth-period auth-period--inline"
+                      data-testid="auth-period"
+                      role="timer"
+                      aria-live="off"
+                      aria-label={tp("settings.auth.period", period.seconds)}
+                    >
+                      <span className="auth-period-track" aria-hidden="true">
+                        <span
+                          className="auth-period-fill"
+                          style={{ width: `${period.fraction * 100}%` }}
+                        />
+                      </span>
+                      <span className="auth-period-seconds" aria-hidden="true">
+                        {t("settings.auth.seconds", { count: period.seconds })}
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    id={`${id}-code`}
+                    className="settings-input"
+                    disabled={busy}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={code}
+                    onChange={(event) =>
+                      setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                  />
+                </div>
+                <div className="auth-enrollment-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-primary"
+                    disabled={!/^\d{6}$/.test(code) || !qr || busy}
+                    onClick={() => void verify()}
+                  >
+                    {t("settings.auth.verify")}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {enrolling && login.totp_configured === true && (
-          <button
-            type="button"
-            className="settings-btn settings-btn-danger auth-edit-secret"
-            disabled={busy}
-            onClick={() => void change("disable")}
-          >
-            {t("settings.auth.removeTotp")}
-          </button>
-        )}
-        {(error || verifyError) && (
-          <p className="settings-error" role="alert">
-            {(verifyError &&
-              t(
-                verifyError === "disable"
-                  ? "settings.auth.disableError"
-                  : verifyError === "regenerate"
-                    ? "settings.auth.regenerateError"
-                    : "settings.auth.verifyError",
-              )) ||
-              error}
-          </p>
-        )}
-      </fieldset>
-      {login.totp_configured === true && (
+          )}
+          {enrolling && login.totp_configured === true && (
+            <button
+              type="button"
+              className="settings-btn settings-btn-danger auth-edit-secret"
+              disabled={busy}
+              onClick={() => void change("disable")}
+            >
+              {t("settings.auth.removeTotp")}
+            </button>
+          )}
+          {(error || verifyError) && (
+            <p className="settings-error" role="alert">
+              {(verifyError &&
+                t(
+                  verifyError === "disable"
+                    ? "settings.auth.disableError"
+                    : verifyError === "regenerate"
+                      ? "settings.auth.regenerateError"
+                      : "settings.auth.verifyError",
+                )) ||
+                error}
+            </p>
+          )}
+        </fieldset>
+      )}
+      {!oidcOn && login.totp_configured === true && (
         <fieldset
           className="settings-fieldset auth-backup-block"
           data-settings-anchor={landmarkAnchor("httpserver", "backupCodes")}
@@ -541,6 +654,113 @@ export function AuthenticationSection({ value, onChange }: Props) {
             >
               <IconSync /> {t("settings.auth.regenerateAction")}
             </button>
+          </div>
+        </fieldset>
+      )}
+      {oidcSupported && (
+        <fieldset
+          className="settings-fieldset"
+          data-settings-anchor={landmarkAnchor("httpserver", "oidc")}
+        >
+          <legend>{t("settings.auth.oidc")}</legend>
+          {oidcOn ? (
+            <p className="settings-muted">{t("settings.auth.oidc.hint")}</p>
+          ) : null}
+          <div>
+            <SwitchField
+              checked={oidc.enable === true}
+              disabled={busy}
+              label={t("settings.auth.oidc.enable")}
+              onChange={(v) => updateOidc({ enable: v })}
+            />
+          </div>
+          <div className="settings-row">
+            <label className="settings-label" htmlFor={`${id}-oidc-issuer`}>
+              {t("settings.auth.oidc.issuer")}
+            </label>
+            <input
+              id={`${id}-oidc-issuer`}
+              className="settings-input"
+              type="url"
+              autoComplete="off"
+              placeholder="https://"
+              value={String(oidc.issuer ?? "")}
+              onChange={(e) => updateOidc({ issuer: e.target.value })}
+            />
+          </div>
+          <div className="settings-row">
+            <label className="settings-label" htmlFor={`${id}-oidc-client-id`}>
+              {t("settings.auth.oidc.clientId")}
+            </label>
+            <input
+              id={`${id}-oidc-client-id`}
+              className="settings-input"
+              type="text"
+              autoComplete="off"
+              value={String(oidc.client_id ?? "")}
+              onChange={(e) => updateOidc({ client_id: e.target.value })}
+            />
+          </div>
+          <div className="settings-row">
+            <label className="settings-label" htmlFor={`${id}-oidc-secret`}>
+              {t("settings.auth.oidc.clientSecret")}
+            </label>
+            <SecretInput
+              id={`${id}-oidc-secret`}
+              aria-label={t("settings.auth.oidc.clientSecret")}
+              showLabel={t("settings.auth.oidc.clientSecretShow")}
+              hideLabel={t("settings.auth.oidc.clientSecretHide")}
+              autoComplete="off"
+              placeholder={
+                secretClearing
+                  ? undefined
+                  : oidc.client_secret_configured === true
+                    ? t("settings.secret.keep")
+                    : t("settings.secret.unset")
+              }
+              value={String(oidc.client_secret ?? "")}
+              onChange={(e) =>
+                updateOidc({
+                  client_secret: e.target.value,
+                  clear_client_secret: false,
+                })
+              }
+            />
+            <HiddenValueAction
+              configured={oidc.client_secret_configured === true}
+              clearing={secretClearing}
+              onClear={() =>
+                updateOidc({ client_secret: "", clear_client_secret: true })
+              }
+              onUndo={undoSecretClear}
+            />
+          </div>
+          <div className="settings-row">
+            <label className="settings-label" htmlFor={`${id}-oidc-redirect`}>
+              {t("settings.auth.oidc.redirectUrl")}
+            </label>
+            <input
+              id={`${id}-oidc-redirect`}
+              className="settings-input"
+              type="url"
+              autoComplete="off"
+              placeholder="https://"
+              value={String(oidc.redirect_url ?? "")}
+              onChange={(e) => updateOidc({ redirect_url: e.target.value })}
+            />
+          </div>
+          <div className="settings-row">
+            <label className="settings-label" htmlFor={`${id}-oidc-role`}>
+              {t("settings.auth.oidc.requiredRole")}
+            </label>
+            <input
+              id={`${id}-oidc-role`}
+              className="settings-input"
+              type="text"
+              autoComplete="off"
+              value={String(oidc.required_role ?? "")}
+              onChange={(e) => updateOidc({ required_role: e.target.value })}
+            />
           </div>
         </fieldset>
       )}

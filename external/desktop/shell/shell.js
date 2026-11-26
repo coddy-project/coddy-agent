@@ -13,8 +13,9 @@
  * to learn which session it ended up on, and attach its key handler inside
  * each frame. Neither is cooperation from the SPA: the SPA is not changed.
  *
- * With no system frame the window has no title bar and no buttons of its own,
- * so this bar carries them. None of it is a web API: a page cannot minimise,
+ * With no separate system title bar this strip moves the window. X11 uses
+ * the strip's buttons; native macOS keeps the system buttons at the left.
+ * None of it is a web API: a page cannot minimise,
  * maximise or move the window it is drawn in, so the bar asks the process that
  * started the browser (POST /desktop/window), which asks the window manager.
  */
@@ -48,6 +49,9 @@
   const frames = document.getElementById("coddy-desktop-frames");
   const root = document.documentElement;
   const newTabButton = document.getElementById("new-tab");
+  const copyStatus = document.getElementById("copy-status");
+  let copyStatusTimer;
+  const titleBar = document.getElementById("coddy-desktop-tabs");
   const dragZone = document.getElementById("drag");
   const menuButton = document.getElementById("menu-btn");
   const menu = document.getElementById("menu");
@@ -74,6 +78,7 @@
   const locallyBusy = new Map();
   /** Whether this window can be asked to minimise, maximise, move or close. */
   let windowDriven = false;
+  let systemFrame = false;
   /**
    * The switches of the menu, as the launcher has them. They are its own and
    * not this page's: an autostart entry, a tray icon and the system frame
@@ -337,6 +342,15 @@
       if (res.ok) {
         const body = await res.json();
         windowDriven = body && body.supported === true;
+        systemFrame = windowDriven && body.frame === "system";
+        if (systemFrame) root.dataset.frame = "system";
+        else delete root.dataset.frame;
+        const inset =
+          systemFrame && Number.isFinite(body.left_inset)
+            ? Math.max(0, body.left_inset)
+            : 0;
+        if (systemFrame) root.style.setProperty("--window-left-inset", `${inset}px`);
+        else root.style.removeProperty("--window-left-inset");
       }
     } catch {
       windowDriven = false;
@@ -355,13 +369,18 @@
   // system frame, and a strip that drew all three beside the manager's own
   // would be two sets of the same buttons.
   function syncWindowButtons() {
-    windowButtons.hidden = !windowDriven || settings.framed;
+    if (systemFrame) root.dataset.framed = String(settings.framed);
+    else delete root.dataset.framed;
+    windowButtons.hidden = !windowDriven || settings.framed || systemFrame;
     syncResizeEdges();
   }
 
   function syncResizeEdges() {
     resizeEdges.hidden =
-      !windowDriven || settings.framed || root.dataset.window === "maximised";
+      !windowDriven ||
+      settings.framed ||
+      systemFrame ||
+      root.dataset.window === "maximised";
   }
 
   // The window's own corners are cut by the launcher while it floats and left
@@ -1597,6 +1616,28 @@
     }
   }
 
+  async function copyActivePageLink() {
+    let message = "Could not copy link";
+    try {
+      const url = new URL(frameOf.get(activeUid).contentWindow.location.href);
+      if (url.origin === location.origin && /^https?:$/.test(url.protocol)) {
+        // Workspace handoff parameters are private to the desktop launcher.
+        for (const key of ["desktop_workspace", "desktop_workspace_pending"]) {
+          if (url.searchParams.has(key)) url.searchParams.delete(key);
+        }
+        url.username = "";
+        url.password = "";
+        await navigator.clipboard.writeText(url.href);
+        message = "Link copied";
+      }
+    } catch {
+      // A frame in transit can be unreadable, and clipboard access can be denied.
+    }
+    copyStatus.textContent = message;
+    clearTimeout(copyStatusTimer);
+    copyStatusTimer = setTimeout(() => { copyStatus.textContent = ""; }, 2000);
+  }
+
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // --- the desktop menu ---------------------------------------------------
@@ -1869,6 +1910,8 @@
     if (pickedDuringResolution) postWorkspaceResolved(tab);
   });
 
+  document.getElementById("reload-tab").addEventListener("click", reloadActiveFrame);
+  document.getElementById("copy-page-link").addEventListener("click", copyActivePageLink);
   newTabButton.addEventListener("click", () => openTab());
   scrollLeft.addEventListener("click", () => scrollStrip(-1));
   scrollRight.addEventListener("click", () => scrollStrip(1));
@@ -1900,12 +1943,17 @@
   // click maximises or restores it, which is what a title bar does everywhere;
   // a chat is opened by the plus or by the chord, never by a stray double
   // click on the bar.
-  for (const zone of [dragZone, strip]) {
+  for (const zone of [titleBar, dragZone, strip]) {
     zone.addEventListener("pointerdown", (e) => {
-      if (e.target === zone) dragWindowFrom(e);
+      if (e.target === zone && (zone !== titleBar || systemFrame))
+        dragWindowFrom(e);
     });
     zone.addEventListener("dblclick", (e) => {
-      if (e.target !== zone || !windowDriven) return;
+      if (
+        e.target !== zone ||
+        !windowDriven ||
+        (zone === titleBar && !systemFrame)
+      ) return;
       askWindow("maximise").then(() => setTimeout(syncWindowShape, 120));
     });
   }

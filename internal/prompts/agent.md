@@ -107,12 +107,6 @@ A foreground command blocks the whole turn until it exits, so anything slower th
 {{.Subagents}}
 
 {{end}}
-{{if .Tools}}
-## Available tools
-
-{{.Tools}}
-
-{{end}}
 {{if .Skills}}
 {{.Skills}}
 

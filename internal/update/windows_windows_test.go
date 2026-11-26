@@ -297,3 +297,33 @@ func TestHelperArgsNameTheRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallWindowsUpdateKeepsStartMenuTargetAndAssets(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "coddy.exe")
+	staged := filepath.Join(dir, ".coddy-update-staged")
+	icon := filepath.Join(dir, "coddy.ico")
+	link := filepath.Join(dir, "Coddy.lnk")
+	for path, body := range map[string]string{target: "previous Coddy", staged: "next Coddy", icon: "icon data", link: target} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	probe := handoffProbe
+	t.Cleanup(func() { handoffProbe = probe })
+	handoffProbe = func(path string) (bool, error) {
+		if path != target {
+			t.Errorf("handoff probed %q, want the Start menu target %q", path, target)
+		}
+		return false, nil
+	}
+	if err := installWindowsUpdate(windowsUpdateRequest{StagedPath: staged, TargetPath: target}, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{target: "next Coddy", icon: "icon data", link: target} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q (%v), want %q", path, got, err, want)
+		}
+	}
+}

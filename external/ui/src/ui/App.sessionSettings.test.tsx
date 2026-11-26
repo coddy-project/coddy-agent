@@ -31,6 +31,7 @@ type StoredSession = {
   /** The session's own model and level (the snapshot). */
   model: string;
   reasoning: string;
+  serviceTier?: string;
   /** Levels the session may hold: the menu's, plus off where it exists. */
   choices: string[];
   permissionMode: string;
@@ -131,6 +132,8 @@ function snapshot(sid: string) {
     model: s.model,
     reasoning: s.reasoning,
     reasoningChoices: s.choices,
+    serviceTier: s.serviceTier ?? "",
+    serviceTierChoices: ["", "default", "priority"],
     mode: "agent",
     permissionMode: s.permissionMode,
     configuredPermissionMode: "ask",
@@ -153,6 +156,7 @@ const fetchMock = vi.fn(
           // Levels configured, no default named; off is not a menu level.
           {
             id: ALPHA,
+            service_tier_choices: ["", "default", "priority"],
             owned_by: "fake",
             max_context_tokens: 128000,
             reasoning_levels: newChatModelOffersOff
@@ -192,7 +196,10 @@ const fetchMock = vi.fn(
         const body = JSON.parse(String(init.body)) as {
           permissionMode?: string;
           selectedReasoning?: string;
+          selectedServiceTier?: string;
         };
+        if (body.selectedServiceTier !== undefined)
+          sessions[sid]!.serviceTier = body.selectedServiceTier;
         if (body.permissionMode)
           sessions[sid]!.permissionMode = body.permissionMode;
         if (body.selectedReasoning !== undefined)
@@ -228,6 +235,7 @@ beforeEach(() => {
   resetSessions();
   initLocale("en");
   localStorage.clear();
+  document.cookie = "coddy_service_tier=; Path=/; Max-Age=0";
   document.cookie = "coddy_llm_reasoning=; Path=/; Max-Age=0";
   document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
   history.replaceState(null, "", "/");
@@ -516,4 +524,41 @@ test("leaving a session for a new chat starts from the start page's defaults", a
   await settle();
   expect(reasoningChip()).toHaveTextContent("Low");
   expect(permissionChip()).toHaveTextContent("Ask first");
+});
+
+const tierChip = () => screen.getByRole("button", { name: "Service tier" });
+
+test("the tier cookie seeds a new chat but cannot replace an opened session", async () => {
+  await mountHome();
+  await pickOnStartPage(tierChip, "Fast");
+  expect(document.cookie).toContain("coddy_service_tier=priority");
+  await navigate(S_HIGH_BYPASS);
+  expect(tierChip()).toHaveTextContent("Standard");
+  expect(document.cookie).toContain("coddy_service_tier=priority");
+  expect((await send("next")).service_tier).toBe("");
+  fireEvent.click(tierChip());
+  expect(screen.queryByRole("menuitem", { name: "Auto" })).toBeNull();
+  expect(screen.getAllByRole("menuitem", { name: "Standard" })).toHaveLength(1);
+  expect(screen.getByRole("menuitem", { name: "Standard" })).toHaveClass(
+    "is-selected",
+  );
+  fireEvent.keyDown(document, { key: "Escape" });
+});
+
+test("tier selections and another client's reset follow the server snapshot", async () => {
+  await mountSession(S_HIGH_BYPASS);
+  await pickOnStartPage(tierChip, "Standard");
+  await waitFor(() =>
+    expect(sessions[S_HIGH_BYPASS]!.serviceTier).toBe("default"),
+  );
+  await settle();
+  expect(tierChip()).toHaveTextContent("Standard");
+  sessions[S_HIGH_BYPASS]!.serviceTier = "";
+  await pushEvent("session_settings", {
+    sessionId: S_HIGH_BYPASS,
+    settings: snapshot(S_HIGH_BYPASS),
+  });
+  await waitFor(() => expect(tierChip()).toHaveTextContent("Standard"));
+  expect(document.cookie).toContain("coddy_service_tier=default");
+  expect((await send("next")).service_tier).toBe("");
 });

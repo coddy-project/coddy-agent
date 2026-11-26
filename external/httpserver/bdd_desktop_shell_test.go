@@ -101,6 +101,19 @@ func (s *desktopShellState) tellsALauncherADesktopIsHere() error {
 	return nil
 }
 
+func (s *desktopShellState) offersPageActions() error {
+	_, header, _ := strings.Cut(s.page.Body.String(), `<header`)
+	header, _, _ = strings.Cut(header, `</header>`)
+	for _, control := range []string{`id="menu-btn"`, `aria-label="Reload page"`, `aria-label="Copy page link"`, `id="strip"`} {
+		_, rest, found := strings.Cut(header, control)
+		if !found {
+			return fmt.Errorf("missing or misplaced %s in the tab strip", control)
+		}
+		header = rest
+	}
+	return nil
+}
+
 func (s *desktopShellState) framesTheWebUI() error {
 	body := s.page.Body.String()
 	if !strings.Contains(body, `id="coddy-desktop-frames"`) {
@@ -171,6 +184,7 @@ func TestDesktopShellFeature(t *testing.T) {
 			sc.Step(`^the window actions of the shell answer nothing$`, st.windowActionsAnswerNothing)
 			sc.Step(`^the shell answers with its tab strip$`, st.answersWithTheTabStrip)
 			sc.Step(`^it tells a launcher that a Coddy desktop is serving here$`, st.tellsALauncherADesktopIsHere)
+			sc.Step(`^its tab strip offers reload and copy link for the active page$`, st.offersPageActions)
 			sc.Step(`^the shell frames the web UI of this server$`, st.framesTheWebUI)
 			sc.Step(`^the session list it draws its titles from is still behind the gate$`, st.sessionListStillGated)
 			sc.Step(`^the desktop serves it for a window of its own$`, st.servesForAWindow)

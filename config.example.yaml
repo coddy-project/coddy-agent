@@ -146,7 +146,7 @@ models:
     max_tokens: 8192
     reasoning_default: medium     # a reasoning model takes a level, not a temperature
     multimodal: true              # model accepts image/file inputs; UI shows file attachment button; read shows it image files
-    # image_generation: true      # model may emit images natively (provider image tool); UI shows a per-turn image control
+    # image_generation: true      # include the provider's image generation tool in every chat request for this model
 
   # Reasoning models expose a reasoning-level selector in the composer.
   # Levels are auto-detected from the model id (gpt-5*/gpt-6* -> minimal,low,medium,high;
@@ -624,6 +624,14 @@ tools:
 #     backup_codes:
 #       generation: "..."
 #       hashes: ["..."]
+#     logout_url: "" # Static HTTP(S) URL; never include secrets or identity data.
+#     oidc:
+#       enable: false
+#       issuer: "https://identity.example"
+#       client_id: "coddy"
+#       client_secret: "${CODDY_OIDC_CLIENT_SECRET}"
+#       redirect_url: "https://coddy.example/coddy/auth/oidc/callback"
+#       required_role: "operator"
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # a server without a credential is open on purpose: silences the warnings about

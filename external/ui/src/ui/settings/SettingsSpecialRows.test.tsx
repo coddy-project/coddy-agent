@@ -184,6 +184,7 @@ describe("special Settings rows", () => {
     const plan = buildSpecialRowPlan({
       section: "appearance",
       doc: {},
+      schema: { type: "object" },
       landmarks,
       alters: passes,
     });
@@ -330,6 +331,7 @@ describe("special Settings rows", () => {
     const plan = buildSpecialRowPlan({
       section: "appearance",
       doc: {},
+      schema: { type: "object" },
       landmarks: [notifications],
       alters: [
         alter("restore", () => [

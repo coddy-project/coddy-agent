@@ -102,8 +102,8 @@ type Manager struct {
 	mcpWatchMu   sync.Mutex
 	mcpWatchStop context.CancelFunc
 
-	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
-	stubTurnMu sync.Map // sessionID -> *sync.Mutex
+	// stubTurnLocks tracks held turn locks when flock is unavailable or SessionDir is empty.
+	stubTurnLocks sync.Map // sessionID -> struct{}
 
 	// activeTurns counts prompt turns in flight in THIS process, keyed by session id.
 	// See turn_active.go for why it is a count rather than a set.
@@ -1094,7 +1094,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.SelectedServiceTier, snap.Meta.AgentMemory)
+	st.restoreTurnServiceTier(snap.Meta.TurnServiceTier)
 	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
 	if snap.Meta.Goal != nil {
 		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
@@ -1400,7 +1401,8 @@ func (m *Manager) PreviewHTTPSession(sessionID string) (*State, error) {
 	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.SelectedServiceTier, snap.Meta.AgentMemory)
+	st.restoreTurnServiceTier(snap.Meta.TurnServiceTier)
 	st.RestoreToolsetWithoutPersist(snap.Meta.SelectedToolset)
 	if snap.Meta.IsSubagentRun() {
 		st.SetSubagentMeta(SubagentMeta{
@@ -2313,6 +2315,8 @@ func (m *Manager) SetConfigOptionFrom(ctx context.Context, params acp.SessionSet
 		ch.Mode = &value
 	case "model":
 		ch.Model = &value
+	case "service_tier":
+		ch.ServiceTier = &value
 	case "reasoning":
 		ch.Reasoning = &value
 	case "toolset":

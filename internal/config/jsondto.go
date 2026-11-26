@@ -400,7 +400,22 @@ type HTTPServerJSON struct {
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash and TOTPSecret are
 // write-only: reading the config never returns them, and writing the config
 // back without them keeps what is already on disk.
+type HTTPOIDCJSON struct {
+	Enable                 bool   `json:"enable"`
+	Issuer                 string `json:"issuer,omitempty"`
+	ClientID               string `json:"client_id,omitempty"`
+	ClientSecret           string `json:"client_secret,omitempty"`
+	ClientSecretConfigured bool   `json:"client_secret_configured"`
+	ClearClientSecret      bool   `json:"clear_client_secret,omitempty"`
+	RedirectURL            string `json:"redirect_url,omitempty"`
+	RequiredRole           string `json:"required_role,omitempty"`
+}
+
 type HTTPLoginJSON struct {
+	OIDC                  HTTPOIDCJSON         `json:"oidc"`
+	LogoutURL             string               `json:"logout_url,omitempty"`
+	LogoutURLConfigured   bool                 `json:"logout_url_configured"`
+	ClearLogoutURL        bool                 `json:"clear_logout_url,omitempty"`
 	BackupCodes           *webauth.BackupState `json:"backup_codes,omitempty"`
 	Password              string               `json:"password,omitempty"`
 	TOTPConfigured        bool                 `json:"totp_configured"`
@@ -722,6 +737,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		// AuthToken is intentionally redacted; report only whether one is configured.
 		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
 		Login: HTTPLoginJSON{
+			LogoutURLConfigured:   c.HTTPServer.Login.LogoutURL != "",
+			OIDC:                  HTTPOIDCJSON{Enable: c.HTTPServer.Login.OIDC.Enable, Issuer: c.HTTPServer.Login.OIDC.Issuer, ClientID: c.HTTPServer.Login.OIDC.ClientID, ClientSecretConfigured: c.HTTPServer.Login.OIDC.ClientSecret != "", RedirectURL: c.HTTPServer.Login.OIDC.RedirectURL, RequiredRole: c.HTTPServer.Login.OIDC.RequiredRole},
 			Enabled:               cloneBoolPtr(c.HTTPServer.Login.Enabled),
 			Mode:                  c.HTTPServer.Login.Mode,
 			User:                  c.HTTPServer.Login.User,
@@ -999,6 +1016,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Port:                     j.HTTPServer.Port,
 		AuthToken:                j.HTTPServer.AuthToken,
 		Login: HTTPLoginConfig{
+			LogoutURL:          j.HTTPServer.Login.LogoutURL,
+			OIDC:               HTTPOIDCConfig{Enable: j.HTTPServer.Login.OIDC.Enable, Issuer: j.HTTPServer.Login.OIDC.Issuer, ClientID: j.HTTPServer.Login.OIDC.ClientID, ClientSecret: j.HTTPServer.Login.OIDC.ClientSecret, RedirectURL: j.HTTPServer.Login.OIDC.RedirectURL, RequiredRole: j.HTTPServer.Login.OIDC.RequiredRole},
 			Enabled:            cloneBoolPtr(j.HTTPServer.Login.Enabled),
 			Mode:               j.HTTPServer.Login.Mode,
 			User:               j.HTTPServer.Login.User,
@@ -1197,6 +1216,12 @@ func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config)
 		cfg.HTTPServer.Login.PasswordHash = hash
 	}
 	preserveRedactedSecrets(cfg, current)
+	if j.HTTPServer.Login.ClearLogoutURL {
+		cfg.HTTPServer.Login.LogoutURL = ""
+	}
+	if j.HTTPServer.Login.OIDC.ClearClientSecret {
+		cfg.HTTPServer.Login.OIDC.ClientSecret = ""
+	}
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
@@ -1224,6 +1249,12 @@ func preserveRedactedSecrets(next, current *Config) {
 	// dropped it would quietly take the second factor away from the account.
 	if strings.TrimSpace(next.HTTPServer.Login.TOTPSecret) == "" && strings.TrimSpace(current.HTTPServer.Login.TOTPSecret) != "" {
 		next.HTTPServer.Login.TOTPSecret = current.HTTPServer.Login.TOTPSecret
+	}
+	if next.HTTPServer.Login.LogoutURL == "" {
+		next.HTTPServer.Login.LogoutURL = current.HTTPServer.Login.LogoutURL
+	}
+	if next.HTTPServer.Login.OIDC.ClientSecret == "" {
+		next.HTTPServer.Login.OIDC.ClientSecret = current.HTTPServer.Login.OIDC.ClientSecret
 	}
 	next.HTTPServer.Login.BackupCodes = webauth.BackupState{Generation: current.HTTPServer.Login.BackupCodes.Generation, Hashes: append([]string(nil), current.HTTPServer.Login.BackupCodes.Hashes...)}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
@@ -1327,6 +1358,8 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 	// and it is why `coddy serve set-password` exists rather than a line an
 	// operator types into the file by hand.
 	out.HTTPServer.Login.PasswordHash = escapeYAMLDollar(cfg.HTTPServer.Login.PasswordHash)
+	out.HTTPServer.Login.LogoutURL = escapeYAMLDollar(cfg.HTTPServer.Login.LogoutURL)
+	out.HTTPServer.Login.OIDC.ClientSecret = escapeYAMLDollar(cfg.HTTPServer.Login.OIDC.ClientSecret)
 	// Settings accept a literal extension key, including dollar signs.
 	out.Browser.Token = escapeYAMLDollar(cfg.Browser.Token)
 	out.Metrics.Token = escapeYAMLDollar(cfg.Metrics.Token)

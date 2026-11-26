@@ -9,6 +9,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // SettingsChange is one change of a session's settings, whichever surface
@@ -18,6 +19,7 @@ type SettingsChange struct {
 	// Reasoning is a level the model offers, "off" where its provider can
 	// turn thinking off, or "default" (or "") for the model's default level.
 	Reasoning      *string
+	ServiceTier    *string
 	Mode           *string
 	PermissionMode *string
 	// Toolset is a toolsets[] preset by name, or "default" for none.
@@ -46,7 +48,7 @@ const (
 
 // Empty reports whether the change names no setting at all.
 func (c SettingsChange) Empty() bool {
-	return c.Model == nil && c.Reasoning == nil && c.Toolset == nil && c.Mode == nil && c.PermissionMode == nil
+	return c.Model == nil && c.Reasoning == nil && c.ServiceTier == nil && c.Toolset == nil && c.Mode == nil && c.PermissionMode == nil
 }
 
 // ByAgent reports whether the agent made the change itself rather than the
@@ -126,6 +128,8 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 	// What a new session would start in: the mode chosen last (#512).
 	out.ConfiguredPermissionMode = m.DefaultPermissionMode()
 	if cfg != nil {
+		out.ServiceTier = st.SessionServiceTier(cfg)
+		out.ServiceTierChoices = llm.ModelServiceTierChoices(cfg, out.Model)
 		out.Reasoning = st.SessionReasoning(cfg)
 		out.ReasoningChoices = cfg.ReasoningChoicesFor(cfg.FindModelEntry(out.Model))
 		// No presets, no choice: a surface then shows no toolset selector.
@@ -233,6 +237,8 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 	if ch.Empty() {
 		return m.settingsSnapshot(sessionID, st), "", nil
 	}
+	st.settingsChangeMu.Lock()
+	defer st.settingsChangeMu.Unlock()
 	values, err := m.validateSettingsChange(st, ch)
 	if err != nil {
 		// Every refusal here is a value the method does not accept - an
@@ -279,11 +285,14 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 		if cfg == nil || len(cfg.Models) == 0 {
 			return nil, fmt.Errorf("no models configured")
 		}
-		if cfg.FindModelEntry(v) == nil || v == "" {
+		if v != "" && cfg.FindModelEntry(v) == nil {
 			return nil, fmt.Errorf("unknown model %q (configured: %s)", v, strings.Join(configuredModelIDs(cfg), ", "))
 		}
+		if v == "" && ch.Turns > 0 {
+			return nil, fmt.Errorf("model cannot be cleared for a number of turns")
+		}
 		out[SettingModel] = v
-		model = v
+		model = ResolveModelID(cfg, v)
 	}
 	if ch.Reasoning != nil {
 		v := strings.ToLower(strings.TrimSpace(*ch.Reasoning))
@@ -319,6 +328,19 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 			return nil, fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", v, model, strings.Join(choices, ", "))
 		}
 		out[SettingReasoning] = v
+	}
+	if ch.ServiceTier != nil {
+		if ch.Turns > 0 {
+			return nil, fmt.Errorf("service_tier is a session setting, not a turn override")
+		}
+		if model == "" {
+			model = st.SessionModelID(cfg)
+		}
+		v := llm.NormalizeServiceTier(*ch.ServiceTier)
+		if v != "" && !containsLevel(llm.ModelServiceTierChoices(cfg, model), v) {
+			return nil, fmt.Errorf("service tier %q is not offered by model %q", v, model)
+		}
+		out[SettingServiceTier] = v
 	}
 	if ch.Toolset != nil {
 		v := strings.TrimSpace(*ch.Toolset)
@@ -370,6 +392,9 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		switch name {
 		case SettingModel:
 			st.SetSelectedModelID(v)
+			if _, named := values[SettingServiceTier]; !named && !containsLevel(llm.ModelServiceTierChoices(cfg, st.SessionModelID(cfg)), st.GetSelectedServiceTier()) {
+				st.SetSelectedServiceTier("")
+			}
 			// A level the new model does not offer falls back to its default,
 			// in the snapshot for everyone to see, instead of lingering unused.
 			if _, named := values[SettingReasoning]; !named && cfg != nil {
@@ -378,6 +403,8 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 					st.SetSelectedReasoning("")
 				}
 			}
+		case SettingServiceTier:
+			st.SetSelectedServiceTier(v)
 		case SettingReasoning:
 			if v == config.ReasoningDefault {
 				v = ""
@@ -654,7 +681,10 @@ func (m *Manager) takeSettingsCommandsChecked(ctx context.Context, sessionID str
 // was just admitted and, when the turn holds any, publishes the snapshot so
 // every surface shows them as active. It reports whether it published.
 func (m *Manager) beginOperatorTurnSettings(sessionID string, st *State) bool {
+	st.settingsChangeMu.Lock()
 	st.BeginOperatorTurnSettings()
+	st.captureTurnServiceTier(m.activeCfg())
+	st.settingsChangeMu.Unlock()
 	if len(st.TurnOverrides()) == 0 {
 		return false
 	}

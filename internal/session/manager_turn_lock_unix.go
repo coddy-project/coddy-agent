@@ -25,19 +25,7 @@ func (m *Manager) acquirePromptTurnLock(sessionID string, st *State) (unlock fun
 	if dir == "" {
 		return m.acquireStubTurnLock(sessionID)
 	}
-	for attempt := 0; attempt < 4; attempt++ {
-		u, err := acquireTurnLockFlock(dir)
-		if err == nil {
-			return u, nil
-		}
-		if !errors.Is(err, ErrSessionTurnBusy) {
-			return nil, err
-		}
-		if !tryBreakStaleTurnLock(dir) {
-			return nil, ErrSessionTurnBusy
-		}
-	}
-	return nil, ErrSessionTurnBusy
+	return acquireTurnLockFlock(dir)
 }
 
 // TurnLockHeld reports whether another holder has an exclusive flock on the turn lock file.
@@ -98,21 +86,6 @@ func acquireTurnLockFlock(sessionDir string) (unlock func(), err error) {
 	}, nil
 }
 
-func tryBreakStaleTurnLock(sessionDir string) bool {
-	path := filepath.Join(sessionDir, turnLockFileName)
-	b, err := os.ReadFile(path)
-	if err != nil || len(b) == 0 {
-		_ = os.Remove(path)
-		return true
-	}
-	var meta turnLockMeta
-	if json.Unmarshal(b, &meta) != nil || meta.PID <= 0 {
-		_ = os.Remove(path)
-		return true
-	}
-	if err := syscall.Kill(meta.PID, 0); err != nil {
-		_ = os.Remove(path)
-		return true
-	}
-	return false
+func (m *Manager) acquireDeleteTurnLock(id, dir string) (func(), error) {
+	return acquireTurnLockFlock(dir)
 }

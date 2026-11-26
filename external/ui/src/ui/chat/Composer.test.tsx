@@ -128,7 +128,9 @@ test("switching session refocuses textarea in active chat", () => {
       onSend={() => {}}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   expect(ta).toHaveFocus();
   ta.blur();
   rerender(
@@ -290,7 +292,9 @@ test("pressing Enter calls onSend with trimmed text", () => {
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   fireEvent.keyDown(ta, { key: "Enter", code: "Enter", charCode: 13 });
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(onSend).toHaveBeenCalledWith("test input");
@@ -398,18 +402,141 @@ test("Tab key selects first slash command from picker", async () => {
     target: { value: "/gen", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
     expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules ");
   });
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+// Regression: picking a skill while the caret sits in the middle of a draft
+// used to leave two spaces between the chosen name and the text that followed
+// the caret, because the inserted "/name " added a second separator.
+test("Tab keeps one space between the chosen skill and the text after the caret", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/gen hello", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-rpa-gen-rules");
+  fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules hello");
+  });
+  // The caret stands before the whitespace that already followed the draft.
+  await waitFor(() => {
+    expect(ta.selectionStart).toBe("/rpa-gen-rules".length);
+  });
+  vi.unstubAllGlobals();
+});
+
+test("clicking a skill row keeps one space between the chosen skill and the text after the caret", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/gen hello", selectionStart: 4, selectionEnd: 4 },
+  });
+
+  const row = await screen.findByTestId("slash-command-row-rpa-gen-rules");
+  fireEvent.mouseDown(row);
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules hello");
+  });
+  await waitFor(() => {
+    expect(ta.selectionStart).toBe("/rpa-gen-rules".length);
+  });
   vi.unstubAllGlobals();
 });
 
@@ -466,12 +593,9 @@ test("Tab completes a skill name while a turn runs", async () => {
     target: { value: "/nd-", selectionStart: 4, selectionEnd: 4 },
   });
 
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("listbox", { name: "Slash commands" }),
-    ).toBeTruthy();
-  });
-
+  // The listbox mounts as soon as the picker opens, while its rows are still
+  // loading: wait for the row itself, or the key lands before the items.
+  await screen.findByTestId("slash-command-row-nd-search");
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
@@ -581,6 +705,11 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
       String(c[0]).includes("/coddy/slash-commands"),
     ).length;
   await waitFor(() => expect(slashCalls()).toBe(1));
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeNull();
+  });
   fireEvent.change(ta, {
     target: {
       value: "/adfadsfgaf",
@@ -1447,106 +1576,6 @@ test("attach button visible when llmModelMultimodal is true", () => {
     />,
   );
   expect(screen.getByTestId("composer-attach-btn")).toBeTruthy();
-  vi.unstubAllGlobals();
-});
-
-test("image control hidden when the model does not opt in", () => {
-  stubMatchMediaMobile(false);
-  render(
-    <Composer
-      value=""
-      isEmpty={true}
-      mode="agent"
-      modes={["agent", "plan"]}
-      llmModels={["openai/gpt-4o"]}
-      llmModel="openai/gpt-4o"
-      llmModelMultimodal={true}
-      llmModelImageGen={false}
-      imageGenOn={false}
-      onImageGenToggle={() => {}}
-      onLlmModelChange={() => {}}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
-  vi.unstubAllGlobals();
-});
-
-test("image control hidden without a toggle handler", () => {
-  stubMatchMediaMobile(false);
-  render(
-    <Composer
-      value=""
-      isEmpty={true}
-      mode="agent"
-      modes={["agent", "plan"]}
-      llmModels={["openai/gpt-4o"]}
-      llmModel="openai/gpt-4o"
-      llmModelMultimodal={true}
-      llmModelImageGen={true}
-      onLlmModelChange={() => {}}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-  expect(screen.queryByTestId("composer-imagegen")).toBeNull();
-  vi.unstubAllGlobals();
-});
-
-test("image control toggles the per-turn opt-in", () => {
-  stubMatchMediaMobile(false);
-  const onImageGenToggle = vi.fn();
-  render(
-    <Composer
-      value=""
-      isEmpty={true}
-      mode="agent"
-      modes={["agent", "plan"]}
-      llmModels={["openai/gpt-4o"]}
-      llmModel="openai/gpt-4o"
-      llmModelMultimodal={true}
-      llmModelImageGen={true}
-      imageGenOn={false}
-      onImageGenToggle={onImageGenToggle}
-      onLlmModelChange={() => {}}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-  const chip = screen.getByTestId("composer-imagegen");
-  expect(chip.getAttribute("aria-pressed")).toBe("false");
-  fireEvent.click(chip);
-  expect(onImageGenToggle).toHaveBeenCalledTimes(1);
-  vi.unstubAllGlobals();
-});
-
-test("image control pressed when the opt-in is on", () => {
-  stubMatchMediaMobile(false);
-  render(
-    <Composer
-      value=""
-      isEmpty={true}
-      mode="agent"
-      modes={["agent", "plan"]}
-      llmModels={["openai/gpt-4o"]}
-      llmModel="openai/gpt-4o"
-      llmModelMultimodal={true}
-      llmModelImageGen={true}
-      imageGenOn={true}
-      onImageGenToggle={() => {}}
-      onLlmModelChange={() => {}}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-  const chip = screen.getByTestId("composer-imagegen");
-  expect(chip.getAttribute("aria-pressed")).toBe("true");
-  expect(chip.className).toContain("is-on");
   vi.unstubAllGlobals();
 });
 
@@ -3852,39 +3881,3 @@ test.each(["Tab", "ArrowRight"])(
     expect(onSend).not.toHaveBeenCalled();
   },
 );
-
-test("image generation refuses queued sends without discarding the attachment", async () => {
-  stubMatchMediaMobile(false);
-  const onQueue = vi.fn();
-  render(
-    <Composer
-      value="draw"
-      isEmpty={false}
-      generating
-      mode="agent"
-      modes={["agent"]}
-      llmModelMultimodal
-      imageGenOn
-      queueMode="steer"
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-      onQueue={onQueue}
-    />,
-  );
-  const file = new File(["image"], "img.png", { type: "image/png" });
-  fireEvent.change(screen.getByTestId("composer-file-input"), {
-    target: { files: [file] },
-  });
-  await waitFor(() => screen.getByText("img.png"));
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
-    key: "Tab",
-  });
-  expect(onQueue).not.toHaveBeenCalled();
-  expect(screen.getByText("img.png")).toBeVisible();
-  expect(
-    screen.getByText(
-      "Turn off Images to queue a message, or wait for the current turn to finish.",
-    ),
-  ).toBeVisible();
-});

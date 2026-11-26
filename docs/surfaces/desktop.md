@@ -65,35 +65,40 @@ nor an installed browser. See [Building from source](../contributing/build.md#de
 
 ### The Linux package
 
-`coddy-desktop` is a package of its own beside `coddy`, and it carries no program: it installs the
-menu entry (`/usr/share/applications/coddy-desktop.desktop`) and the icon it names, so Coddy
-appears in the application launcher and starts from there with no terminal, and it depends on
-`coddy`, whose `desktop` verb is the window. A server that only runs `coddy serve` installs the
-agent alone.
+The `coddy` Linux package includes the application launcher and icon when built with the
+`desktop` tag. It replaces the former `coddy-desktop` package. A lean package without that tag
+does not install a launcher for a command it cannot run. The package enables nothing, creates no
+system account and writes nothing under `/etc`. **Open at login** writes to the invoking user's
+autostart folder. A Chromium-family browser is needed for the Linux window.
 
-```bash
-make deb-desktop    # dist/coddy-desktop_<version>_linux_<arch>.deb
-make rpm-desktop    # the same as an .rpm
-```
+### Application menu shortcut
 
-Like the agent's package it enables nothing, creates no system account and writes nothing under
-`/etc`; the window's state is the invoking user's `~/.coddy`, and **Open at login** writes into
-that user's own autostart folder. A browser is a recommendation rather than a dependency - any of
-the Chromium family does, and `CODDY_DESKTOP_BROWSER` names another.
+On Linux and Windows, the user installer registers a shortcut for the installed binary. For an
+existing default user installation, the first interactive desktop or console launch after updating a
+release registers it once. On Linux this migration needs a graphical session and does not apply to
+system packages or portable binaries; on Windows it applies to the default per-user installation
+in an unelevated interactive session. Services and non-interactive commands do not register it.
+
+Deleting a registered user shortcut is respected on later launches and updates. To restore it, run
+`coddy desktop --install-shortcut` as that user. This installs or repairs the shortcut and exits
+without opening a window. A Linux package also provides its own system-wide menu entry, independent
+of the user shortcut.
 
 ## Running it
 
 ```
 coddy desktop [--window auto|browser|native] [--browser PATH] [--frame] [--auth]
               [--config PATH] [--home DIR] [--cwd DIR] [--log-level LEVEL] [-t]
+              [--install-shortcut]
 ```
 
 | Flag | What it does |
 | --- | --- |
+| `--install-shortcut` | Linux and Windows: install or repair this user's application menu shortcut and exit |
 | `--window` | `auto` (the default) tries native when built in, then falls back to the browser when the macOS version or GUI session is unavailable; `browser` uses application mode; `native` uses Cocoa/WKWebView on macOS 14+, which every macOS build carries, release or source; it reports an error if unavailable |
 | `--browser` | the browser to open the window with, by name on `PATH` or by path. Also `CODDY_DESKTOP_BROWSER` |
 | `--config`, `--home`, `--cwd` | as on `coddy serve`: the configuration file, the agent home, the workspace new chats open in |
-| `--frame` | keep the system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar |
+| `--frame` | keep a separate system title bar and borders. Without it, on X11 and native macOS, the strip is the title bar; macOS keeps its system buttons |
 | `--log-level` | `debug`, `info`, `warn` or `error`, overriding the configuration |
 | `--auth` | ask for the credential the configuration carries. Without it the window asks for nothing (below) |
 | `-t`, `--test-config` | check the configuration file and exit, starting nothing |
@@ -118,8 +123,13 @@ log; the window and the rest keep running. The configuration on disk is not rewr
 | Switch | click a tab, or `Ctrl`+`1` ... `Ctrl`+`9` |
 | Next, previous | `Ctrl`+`Tab` and `Ctrl`+`Shift`+`Tab`, which wrap at both ends |
 | Reorder | drag a tab to its new place in the row |
-| Reload the chat in front | `Ctrl`+`R`, which reloads that tab and leaves the others alone |
-| Walk a long row | the two arrows beside the window's own buttons, which appear once the tabs are wider than the bar |
+| Reload the active tab | `Ctrl`+`R` or the reload button in the strip, which reloads that tab and leaves the others alone |
+| Copy the active tab address | the link button next to reload copies the live same-origin HTTP(S) URL, preserving its route but omitting `desktop_workspace`, `desktop_workspace_pending` and userinfo, and answers **Link copied** |
+| Walk a long row | the two arrows after the empty part of the strip, which appear once the tabs are wider than the bar |
+
+![The strip's page buttons with the "Link copied" answer under them](../assets/desktop/desktop-copy-link-dark-1280.png)
+
+*The page buttons of the strip on X11: reload the active tab, copy its address.*
 
 A middle click on **New chat**, a conversation in **History**, or a rail item such as **Settings**,
 **Scheduler**, **Docs** or **Swarm** opens that route in a new tab of this window instead of another
@@ -178,20 +188,25 @@ origin shares a single connection.
 
 ## The window itself
 
-On X11 and native macOS the window opens without the system frame, and the tab strip is its title
-bar. Browser windows on macOS, Windows and Wayland keep the system frame. The controls below apply
-to X11 and native macOS. The strip carries, from left to right: the menu of the desktop, the tabs, `+`, the empty space that drags the
-window, the two arrows that walk a row too long for the bar, and minimise, maximise and close at the
-right edge. On X11 the corners are rounded while the window floats and square while it fills the
-screen. macOS draws its native window corners.
+On X11 and native macOS the tab strip is the title bar by default. Browser windows on macOS,
+Windows and Wayland keep the system frame. The strip starts with the desktop menu, reload and copy link, followed by the tabs and `+`. Drag the empty space to move the window. If the tabs overflow, arrows appear on the right.
+
+On native macOS the red, yellow and green window buttons sit just before the menu in the unified
+strip. They move slightly inward as a group without moving the menu. The menu opens directly
+below its button. With the strip as the title bar, green
+zooms or restores the window without entering full screen. A separate system frame restores
+macOS's original full-screen behavior. Dragging the empty strip or its padding moves the window.
+AppKit draws the corners and handles resizing at the edges, so the strip draws no extra window
+buttons or resize areas. On X11 the strip draws minimise, maximise and close at the right edge, with rounded corners while the window floats and square corners while it fills the
+screen.
 
 | Action | How |
 | --- | --- |
-| Move the window | drag the empty part of the strip |
+| Move the window | drag the empty part of the strip; on native macOS its padding also drags |
 | Resize the window | drag an edge or a corner; the pointer shows the direction |
-| Maximise or restore | double-click the empty part of the strip, or the middle button at the right |
-| Minimise, close | the buttons at the right edge |
-| The desktop menu | the button at the left edge of the strip |
+| Maximise or restore | double-click the empty part of the strip; on macOS use the green system button, on X11 the middle button at the right |
+| Minimise, close | macOS: yellow and red system buttons at the left; X11: the buttons at the right edge |
+| The desktop menu | the menu button before the tabs, after the system buttons on native macOS |
 
 A window the window manager has pinned - maximised, or tiled against an edge with `Meta`+`Left` -
 is let loose when you start dragging the strip, and put back under the pointer, the way dragging a
@@ -222,14 +237,12 @@ bundle or custom Dock icon.
 
 ### Recent folders in the application menu
 
-On Linux and FreeBSD every launch writes this user's own application entry,
-`~/.local/share/applications/coddy-desktop.desktop`, naming the binary that
-wrote it. That is what puts Coddy in the launcher and in the task bar's menu
-without a package installed, and it carries the folders of this home's recent
-chats as its actions - up to six, newest first. A right click on the icon
-offers them, and picking one opens a new chat in that folder: the row runs
-`coddy desktop --new-chat --cwd <folder>`, which hands the folder to the
-window already open rather than starting a second one.
+On Linux and FreeBSD, a desktop launch refreshes the user's application entry,
+`~/.local/share/applications/coddy-desktop.desktop` (or under `$XDG_DATA_HOME`), with the running
+binary and up to six recent chat folders, newest first. On Linux, a registered shortcut that the
+user deleted is not recreated by this refresh. An unregistered portable launch and a FreeBSD launch
+create the entry when it is missing. A right click offers the folders; selecting one runs
+`coddy desktop --new-chat --cwd <folder>` and hands it to the open window.
 
 A row names the folder and the one above it (`coddy-agent/docs`), because that
 is what tells two checkouts of one repository apart; the whole path is in the
@@ -260,7 +273,7 @@ take another port.
 | **Open at login** | Linux and FreeBSD: write `coddy-desktop.desktop` into this user's autostart folder (`$XDG_CONFIG_HOME/autostart`, else `~/.config/autostart`). macOS: a launch agent, `~/Library/LaunchAgents/dev.coddy.desktop.plist`. Windows: a value under this user's `Run` key. Nothing is installed system-wide and nothing needs administrator rights |
 | **Show the tray icon** | publishes Coddy's mark in the system tray as a StatusNotifierItem on the session bus. A click on it brings the window back from behind another window or from the taskbar |
 | **Start minimised** | the next launch opens the window minimised, which is usually what a window opened at login wants |
-| **Show the system frame** | gives the window back the title bar and borders your desktop draws. The strip then stops drawing minimise, maximise and close, since the frame carries them. On X11 and native macOS; other browser windows always keep their frame |
+| **Show the system frame** | gives the window back the title bar and borders your desktop draws. On X11 the strip then stops drawing minimise, maximise and close. Native macOS keeps its system buttons in either mode and restores macOS's original full-screen behavior with a separate frame. On X11 and native macOS; other browser windows always keep their frame |
 
 A switch moves only once the launcher has done the thing: a tray this session has no tray for, or
 an autostart folder that cannot be written, leaves the switch where it was and says why on the row.
@@ -373,8 +386,8 @@ column:
 | | Linux, FreeBSD (X11) | Linux, FreeBSD (Wayland) | macOS | Windows |
 | --- | --- | --- | --- | --- |
 | The window, tabs, settings | yes | yes | native on macOS 14+; browser fallback on older macOS | yes |
-| No system frame, the strip as the title bar | yes | no | native only | no |
-| Rounded corners, drag by the strip, its own buttons | yes | no | native only | no |
+| The strip as the title bar | yes | no | native only, with system buttons at the left | no |
+| Rounded corners and drag by the strip | yes | no | native only; AppKit draws corners and resize edges | no |
 | `Ctrl`+`T`, `Ctrl`+`W`, `Ctrl`+`R`, `Ctrl`+`Tab` taken from the browser | yes | no | no | no |
 | `Alt` for the letter and digit chords | yes | yes | yes | yes |
 | Tray icon | yes | yes | no | no |

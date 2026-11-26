@@ -68,7 +68,7 @@ The agent's `worktree_open` tool and the worktree checkbox on the web UI's plate
 
 `coddy serve` runs one session manager over one store for the HTTP API, the web UI, the Telegram gateway and the scheduler, so a chat with the bot is an ordinary session that the History drawer lists and opens while it is happening, and a turn started on one surface is mirrored into a browser watching the same session ([coddy serve](../operate/serve.md), [Telegram gateway](../surfaces/gateway.md)). The console and `coddy acp` open the same store on their own; with `--remote` they work on the server's sessions instead of a local store. A swarm relay aggregates the session lists of its nodes ([Swarm](../operate/swarm.md)).
 
-A session runs one turn at a time. The turn lock is a file lock on the bundle, so a second process - `coddy serve` while `coddy acp` holds the turn - is refused rather than interleaved (`409` over HTTP), and a cancel also writes a marker into the bundle that the process holding the turn picks up between its polls. Different sessions stream in parallel, each behind its own lock ([Web UI](../surfaces/web-ui.md#parallel-sessions-and-generation-cancel)).
+A session runs one turn at a time. The turn lock uses a file lock on Unix and a named mutex on Windows, so a second process - `coddy serve` while `coddy acp` holds the turn - is refused rather than interleaved (`409` over HTTP), and a cancel also writes a marker into the bundle that the process holding the turn picks up between its polls. Different sessions stream in parallel, each behind its own lock ([Web UI](../surfaces/web-ui.md#parallel-sessions-and-generation-cancel)).
 
 One kind of HTTP request runs outside this store: a call to a `models[].model` selector without `X-Coddy-Session-ID` is stateless and leaves no bundle ([HTTP API](../reference/http-api.md#model-profiles-and-direct-completion)).
 
@@ -113,16 +113,33 @@ A subagent run is a child session: a real bundle under `<parent>/subagents/<chil
 
 ## Deleting a session
 
-**Delete** in the ⋮ menu of a History row, after one confirmation, and `DELETE /coddy/sessions/{id}` remove the session tree: the session plus every child it spawned, their background tasks stopped first, the bundles removed deepest first. A running turn is cancelled and awaited before anything is removed. Several at once, the archive included, go from **Settings → Sessions**. There is no delete verb on the command line; deleting the directory by hand is equivalent for a session no process holds.
+**Delete** in the History row menu, `DELETE /coddy/sessions/{id}`, and `coddy sessions delete` remove a session tree, including its child bundles and stored tool and task artifacts. The manager stops and awaits work it owns before removing bundles. If a turn cannot settle or another process holds live work, deletion is refused; an error is not a claim that the entire tree was removed. Use these operations rather than deleting bundle directories by hand.
+
+CLI deletion and updates require a running local `coddy serve` or `coddy desktop` for the same home and sessions root. The command uses its private local IPC; it cannot mutate a remote server or an offline store. A turn or background process owned by another process is refused, not stopped by the CLI. Stop that work through its owner first. In an operator chat, `run_command` can invoke the CLI with ordinary shell permissions. The shell receives `CODDY_SESSION_ID`, and deletion protects that session and its ancestors. This is not an authorization boundary for arbitrary shell commands. The `session_describe` tool, by contrast, edits only its own session's title and tags.
 
 ## The sessions CLI
 
 ```bash
-coddy sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print]
-coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] [--no-tools] [--no-thinking] [--sessions-dir <path>]
+coddy sessions list [--sessions-dir DIR] [--cwd DIR] [--origin local|gateway|print] [--format text|json]
+coddy sessions show <id> [--sessions-dir DIR] [--format text|json]
+coddy sessions update <id> [--sessions-dir DIR] [--format text|json] [--title TEXT] [--tags comma,separated] [--archived=true|false]
+coddy sessions delete <id> [--sessions-dir DIR] [--format text|json] [--yes]
+coddy sessions export <session-id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking] [--sessions-dir DIR]
 ```
 
-`list` prints one tab-separated row per stored session - `SESSION_ID`, `UPDATED_AT`, `CWD`, `TITLE` - newest first, then `(total N)`; scheduler runs and child sessions are left out, print runs are listed, `--cwd` keeps only the sessions saved with that absolute directory and `--origin` only the sessions of one surface. `export` writes a stored session's transcript to a file and accepts a unique id prefix in place of the full id; the formats, the path rules and the trimming options are in [Session export](session-export.md).
+Start a conversation with `coddy` and send its first prompt; there is no `sessions create`. The console writes the bundle on that first prompt, so opening and quitting an unused console does not create an empty session.
+
+`list` shows print runs but omits scheduler and child sessions. `--cwd` and `--origin` narrow the list. `show`, `update` and `delete` accept archived sessions and print runs, but not scheduler sessions or children. Supply a full id or a unique prefix; an ambiguous prefix reports candidates and changes nothing. `show` displays metadata; `update` changes only the supplied fields, with `--tags` replacing the set. `delete` asks for confirmation; use `--yes` for unattended scripts. Text is the default output; use `--format json` for automation. `--sessions-dir` selects the sessions root, otherwise the configured home and root apply. The export formats and options are described in [Session export](session-export.md).
+
+For example, find a session, inspect it, rename and file it, then archive it. Replace the example prefix with one from your own list.
+
+```bash
+coddy sessions list
+coddy sessions show sess_1234
+coddy sessions update sess_1234 --title "Release notes" --tags release,docs
+coddy sessions update sess_1234 --archived=true
+coddy sessions delete sess_1234
+```
 
 ## Testing
 

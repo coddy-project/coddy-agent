@@ -34,7 +34,7 @@ var assetIndexFiles = map[string]bool{"INDEX.md": true, "README.md": true}
 // the image, and the capture scripts write the console series.
 var referenceSources = []string{"README.md", "DESIGN.md", "AGENTS.md", "CONTRIBUTING.md", "Dockerfile"}
 
-var referenceDirs = []string{"docs", "examples", "external/ui/src"}
+var referenceDirs = []string{"docs", "specs", "examples", "external/ui/src"}
 
 // AssetInventory lists every asset with the files that mention it. An asset
 // is referenced when a source contains "assets/<path>"; the index itself does

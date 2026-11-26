@@ -296,6 +296,7 @@ func goalJudgeProviderInput(cfg *config.Config, st *State, rm *config.ResolvedLL
 		AuthPath:  rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
 		ReasoningEffort:     GoalCheckReasoning(cfg, st),
+		ServiceTier:         st.ServiceTierForProvider(cfg, rm),
 		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
 		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
 		ACP: rm.ACP,

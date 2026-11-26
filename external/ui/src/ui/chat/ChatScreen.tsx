@@ -1,3 +1,4 @@
+import { type ServiceTierControl } from "./serviceTier";
 import { motionIsReduced } from "../theme/uiSimple";
 import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
@@ -41,6 +42,9 @@ import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
+  subscribePhone,
+  snapshotPhone,
+  serverSnapshotPhone,
   subscribeTouchOnly,
   snapshotTouchOnly,
   serverSnapshotTouchOnly,
@@ -120,11 +124,6 @@ export function ChatScreen(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
-  /** Whether the currently selected model opted in to native image output. */
-  llmModelImageGen?: boolean;
-  /** The per-turn image control's state; passed through to the composer. */
-  imageGenOn?: boolean;
-  onImageGenToggle?: () => void;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
   llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
@@ -137,6 +136,7 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   /** The toolset chip; absent while the configuration has no preset. */
+  serviceTierControl?: ServiceTierControl | undefined;
   toolsetControl?: ToolsetControl | undefined;
   settingsOverrides?: TurnOverride[];
   /** The session goal and what the composer's goal mark and popover can do
@@ -243,6 +243,7 @@ export function ChatScreen(props: {
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorkspaceCreateBranch?: ((name: string) => Promise<void>) | undefined;
   onWorktreeToggle?: () => void;
   /** Fetches the remotes while the branch list shows; resolves with the outcome. */
   onWorkspaceRefreshBranches?: () => Promise<
@@ -290,11 +291,22 @@ export function ChatScreen(props: {
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
   const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
-  const mobileDocScroll = useSyncExternalStore(
+  const stackedShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
   );
+  const phoneTier = useSyncExternalStore(
+    subscribePhone,
+    snapshotPhone,
+    serverSnapshotPhone,
+  );
+  // Telegram sets its launch marker before React mounts and keeps its own dock.
+  const phoneChatInner =
+    phoneTier &&
+    !isEmpty &&
+    document.documentElement.dataset.telegramMiniApp !== "true";
+  const mobileDocScroll = stackedShell && !phoneChatInner;
   const touchOnly = useSyncExternalStore(
     subscribeTouchOnly,
     snapshotTouchOnly,
@@ -353,7 +365,46 @@ export function ChatScreen(props: {
   }, []);
 
   useLayoutEffect(() => {
-    if (isEmpty) return;
+    if (!phoneChatInner) return;
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    root.dataset.phoneChatScroll = "inner";
+    const apply = () => {
+      const bottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
+      const valid =
+        Number.isFinite(bottom) &&
+        Math.round(bottom) > 0 &&
+        (!vv || (vv.height > 0 && Math.abs(vv.scale - 1) <= 0.01));
+      // Ignore transient invalid measurements and pinch zoom; keep the last
+      // usable height (or the CSS fallback if no measurement was usable).
+      if (valid) {
+        root.style.setProperty(
+          "--coddy-phone-chat-height",
+          `${Math.round(bottom)}px`,
+        );
+      }
+      // The dock is in flow. Portalled sheets still need the keyboard inset.
+      root.style.setProperty(
+        "--coddy-keyboard-inset",
+        `${valid ? keyboardInset(window) : 0}px`,
+      );
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    vv?.addEventListener("resize", apply);
+    vv?.addEventListener("scroll", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      vv?.removeEventListener("resize", apply);
+      vv?.removeEventListener("scroll", apply);
+      delete root.dataset.phoneChatScroll;
+      root.style.removeProperty("--coddy-phone-chat-height");
+      root.style.removeProperty("--coddy-keyboard-inset");
+    };
+  }, [phoneChatInner]);
+
+  useLayoutEffect(() => {
+    if (isEmpty || phoneChatInner) return;
     const host = composerHostRef.current;
     if (!host) return;
     const px = (el: Element | null | undefined, prop: string): number => {
@@ -395,7 +446,7 @@ export function ChatScreen(props: {
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
     ro?.observe(host);
     return () => ro?.disconnect();
-  }, [isEmpty, mobileDocScroll, props.tokenUsage]);
+  }, [isEmpty, mobileDocScroll, phoneChatInner, props.tokenUsage]);
 
   // Whichever surface scrolls, it is read and written through these three, so
   // the follow, the button and the jump never disagree about where the end is.
@@ -551,11 +602,52 @@ export function ChatScreen(props: {
     };
   }, [cancelTranscriptJump, syncTranscriptPosition]);
 
-  useEffect(() => {
+  const followIfParked = useCallback(() => {
+    if (
+      jumpFrameRef.current !== null ||
+      (!openingRef.current && !stickToBottomRef.current)
+    ) {
+      return;
+    }
+    openingRef.current = false;
+    stickToBottomRef.current = true;
+    followTranscriptEnd();
+    syncTranscriptPosition();
+  }, [followTranscriptEnd, syncTranscriptPosition]);
+
+  const documentFollowFrameRef = useRef<number | null>(null);
+  const scheduleDocumentFollow = useCallback(() => {
+    if (documentFollowFrameRef.current !== null) return;
+    // The document takes its new height after layout, not on this tick.
+    documentFollowFrameRef.current = requestAnimationFrame(() => {
+      documentFollowFrameRef.current = requestAnimationFrame(() => {
+        documentFollowFrameRef.current = null;
+        followIfParked();
+      });
+    });
+  }, [followIfParked]);
+
+  const scrollSurface = isEmpty
+    ? "none"
+    : phoneChatInner
+      ? "phone"
+      : mobileDocScroll
+        ? "document"
+        : "element";
+  const lastScrollSurfaceRef = useRef<typeof scrollSurface | null>(null);
+  useLayoutEffect(() => {
     return () => {
+      // No animation or deferred write may measure or scroll the old surface
+      // after the tier, the conversation or the empty state has changed.
       cancelTranscriptJump();
+      if (documentFollowFrameRef.current !== null) {
+        cancelAnimationFrame(documentFollowFrameRef.current);
+        documentFollowFrameRef.current = null;
+      }
+      followedTopRef.current = null;
+      lastScrollSurfaceRef.current = null;
     };
-  }, [cancelTranscriptJump]);
+  }, [cancelTranscriptJump, props.sessionId, scrollSurface]);
 
   // Another conversation opens on its newest message, wherever the reader left
   // the last one: the follow below then lands on the end of the new rows
@@ -573,7 +665,13 @@ export function ChatScreen(props: {
   }, [props.sessionId, cancelTranscriptJump]);
 
   useEffect(() => {
-    if (isEmpty) return;
+    const oldSurface = lastScrollSurfaceRef.current;
+    lastScrollSurfaceRef.current = scrollSurface;
+    if (isEmpty) {
+      stickToBottomRef.current = true;
+      setShowScrollToBottom(false);
+      return;
+    }
     const prev = prevItemsForScrollRef.current;
     prevItemsForScrollRef.current = props.items;
     // Polling replaces task rows even when nothing changed. Only a newly
@@ -597,6 +695,7 @@ export function ChatScreen(props: {
     if (
       !opening &&
       !newPermission &&
+      oldSurface === scrollSurface &&
       !transcriptItemsAffectAutoScroll(prev, props.items)
     ) {
       return;
@@ -610,25 +709,21 @@ export function ChatScreen(props: {
       syncTranscriptPosition();
       return;
     }
-    const follow = () => {
-      openingRef.current = false;
-      stickToBottomRef.current = true;
-      followTranscriptEnd();
-      syncTranscriptPosition();
-    };
     if (mobileDocScroll) {
-      // The document takes its new height after layout, not on this tick.
-      requestAnimationFrame(() => requestAnimationFrame(follow));
+      scheduleDocumentFollow();
       return;
     }
-    follow();
+    followIfParked();
   }, [
     props.items,
     props.backgroundTasks,
+    props.sessionId,
     isEmpty,
     mobileDocScroll,
+    scheduleDocumentFollow,
+    scrollSurface,
     syncTranscriptPosition,
-    followTranscriptEnd,
+    followIfParked,
   ]);
 
   // The reserve under the transcript is the height of the block over it, and a
@@ -640,21 +735,27 @@ export function ChatScreen(props: {
   useLayoutEffect(() => {
     if (composerReserve === lastReserveRef.current) return;
     lastReserveRef.current = composerReserve;
-    if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null) {
+    if (
+      isEmpty ||
+      phoneChatInner ||
+      !stickToBottomRef.current ||
+      jumpFrameRef.current !== null
+    ) {
       return;
     }
-    const follow = () => {
-      // The reader may have taken the scrollbar in the frames this waited.
-      if (!stickToBottomRef.current || jumpFrameRef.current !== null) return;
-      followTranscriptEnd();
-    };
     if (mobileDocScroll) {
-      // The document takes its new height after layout, not on this tick.
-      requestAnimationFrame(() => requestAnimationFrame(follow));
+      scheduleDocumentFollow();
       return;
     }
-    follow();
-  }, [composerReserve, isEmpty, mobileDocScroll, followTranscriptEnd]);
+    followTranscriptEnd();
+  }, [
+    composerReserve,
+    isEmpty,
+    mobileDocScroll,
+    phoneChatInner,
+    scheduleDocumentFollow,
+    followTranscriptEnd,
+  ]);
 
   // The transcript also changes its height with no new item - the todo
   // checklist comes in, folds and leaves by its height, the live line comes
@@ -707,6 +808,22 @@ export function ChatScreen(props: {
     };
   }, [isEmpty, followTranscriptEnd, syncTranscriptPosition]);
 
+  // The in-flow dock changes the scrollport's height, not the reserve under
+  // its content. Keep following through keyboard and dock resizes, without
+  // moving someone who has scrolled away.
+  useLayoutEffect(() => {
+    const port = messagesRef.current;
+    if (!phoneChatInner || !port || typeof ResizeObserver === "undefined")
+      return;
+    const observer = new ResizeObserver(() => {
+      if (openingRef.current || jumpFrameRef.current !== null) return;
+      if (stickToBottomRef.current) followTranscriptEnd();
+      syncTranscriptPosition();
+    });
+    observer.observe(port);
+    return () => observer.disconnect();
+  }, [phoneChatInner, followTranscriptEnd, syncTranscriptPosition]);
+
   useEffect(() => {
     if (isEmpty) return;
     const onScroll = () => syncTranscriptPosition();
@@ -725,7 +842,7 @@ export function ChatScreen(props: {
   // keyboard, scroll-to-bottom button included. --coddy-keyboard-inset lifts it
   // by what the keyboard hides (styles/shell/_stacked.scss), and the reader's position is read
   // again, since the keyboard changes how much of the transcript is in view.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!mobileDocScroll) return undefined;
     const vv = window.visualViewport;
     if (!vv) return undefined;
@@ -1006,9 +1123,6 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
-                      llmModelImageGen: props.llmModelImageGen,
-                      imageGenOn: props.imageGenOn,
-                      onImageGenToggle: props.onImageGenToggle,
                       ...(props.llmReasoningLevelsByModel !== undefined
                         ? {
                             llmReasoningLevelsByModel:
@@ -1036,6 +1150,7 @@ export function ChatScreen(props: {
                 {...(props.onPermissionModeChange
                   ? { onPermissionModeChange: props.onPermissionModeChange }
                   : {})}
+                serviceTierControl={props.serviceTierControl}
                 {...(props.toolsetControl
                   ? { toolsetControl: props.toolsetControl }
                   : {})}
@@ -1087,6 +1202,7 @@ export function ChatScreen(props: {
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorkspaceCreateBranch: props.onWorkspaceCreateBranch,
                       onWorkspaceRefreshBranches:
                         props.onWorkspaceRefreshBranches,
                       onWorktreeToggle: props.onWorktreeToggle,
@@ -1111,7 +1227,7 @@ export function ChatScreen(props: {
           className="chat-stack"
           style={
             {
-              "--chat-composer-reserve": `${composerReserve}px`,
+              "--chat-composer-reserve": `${phoneChatInner ? 0 : composerReserve}px`,
             } as CSSProperties
           }
         >
@@ -1274,9 +1390,6 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
-                        llmModelImageGen: props.llmModelImageGen,
-                        imageGenOn: props.imageGenOn,
-                        onImageGenToggle: props.onImageGenToggle,
                         ...(props.llmReasoningLevelsByModel !== undefined
                           ? {
                               llmReasoningLevelsByModel:
@@ -1308,6 +1421,7 @@ export function ChatScreen(props: {
                   {...(props.onPermissionModeChange
                     ? { onPermissionModeChange: props.onPermissionModeChange }
                     : {})}
+                  serviceTierControl={props.serviceTierControl}
                   {...(props.toolsetControl
                     ? { toolsetControl: props.toolsetControl }
                     : {})}
@@ -1388,6 +1502,7 @@ export function ChatScreen(props: {
                         workspaceLocked: props.workspaceLocked ?? false,
                         onWorkspacePickFolder: props.onWorkspacePickFolder,
                         onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorkspaceCreateBranch: props.onWorkspaceCreateBranch,
                         onWorkspaceRefreshBranches:
                           props.onWorkspaceRefreshBranches,
                         onWorktreeToggle: props.onWorktreeToggle,

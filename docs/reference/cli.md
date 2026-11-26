@@ -52,13 +52,16 @@ Usage:
   coddy serve status | stop | restart [--home DIR]
   coddy desktop [flags] (open Coddy as a window on this machine: a tab strip with
         one chat per tab, over an HTTP surface on a loopback port this home
-        remembers. --frame keeps the system title bar, --browser names the
+        remembers. --frame keeps a separate system title bar, --browser names the
         browser to open it with, --auth asks for the credential the
         configuration carries; build tags http ui desktop)
   coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  coddy sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
+  coddy sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR] [--format text|json]
+  coddy sessions show <id> [--sessions-dir DIR] [--format text|json]
+  coddy sessions update <id> [--title TEXT] [--tags TAGS] [--archived=true|false] [--sessions-dir DIR] [--format text|json]
+  coddy sessions delete <id> [--yes] [--sessions-dir DIR] [--format text|json]
   coddy sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   coddy skills list
   coddy skills enable <name>
@@ -281,13 +284,55 @@ Usage of serve status:
 ### coddy sessions list
 
 ```text
-Usage of sessions list:
+usage: coddy sessions list [flags]
   -cwd string
     	only list sessions saved with this cwd (absolute)
+  -format string
+    	output format: text or json (default "text")
   -origin string
-    	only list the sessions of one surface: local, gateway or print (one-shot runs); empty lists every one, print runs included
+    	only list sessions of one surface: local, gateway or print; empty includes all three
   -sessions-dir string
     	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+```
+
+### coddy sessions show
+
+```text
+usage: coddy sessions show <id> [flags]
+  -format string
+    	output format: text or json (default "text")
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+```
+
+### coddy sessions update
+
+```text
+usage: coddy sessions update <id> [flags]
+  -archived string
+    	set archive state with --archived=true or --archived=false
+  -format string
+    	output format: text or json (default "text")
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+  -tags string
+    	replace tags with a comma-separated list (empty clears all tags)
+  -title string
+    	rename the session
+Updates and deletes require a running local coddy serve or desktop runtime using the same sessions root. Stop any standalone console or ACP process sharing that root before changing its sessions.
+```
+
+### coddy sessions delete
+
+```text
+usage: coddy sessions delete <id> [flags]
+  -format string
+    	output format: text or json (default "text")
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+  -yes
+    	confirm deletion without prompting
+Updates and deletes require a running local coddy serve or desktop runtime using the same sessions root. Stop any standalone console or ACP process sharing that root before changing its sessions.
 ```
 
 ### coddy sessions export

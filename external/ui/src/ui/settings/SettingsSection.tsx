@@ -2,9 +2,15 @@ import {
   AuthenticationSection,
   AUTHENTICATION_FIELD_TEXTS,
 } from "./AuthenticationSection";
-import { Component, lazy, Suspense, type ReactNode } from "react";
+import { Component, lazy, Suspense, useRef, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
-import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
+import {
+  applyModelsChange,
+  applyProvidersChange,
+  applyToolsetsChange,
+  createModelCascadeState,
+  type ModelCascadeState,
+} from "./applyModelsChange";
 import { BrowserSetupField } from "./BrowserSetupField";
 import { CodexAuthField } from "./CodexAuthField";
 import { DevinAuthField } from "./DevinAuthField";
@@ -374,8 +380,22 @@ export function overrideTexts(
   schema: JsonSchema,
   doc?: Record<string, unknown>,
 ): false | null | OverrideTexts {
-  if (domain === "httpserver.login" && AUTHENTICATION_FIELD_TEXTS[path]) {
-    return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+  if (domain === "httpserver.login") {
+    if (path === "logout_url") {
+      return {
+        primary: translate(SETTINGS_TEXTS.authLogoutUrl.label!),
+        primaryDesc: translate(SETTINGS_TEXTS.authLogoutUrl.desc!),
+      };
+    }
+    // The clear flags are controls of their field, not fields of their own,
+    // and the oidc block is searched through its landmark: its fields are not
+    // indexed separately.
+    if (path === "clear_logout_url" || path === "oidc") {
+      return false;
+    }
+    if (AUTHENTICATION_FIELD_TEXTS[path]) {
+      return { primary: translate(AUTHENTICATION_FIELD_TEXTS[path]!) };
+    }
   }
   const label = () =>
     schemaFieldLabel(
@@ -775,6 +795,8 @@ function BuiltinSettingsSection(props: {
   schema: JsonSchema;
   doc: Record<string, unknown>;
   setDoc: (next: Record<string, unknown>) => void;
+  /** Shared by sections so row identities survive a tab switch. */
+  modelCascade?: ModelCascadeState | undefined;
   /** The row a list section has open, from the `?id=` of the address. */
   routeItem?: string | null | undefined;
   /** Puts the open row (its name, or null for the list) into the address. */
@@ -806,6 +828,8 @@ function BuiltinSettingsSection(props: {
     onSessionTagsChanged,
   } = props;
   const { t } = useT();
+  const fallbackModelCascade = useRef(createModelCascadeState()).current;
+  const modelCascade = props.modelCascade ?? fallbackModelCascade;
   const props_ = schema.properties ?? {};
 
   const providerRows = asArray(doc.providers).map(asObject) as ProviderRow[];
@@ -890,6 +914,7 @@ function BuiltinSettingsSection(props: {
   if (section.kind === "authentication") {
     return (
       <AuthenticationSection
+        loginSchema={props_.httpserver?.properties?.login}
         value={asObject(doc.httpserver)}
         onChange={(v) => setKey("httpserver", v)}
       />
@@ -1097,17 +1122,20 @@ function BuiltinSettingsSection(props: {
         : key === "providers"
           ? providerFieldOverride
           : undefined;
-    // Renaming a logical model id must follow through to the default-model
-    // references (agent.model / memory.model), or the saved config becomes
-    // invalid ("not found in models list"). applyModelsChange reconciles them.
+    // Renaming a logical model id must follow through to every model selector,
+    // or the saved config becomes invalid ("not found in models list").
+    // applyModelsChange reconciles them. Provider renames and removals cascade
+    // through their models and the same references (applyProvidersChange).
     // A preset renamed on the Toolsets tab is renamed on the models that
     // name it too (applyToolsetsChange).
     const onArrayChange =
       key === "models"
-        ? (v: unknown[]) => setDoc(applyModelsChange(doc, v))
-        : key === "toolsets"
-          ? (v: unknown[]) => setDoc(applyToolsetsChange(doc, v))
-          : (v: unknown[]) => setKey(key, v);
+        ? (v: unknown[]) => setDoc(applyModelsChange(doc, v, modelCascade))
+        : key === "providers"
+          ? (v: unknown[]) => setDoc(applyProvidersChange(doc, v, modelCascade))
+          : key === "toolsets"
+            ? (v: unknown[]) => setDoc(applyToolsetsChange(doc, v))
+            : (v: unknown[]) => setKey(key, v);
     const newItem =
       key === "models" ? () => seedLogicalModel(sub.items, "") : undefined;
     // Keyed by section: the list and row form are one component for every
@@ -1157,18 +1185,22 @@ function BuiltinSettingsSection(props: {
                       return;
                     }
                     setDoc(
-                      applyModelsChange(doc, [
-                        ...asArray(doc.models),
-                        seedLogicalModel(
-                          props_["models"]?.items,
-                          id,
-                          contextWindow,
-                          maxTokens,
-                          multimodal,
-                          kimiMetadata,
-                          listing,
-                        ),
-                      ]),
+                      applyModelsChange(
+                        doc,
+                        [
+                          ...asArray(doc.models),
+                          seedLogicalModel(
+                            props_["models"]?.items,
+                            id,
+                            contextWindow,
+                            maxTokens,
+                            multimodal,
+                            kimiMetadata,
+                            listing,
+                          ),
+                        ],
+                        modelCascade,
+                      ),
                     );
                   }}
                   onRemoveModel={(id) => {
@@ -1178,6 +1210,7 @@ function BuiltinSettingsSection(props: {
                         asArray(doc.models).filter(
                           (m) => asObject(m).model !== id,
                         ),
+                        modelCascade,
                       ),
                     );
                   }}

@@ -553,6 +553,10 @@ func isRetryableLLMError(err error) bool {
 		// replaying after emitted deltas would show the same text twice.
 		return !trunc.emitted
 	}
+	var toolErr *StreamedToolCallError
+	if errors.As(err, &toolErr) {
+		return false
+	}
 	var und *streamUndecodableError
 	if errors.As(err, &und) {
 		// A frame that is not JSON is a corrupt stream, not a cut: final
@@ -633,6 +637,8 @@ func isTransientTransportError(err error) bool {
 		"forcibly closed by the remote host",
 		"aborted by the software in your host machine",
 		"unexpected EOF",
+		// A corrupted TLS record means the established connection cannot be
+		// trusted; discard it and retry the request on a fresh connection.
 		// The connection opened but the server never finished the handshake,
 		// so the request itself was never sent.
 		"net/http: TLS handshake timeout",
@@ -641,7 +647,7 @@ func isTransientTransportError(err error) bool {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(strings.ToLower(s), "tls: bad record mac")
 }
 
 // Winsock's codes for an established connection that died under the request:

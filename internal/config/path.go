@@ -590,6 +590,9 @@ func configSecretPath(path []string) bool {
 		return true
 	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
+	if last == "logout_url" && len(path) >= 3 && strings.EqualFold(path[len(path)-2], "login") && strings.EqualFold(path[len(path)-3], "httpserver") {
+		return true
+	}
 	// A key for a service of its own (tools.websearch.brave_api_key) is as much a
 	// credential as a provider's api_key.
 	if strings.HasSuffix(last, "_api_key") {

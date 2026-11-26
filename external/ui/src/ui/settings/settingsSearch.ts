@@ -23,6 +23,7 @@ import {
 } from "./SchemaForm";
 import type { SettingsRowAlter } from "../extensions/settingsRowAlter";
 import { translate } from "../i18n/i18n";
+import { supportsOidc } from "./AuthenticationSection";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import {
   modelFormGroups,
@@ -307,8 +308,33 @@ function asObject(v: unknown): PlainObject {
     : {};
 }
 
-function backupCodesShown(doc: PlainObject): boolean {
+function oidcEnabledInDoc(doc: PlainObject): boolean {
+  return (
+    asObject(asObject(asObject(doc.httpserver).login).oidc).enable === true
+  );
+}
+
+function oidcSupported(schema: JsonSchema | null): boolean {
+  return supportsOidc(schema?.properties?.httpserver?.properties?.login);
+}
+
+// External sign-in hides enrollment only on a server whose schema supports it.
+function localEnrollmentShown(
+  doc: PlainObject,
+  schema: JsonSchema | null,
+): boolean {
+  return !oidcSupported(schema) || !oidcEnabledInDoc(doc);
+}
+
+function backupCodesConfigured(doc: PlainObject): boolean {
   return asObject(asObject(doc.httpserver).login).totp_configured === true;
+}
+
+function backupCodesShown(
+  doc: PlainObject,
+  schema: JsonSchema | null,
+): boolean {
+  return backupCodesConfigured(doc) && localEnrollmentShown(doc, schema);
 }
 
 function asArray(v: unknown): unknown[] {
@@ -337,7 +363,8 @@ export function settingsIndexRowsKey(doc: PlainObject): string {
         sanitizedSettingsRow(row),
       ]),
     ),
-    backupCodes: backupCodesShown(doc),
+    backupCodes: backupCodesConfigured(doc),
+    oidcEnabled: oidcEnabledInDoc(doc),
   });
 }
 
@@ -532,10 +559,12 @@ function specialEntries(
   alters: readonly SettingsRowAlter[],
   includeExtensions: boolean,
   row: string | null,
+  schema: JsonSchema | null,
 ): void {
   const plan = buildSpecialRowPlan({
     section: section.id,
     doc,
+    schema: schema ?? undefined,
     rowName: row,
     landmarks,
     blocks,
@@ -757,6 +786,7 @@ export function buildSettingsSearchIndex(input: {
       alters,
       extensionsBefore,
       null,
+      input.schema,
     );
     for (const { form, value } of generated.forms) {
       walkForm(
@@ -799,15 +829,12 @@ export function buildSettingsSearchIndex(input: {
         [...tab, label],
       );
       const rowLandmarks = landmarks.filter((l) => l.row !== undefined);
-      specialEntries(
-        out,
-        section,
-        input.doc,
         rowLandmarks,
         registeredBlocks,
         alters,
         true,
         label,
+        input.schema,
       );
     }
     specialEntries(
@@ -819,6 +846,7 @@ export function buildSettingsSearchIndex(input: {
       alters,
       !extensionsBefore && section.id !== "providers",
       null,
+      input.schema,
     );
   }
   return out;

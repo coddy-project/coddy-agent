@@ -142,6 +142,7 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 *A provider's form ends with what the provider advertises: a plus files an id under Logical models, a check marks one already there and takes it out again, an amber id is one the provider no longer advertises.*
 
 - A provider's form (**Settings → LLM providers → row**) is three blocks: **Provider settings** (id, type, endpoint, key, sign-in, the usage switch), **Advanced settings** (the credential command, the proxy, the request timeout), folded until its chevron is clicked, and **Models**.
+- Renaming a provider id rewrites its logical model ids and updates `agent.model`, `memory.model`, `compaction.model`, `supervisor.model` and both fallback chains. Renaming a logical model id updates the same references. Deleting a provider removes its logical models, clears selectors that referenced them and drops their ids from `memory.fallback_models` and `compaction.fallback_models`. Models and references of other providers stay unchanged.
 - **Models** lists what the provider advertises, fetched through **`POST /coddy/providers/models`** with the row exactly as the form holds it, so an unsaved row, a sign-in that exists only on disk and a provider the document does not have yet all list their models the way a saved row does (issue #335). The list is fetched when the form opens and again when the row becomes another provider, once its id or type has stopped changing; an edit to the endpoint, the key or the proxy waits for the refresh icon beside the **Models** title, which fetches at once with the row as it now stands. An automatic fetch never sends the credential command, so a command is not run half-typed: the refresh icon is the only fetch that runs it.
 - Each row is the model id, its context window right of it (**`131k`**, the exact count in its tooltip), and a toggle. The window is the one the provider reports; for a model it reports no window for, it is the one Coddy's models catalog (below) has for the id. A plus adds **`provider/id`** to **Logical models** in the same unsaved document and writes that window into the new model's **Context window**; when the catalog has the same window for the id, its number for **Max tokens** comes with it, and **Multimodal** switched on for a model that reads images. A check says the model is there, and clicking it takes the model out again. Nothing reaches `config.yaml` until **Save all**. An id Logical models lists under this provider that the provider no longer advertises shows in amber, checked, the reason in its tooltip. A line under the title appears only when there is nothing to list: while fetching, on an error, for an empty answer, or for a row without an id and a type. Past eight models a filter field narrows the list.
 - The models catalog is a table of the models of OpenAI, Anthropic and OpenCode, with its available context window, starting max tokens, and known image input and output modalities. It is built from [models.dev](https://models.dev) and embedded into the binary, so nothing is downloaded for it while Coddy runs, and a model newer than the build has no numbers until a later release. The list reads the modality metadata independently of the window. It takes the context and max-token numbers together only when the provider reports no window or the same window as the catalog, because the max tokens was worked out for the catalog's own window. For a model whose prompt and answer share the window it is at most a fifth of the window, the part above the default compaction threshold, since a provider refuses a request whose prompt and max tokens do not fit the window together. A model with an input budget of its own gets its whole output limit. A session never reads the catalog: a model added with its numbers keeps them as its own settings, and the **Context window** field of a logical model shows what the provider reports.
@@ -162,7 +163,7 @@ In **Settings → LLM providers**, a Kimi subscription row offers device sign-in
 
 - The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`, `openai`); for the others it would change nothing.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
-- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the four blocks of the logical-model form, its toolset and the Toolsets tab in English and in Russian, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
+- Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`**, **`SettingsSection.providers.test.tsx`** and **`applyProvidersChange.test.ts`** (the form blocks, provider and model cascades through every selector and fallback chain, the Toolsets tab, the reported window and the usage switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
 ## Settings: tabs and form layout
 
@@ -282,6 +283,14 @@ The change applies without restarting Coddy.
 - The event also reads again the copy of the configuration the **Settings** drawer keeps (see [Settings: opening and saving](#settings-opening-and-saving)). An open form takes it only while it holds no edits of its own: refetching under unsaved edits would discard work, so those stay, and the **Reload** control in the form is the deliberate way to drop them.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+External browser sign-in redirects to the configured identity provider and does not use Coddy's local password, TOTP enrollment or recovery codes while enabled. Those local credentials remain stored. Signing out first ends the local session; an independently configured `httpserver.login.logout_url` may then navigate the browser to a static destination, without guaranteeing provider sign-out. See [Remote mode](../operate/remote.md#external-sign-in-through-the-browser).
+
+![The external sign-in screen of the web UI: a card with a single sign-in link on the dark theme](../assets/web-ui/sign-in-oidc-dark-1280.png)
+
+![The external sign-in screen at phone width](../assets/web-ui/sign-in-oidc-dark-390.png)
+
+*The sign-in screen under external sign-in (OIDC): a single link to the issuer, no local credential routes - at 1280 and 390 px.*
+
 ## Settings: Authentication
 
 The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config section) manages the web sign-in account in one place - the same account `coddy serve set-password` writes on the server, and nothing here needs the bearer token. Every control applies to the settings document except the enrollment calls, which write `config.yaml` on the server at once.
@@ -299,6 +308,10 @@ The **Authentication** tab (`AuthenticationSection.tsx`, the `httpserver` config
 ![Backup codes in a separate settings fieldset on a phone](../assets/web-ui/authentication-backup-codes-dark-390.png)
 
 *One-time backup codes in their own fieldset at 1280 and 390 px.*
+
+![The External sign-in (OIDC) fieldset and the Logout URL field in Settings → Authentication](../assets/web-ui/settings-authentication-oidc-dark-1280.png)
+
+*Authentication settings with external sign-in disabled and a stored logout URL.*
 
 Sign-in itself is described under [Sign-in](#sign-in-httpserverlogin); the API is under [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional) and [One-time codes](../operate/remote.md#one-time-codes).
 
@@ -432,7 +445,7 @@ Wide screens
 
 Mobile layout
 
-- On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
+- On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while the transcript scrolls in the document on a tablet and in the Telegram Mini App, and inside **`#messages`** in a nonempty phone chat outside the Mini App.
 - On a phone the brand takes two lines, **Coddy** over **agent**, as in the narrow rail on a desktop.
 - On **`max-width: 1199px`** (phones and tablets alike) the **Settings** drawer keeps one inline inset, **14px**, for every band it stacks: the **SETTINGS** head, the status band under it (shown only when loading failed or a save was refused), the section tiles, the opened section and the reload / save footer all start and end on the same edge. Check it by measuring `getBoundingClientRect().left` of `.settings-tile` and `.settings-body` against `.settings.drawer` - the two must agree.
 
@@ -448,10 +461,10 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 - **Composer, plate.** The composer card has no chip row: the workspace is on the plate over it, one line whose folder and branch shrink with an ellipsis. On a phone and on any touch screen the plate's picks and the worktree checkbox are **36px** tall, and git's count keeps its slim framed look with an invisible **40px** hit area over it, so a finger can hit them; the improve-prompt wand stands in the field's top right corner.
 - **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
 - **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
-- **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row with a target whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
+- **Transcript.** On the stacked shell a row wider than the transcript used to scroll the page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row with a target whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
 - **Settings.** The section tiles keep two columns, and a section's name wraps to two lines instead of ending in an ellipsis: a phone has no hover, so a name cut short was out of reach behind its tooltip.
 - **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**): iOS Safari zooms the page into a smaller field on focus and does not zoom back. The composer and its highlight mirror change together, since the mirror has to keep the textarea's metrics.
-- The viewport meta carries **`interactive-widget=resizes-content`**, so Android browsers shrink the layout when the on-screen keyboard opens and the docked composer stays above it. A browser that ignores it (iOS Safari) shrinks only the visual viewport; the docked block is then lifted by what the keyboard covers (**`--coddy-keyboard-inset`**, measured from **`visualViewport`**).
+- At **599px** and below, a nonempty chat outside the Telegram Mini App scrolls inside **`#messages`** while the composer stays in normal flow below it. The shell follows the visual viewport, keeping the composer above an overlaying keyboard. The start screen, tablet and Telegram Mini App retain their previous layout. The viewport meta carries **`interactive-widget=resizes-content`**; where the document scrolls and the keyboard overlays it, the fixed dock rises by **`--coddy-keyboard-inset`**.
 - **No keyboard by itself.** Opening the start screen or a chat, or closing History, does not focus the composer on a phone or a tablet (a touch-only device), since a focused field opens the on-screen keyboard; it comes when you tap the field. A desktop window, narrow or not, keeps the focus.
 
 Check it live at **360**, **375**, **393** and **430px** on the start screen and in a chat, with the menus closed and with History open: **`document.documentElement.scrollWidth`** equals **`clientWidth`**, the **Send** button's rect intersects no **`.composer-tab`**, and the brand's rect intersects no icon of the top bar. At **600**, **834** and **1280px** the layout is the tablet's and the desktop's. The transcript is measured at every width of the grid by **`npm run check:overflow`** (see **Checking the transcript at every width of the grid** below). The CSS contract is pinned by **`phoneLayoutCss.test.ts`**, **`transcriptWrapCss.test.ts`** and **`layoutGridCss.test.ts`**, which fails on a width the stylesheet asks about that the grid does not list; the scenarios are **`features/web_ui_phone.feature`**.
@@ -632,6 +645,24 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
 - Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, the refresh behind the open branch list, the warning, remote rows, modal, lock), **`App.workspaceHome.test.tsx`** (which folder a refresh is asked for, and that a branch picked during it stays the choice), the scenario of the branch list during a refresh in **`features/web_ui_menus.feature`**; backend behavior is specified executable in **`features/workspace_switching.feature`** (godog), the fetch itself in **`internal/gitws/remotes_test.go`** (every remote, prune, nothing local touched, the refspec guard, the deadline, both git backends).
+
+### Branch creation and commit history
+
+The branch menu offers **Create branch…**. Enter a branch name and choose **Create and switch**. Coddy creates a local branch at the checkout's current HEAD and switches immediately, before the first message. This action uses the current checkout even when the worktree checkbox is on. Git keeps uncommitted files when it can; an invalid or existing name leaves the dialog open with the error.
+
+![The create branch dialog in the dark theme](../assets/web-ui/git-branch-create-open-dark-1280.png)
+
+**Commit history** in the same menu opens the commit graph. After a conversation starts, click the branch name on the plate over the composer to open the graph. Creating or switching branches through the plate stays locked once the conversation starts.
+
+The graph shows branch and merge lines, HEAD, local and remote branch labels, tags, commit descriptions, dates, authors and short hashes. It reads 100 commits at a time; **Load more** adds older commits, and **Refresh graph** starts again from the newest ones. It reads local history without fetching or changing the checkout and requires the git executable.
+
+![Commit history with a merge and branch labels in the dark theme](../assets/web-ui/git-graph-open-dark-1280.png)
+
+On a phone the table scrolls horizontally inside the window. The title and close control stay in view. Both dialogs use the shared theme tokens and support Escape, keyboard focus within the dialog, and focus returning to the branch control.
+
+![Commit history on a narrow screen](../assets/web-ui/git-graph-open-dark-390.png)
+
+Run `npm run check:git` in `external/ui` after building with `http,ui`. The check uses an isolated repository and no LLM, drives both dialogs on wide and narrow screens in light and dark themes, and checks transcript alignment. Set `CODDY_ENGINE=webkit` to run it in WebKit.
 
 ## Session list
 
@@ -850,12 +881,12 @@ On the same 3306-message session at CPU x6 in a phone viewport, the newest messa
 Scrolling up in a long chat leaves the newest messages off screen, and dragging the scrollbar back is the only way down. A round control above the composer does it in one press.
 
 - **When it is there** - the transcript follows new output while the scrollport sits within `TRANSCRIPT_BOTTOM_THRESHOLD_PX` (**80px**) of the end. The button appears exactly when that stops being true and goes away when it starts again, so seeing it means the transcript has something below the fold. It fades in and out on one mounted node (**~0.14s** in, **0.12s** out); hidden, it is `inert` and out of the tab order.
-- **Where it sits** - inside the composer's own column (`.chat-bottom-inner`), against its right edge, `10px` above the docked block; under a composer it stands over the expand control, both 10px apart and centred on the improve-prompt wand's vertical line. That is one set of coordinates for every shell: the absolute desktop dock, the `position: fixed` composer below `1200px`, and the inset the background tasks panel reserves.
+- **Where it sits** - inside the composer's own column (`.chat-bottom-inner`), against its right edge, `10px` above the docked block; under a composer it stands over the expand control, both 10px apart and centred on the improve-prompt wand's vertical line. That is one set of coordinates for every shell: the absolute desktop dock, the fixed tablet and Telegram composer, the in-flow phone composer, and the inset the background tasks panel reserves.
 - **The jump** takes **220-460ms** by distance, on an ease-out curve: away at speed, settling into the last pixels rather than stopping dead. It is driven frame by frame (`transcriptJumpDurationMs` / `easeTranscriptJump` in `chat/transcriptScrollPosition.ts`), not handed to `scrollTo({ behavior: "smooth" })`, so the feel is the same in every engine. Arriving re-arms the follow, and the rest of the turn scrolls by itself again.
 - **Streaming under a reader who scrolled away** - the position does not move and the button stays, because the distance to the end only grows. A jump started mid-turn re-reads the end on every frame, so it lands on the newest message rather than where the transcript ended when the button was pressed.
 - **The reader always wins** - a wheel, a finger or a press on the scrollbar stops the travel where it is and brings the button straight back if they stopped short of the end.
 - **Only down** - the button never moves the chat up. On a phone the end is measured against what is visible above the on-screen keyboard, and where the keyboard covers the page instead of shrinking it (iOS Safari) the composer and the button rise above it; the button used to stay under the keyboard there and send the page up by the keyboard's height.
-- **Both scroll surfaces** - the wide shell scrolls `.chat-scroll`, the narrow one scrolls the document; the same module reads the distance and the end position for both, and one reading drives the follow flag, the button and the jump.
+- **Scroll surfaces** - the wide shell and a nonempty phone chat outside the Telegram Mini App scroll `.chat-scroll`; the tablet and Mini App scroll the document. The same module reads the distance and end position for each surface, driving the follow flag, the button and the jump.
 - **`prefers-reduced-motion: reduce`** puts the transcript at the end in one step and drops the button's fade.
 - **Accessible name and tooltip** are both `chat.scrollToBottom`; the empty hero never renders it.
 - **Opening another conversation** lands on its newest message, wherever the last one was left: a History pick, a link to `#/s/<id>` or the back button after reading far up in one chat no longer opens the next one at the old offset (issue #342). The jump in the air is cancelled and the follow re-armed when the session id changes, before the new rows arrive.
@@ -957,7 +988,7 @@ Functional regression checklist:
 
 *An image in a chat with the Images toggle enabled*
 
-For a model that supports native image output, enable **Image generation** on its row in **Settings → Logical models** and save. This sets `models[].image_generation`; it is off by default and is independent of `multimodal`, which controls image input. The composer then offers an **Images** toggle, initially off. Turn it on and ask for an image. It stays on for subsequent sends in that chat until switched off; changing the chat or model clears it. Each enabled send carries `metadata.image_generation`. Image-enabled messages cannot be queued while a turn is running; the draft stays in the composer. After a reload, Retry is unavailable when the original image choice is unknown and the selected model supports image generation.
+Enable **Image generation** in **Settings → Logical models** to make the native image tool available when sending a message with that model. Leave it off to omit the tool. The separate `multimodal` setting controls image input.
 
 The chat path supports `openai` API-key and `codex` providers when the model is explicitly enabled and the provider supports the Responses image generation tool. Codex has been tested against a fake backend; live account entitlement has not been verified. Coddy refuses image generation on direct model requests. Coddy sends the native tool with the conversation and saves returned images as session assets on the assistant message. Images appear in the answer and remain available after reloading the chat. Provider support and account access are required; enabling the setting alone does not guarantee an image. A generated assistant image is not automatically included as visual context in later prompts. To ask for an edit, download the image and reattach it as input with a multimodal model.
 
@@ -1690,25 +1721,54 @@ it was under the window.
 On the left the tree lists the changed files and only them, git's uncommitted changes
 in the folders they sit in, each with git's letter at the end of its row (**A** added,
 **M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
-file picked there scrolls the diffs to it and stays put while the diffs above it are
-still loading, and as you scroll the tree marks the file at the top, scrolling itself
+file picked there scrolls the diffs to it, highlights its card with an accent frame and stays put while the diffs above it are
+still loading. Selecting a Viewed file unfolds its body without clearing the Viewed mark. As you scroll, the tree marks the file at the top, scrolling itself
 to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
-A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+A file section has a sticky header: the chevron and name, which fold the diff, then copy-path and **Expand all lines** beside the name. The source/rich switch for Markdown stands to the right of the counts or sizes. Images and other binary files have no source/rich switch.
+Git's `+a −b`, **Viewed** and a three-dot file-actions menu close the row. Checking **Viewed** folds the file and remembers its
+content digest in this browser; when the file changes, the digest changes and the mark is withdrawn,
+even if the line counts stayed the same. Unchecking it expands the file again, and reopening the window restores the collapsed state. The window header shows `viewed / total` with a circular progress indicator. On a phone only the compact counts are visible; the full summary remains in the accessible name and tooltip. It turns green when every listed file is viewed, and a changed digest immediately removes that file from the count. The line numbers stand in
 cells as wide as the file's longest number, so the code of every row, a removed or an added one
 included, starts at one edge; inside a change the removed lines come first, then the added ones,
-the way git writes them. Between hunks sits a wordless separator
-rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+the way git writes them. Between hunks and at the file ends, arrows reveal 10 more lines up, down,
+or in both directions; **Expand all lines** reveals the whole file with its diff and becomes **Collapse all lines**. Collapsing restores the original hunks and discards context revealed through either control without folding the file card. A patch the server
+truncated offers no context controls. When expansion makes two hunks contiguous, their separator disappears. In a folder with nothing to show it says
 so: clean, or not in a git repository.
+
+For any binary file, compact byte sizes with the exact count in the tooltip replace the line counts:
+green for an addition, red for a deletion, and old red beside new green for a modification.
+Each side renders by its own type, so an image replaced by text shows the old image beside the new
+text. Rich preview shows the image itself. A modified
+image has a red-framed **Before** beside a green-framed **After**; an added or deleted image shows
+only the version that exists. Its coloured version label and loaded width and height stand outside the image frame as `W … · H …`. Images scale down to 320px high without changing their proportions. Markdown rich preview renders only the new version through the
+ordinary Markdown component. On a phone the header wraps and before/after panels stack in one column.
+
+![The file controls for reviewing a source diff](../assets/session-changes-review-controls-dark-1280.png)
+
+*Source and rich diff, context expansion and Viewed in a file header*
+
+![The same file controls on a phone](../assets/session-changes-review-controls-dark-390.png)
+
+*The file header wraps on a phone*
+
+![The before and after versions of a modified image](../assets/session-changes-image-rich-dark-1280.png)
+
+*Rich image diff with exact byte sizes and framed before and after versions*
+
+![The image versions stacked on a phone](../assets/session-changes-image-rich-dark-390.png)
+
+*Before and after images use one column on a phone*
 
 ![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
 
 *The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
 
-**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
-menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+**Discard changes** and **Delete file** live in the file's three-dot menu, immediately right of
+**Viewed**, and each asks first in the shared confirmation dialog. The menu is portaled, so it also works while the file is folded. Discard puts that file back at
+`HEAD`; delete removes it from the working folder, leaving a tracked file reported as deleted.
+**Discard all** in the window menu discards every change. The discard confirmation says whether the file
 goes back to its last committed content or, new since that commit, is deleted; Escape
 there answers the question and leaves the window open. Then the page posts
 `.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
@@ -1716,8 +1776,8 @@ content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted
 with any folder it leaves empty, and files git ignores are never touched. A turn running in
 that folder, in this chat or in another one working there, refuses the discard
 (**409**); so does a file git no longer reports - committed or put
-back meanwhile - and then nothing of the request is applied. A commit is not offered:
-the window reads, and discarding is the one thing it writes.
+back meanwhile - and then nothing of the request is applied. Delete posts `.../changes/delete`
+with `{"paths":[...]}` under the same change-set and running-turn guards. A commit is not offered.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1737,6 +1797,8 @@ Automated checks:
 - **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
 - **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/contextExpansion.test.ts** (10-line expansion in every direction, overlap, file ends and expand all) and **viewedFiles.test.ts** (Viewed keyed by content digest)
+- **external/ui/src/ui/changes/richDiff.test.ts** (rich formats, authenticated image addresses and byte sizes)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
 - **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
@@ -2383,7 +2445,7 @@ Whether a long conversation opens at once and scrolls without jumps is a questio
 
 - **opening** at 390 and 1280 px: the first read is the newest page, the newest message is on screen and at the bottom within the budget, no task blocks the page past it, the DOM holds a bounded slice, the heap stays small;
 - **scrolling up** through the history: older pages arrive, the row under the reader never moves by more than rounding (also with the engine's own scroll anchoring switched off, which is WebKit's case), frame times, the window stays bounded, no row id repeats; the scroll-to-bottom button then returns to the newest message and older pages are read again on the next scroll up, having been let go;
-- **the stacked shell** at 390 px, where the document scrolls;
+- **the phone chat** at 390 px, where `#messages` scrolls;
 - **an edit** of a prompt on an older page names the index the server knows (the rewind is intercepted);
 - **a failed read** of the page above waits for **Retry** instead of asking again every frame, and **Retry** reads it;
 - **a question the model asks** stays mounted, with the answer picked, while the reader goes far up the history and back;
@@ -2684,3 +2746,25 @@ Other provider types hide the selector.
 ![Anthropic-compatible provider User-Agent selector](../assets/web-ui/provider-user-agent-anthropic-dark-1280.png)
 
 *The Anthropic-compatible provider offers its own SDK identity by default.*
+
+## Service tier
+
+The selector is available for Codex and for OpenAI providers using the official `https://api.openai.com/v1` API base (with or without a trailing slash), not compatible endpoints such as Ollama. With an empty `api_base`, `OPENAI_BASE_URL` applies when set; otherwise the official endpoint is used. A forward `proxy` does not change this decision.
+
+![Service tier](../assets/service-tier/service-tier-dark.png)
+![Service tier](../assets/service-tier/service-tier-light.png)
+![Service tier](../assets/service-tier/service-tier-narrow.png)
+
+For supported models, the composer shows **Service tier** beside the model controls.
+Choose **Standard**, **Fast**, **Ultrafast**, or **Flex** from the options the server offers.
+An unset session shows one selected Standard item and omits the parameter; there is no separate Auto item.
+Explicitly selecting Standard sends `default`, including after Fast.
+`gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast.
+The menu shows your selection, which can differ from the tier the provider actually uses.
+Another client of the same session receives the change.
+A change during a turn applies to the next turn.
+
+The browser remembers your last selection for new chats.
+An existing chat keeps its saved selection.
+A model that does not offer the remembered value leaves the session unset and shows Standard.
+Opening a chat or receiving another client's change does not replace the browser preference.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -91,10 +92,12 @@ type sessionState struct {
 	// createOrigin is the origin the server is asked to record when the first
 	// prompt creates this session (X-Coddy-Session-Origin); empty for a
 	// session that exists on the server already.
-	createOrigin string
-	mode         string
-	modelID      string
-	reasoning    string
+	createOrigin       string
+	mode               string
+	modelID            string
+	reasoning          string
+	serviceTier        string
+	serviceTierChoices []string
 	// permissionMode mirrors the server session's permission mode, and
 	// settingsVersion the last settings snapshot adopted (settings.go).
 	permissionMode  string
@@ -140,12 +143,13 @@ type remoteTurn struct {
 }
 
 type remoteModel struct {
-	ID               string
-	OwnedBy          string
-	Multimodal       bool
-	ReasoningLevels  []string
-	ReasoningDefault string
-	Toolset          string
+	ID                 string
+	OwnedBy            string
+	Multimodal         bool
+	ServiceTierChoices []string
+	ReasoningLevels    []string
+	ReasoningDefault   string
+	Toolset            string
 }
 
 // NewHandler validates options and returns a disconnected handler; the first
@@ -308,14 +312,20 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 			st.pendingReplay = msgs.Messages
 			st.pendingUILog = msgs.UILog
 			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
-			if msgs.SelectedModelID != "" {
-				st.modelID = msgs.SelectedModelID
-			}
-			st.reasoning = msgs.SelectedReasoning
-			if msgs.Mode != "" {
-				st.mode = msgs.Mode
+			if msgs.Settings == nil {
+				if msgs.SelectedModelID != "" {
+					st.modelID = msgs.SelectedModelID
+				}
+				st.reasoning = msgs.SelectedReasoning
+				st.serviceTier = msgs.SelectedServiceTier
+				if msgs.Mode != "" {
+					st.mode = msgs.Mode
+				}
 			}
 			h.mu.Unlock()
+			if msgs.Settings != nil {
+				h.mirrorSettings(id, *msgs.Settings)
+			}
 			if msgs.Goal != nil {
 				h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
 			}
@@ -468,6 +478,7 @@ func (h *Handler) openRemoteSession(ctx context.Context, sessionID string) (*mes
 			st.modelID = msgs.SelectedModelID
 		}
 		st.reasoning = msgs.SelectedReasoning
+		st.serviceTier = msgs.SelectedServiceTier
 		if msgs.Mode != "" {
 			st.mode = msgs.Mode
 		}
@@ -602,6 +613,11 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 		}
 		h.mu.Lock()
 		st.modelID = params.Value
+		for _, model := range h.models {
+			if model.ID == params.Value && !hasReasoningLevel(model.ServiceTierChoices, st.serviceTier) {
+				st.serviceTier = ""
+			}
+		}
 		h.mu.Unlock()
 		// Persist for the remote UI too; a session that has not run yet does
 		// not exist server-side, so a 404 here is expected and harmless.
@@ -615,6 +631,26 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 			})
 		}
 		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
+	case "service_tier":
+		if err := h.ensureModels(ctx); err != nil {
+			return nil, err
+		}
+		snap, err := h.SessionSettings(params.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		value := llm.NormalizeServiceTier(params.Value)
+		if value != "" && !hasReasoningLevel(snap.ServiceTierChoices, value) {
+			return nil, acp.InvalidParams("unknown service tier: %q", value)
+		}
+		if _, err := h.ApplySessionSettings(ctx, params.SessionID, session.SettingsChange{ServiceTier: &value, Source: "remote"}); err != nil {
+			return nil, err
+		}
+		options := h.configOptions(st)
+		if sender := h.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.ConfigOptionUpdate{SessionUpdate: acp.UpdateTypeConfigOptionUpdate, ConfigOptions: options})
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: options}, nil
 	case "reasoning":
 		if err := h.ensureModels(ctx); err != nil {
 			return nil, err
@@ -889,6 +925,7 @@ func (h *Handler) modelConfigOptions(st *sessionState) []acp.ConfigOption {
 	current := st.modelID
 	reasoning := st.reasoning
 	choices, choicesModel := st.reasoningChoices, st.choicesModel
+	tier, tiers := st.serviceTier, st.serviceTierChoices
 	models := h.models
 	if current == "" {
 		current = h.defModel
@@ -926,6 +963,20 @@ func (h *Handler) modelConfigOptions(st *sessionState) []acp.ConfigOption {
 		CurrentValue: current,
 		Options:      values,
 	})
+	for _, model := range models {
+		if model.ID != current {
+			continue
+		}
+		if choicesModel != current {
+			tiers = model.ServiceTierChoices
+		}
+		if len(tiers) > 0 {
+			if !hasReasoningLevel(tiers, tier) {
+				tier = ""
+			}
+			out = append(out, session.ServiceTierOption(tier, tiers))
+		}
+	}
 	for _, model := range models {
 		levels := model.ReasoningLevels
 		if choicesModel == model.ID && len(choices) > 0 {

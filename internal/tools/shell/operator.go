@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"sync"
@@ -40,7 +41,7 @@ func StartOperatorCommandForShell(command, cwd string, commandShell platform.She
 	tail := &tailBuffer{limit: operatorOutputCap}
 	// The sink is attached before the child starts, so not even the first
 	// burst of a `yes` can land in an unbounded buffer.
-	sc, err := startForegroundInto(command, &tooling.Env{CWD: cwd}, commandShell, tail)
+	sc, err := startForegroundInto(context.Background(), command, &tooling.Env{CWD: cwd}, commandShell, tail)
 	if err != nil {
 		return nil, err
 	}

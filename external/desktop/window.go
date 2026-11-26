@@ -174,6 +174,14 @@ func (h *WindowHandle) ResizeBy(direction string, dx, dy int) error {
 }
 func (h *WindowHandle) WaitForWindow(b time.Duration) bool { return h.current().WaitForWindow(b) }
 
+// Frame forwards optional system chrome information without widening WindowControl.
+func (h *WindowHandle) Frame() shell.WindowFrame {
+	if frame, ok := h.current().(shell.FrameSource); ok {
+		return frame.Frame()
+	}
+	return shell.WindowFrame{}
+}
+
 // noWindowControl is every platform the window is not ported to, and the
 // moment before a window exists. It answers no to everything and fails
 // nothing destructive.

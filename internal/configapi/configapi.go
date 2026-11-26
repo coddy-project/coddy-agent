@@ -316,6 +316,9 @@ func (b *Backend) saveLocked(body []byte) (string, error) {
 	if err != nil {
 		return cfgPath, errSerialize
 	}
+	if err := config.ProtectConfigYAMLWrite(paths, yb); err != nil {
+		return cfgPath, err
+	}
 	if err := config.BackupCurrent(cfgPath); err != nil {
 		b.log().Error("coddy config backup", "error", err)
 		return cfgPath, errBackup

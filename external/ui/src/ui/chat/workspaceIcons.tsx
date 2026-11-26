@@ -25,13 +25,34 @@ export function FolderIcon() {
 }
 
 /**
+ * A plus on the same stroke as the branch glyph: the mark of the branch
+ * list's create row. It sits in the row's fixed icon slot, so it carries no
+ * plate class of its own.
+ */
+export function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      aria-hidden="true"
+    >
+      <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
  * The git branch glyph. In a linked worktree it is the worktree mark too,
  * drawn the same: the tooltip of the branch says which folder it is.
  */
-export function BranchIcon(props: { worktree?: boolean }) {
+export function BranchIcon(props: { worktree?: boolean; className?: string }) {
   return (
     <svg
-      className="workspace-bar-icon"
+      className={props.className ?? "workspace-bar-icon"}
       viewBox="0 0 16 16"
       width="14"
       height="14"

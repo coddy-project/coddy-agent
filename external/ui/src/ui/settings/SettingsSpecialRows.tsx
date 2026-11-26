@@ -114,6 +114,7 @@ export type SpecialRowPlanItem = {
 export function buildSpecialRowPlan(input: {
   section: string;
   doc: PlainObject;
+  schema: JsonSchema | undefined;
   rowName?: string | null;
   landmarks?: readonly SettingsLandmark[];
   blocks?: readonly Owned<SettingsBlock>[];
@@ -135,7 +136,11 @@ export function buildSpecialRowPlan(input: {
   for (const landmark of input.landmarks ?? []) {
     if (landmark.section !== section || baseIds.has(landmark.id)) continue;
     try {
-      if (landmark.shown !== undefined && !landmark.shown(input.doc)) continue;
+      if (
+        landmark.shown !== undefined &&
+        !landmark.shown(input.doc, input.schema)
+      )
+        continue;
       if (
         rowName === null
           ? landmark.row !== undefined

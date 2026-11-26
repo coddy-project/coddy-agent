@@ -1,10 +1,12 @@
 package ssh
 
 import (
+	"context"
 	"io"
 	"net"
-	"os"
+	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -13,7 +15,11 @@ import (
 // Returns an auth method, a closer for the connection, and an error.
 // All three are nil when the agent is unavailable (socket not set or dial fails).
 func agentAuth() (gossh.AuthMethod, io.Closer, error) {
-	sock := os.Getenv("SSH_AUTH_SOCK")
+	return agentAuthContext(context.Background())
+}
+
+func agentAuthContext(ctx context.Context) (gossh.AuthMethod, io.Closer, error) {
+	sock := environmentValue(platform.UserEnvironment(ctx, ""), "SSH_AUTH_SOCK")
 	if sock == "" {
 		return nil, nil, nil
 	}
@@ -24,4 +30,14 @@ func agentAuth() (gossh.AuthMethod, io.Closer, error) {
 	}
 	ag := agent.NewClient(conn)
 	return gossh.PublicKeysCallback(ag.Signers), conn, nil
+}
+
+func environmentValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }

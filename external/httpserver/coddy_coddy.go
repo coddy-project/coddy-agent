@@ -219,6 +219,8 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/workspace/files", s.coddyWorkspaceFilesGet)
 	s.mux.HandleFunc("GET /coddy/workspace/context", s.coddyWorkspaceContextGet)
 	s.mux.HandleFunc("POST /coddy/workspace/fetch", s.coddyWorkspaceFetchPost)
+	s.mux.HandleFunc("POST /coddy/workspace/branches", s.coddyWorkspaceBranchesPost)
+	s.mux.HandleFunc("GET /coddy/workspace/graph", s.coddyWorkspaceGraphGet)
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /coddy/workspace/folders", s.coddyWorkspaceFoldersPost)
 	s.mux.HandleFunc("GET /coddy/workspace/file", s.coddyWorkspaceFileGet)
@@ -1506,9 +1508,17 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return llmMsgsToCoddyOpenAIForSession("", "", "", msgs)
 }
 
-// isRegularFile reports whether path is a regular file, a link not followed.
-func isRegularFile(path string) bool {
-	info, err := os.Lstat(path)
+func validSessionAssetName(name string) bool {
+	return name != "." && filepath.IsLocal(name) && filepath.Base(name) == name && !strings.ContainsAny(name, `/\\`)
+}
+
+// bundleHasRegularFile checks metadata without leaving the bundle or following
+// a symlink in place of the file itself.
+func bundleHasRegularFile(root *os.Root, rel string) bool {
+	if root == nil {
+		return false
+	}
+	info, err := root.Lstat(rel)
 	return err == nil && info.Mode().IsRegular()
 }
 
@@ -1525,10 +1535,25 @@ func recordedAsset(assetsDir, path string) string {
 	if dir != filepath.Clean(assetsDir) && filepath.Base(dir) != filepath.Base(session.AssetsPath("")) {
 		return ""
 	}
-	return filepath.Base(path)
+	name := filepath.Base(path)
+	if !validSessionAssetName(name) {
+		return ""
+	}
+	return name
 }
 
 func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm.Message) []map[string]interface{} {
+	openBundle := sync.OnceValue(func() *os.Root {
+		// The HTTP asset routes use the same session bundle boundary.
+		root, _ := os.OpenRoot(filepath.Dir(assetsDir))
+		return root
+	})
+	var bundle *os.Root
+	defer func() {
+		if bundle != nil {
+			_ = bundle.Close()
+		}
+	}()
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -1617,14 +1642,16 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir, cwd string, msgs []llm
 				// the agent can write there, and the prompt tells it where - would
 				// make it serve whatever it points at.
 				if asset := recordedAsset(assetsDir, part.FilePath); sessionID != "" && asset != "" {
+					bundle = openBundle()
+					assetsRel := filepath.Base(assetsDir)
 					if m.Role == llm.RoleAssistant {
 						file["asset"] = asset
 					}
-					if part.ThumbnailPath != "" && isRegularFile(session.ThumbnailPathInAssets(assetsDir, asset)) {
+					if part.ThumbnailPath != "" && bundleHasRegularFile(bundle, session.ThumbnailPathInAssets(assetsRel, asset)) {
 						file["preview_url"] = session.AssetThumbnailRoute(sessionID, asset)
 					}
 					// The full-size original, for a preview card to open enlarged.
-					if isRegularFile(filepath.Join(assetsDir, asset)) {
+					if bundleHasRegularFile(bundle, filepath.Join(assetsRel, asset)) {
 						file["url"] = session.AssetRoute(sessionID, asset)
 					}
 				}
@@ -1691,7 +1718,7 @@ func (s *Server) coddySessionAsset(w http.ResponseWriter, r *http.Request) (sess
 		return "", "", false
 	}
 	name = strings.TrimSpace(r.PathValue("name"))
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+	if !validSessionAssetName(name) {
 		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
 		return "", "", false
 	}
@@ -1917,10 +1944,14 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	}
 	msgs, rev := st.MessagesWithRev()
 	page := session.PageMessages(msgs, query)
+	var assetsDir string
+	if sessionDir := strings.TrimSpace(st.GetPersistedSessionDir()); sessionDir != "" {
+		assetsDir = session.AssetsPath(sessionDir)
+	}
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), st.GetCWD(), msgs[page.Offset:page.End]),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, assetsDir, st.GetCWD(), msgs[page.Offset:page.End]),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,
@@ -1965,6 +1996,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["selectedServiceTier"] = st.GetSelectedServiceTier()
 		out["mode"] = string(st.GetMode())
 		// The whole snapshot, versioned: what the composer mirrors and what
 		// it names in metadata.settingsVersion when it sends.
@@ -2019,10 +2051,11 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		// pinned title of its own, so a name the operator or the model wrote
 		// during that first turn is not overwritten seconds later by an answer
 		// that was already in flight.
-		TitleIfUnpinned   bool    `json:"titleIfUnpinned"`
-		MarkActivityRead  bool    `json:"markActivityRead"`
-		SelectedModelID   *string `json:"selectedModelId"`
-		SelectedReasoning *string `json:"selectedReasoning"`
+		TitleIfUnpinned     bool    `json:"titleIfUnpinned"`
+		MarkActivityRead    bool    `json:"markActivityRead"`
+		SelectedModelID     *string `json:"selectedModelId"`
+		SelectedReasoning   *string `json:"selectedReasoning"`
+		SelectedServiceTier *string `json:"selectedServiceTier"`
 		// SelectedToolset is a toolsets[] preset by name, or "default".
 		SelectedToolset *string `json:"selectedToolset"`
 		// Mode and PermissionMode are the operating mode and the permission
@@ -2053,13 +2086,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	// surface's, so the change is validated once, logged, and mirrored by
 	// every client watching the session (event: session_settings).
 	change := session.SettingsChange{Source: "web", Turns: body.Turns}
-	clearModel := false
 	if body.SelectedModelID != nil {
 		mid := strings.TrimSpace(*body.SelectedModelID)
 		switch {
 		case mid == "":
 			// Clearing the selection goes back to the configured agent model.
-			clearModel = true
+			change.Model = &mid
 		case s.activeCfg() == nil || s.activeCfg().FindModelEntry(mid) == nil:
 			http.Error(w, errorJSON(ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
 			return
@@ -2077,25 +2109,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Reasoning = &level
 	}
+	change.ServiceTier = body.SelectedServiceTier
 	change.Toolset = body.SelectedToolset
 	change.Mode = body.Mode
 	change.PermissionMode = body.PermissionMode
-	if clearModel {
-		if body.Turns > 0 {
-			http.Error(w, `{"error":{"message":"selectedModelId cannot be cleared for a number of turns"}}`, http.StatusBadRequest)
-			return
-		}
-		st.SetSelectedModelID("")
-		st.ClearTurnOverride(session.SettingModel)
-	}
-	if !change.Empty() || clearModel {
-		var snap acp.SessionSettings
-		var err error
-		if change.Empty() {
-			snap = s.mgr.PublishSessionSettings(id, st, "", "web")
-		} else {
-			snap, err = s.mgr.ApplySessionSettings(r.Context(), id, change)
-		}
+	if !change.Empty() {
+		snap, err := s.mgr.ApplySessionSettings(r.Context(), id, change)
 		if err != nil {
 			code := http.StatusBadRequest
 			if isSubagentReadOnly(err) {
@@ -2114,6 +2133,9 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.SelectedReasoning != nil {
 			resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		}
+		if body.SelectedServiceTier != nil {
+			resp["selectedServiceTier"] = st.GetSelectedServiceTier()
 		}
 		if body.SelectedToolset != nil {
 			resp["selectedToolset"] = st.GetSelectedToolset()
@@ -2215,10 +2237,40 @@ func (s *Server) deleteSessionBundle(id string) error {
 // route answers with: a tree that would not settle is a retryable conflict,
 // anything else is a server error.
 func sessionDeleteStatus(err error) int {
-	if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+	if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) || errors.Is(err, session.ErrSessionTurnBusy) || errors.Is(err, session.ErrForeignSessionTask) || errors.Is(err, bgtask.ErrStopNotSettled) {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
+}
+
+func sessionDeleteConflictMessage(err error) string {
+	var conflict *session.SessionDeleteConflict
+	if errors.As(err, &conflict) && session.ValidateFolderSessionID(conflict.SessionID) == nil {
+		if errors.Is(err, session.ErrSessionTurnBusy) {
+			return fmt.Sprintf("session %s has an active turn", conflict.SessionID)
+		}
+		if errors.Is(err, session.ErrForeignSessionTask) {
+			return fmt.Sprintf("session %s has a foreign active task", conflict.SessionID)
+		}
+		if errors.Is(err, bgtask.ErrStopNotSettled) {
+			return fmt.Sprintf("session %s has a task that did not stop in time", conflict.SessionID)
+		}
+	}
+	if errors.Is(err, session.ErrTurnNotSettled) {
+		return session.ErrTurnNotSettled.Error()
+	}
+	if errors.Is(err, session.ErrTreeUnstable) {
+		return session.ErrTreeUnstable.Error()
+	}
+	return "session tree is busy"
+}
+
+func sessionDeleteFailureMessage(err error) string {
+	var removal *session.SessionRemovalError
+	if errors.As(err, &removal) {
+		return "delete failed; the session may be partially deleted"
+	}
+	return "delete failed"
 }
 
 func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
@@ -2238,14 +2290,11 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.deleteSessionBundle(id); err != nil {
 		status := sessionDeleteStatus(err)
 		if status == http.StatusConflict {
-			// A turn of the tree ignored its cancellation, or descendants
-			// kept appearing while the tree was being marked; nothing was
-			// removed, the client may retry once the tree is quiet.
-			http.Error(w, errorJSON(err.Error()), status)
+			http.Error(w, errorJSON(sessionDeleteConflictMessage(err)), status)
 			return
 		}
 		s.log.Error("coddy session delete", "error", err)
-		http.Error(w, `{"error":{"message":"delete failed"}}`, status)
+		http.Error(w, errorJSON(sessionDeleteFailureMessage(err)), status)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -2513,7 +2562,7 @@ func bulkDeleteSessions(targets []string, del func(string) error) (requested int
 		if err := del(id); err != nil {
 			message := "delete failed"
 			if sessionDeleteStatus(err) == http.StatusConflict {
-				message = err.Error()
+				message = sessionDeleteConflictMessage(err)
 			}
 			failed = append(failed, map[string]string{"id": id, "error": message})
 			continue

@@ -216,6 +216,18 @@ func TestSessionAssetRefusesALinkedFolderOutOfTheBundle(t *testing.T) {
 	if !strings.HasPrefix(session.AssetThumbnailPath(sessionDir, "private.png"), assets) {
 		t.Fatal("the thumbnail is expected inside the assets folder")
 	}
+	rows := llmMsgsToCoddyOpenAIForSession(sessionID, assets, "", []llm.Message{{
+		Role: llm.RoleUser,
+		ImageParts: []llm.ImagePart{{
+			FilePath: filepath.Join(assets, "private.png"), ThumbnailPath: session.AssetThumbnailPath(sessionDir, "private.png"),
+		}},
+	}})
+	file := rows[0]["files"].([]map[string]interface{})[0]
+	for _, key := range []string{"url", "preview_url"} {
+		if _, ok := file[key]; ok {
+			t.Errorf("transcript published %s for an asset outside the bundle", key)
+		}
+	}
 }
 
 // The address is a bare name under this session's assets directory, so a part

@@ -346,6 +346,11 @@ export const SETTINGS_TEXTS = {
   authTtl: { desc: "settings.auth.ttlHint" },
   authAuthenticator: { label: "settings.auth.authenticator" },
   authBackupCodes: { label: "settings.auth.backupCodes" },
+  authOidc: { label: "settings.auth.oidc" },
+  authLogoutUrl: {
+    label: "settings.auth.logoutUrl",
+    desc: "settings.auth.logoutUrlHint",
+  },
   proxyIgnoreSystem: {
     label: "settings.providerProxy.ignoreSystem",
     desc: "settings.providerProxy.ignoreSystemDesc",

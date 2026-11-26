@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func signedLaunch(token string, userID int64, at time.Time) string {
 
 // newTelegramServer is a server gated by gate ("login" or "token") with a
 // Telegram bot whose admins are admins.
-func newTelegramServer(t *testing.T, gate string, admins ...int64) *Server {
+func newTelegramServer(t testing.TB, gate string, admins ...int64) *Server {
 	t.Helper()
 	login := config.HTTPLoginConfig{}
 	if gate == "login" {
@@ -335,4 +336,101 @@ func TestWebUITelegramSignInFeature(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("webui telegram sign-in feature failed")
 	}
+}
+
+// pauseTelegramReplay pauses before durable recording, then performs it for
+// real. Release it before teardown even when a request fails the test.
+func pauseTelegramReplay(t testing.TB, srv *Server) (<-chan struct{}, func(), <-chan *httptest.ResponseRecorder) {
+	t.Helper()
+	arrived, release, done := make(chan struct{}), make(chan struct{}), make(chan *httptest.ResponseRecorder, 1)
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	srv.recordTelegramLaunch = func(key string, until, now time.Time) (bool, error) {
+		close(arrived)
+		<-release
+		return srv.tgReplay.Use(key, until, now)
+	}
+	go func() { done <- telegramSignIn(srv, signedLaunch(tgSignInToken, 7, time.Now()), nil) }()
+	t.Cleanup(unblock)
+	return arrived, unblock, done
+}
+
+func TestTelegramBlockedReplayDoesNotHoldAuthLock(t *testing.T) {
+	for _, change := range []string{"oidc-round-trip", "admin-round-trip"} {
+		t.Run(change, func(t *testing.T) {
+			srv := newTelegramServer(t, "token", 7)
+			arrived, unblock, done := pauseTelegramReplay(t, srv)
+			waitAuthBarrier(t, arrived)
+			proceed := make(chan struct{})
+			go func() {
+				defer close(proceed)
+				req := httptest.NewRequest("GET", "/coddy/sessions", nil)
+				req.Header.Set("Authorization", "Bearer api-token")
+				w := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(w, req)
+				if w.Code != 200 {
+					t.Errorf("authorized request: %d", w.Code)
+				}
+				orig := srv.activeCfg()
+				cfg := *orig
+				if change == "oidc-round-trip" {
+					cfg.HTTPServer.Login.OIDC.Enable = true
+				} else {
+					cfg.Gateways.Telegram.Admins = nil
+				}
+				srv.ReplaceConfig(&cfg)
+				srv.ReplaceConfig(orig)
+			}()
+			waitAuthBarrier(t, proceed)
+			unblock()
+			if w := <-done; w.Code != 403 || tgCookieOf(w) != nil {
+				t.Fatalf("stale launch committed: %d", w.Code)
+			}
+		})
+	}
+}
+
+func waitAuthBarrier(t testing.TB, barrier <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-barrier:
+	case <-time.After(5 * time.Second):
+		t.Fatal("authentication barrier timed out")
+	}
+}
+
+type blockedAuthWriter struct {
+	*httptest.ResponseRecorder
+	arrived, release chan struct{}
+}
+
+func (w blockedAuthWriter) Write(p []byte) (int, error) {
+	close(w.arrived)
+	<-w.release
+	return w.ResponseRecorder.Write(p)
+}
+
+func TestAuthMeResponseDoesNotHoldAuthLock(t *testing.T) {
+	srv := newTelegramServer(t, "token", 7)
+	arrived, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	defer close(release)
+	go func() {
+		defer close(done)
+		srv.Handler().ServeHTTP(blockedAuthWriter{httptest.NewRecorder(), arrived, release}, httptest.NewRequest("GET", "/coddy/auth/me", nil))
+	}()
+	waitAuthBarrier(t, arrived)
+	proceeded := make(chan struct{})
+	go func() {
+		defer close(proceeded)
+		req := httptest.NewRequest("GET", "/coddy/sessions", nil)
+		req.Header.Set("Authorization", "Bearer api-token")
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("authorized request: %d", w.Code)
+		}
+	}()
+	waitAuthBarrier(t, proceeded)
+	release <- struct{}{}
+	waitAuthBarrier(t, done)
 }

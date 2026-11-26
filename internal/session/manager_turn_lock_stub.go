@@ -1,4 +1,4 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package session
 
@@ -13,4 +13,8 @@ func (m *Manager) acquirePromptTurnLock(sessionID string, st *State) (unlock fun
 func TurnLockHeld(sessionDir string) bool {
 	_ = sessionDir
 	return false
+}
+
+func (m *Manager) acquireDeleteTurnLock(id, _ string) (func(), error) {
+	return m.acquireStubTurnLock(id)
 }

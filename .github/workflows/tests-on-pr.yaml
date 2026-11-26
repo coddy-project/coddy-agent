@@ -93,6 +93,23 @@ jobs:
       - name: Run tests
         run: go test -tags=${{ matrix.tags }} ./...
 
+      # Package init runs before Coddy reads its config. Give the binary a v2
+      # cgroup membership but no pressure files, regardless of the runner's PSI.
+      - name: Start a metrics build without PSI
+        if: matrix.tags == 'metrics'
+        run: |
+          make build TAGS=metrics
+          fixture=$(mktemp -d)
+          printf '0::/coddy-psi-test-missing\n' > "$fixture/cgroup"
+          printf 'metrics:\n  enable: false\n' > "$fixture/config.yaml"
+          # exec keeps the PID whose membership we replaced. Run Coddy as the runner.
+          sudo unshare --mount --propagation private sh -ec '
+            mount --bind "$1/cgroup" "/proc/$$/cgroup"
+            exec setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --clear-groups \
+              ./build/coddy --config "$1/config.yaml" -t
+          ' sh "$fixture" 2>"$fixture/stderr" || { cat "$fixture/stderr"; exit 1; }
+          if grep -F 'disable exposing PSI metrics' "$fixture/stderr"; then exit 1; fi
+
       # The console suite drives the app over a fake terminal. In the one
       # combination that is the console alone, this opens the real binary on a
       # real pty and checks the first frame, the keyboard and the exit, so the

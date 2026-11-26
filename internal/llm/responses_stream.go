@@ -138,6 +138,7 @@ func responsesAssistantOutputMessage(text string) responses.ResponseInputItemUni
 // own event decoder; the caller closes it.
 func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], onChunk func(StreamChunk), label string, encodeReasoning func([]json.RawMessage) string) (*Response, error) {
 	var fullContent, reasoning string
+	var serviceTier string
 	var toolCalls []ToolCall
 	var generatedImages []GeneratedImage
 	seenImages := make(map[string]bool)
@@ -175,6 +176,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 			return nil
 		}
 		return &Response{
+			ServiceTier:        serviceTier,
 			Content:            fullContent,
 			GeneratedImages:    generatedImages,
 			Reasoning:          reasoning,
@@ -282,12 +284,14 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		case "response.completed":
 			terminal = ev.Type
 			usage(ev.Response.Usage)
+			serviceTier = string(ev.Response.ServiceTier)
 		case "response.incomplete":
 			// The backend ended the response on purpose, short of a whole
 			// answer. What it wrote is real and stays; the reason is reported
 			// instead of passing the answer off as an end_turn.
 			terminal = ev.Type
 			usage(ev.Response.Usage)
+			serviceTier = string(ev.Response.ServiceTier)
 			switch reason := ev.Response.IncompleteDetails.Reason; reason {
 			case "max_output_tokens":
 				stopReason = "max_tokens"
@@ -316,6 +320,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		err = codexRequestError(err)
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
 			return &Response{
+				ServiceTier:        serviceTier,
 				Content:            fullContent,
 				GeneratedImages:    generatedImages,
 				Reasoning:          reasoning,
@@ -369,6 +374,7 @@ func consumeResponsesStream(stream *ssestream.Stream[responses.ResponseStreamEve
 		stopReason = codexStopReason(toolCalls)
 	}
 	return &Response{
+		ServiceTier:        serviceTier,
 		Content:            fullContent,
 		GeneratedImages:    generatedImages,
 		Reasoning:          reasoning,

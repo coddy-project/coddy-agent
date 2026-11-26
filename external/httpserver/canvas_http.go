@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -158,7 +159,7 @@ type canvasBoardJSON struct {
 
 // frameJSON is a frame as the web UI reads it: with its stamp, a fresh
 // address relative to the API base and the newest report's counts.
-func (s *Server) frameJSON(sessionID, file string, f canvas.Frame, now time.Time) canvasFrameJSON {
+func (s *Server) frameJSON(ctx context.Context, sessionID, file string, f canvas.Frame, now time.Time) canvasFrameJSON {
 	out := canvasFrameJSON{
 		ID: f.ID, Path: f.Path, Root: f.Root, Title: f.Title, Device: f.Device, Width: f.Width, Height: f.Height,
 		X: f.X, Y: f.Y, AddedBy: f.AddedBy, Gen: f.Gen,
@@ -167,11 +168,12 @@ func (s *Server) frameJSON(sessionID, file string, f canvas.Frame, now time.Time
 	}
 	if !f.Held {
 		// A page that waits gets no address: there is nothing to load.
-		token := canvas.SignCapability(s.canvasKey(), canvas.Claim{
+		scope := scopeIn(ctx)
+		token := canvas.SignCapability(scope.signingKey(s.canvasKey()), canvas.Claim{
 			Session: sessionID, File: file, Frame: f.ID, Workspace: workspaceIdentity(f.Workspace), Root: f.Root, Gen: f.Gen,
 		}, now)
 		expires := now.Add(canvas.CapabilityTTL).UTC()
-		out.URL = canvasFilePrefix + token + "/" + escapeSlashPath(f.PageInRoot())
+		out.URL = canvasFilePrefix + scope.wrap(token) + "/" + escapeSlashPath(f.PageInRoot())
 		out.ExpiresAt = &expires
 	}
 	if rep, ok := canvas.DefaultReports().Get(sessionID, canvas.NodeKey(file, f.ID)); ok {
@@ -196,7 +198,7 @@ func escapeSlashPath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-func (s *Server) boardJSON(ref canvas.Ref, b canvas.Board) canvasBoardJSON {
+func (s *Server) boardJSON(ctx context.Context, ref canvas.Ref, b canvas.Board) canvasBoardJSON {
 	sid := canvas.SessionIDOfBundle(ref.Bundle)
 	now := time.Now()
 	out := canvasBoardJSON{
@@ -213,7 +215,7 @@ func (s *Server) boardJSON(ref canvas.Ref, b canvas.Board) canvasBoardJSON {
 		out.Current = cur == b.File
 	}
 	for _, f := range b.Frames {
-		out.Frames = append(out.Frames, s.frameJSON(sid, b.File, f, now))
+		out.Frames = append(out.Frames, s.frameJSON(ctx, sid, b.File, f, now))
 	}
 	if b.File != "" && b.Error == "" {
 		out.Trust = &canvasTrustJSON{Policy: b.Policy(), Digest: canvas.PagesDigest(b.Pages()), Trusted: !b.Held()}
@@ -249,7 +251,7 @@ func (s *Server) canvasBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+	writeJSON(w, http.StatusOK, s.boardJSON(r.Context(), ref, b))
 }
 
 func writeCanvasError(w http.ResponseWriter, err error) {
@@ -277,7 +279,7 @@ func (s *Server) canvasOpen(w http.ResponseWriter, r *http.Request) {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+	writeJSON(w, http.StatusOK, s.boardJSON(r.Context(), ref, b))
 }
 
 func (s *Server) canvasAddFrame(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +316,7 @@ func (s *Server) canvasAddFrame(w http.ResponseWriter, r *http.Request) {
 	sid := canvas.SessionIDOfBundle(ref.Bundle)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"reason": res.Reason, "file": res.Board.File, "created": res.Created,
-		"frame": s.frameJSON(sid, res.Board.File, res.Frame, time.Now()), "revision": res.Board.Revision,
+		"frame": s.frameJSON(r.Context(), sid, res.Board.File, res.Frame, time.Now()), "revision": res.Board.Revision,
 	})
 }
 
@@ -343,7 +345,7 @@ func (s *Server) canvasRotateFrame(w http.ResponseWriter, r *http.Request) {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"frame": s.frameJSON(canvas.SessionIDOfBundle(ref.Bundle), b.File, f, time.Now()), "revision": b.Revision})
+	writeJSON(w, http.StatusOK, map[string]any{"frame": s.frameJSON(r.Context(), canvas.SessionIDOfBundle(ref.Bundle), b.File, f, time.Now()), "revision": b.Revision})
 }
 
 func (s *Server) canvasPatchNodes(w http.ResponseWriter, r *http.Request) {
@@ -397,7 +399,7 @@ func (s *Server) canvasTrust(w http.ResponseWriter, r *http.Request) {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+	writeJSON(w, http.StatusOK, s.boardJSON(r.Context(), ref, b))
 }
 
 // canvasUntrust takes back the approvals of a board and the pages Coddy put
@@ -412,7 +414,7 @@ func (s *Server) canvasUntrust(w http.ResponseWriter, r *http.Request) {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+	writeJSON(w, http.StatusOK, s.boardJSON(r.Context(), ref, b))
 }
 
 func (s *Server) canvasReport(w http.ResponseWriter, r *http.Request) {
@@ -459,7 +461,8 @@ func (s *Server) canvasFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	claim, err := canvas.VerifyCapability(s.canvasKey(), r.PathValue("capability"), time.Now())
+	scope := scopeIn(r.Context())
+	claim, err := canvas.VerifyCapability(scope.signingKey(s.canvasKey()), scope.unwrap(r.PathValue("capability")), time.Now())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return

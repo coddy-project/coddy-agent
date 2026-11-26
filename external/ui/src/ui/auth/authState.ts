@@ -15,6 +15,13 @@ export type AuthState = {
   loginRequired: boolean;
   /** Some credential gates the API, including a token this page cannot supply. */
   authRequired: boolean;
+  /**
+   * Sign-in happens at an external OIDC provider: the whole form is one
+   * button that leaves the page for GET /coddy/auth/oidc/start, and none of
+   * the local credential routes (password, TOTP, Telegram, browser panel)
+   * are drawn or tried.
+   */
+  oidcEnabled: boolean;
   /** This browser currently holds a valid session (or the server wants none). */
   authenticated: boolean;
   /** The signed-in account, when there is one. */
@@ -48,6 +55,7 @@ export type AuthState = {
 const initial: AuthState = {
   loginRequired: false,
   authRequired: false,
+  oidcEnabled: false,
   authenticated: false,
   user: "",
   secondFactor: "",
@@ -89,6 +97,7 @@ export function resetAuthStateForTests(): void {
 type AuthMeResponse = {
   login_required?: boolean;
   auth_required?: boolean;
+  oidc_enabled?: boolean;
   authenticated?: boolean;
   user?: string;
   second_factor?: string;
@@ -178,32 +187,37 @@ export function refreshAuthState(): Promise<AuthState> {
 
 async function readAuthState(): Promise<AuthState> {
   let next = await askAuthMe();
-  // Opened as the Telegram bot's Mini App: the launch data signs an admin in
-  // before any form is shown.
-  if (next.wantsTelegram && !next.state.authenticated && !telegramTried) {
-    const launch = telegramLaunch();
-    if (launch?.initData) {
-      telegramTried = true;
-      if (await signInWithTelegram(launch.initData)) {
-        next = await askAuthMe();
-        if (!next.state.authenticated) {
-          telegramProblem = "not_kept";
+  // External sign-in: the one route is a full navigation to the issuer, so
+  // none of the alternate sign-ins run - a Mini App launch or a panel ticket
+  // cannot open a session while OIDC is on.
+  if (!next.state.oidcEnabled) {
+    // Opened as the Telegram bot's Mini App: the launch data signs an admin in
+    // before any form is shown.
+    if (next.wantsTelegram && !next.state.authenticated && !telegramTried) {
+      const launch = telegramLaunch();
+      if (launch?.initData) {
+        telegramTried = true;
+        if (await signInWithTelegram(launch.initData)) {
+          next = await askAuthMe();
+          if (!next.state.authenticated) {
+            telegramProblem = "not_kept";
+          }
         }
       }
     }
-  }
-  // Opened in the side panel of Coddy for Browser: the panel's ticket signs
-  // the frame in, the extension key standing for the password.
-  if (
-    next.wantsBrowserPanel &&
-    !next.state.authenticated &&
-    !browserPanelTried
-  ) {
-    const ticket = takeBrowserPanelTicket();
-    if (ticket) {
-      browserPanelTried = true;
-      if (await signInWithBrowserPanel(ticket)) {
-        next = await askAuthMe();
+    // Opened in the side panel of Coddy for Browser: the panel's ticket signs
+    // the frame in, the extension key standing for the password.
+    if (
+      next.wantsBrowserPanel &&
+      !next.state.authenticated &&
+      !browserPanelTried
+    ) {
+      const ticket = takeBrowserPanelTicket();
+      if (ticket) {
+        browserPanelTried = true;
+        if (await signInWithBrowserPanel(ticket)) {
+          next = await askAuthMe();
+        }
       }
     }
   }
@@ -231,6 +245,7 @@ async function askAuthMe(): Promise<{
         state: {
           loginRequired: body.login_required === true,
           authRequired: body.auth_required === true,
+          oidcEnabled: body.oidc_enabled === true,
           authenticated: body.authenticated === true,
           user: typeof body.user === "string" ? body.user : "",
           secondFactor: body.second_factor === "totp" ? "totp" : "",
@@ -331,31 +346,62 @@ async function postSignIn(
 }
 
 /**
+ * The external sign-in's only route: a same-origin GET that hands the browser
+ * to the identity provider and comes back on the callback with a session.
+ */
+export const OIDC_START_HREF = "/coddy/auth/oidc/start";
+
+/**
+ * The same-origin GET the SPA navigates to after sign-out when the logout
+ * answer asked for it (X-Coddy-Logout-Continue): the server spends the
+ * ticket it left and sends the browser to the configured logout_url, or back
+ * here when there is none.
+ */
+export const LOGOUT_CONTINUE_HREF = "/coddy/auth/logout/continue";
+
+export type SignOutResult = {
+  /** The server dropped the session. */
+  ok: boolean;
+  /**
+   * The logout answer carried X-Coddy-Logout-Continue: 1, so the browser is
+   * owed a top-level navigation to LOGOUT_CONTINUE_HREF instead of a reload.
+   */
+  logoutContinue: boolean;
+};
+
+/**
  * signOut drops the session on the server and forgets it here.
  *
- * It reports whether the server actually let go. Pretending otherwise is worse
- * than useless: the cookie is HttpOnly, so a page that clears its own state and
- * reloads is signed straight back in, and the button looks broken rather than
- * refused.
+ * It reports whether the server actually let go, and whether the answer
+ * marked a logout continuation the caller has to navigate to itself: an
+ * anchor is not an option because the continuation only exists after the
+ * POST dropped the session. Pretending the POST worked is worse than
+ * useless: the cookie is HttpOnly, so a page that clears its own state and
+ * reloads is signed straight back in, and the button looks broken rather
+ * than refused.
  */
-export async function signOut(): Promise<boolean> {
+export async function signOut(): Promise<SignOutResult> {
   let ok = false;
+  let logoutContinue = false;
   try {
     const res = await localFetch("/coddy/auth/logout", {
       method: "POST",
       headers: { Accept: "application/json" },
     });
     ok = res.ok;
+    logoutContinue =
+      res.headers instanceof Headers &&
+      res.headers.get("x-coddy-logout-continue") === "1";
   } catch {
     /* unreachable server: the state below is what the page can still do */
   }
   if (ok) {
     setAuthState({ ...current, authenticated: false, user: "" });
-    return true;
+    return { ok: true, logoutContinue };
   }
   // The server still holds the session, so the honest thing is to show that.
   await refreshAuthState();
-  return false;
+  return { ok: false, logoutContinue: false };
 }
 
 /**

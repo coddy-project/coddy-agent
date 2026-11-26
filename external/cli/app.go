@@ -534,6 +534,15 @@ func (a *App) refreshFooterModel() {
 		}
 	}
 	a.foot.SetModel(a.modelID, reasoning)
+	a.foot.serviceTier = ""
+	if opt := a.serviceTierOption(); opt != nil {
+		for _, value := range opt.Options {
+			if value.Value == opt.CurrentValue {
+				a.foot.serviceTier = value.Name
+				break
+			}
+		}
+	}
 }
 
 func (a *App) populateHeader() {
@@ -1272,26 +1281,9 @@ func (a *App) openToolsetSelector() {
 		a.appendStatus(roleDim, "No toolsets are configured: add one under toolsets in config.yaml")
 		return
 	}
-	items := make([]tui.SelectItem, 0, len(opt.Options))
-	selected := 0
-	for i, o := range opt.Options {
-		items = append(items, tui.SelectItem{Value: o.Value, Label: tui.SanitizeText(o.Name), Description: o.Description})
-		if o.Value == opt.CurrentValue {
-			selected = i
-		}
-	}
-	sel := newSelectorModal(a.theme, "Select toolset", items, 10, a.screen.RequestRender)
-	sel.list.SetSelectedIndex(selected)
-	sel.OnDone = func(item *tui.SelectItem) {
-		a.closeModal()
-		if item == nil {
-			a.screen.RequestRender()
-			return
-		}
-		value := item.Value
+	a.openConfigSelector("Select toolset", opt, func(value string) {
 		a.applySettings(session.SettingsChange{Toolset: &value})
-	}
-	a.openModal(sel)
+	})
 }
 
 func (a *App) openReasoningSelector() {
@@ -1312,17 +1304,7 @@ func (a *App) openReasoningSelector() {
 			selected = i
 		}
 	}
-	sel := newSelectorModal(a.theme, "Select reasoning", items, 10, a.screen.RequestRender)
-	sel.list.SetSelectedIndex(selected)
-	sel.OnDone = func(item *tui.SelectItem) {
-		a.closeModal()
-		if item == nil {
-			a.screen.RequestRender()
-			return
-		}
-		a.setReasoning(item.Value)
-	}
-	a.openModal(sel)
+	a.openValueSelector("Select reasoning", items, selected, a.setReasoning)
 }
 
 func (a *App) setReasoning(level string) {
