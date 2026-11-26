@@ -79,6 +79,15 @@ func (s *acpFeatureState) providersModel(model string) error {
 	return nil
 }
 
+func (s *acpFeatureState) agentOffersModelParameter(id, list string) error {
+	var values []string
+	for _, v := range strings.Split(list, ",") {
+		values = append(values, strings.TrimSpace(v))
+	}
+	s.script.Parameters = append(s.script.Parameters, acptest.Parameter{ID: id, Values: values})
+	return nil
+}
+
 func (s *acpFeatureState) agentAsksPermission(title string) error {
 	s.script = acptest.Script{Turns: []acptest.Turn{{Permission: &acptest.Permission{
 		Title: title, Kind: "edit", Content: "write hello",
@@ -180,6 +189,25 @@ func (s *acpFeatureState) oneSession() error {
 	return nil
 }
 
+func (s *acpFeatureState) parameterizedModelPickerAdvertised() error {
+	init := acptest.Methods(acptest.ReadLog(s.t, s.logPath), "initialize")
+	if len(init) != 1 {
+		return fmt.Errorf("initialize sent %d times", len(init))
+	}
+	var params struct {
+		ClientCapabilities struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"clientCapabilities"`
+	}
+	if err := json.Unmarshal(init[0].Params, &params); err != nil {
+		return err
+	}
+	if params.ClientCapabilities.Meta["parameterizedModelPicker"] != true {
+		return fmt.Errorf("parameterizedModelPicker missing from client capabilities: %+v", params.ClientCapabilities.Meta)
+	}
+	return nil
+}
+
 func (s *acpFeatureState) secondPromptCarried(want string) error {
 	prompts := acptest.Methods(acptest.ReadLog(s.t, s.logPath), "session/prompt")
 	if len(prompts) != 2 {
@@ -191,18 +219,22 @@ func (s *acpFeatureState) secondPromptCarried(want string) error {
 	return nil
 }
 
-func (s *acpFeatureState) modelOptionSet(want string) error {
+func (s *acpFeatureState) configOptionSet(id, want string) error {
 	for _, r := range acptest.Methods(acptest.ReadLog(s.t, s.logPath), "session/set_config_option") {
 		var p struct {
 			ConfigID string `json:"configId"`
 			Value    string `json:"value"`
 		}
 		_ = json.Unmarshal(r.Params, &p)
-		if p.ConfigID == "model" && p.Value == want {
+		if p.ConfigID == id && p.Value == want {
 			return nil
 		}
 	}
-	return fmt.Errorf("the model option was not set to %q", want)
+	return fmt.Errorf("the %s option was not set to %q", id, want)
+}
+
+func (s *acpFeatureState) modelOptionSet(want string) error {
+	return s.configOptionSet("model", want)
 }
 
 func (s *acpFeatureState) personAsked(title string) error {
@@ -237,6 +269,7 @@ func TestACPProviderFeature(t *testing.T) {
 			sc.Step(`^an acp provider whose agent calls its tool "([^"]*)" and names the file "([^"]*)" only once it runs$`, s.agentCallsToolOn)
 			sc.Step(`^an acp provider whose agent offers the models "([^"]*)"$`, s.agentOffersModels)
 			sc.Step(`^the provider's model is "([^"]*)"$`, s.providersModel)
+			sc.Step(`^the agent offers the model parameter "([^"]*)" with values "([^"]*)"$`, s.agentOffersModelParameter)
 			sc.Step(`^an acp provider whose agent asks permission to "([^"]*)"$`, s.agentAsksPermission)
 			sc.Step(`^a session asks "([^"]*)"$`, s.ask)
 			sc.Step(`^the same session asks "([^"]*)"$`, s.ask)
@@ -246,8 +279,10 @@ func TestACPProviderFeature(t *testing.T) {
 			sc.Step(`^the agent's tool is a row titled "([^"]*)"$`, s.toolRowTitled)
 			sc.Step(`^the agent did not receive Coddy's system prompt$`, s.noSystemPrompt)
 			sc.Step(`^the agent opened one session$`, s.oneSession)
+			sc.Step(`^the client advertised the parameterized model picker$`, s.parameterizedModelPickerAdvertised)
 			sc.Step(`^the second prompt carried only "([^"]*)"$`, s.secondPromptCarried)
 			sc.Step(`^the agent's model option was set to "([^"]*)"$`, s.modelOptionSet)
+			sc.Step(`^the agent's "([^"]*)" option was set to "([^"]*)"$`, s.configOptionSet)
 			sc.Step(`^the person was asked about "([^"]*)"$`, s.personAsked)
 			sc.Step(`^the agent heard its own allow option$`, s.agentHeardAllow)
 		},

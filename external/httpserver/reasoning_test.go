@@ -347,6 +347,22 @@ func TestReasoningLevelsUnknownProviderStillDetects(t *testing.T) {
 	}
 }
 
+// An acp row cannot be probed before it is saved: the request carries only
+// the type, not the agent command. Falling back to id-name detection would
+// invent levels the agent never reported.
+func TestReasoningLevelsDoesNotGuessForAnUnavailableACPProvider(t *testing.T) {
+	ts := newReasoningLevelsServer(t)
+	for _, model := range []string{"cursor/gpt-5.5", "valera/gpt-5.5"} {
+		code, reply := getReasoningLevels(t, ts, "?model="+url.QueryEscape(model)+"&provider_type=acp")
+		if code != http.StatusOK {
+			t.Fatalf("model %s: status %d", model, code)
+		}
+		if reply.OK || reply.Error == "" || reply.Detected || len(reply.Levels) != 0 {
+			t.Fatalf("model %s: reply %+v, want an inline error and no guessed levels", model, reply)
+		}
+	}
+}
+
 // TestReasoningLevelsRejectsNonGET keeps the route to its documented method.
 func TestReasoningLevelsRejectsNonGET(t *testing.T) {
 	ts := newReasoningLevelsServer(t)
@@ -506,9 +522,14 @@ func TestToolsetOnTheWireForANewChat(t *testing.T) {
 // the agent is on. Another of its models is not selected, so the fetch does
 // not write the agent's configuration.
 func TestReasoningLevelsReadsTheACPAgentsCurrentModel(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "acp.log")
+	t.Setenv("HTTPS_PROXY", "http://inherited.test:3128")
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "acp.log")
+	envLogPath := filepath.Join(tmp, "environment.log")
 	cmd, args := acptest.Command(t, acptest.Script{
 		Log:           logPath,
+		EnvLog:        envLogPath,
+		EnvReport:     []string{"HTTPS_PROXY"},
 		Models:        []string{"grok-4.7", "small"},
 		ThoughtLevels: []string{"low", "medium", "high", "xhigh"},
 	})
@@ -517,6 +538,7 @@ func TestReasoningLevelsReadsTheACPAgentsCurrentModel(t *testing.T) {
 	yml := `providers:
   - name: cursor
     type: acp
+    proxy: http://proxy.test:3128
     acp:
       command: agent
 models:
@@ -556,5 +578,12 @@ agent:
 	}
 	if strings.Contains(string(raw), "session/set_config_option") {
 		t.Fatal("reading the levels selected an option")
+	}
+	environment, err := os.ReadFile(envLogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(environment), "HTTPS_PROXY=http://proxy.test:3128\n") {
+		t.Fatalf("the reasoning-levels agent did not get the row proxy; environment:\n%s", environment)
 	}
 }

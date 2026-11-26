@@ -36,6 +36,10 @@ type Script struct {
 	Name string `json:"name,omitempty"`
 	// Log is the file every received message is appended to.
 	Log string `json:"log"`
+	// EnvLog, when set, is a file the agent writes the EnvReport values of
+	// its process environment to when it starts, one NAME=value per line.
+	EnvLog    string   `json:"env_log,omitempty"`
+	EnvReport []string `json:"env_report,omitempty"`
 	// AuthMethods are advertised in the initialize result; RequireAuth names
 	// the methodId session/new insists on (-32000 until it was called).
 	AuthMethods []string `json:"auth_methods,omitempty"`
@@ -52,6 +56,10 @@ type Script struct {
 	// LegacyModels, as models.availableModels answered by session/set_model.
 	Models       []string `json:"models,omitempty"`
 	LegacyModels bool     `json:"legacy_models,omitempty"`
+	// Parameters are additional select config options, such as the model
+	// parameters a parameterized model picker exposes. The first value of
+	// each one is current when the session opens.
+	Parameters []Parameter `json:"parameters,omitempty"`
 	// ThoughtLevels are a config option of category thought_level;
 	// RefuseThought is a level of them set_config_option refuses (an agent
 	// whose mode does not take it).
@@ -62,6 +70,8 @@ type Script struct {
 	Turns []Turn `json:"turns,omitempty"`
 	// StartDelayMS holds the initialize answer back.
 	StartDelayMS int `json:"start_delay_ms,omitempty"`
+	// HoldNew receives session/new but never answers it.
+	HoldNew bool `json:"hold_new,omitempty"`
 	// DeafAfterNew stops reading stdin once a session is open: an agent
 	// that hangs without exiting.
 	DeafAfterNew bool `json:"deaf_after_new,omitempty"`
@@ -73,6 +83,17 @@ type Script struct {
 	// ModeAfterNew sends a current_mode_update right after the session/new
 	// answer.
 	ModeAfterNew string `json:"mode_after_new,omitempty"`
+}
+
+// Parameter is one select config option beside the mode, model and thought
+// options the script fields name.
+type Parameter struct {
+	ID       string   `json:"id"`
+	Category string   `json:"category,omitempty"`
+	Values   []string `json:"values"`
+	// Hidden accepts the parameter without advertising it, the shape a
+	// single-value model parameter takes in Cursor's parameterized picker.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // Turn is the answer to one session/prompt.
@@ -270,6 +291,17 @@ func Main(args []string) bool {
 		fmt.Fprintln(os.Stderr, "acptest: parse script:", err)
 		os.Exit(2)
 	}
+	if s.EnvLog != "" {
+		f, err := os.OpenFile(s.EnvLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "acptest: write environment:", err)
+			os.Exit(2)
+		}
+		for _, name := range s.EnvReport {
+			_, _ = fmt.Fprintf(f, "%s=%s\n", name, os.Getenv(name))
+		}
+		_ = f.Close()
+	}
 	a := &agent{script: s, out: bufio.NewWriter(os.Stdout), sessions: map[string]*session{}, waiting: map[string]chan json.RawMessage{}}
 	if s.Banner != "" {
 		_, _ = os.Stdout.WriteString(s.Banner + "\n")
@@ -280,11 +312,12 @@ func Main(args []string) bool {
 }
 
 type session struct {
-	id      string
-	cwd     string
-	mode    string
-	model   string
-	thought string
+	id         string
+	cwd        string
+	mode       string
+	model      string
+	thought    string
+	parameters map[string]string
 	// cancel is closed by session/cancel; each prompt gets a channel of its
 	// own (guarded by the agent's mutex), so a cancel ends that prompt only.
 	cancel chan struct{}
@@ -427,6 +460,9 @@ func (a *agent) handle(m message) {
 		a.authed = p.MethodID
 		a.reply(m.ID, map[string]interface{}{})
 	case "session/new":
+		if a.script.HoldNew {
+			return
+		}
 		if a.script.RequireAuth != "" && a.authed != a.script.RequireAuth {
 			a.fail(m.ID, -32000, "Authentication required")
 			if a.script.ExitAfterNewError {
@@ -440,12 +476,17 @@ func (a *agent) handle(m message) {
 		_ = json.Unmarshal(m.Params, &np)
 		a.mu.Lock()
 		a.nextID++
-		s := &session{id: fmt.Sprintf("acp-sess-%d", a.nextID), cwd: np.CWD}
+		s := &session{id: fmt.Sprintf("acp-sess-%d", a.nextID), cwd: np.CWD, parameters: map[string]string{}}
 		if len(a.script.Modes) > 0 {
 			s.mode = a.script.Modes[0]
 		}
 		if len(a.script.Models) > 0 {
 			s.model = a.script.Models[0]
+		}
+		for _, parameter := range a.script.Parameters {
+			if len(parameter.Values) > 0 {
+				s.parameters[parameter.ID] = parameter.Values[0]
+			}
 		}
 		if len(a.script.ThoughtLevels) > 0 {
 			s.thought = a.script.ThoughtLevels[0]
@@ -523,6 +564,13 @@ func (a *agent) handle(m message) {
 				}
 			default:
 				ok = false
+				for _, parameter := range a.script.Parameters {
+					if p.ConfigID == parameter.ID && contains(parameter.Values, p.Value) {
+						s.parameters[p.ConfigID] = p.Value
+						ok = true
+						break
+					}
+				}
 			}
 		}
 		if !ok {
@@ -605,6 +653,16 @@ func (a *agent) configOptions(s *session) []map[string]interface{} {
 	}
 	if !a.script.LegacyModels && len(a.script.Models) > 0 {
 		out = append(out, selectOf("model", "model", s.model, a.script.Models))
+	}
+	for _, parameter := range a.script.Parameters {
+		if parameter.Hidden {
+			continue
+		}
+		category := parameter.Category
+		if category == "" {
+			category = "model_config"
+		}
+		out = append(out, selectOf(parameter.ID, category, s.parameters[parameter.ID], parameter.Values))
 	}
 	if len(a.script.ThoughtLevels) > 0 {
 		out = append(out, selectOf("thought", "thought_level", s.thought, a.script.ThoughtLevels))

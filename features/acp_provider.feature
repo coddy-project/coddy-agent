@@ -12,6 +12,11 @@ Feature: A local ACP agent served as a model
     And the agent's tool "Read README.md" is a row of its own with the output "# The project"
     And the agent did not receive Coddy's system prompt
 
+  Scenario: The client advertises the parameterized model picker
+    Given an acp provider whose agent echoes what it is asked
+    When a session asks "hi"
+    Then the client advertised the parameterized model picker
+
   Scenario: A conversation continues on one agent session
     Given an acp provider whose agent echoes what it is asked
     When a session asks "one"
@@ -24,6 +29,14 @@ Feature: A local ACP agent served as a model
     And the provider's model is "large"
     When a session asks "hi"
     Then the agent's model option was set to "large"
+
+  Scenario: A model id saved from the variants picker selects its base model and parameters
+    Given an acp provider whose agent offers the models "grok-4.7, composer-2.5"
+    And the agent offers the model parameter "fast" with values "false,true"
+    And the provider's model is "composer-2.5[fast=true]"
+    When a session asks "hi"
+    Then the agent's model option was set to "composer-2.5"
+    And the agent's "fast" option was set to "true"
 
   Scenario: The agent asks for permission and the person answers
     Given an acp provider whose agent asks permission to "Write a.txt"

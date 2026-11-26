@@ -60,8 +60,19 @@ func (s *Server) coddyConfigReasoningLevelsGet(w http.ResponseWriter, r *http.Re
 	// guess does not know those ids, and selecting another of its models to
 	// read the levels would write the agent's configuration.
 	provName, apiModel, _ := config.SplitModelRef(model)
-	if prov := c.FindProvider(provName); prov != nil && prov.ACP != nil &&
-		acpReasoningProvider(strings.TrimSpace(r.URL.Query().Get("provider_type")), prov.Type) {
+	formType := strings.TrimSpace(r.URL.Query().Get("provider_type"))
+	prov := c.FindProvider(provName)
+	savedType := ""
+	if prov != nil {
+		savedType = prov.Type
+	}
+	if acpReasoningProvider(formType, savedType) {
+		if prov == nil || prov.ACP == nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok": false, "error": "the acp provider is not saved yet; save its agent command before fetching reasoning levels", "model": model, "levels": []string{}, "detected": false,
+			})
+			return
+		}
 		levels, err := acpThoughtLevels(r.Context(), prov, apiModel)
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -118,8 +129,9 @@ func acpThoughtLevels(ctx context.Context, prov *config.ProviderConfig, apiModel
 		return nil, err
 	}
 	return llm.ACPThoughtLevels(ctx, llm.ProviderInput{
-		Name: row.Name,
-		Type: row.Type,
-		ACP:  row.ACP,
+		Name:     row.Name,
+		Type:     row.Type,
+		ProxyURL: row.Proxy,
+		ACP:      row.ACP,
 	}, apiModel)
 }

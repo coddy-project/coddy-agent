@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -430,6 +431,36 @@ func TestACPProviderSelectsModels(t *testing.T) {
 			t.Fatalf("set_config_option = %d calls", len(sets))
 		}
 	})
+	t.Run("a saved parameterized variant id selects its base model", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Models: []string{"grok-4.7", "composer-2.5"},
+			Parameters: []acptest.Parameter{
+				{ID: "context", Values: []string{"256k", "500k"}},
+				{ID: "reasoning_effort", Category: "thought_level", Values: []string{"low", "medium", "high", "xhigh"}},
+				{ID: "fast", Values: []string{"false", "true"}},
+			},
+		})
+		in.Model = "composer-2.5[fast=true]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		type selection struct {
+			ConfigID string `json:"configId"`
+			Value    string `json:"value"`
+		}
+		var got []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p selection
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, p.ConfigID+"="+p.Value)
+		}
+		want := []string{"model=composer-2.5", "fast=true"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("set_config_option = %v, want %v", got, want)
+		}
+	})
 	t.Run("through session/set_model", func(t *testing.T) {
 		in, logPath := acpRow(t, acptest.Script{Models: []string{"a", "b"}, LegacyModels: true})
 		in.Model = "b"
@@ -458,6 +489,167 @@ func TestACPProviderSelectsModels(t *testing.T) {
 		sets := readLog(t, logPath, "session/set_config_option")
 		if len(sets) != 1 || !strings.Contains(string(sets[0].Params), `"value":"high"`) {
 			t.Fatalf("set_config_option = %v", sets)
+		}
+	})
+
+	t.Run("a serialized reasoning parameter owns the level it names", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Models: []string{"grok-4.7"},
+			Parameters: []acptest.Parameter{
+				{ID: "reasoning_effort", Category: "thought_level", Values: []string{"low", "medium", "high"}},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		in.Model = "grok-4.7[reasoning_effort=high]"
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a("echo: one"), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "reasoning_effort=high" {
+			t.Fatalf("set_config_option = %v, want the explicit high never reset", values)
+		}
+	})
+}
+
+func TestACPParameterizedModelIDParser(t *testing.T) {
+	tests := []struct {
+		model  string
+		base   string
+		params []acpModelParameter
+		ok     bool
+	}{
+		{model: "composer-2.5[fast=true]", base: "composer-2.5", params: []acpModelParameter{{id: "fast", value: "true"}}, ok: true},
+		{model: "default[]", base: "default", ok: true},
+		{model: "grok-4.7[context=256k,reasoning_effort=high,fast=false]", base: "grok-4.7", params: []acpModelParameter{{id: "context", value: "256k"}, {id: "reasoning_effort", value: "high"}, {id: "fast", value: "false"}}, ok: true},
+		{model: "plain"},
+		{model: "composer-2.5[fast=true"},
+		{model: "composer-2.5[fast]"},
+		{model: "composer-2.5[=true]"},
+		{model: "composer-2.5[fast=]"},
+		{model: "composer-2.5[fast=true,fast=false]"},
+		{model: "composer-2.5[fast=[true]]"},
+	}
+	for _, tt := range tests {
+		base, params, ok := parseACPParameterizedModelID(tt.model)
+		if ok != tt.ok || base != tt.base || fmt.Sprint(params) != fmt.Sprint(tt.params) {
+			t.Errorf("%s = %q, %v, %t; want %q, %v, %t", tt.model, base, params, ok, tt.base, tt.params, tt.ok)
+		}
+	}
+}
+
+func TestACPProviderSelectsParameterizedModelEdges(t *testing.T) {
+	script := acptest.Script{
+		Models: []string{"grok-4.7", "composer-2.5", "default"},
+		Parameters: []acptest.Parameter{
+			{ID: "fast", Values: []string{"false", "true"}},
+		},
+	}
+	selections := func(t *testing.T, logPath string) []string {
+		t.Helper()
+		var got []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, p.ConfigID+"="+p.Value)
+		}
+		return got
+	}
+
+	t.Run("an exact bracketed model wins over the compatibility translation", func(t *testing.T) {
+		exact := script
+		exact.Models = append([]string{"grok-4.7"}, append([]string{"composer-2.5[fast=true]"}, script.Models[1:]...)...)
+		in, logPath := acpRow(t, exact)
+		in.Model = "composer-2.5[fast=true]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-exact"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := selections(t, logPath)
+		if len(got) != 1 || got[0] != "model=composer-2.5[fast=true]" {
+			t.Fatalf("set_config_option = %v, want only the exact model", got)
+		}
+	})
+
+	t.Run("an empty parameter list selects the base model only", func(t *testing.T) {
+		in, logPath := acpRow(t, script)
+		in.Model = "default[]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-empty"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := selections(t, logPath)
+		if len(got) != 1 || got[0] != "model=default" {
+			t.Fatalf("set_config_option = %v, want only model=default", got)
+		}
+	})
+
+	t.Run("a malformed bracketed model is not translated", func(t *testing.T) {
+		in, logPath := acpRow(t, script)
+		in.Model = "composer-2.5[fast"
+		_, err := newACPTestProvider(t, in).Stream(conversation(t, "s-malformed"), sys(u("one")), nil, nil)
+		var acpErr *ACPError
+		if !errors.As(err, &acpErr) || acpErr.Kind != ACPErrorSelect {
+			t.Fatalf("err = %v", err)
+		}
+		if got := selections(t, logPath); len(got) != 0 {
+			t.Fatalf("set_config_option = %v, want no selection", got)
+		}
+	})
+
+	t.Run("an unadvertised serialized parameter is not written", func(t *testing.T) {
+		in, logPath := acpRow(t, script)
+		in.Model = "composer-2.5[unknown=true]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-unknown"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := selections(t, logPath)
+		if len(got) != 1 || got[0] != "model=composer-2.5" {
+			t.Fatalf("set_config_option = %v, want only the base model", got)
+		}
+	})
+
+	t.Run("a hidden single-value parameter is not written", func(t *testing.T) {
+		hidden := script
+		hidden.Parameters = append(append([]acptest.Parameter{}, script.Parameters...), acptest.Parameter{ID: "context", Values: []string{"200k"}, Hidden: true})
+		in, logPath := acpRow(t, hidden)
+		in.Model = "composer-2.5[context=200k,fast=true]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-hidden"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := selections(t, logPath)
+		want := []string{"model=composer-2.5", "fast=true"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("set_config_option = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a parameter already at its value is not written again", func(t *testing.T) {
+		in, logPath := acpRow(t, script)
+		in.Model = "composer-2.5[fast=false]"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-current"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := selections(t, logPath)
+		if len(got) != 1 || got[0] != "model=composer-2.5" {
+			t.Fatalf("set_config_option = %v, want only the base model", got)
 		}
 	})
 }
@@ -967,6 +1159,13 @@ func TestACPThoughtLevelsReadsTheModelTheAgentIsOn(t *testing.T) {
 	if strings.Join(got, ",") != "low,medium,high,xhigh" {
 		t.Fatalf("levels = %v", got)
 	}
+	legacy, err := ACPThoughtLevels(context.Background(), in, "grok-4.7[reasoning_effort=high,fast=true]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(legacy, ",") != "low,medium,high,xhigh" {
+		t.Fatalf("legacy variant levels = %v", legacy)
+	}
 	other, err := ACPThoughtLevels(context.Background(), in, "small")
 	if err != nil {
 		t.Fatal(err)
@@ -976,6 +1175,84 @@ func TestACPThoughtLevelsReadsTheModelTheAgentIsOn(t *testing.T) {
 	}
 	if n := len(readLog(t, logPath, "session/set_config_option")); n != 0 {
 		t.Fatalf("reading the levels sent %d set_config_option", n)
+	}
+}
+
+// An exact bracketed model id remains a different model for the probe, just as
+// it is for selection: the compatibility base fallback applies only when the
+// exact id is not offered.
+func TestACPThoughtLevelsDoesNotFallbackAcrossAnExactVariantID(t *testing.T) {
+	in, _ := acpRow(t, acptest.Script{
+		Models:        []string{"small", "small[fast=true]"},
+		ThoughtLevels: []string{"low", "high"},
+	})
+	got, err := ACPThoughtLevels(context.Background(), in, "small[fast=true]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("exact but non-current model levels = %v, want nothing", got)
+	}
+}
+
+// A levels fetch does not wait forever when the agent accepts session/new
+// but never answers it.
+func TestACPThoughtLevelsBoundsANewSession(t *testing.T) {
+	old := acpSessionNewTimeout
+	acpSessionNewTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { acpSessionNewTimeout = old })
+	in, _ := acpRow(t, acptest.Script{
+		HoldNew:       true,
+		Models:        []string{"grok-4.7"},
+		ThoughtLevels: []string{"low"},
+	})
+	start := time.Now()
+	_, err := ACPThoughtLevels(context.Background(), in, "grok-4.7")
+	if err == nil {
+		t.Fatal("a silent session/new unexpectedly answered")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("the fetch took %v, want the session/new bound to cut it", elapsed)
+	}
+}
+
+func TestACPListModelsEscapesAnAgentModelNamedDefault(t *testing.T) {
+	in, _ := acpRow(t, acptest.Script{Models: []string{"default", "m1"}, Close: true})
+	models, err := ListModels(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	if strings.Join(ids, ",") != "default,default[],m1" {
+		t.Fatalf("model ids = %v", ids)
+	}
+}
+
+// The legacy models API has no parameter options, but an empty parameter
+// list needs none: default[] selects a literal model named default there too.
+func TestACPListModelsEscapesLegacyDefault(t *testing.T) {
+	in, logPath := acpRow(t, acptest.Script{Models: []string{"m1", "default", "m2"}, LegacyModels: true, Close: true})
+	models, err := ListModels(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	if strings.Join(ids, ",") != "default,m1,default[],m2" {
+		t.Fatalf("model ids = %v", ids)
+	}
+	in.Model = "default[]"
+	if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s-legacy-default"), sys(u("one")), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	sets := readLog(t, logPath, "session/set_model")
+	if len(sets) != 1 || !strings.Contains(string(sets[0].Params), `"modelId":"default"`) {
+		t.Fatalf("set_model = %v", sets)
 	}
 }
 

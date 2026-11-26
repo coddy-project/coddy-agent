@@ -37,6 +37,10 @@ const (
 
 // Bounds of a prompt, variables so the tests can shorten them.
 var (
+	// acpSessionNewTimeout bounds opening the diagnostic session a levels
+	// fetch needs. The process start has its own longer bound; a silent RPC
+	// must not hold the HTTP request indefinitely.
+	acpSessionNewTimeout = 30 * time.Second
 	// acpCancelWait is how long a cancelled prompt waits for the agent to
 	// confirm the cancellation before the prompt is abandoned.
 	acpCancelWait = 10 * time.Second
@@ -1313,6 +1317,55 @@ func (p *acpProcess) setOption(ctx context.Context, sessionID, configID, value s
 	return nil
 }
 
+// acpModelParameter is one parameter of a model id of the form
+// base[param=value,...], the shape Cursor's variants model picker exposed.
+type acpModelParameter struct {
+	id    string
+	value string
+}
+
+// parseACPParameterizedModelID reads base[param=value,...]. It is strict:
+// malformed brackets are not a parameterized id at all, so a model an agent
+// genuinely offers under such a name keeps the exact-match path above.
+func parseACPParameterizedModelID(model string) (string, []acpModelParameter, bool) {
+	open := strings.IndexByte(model, '[')
+	if open <= 0 || !strings.HasSuffix(model, "]") {
+		return "", nil, false
+	}
+	base := model[:open]
+	inner := model[open+1 : len(model)-1]
+	if strings.ContainsAny(inner, "[]") {
+		return "", nil, false
+	}
+	if inner == "" {
+		return base, nil, true
+	}
+	parts := strings.Split(inner, ",")
+	params := make([]acpModelParameter, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		id, value, ok := strings.Cut(part, "=")
+		id = strings.TrimSpace(id)
+		value = strings.TrimSpace(value)
+		if !ok || id == "" || value == "" || seen[id] {
+			return "", nil, false
+		}
+		seen[id] = true
+		params = append(params, acpModelParameter{id: id, value: value})
+	}
+	return base, params, true
+}
+
+// configOptionByID returns a select option by its unique id.
+func configOptionByID(opts []acpConfigOption, id string) (acpConfigOption, bool) {
+	for _, o := range opts {
+		if o.ID == id && (o.Type == "" || o.Type == "select") {
+			return o, true
+		}
+	}
+	return acpConfigOption{}, false
+}
+
 // selectModel selects the model through the agent's model config option,
 // else through session/set_model.
 func (p *acpProcess) selectModel(ctx context.Context, sessionID, model string) error {
@@ -1331,33 +1384,127 @@ func (p *acpProcess) selectModel(ctx context.Context, sessionID, model string) e
 				return p.setOption(ctx, sessionID, opt.ID, model)
 			}
 		}
+		if base, params, ok := parseACPParameterizedModelID(model); ok {
+			return p.selectParameterizedModel(ctx, sessionID, opt.ID, model, base, params, valueIDs(values))
+		}
 		return p.notOffered("model", model, valueIDs(values))
 	}
 	if st.Models != nil {
 		if st.Models.CurrentModelID == model {
 			return nil
 		}
+		selectLegacy := func(target string) error {
+			if st.Models.CurrentModelID == target {
+				return nil
+			}
+			if err := p.call(ctx, "session/set_model", acpSetModelParams{SessionID: sessionID, ModelID: target}, nil); err != nil {
+				return err
+			}
+			p.mu.Lock()
+			if s := p.states[sessionID]; s != nil && s.Models != nil {
+				s.Models.CurrentModelID = target
+			}
+			p.mu.Unlock()
+			return nil
+		}
 		var ids []string
 		for _, m := range st.Models.AvailableModels {
 			ids = append(ids, m.ModelID)
 			if m.ModelID == model {
-				if st.Models.CurrentModelID == model {
-					return nil
+				return selectLegacy(model)
+			}
+		}
+		if base, params, ok := parseACPParameterizedModelID(model); ok && len(params) == 0 {
+			// The legacy API has no parameter options. An empty parameter list
+			// is still exact: there is nothing to apply beyond the base model,
+			// which is also how a literal model named default stays selectable
+			// as default[]. An exact bracketed id already won above.
+			for _, m := range st.Models.AvailableModels {
+				if m.ModelID == base {
+					return selectLegacy(base)
 				}
-				if err := p.call(ctx, "session/set_model", acpSetModelParams{SessionID: sessionID, ModelID: model}, nil); err != nil {
-					return err
-				}
-				p.mu.Lock()
-				if s := p.states[sessionID]; s != nil && s.Models != nil {
-					s.Models.CurrentModelID = model
-				}
-				p.mu.Unlock()
-				return nil
 			}
 		}
 		return p.notOffered("model", model, ids)
 	}
 	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: fmt.Sprintf("the agent offers no model selection; use the model %q to keep its own", acpDefaultModel)}
+}
+
+// selectParameterizedModel applies a saved variant id to an agent that now
+// exposes the base model and its parameters separately. The exact model values
+// were already tried by selectModel, so an agent still offering the variant id
+// verbatim is untouched. The serialized parameters are the meaning of the old
+// id, so they are replayed after the base model: the agent answers every set
+// with the options as they stand then, and a parameter already at its value is
+// not written again.
+func (p *acpProcess) selectParameterizedModel(ctx context.Context, sessionID, modelOptionID, original, base string, params []acpModelParameter, offered []string) error {
+	st := p.stateOf(sessionID)
+	modelOption, ok := configOptionByID(st.ConfigOptions, modelOptionID)
+	if !ok {
+		return p.notOffered("model", original, offered)
+	}
+	if modelOption.current() != base {
+		baseOffered := false
+		for _, v := range modelOption.values() {
+			if v.Value == base {
+				baseOffered = true
+				break
+			}
+		}
+		if !baseOffered {
+			return p.notOffered("model", original, offered)
+		}
+		if err := p.setOption(ctx, sessionID, modelOptionID, base); err != nil {
+			return err
+		}
+	}
+	for _, param := range params {
+		if err := p.selectModelParameter(ctx, sessionID, original, param); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// selectModelParameter applies one parameter of a serialized variant id. The
+// agent's answer to the model selection replaced the option set, so the option
+// is looked up anew for every parameter. A parameter absent from that set is
+// not written: the variants serialization also carried single-value parameters
+// the picker has no reason to offer, and those cannot take another value.
+func (p *acpProcess) selectModelParameter(ctx context.Context, sessionID, original string, param acpModelParameter) error {
+	opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, param.id)
+	if !ok {
+		p.log.Debug("acp agent does not offer a serialized model parameter; keeping its own value", "agent", p.spec.label(), "parameter", param.id, "model", original)
+		return nil
+	}
+	if opt.current() == param.value {
+		p.ownedBySerializedModel(sessionID, opt)
+		return nil
+	}
+	for _, v := range opt.values() {
+		if v.Value == param.value {
+			if err := p.setOption(ctx, sessionID, param.id, param.value); err != nil {
+				return err
+			}
+			p.ownedBySerializedModel(sessionID, opt)
+			return nil
+		}
+	}
+	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: fmt.Sprintf("the agent offers no value %q for parameter %q of the model %q; it offers: %s", param.value, param.id, original, strings.Join(valueIDs(opt.values()), ", "))}
+}
+
+// ownedBySerializedModel drops the per-turn ownership of a reasoning level the
+// serialized model id just named. Otherwise a later thoughtToUndo would mistake
+// that explicit part of the model for a level an earlier call had chosen and
+// reset it. Other parameters have no such ownership to clear.
+func (p *acpProcess) ownedBySerializedModel(sessionID string, opt acpConfigOption) {
+	thought, ok := optionOf(p.stateOf(sessionID).ConfigOptions, "thought_level")
+	if !ok || thought.ID != opt.ID {
+		return
+	}
+	p.mu.Lock()
+	delete(p.thoughtSet, sessionID)
+	p.mu.Unlock()
 }
 
 // selectMode selects the mode through the agent's mode config option, else
@@ -1466,6 +1613,14 @@ func (p *acpProcess) notOffered(what, value string, offered []string) error {
 	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: msg}
 }
 
+// ACPParameterizedModelBase returns the base model of a serialized variant id
+// of the form base[param=value,...], the shape the variants picker of some
+// agents exposed as an opaque model id.
+func ACPParameterizedModelBase(model string) (string, bool) {
+	base, _, ok := parseACPParameterizedModelID(strings.TrimSpace(model))
+	return base, ok
+}
+
 func valueIDs(values []acpConfigValue) []string {
 	out := make([]string, 0, len(values))
 	for _, v := range values {
@@ -1508,14 +1663,42 @@ func listACPModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) 
 	}
 	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
 		for _, v := range opt.values() {
-			add(v.Value, v.Name)
+			id := v.Value
+			if id == acpDefaultModel {
+				id = "default[]"
+			}
+			add(id, v.Name)
 		}
 	} else if st.Models != nil {
 		for _, m := range st.Models.AvailableModels {
-			add(m.ModelID, m.Name)
+			id := m.ModelID
+			if id == acpDefaultModel {
+				id = "default[]"
+			}
+			add(id, m.Name)
 		}
 	}
 	return out, nil
+}
+
+// acpModelOffered reports whether id is still an exact model value of the
+// session. Exact ids win over the compatibility base fallback everywhere.
+func acpModelOffered(st acpSessionState, id string) bool {
+	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
+		for _, v := range opt.values() {
+			if v.Value == id {
+				return true
+			}
+		}
+	}
+	if st.Models != nil {
+		for _, m := range st.Models.AvailableModels {
+			if m.ModelID == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ACPThoughtLevels returns the reasoning levels the agent offers for modelID
@@ -1539,7 +1722,9 @@ func ACPThoughtLevels(ctx context.Context, in ProviderInput, modelID string) ([]
 	if abs, err := filepath.Abs(cwd); err == nil {
 		cwd = abs
 	}
-	sessionID, err := proc.newSession(ctx, cwd)
+	newCtx, cancel := context.WithTimeout(ctx, acpSessionNewTimeout)
+	sessionID, err := proc.newSession(newCtx, cwd)
+	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -1552,7 +1737,13 @@ func ACPThoughtLevels(ctx context.Context, in ProviderInput, modelID string) ([]
 		current = st.Models.CurrentModelID
 	}
 	modelID = strings.TrimSpace(modelID)
-	if modelID != "" && modelID != acpDefaultModel && modelID != current {
+	matches := modelID == current
+	if !matches {
+		if base, _, ok := parseACPParameterizedModelID(modelID); ok && !acpModelOffered(st, modelID) {
+			matches = base == current
+		}
+	}
+	if modelID != "" && modelID != acpDefaultModel && !matches {
 		return nil, nil
 	}
 	opt, ok := optionOf(st.ConfigOptions, "thought_level")

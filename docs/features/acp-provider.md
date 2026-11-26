@@ -19,6 +19,8 @@ models:
 
 `acp.command` is the program, looked up on `PATH`, and `acp.args` its arguments. The model id after the provider name selects one of the agent's own models: `default` keeps the model the agent starts with, and anything else must be a model the agent offers (Settings lists them, see [Settings and the dry run](#settings-and-the-dry-run)). A model id may contain slashes, as `coddy acp` names its models (`coddy/neuraldeep/qwen3.8-27b`).
 
+Coddy advertises the parameterized model picker capability (`clientCapabilities._meta.parameterizedModelPicker`) to every agent. An agent that does not know the key ignores it; one that knows it may expose a base model and its parameters as separate session options instead of serialized model variants such as `grok-4.7[context=256k,reasoning_effort=high,fast=true]`. A saved id of that serialized form keeps working: Coddy selects its base model (`grok-4.7`) and applies the serialized parameters through the parameter options the agent exposes, so the id keeps its old meaning. A parameter the agent no longer exposes is left at the agent's own value; the serialization also carried single-value parameters that cannot take another value. Use the plain base model id instead when the agent's own preserved parameter choices should stand. An exact model id an agent still offers is always selected as-is. `default` remains the Coddy sentinel for the agent's own current model; when the agent itself offers a model literally named `default`, Settings lists that model as `default[]` so it can still be selected.
+
 | Agent | `command` / `args` | Sign-in | `modes.plan` / `modes.ask` |
 | --- | --- | --- | --- |
 | Claude Code | `claude-agent-acp` | the Claude CLI login | `plan` |
@@ -151,7 +153,7 @@ A logical model of the row is a model of the composer's selector like any other,
 
 *The model selector with the two logical models of the `coddy` row.*
 
-`coddy --dry-run` starts each agent, opens a session to read its models, checks that the configured model ids are among them, and warns about a missing `modes.plan` or `modes.ask`.
+`coddy --dry-run` starts each agent, opens a session to read its models, checks that the configured model ids are among them, accepts a serialized variant id when the agent offers its base model, and warns about a missing `modes.plan` or `modes.ask`.
 
 ## Troubleshooting
 

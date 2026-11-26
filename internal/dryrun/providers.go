@@ -138,6 +138,8 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		switch {
 		case ids[id]:
 			out = append(out, r.check(StatusOK, mpath, mpath, "listed by provider "+prov.Name, ""))
+		case prov.Type == "acp" && legacyACPVariantListed(id, ids):
+			out = append(out, r.check(StatusOK, mpath, mpath, "listed by provider "+prov.Name+" as its base model", ""))
 		case len(listed) == 0:
 			out = append(out, r.check(StatusWarning, mpath, mpath, "provider "+prov.Name+" lists no models, so the id cannot be confirmed", ""))
 		default:
@@ -147,6 +149,22 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		}
 	}
 	return out
+}
+
+// legacyACPVariantListed accepts the serialized variant ids some acp agents
+// exposed before their parameterized picker: base[param=value,...] is served
+// by selecting base.
+func legacyACPVariantListed(id string, ids map[string]bool) bool {
+	base, ok := llm.ACPParameterizedModelBase(id)
+	if !ok {
+		return false
+	}
+	// Plain "default" is Coddy's sentinel, not proof that the agent offers a
+	// model of that literal name; such a model is listed under default[].
+	if base == "default" {
+		return ids["default[]"]
+	}
+	return ids[base]
 }
 
 // skipModels marks the models of a provider that could not be probed.
