@@ -95,13 +95,17 @@ test("a path an answer names opens in a tab of the Files window once the server 
   ]);
 });
 
-test("what is not a file of the workspace keeps its look and its copy button", async () => {
+test("what is not a file of the workspace stays inline code and copies on click", async () => {
   renderAnswer();
   await screen.findByRole("link", { name: "the plan" });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
   for (const text of ["fmt.Println", "cmd/coddy", "gone.go"]) {
     const code = screen.getByText(text);
     expect(code).toHaveAttribute("data-testid", "md-inline-code");
-    expect(code).toHaveAttribute("role", "button");
+    expect(code).toHaveRole("code");
+    fireEvent.click(code);
+    expect(writeText).toHaveBeenLastCalledWith(text);
   }
   expect(screen.queryByRole("link", { name: "gone.go" })).toBeNull();
 });

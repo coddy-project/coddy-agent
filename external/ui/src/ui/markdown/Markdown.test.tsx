@@ -142,23 +142,30 @@ test("fenced code without language still shows Copy control", () => {
   ).toBeInTheDocument();
 });
 
-test("inline backtick code uses md-inline-code and copies on click", async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.assign(navigator, { clipboard: { writeText } });
+test("inline code stays in the sentence and copies on click", async () => {
+  const page = pageWithoutClipboardApi(true);
 
-  render(
-    <Markdown text="Edit `docker-compose.yaml` and add `./qbittorrent:/config`." />,
+  render(<Markdown text="Type `sudo reboot` and press `enter`." />);
+
+  expect(screen.getByRole("paragraph")).toHaveTextContent(
+    "Type sudo reboot and press enter.",
   );
-
-  const inlineCodes = screen.getAllByRole("button", { name: /copy code/i });
-  const inline = inlineCodes[0]!;
-  expect(inline).toHaveClass("md-inline-code");
-  expect(inline.textContent).toBe("docker-compose.yaml");
-
+  const codes = screen.getAllByRole("code");
+  expect(codes.map((code) => code.textContent)).toEqual([
+    "sudo reboot",
+    "enter",
+  ]);
+  for (const code of codes) {
+    expect(code).not.toHaveAttribute("aria-label");
+    expect(code).not.toHaveAttribute("title");
+    expect(code).toHaveClass("md-inline-code");
+  }
+  expect(screen.queryByRole("button")).toBeNull();
+  const inline = codes[0]!;
   fireEvent.click(inline);
-  expect(writeText).toHaveBeenCalledWith("docker-compose.yaml");
+  expect(page.copies).toEqual(selectedOnce("sudo reboot"));
   await waitFor(() => {
-    expect(inline).toHaveAttribute("title", "Copied");
+    expect(inline.closest("[title]")).toHaveAttribute("title", "Copied");
   });
 });
 
@@ -189,18 +196,18 @@ test("inline code copies without a clipboard API and says Copied only when that 
     fireEvent.click(inline);
   });
   expect(page.copies).toEqual(selectedOnce("make test"));
-  expect(inline).toHaveAttribute("title", "Copy");
+  expect(inline.closest("[title]")).toHaveAttribute("title", "Copy");
   page.answer(true);
   await act(async () => {
     fireEvent.click(inline);
   });
-  expect(inline).toHaveAttribute("title", "Copied");
+  expect(inline.closest("[title]")).toHaveAttribute("title", "Copied");
 });
 
 test("inline code uses native title tooltip for Copy", () => {
   render(<Markdown text="Run `make test` locally." />);
   const inline = screen.getByTestId("md-inline-code");
-  expect(inline).toHaveAttribute("title", "Copy");
+  expect(inline.closest("[title]")).toHaveAttribute("title", "Copy");
 });
 
 test("inline code styles use grey fill without border in css", () => {

@@ -8,6 +8,7 @@ Feature: Copying on a web UI served over plain HTTP
   Scenario: Code blocks, inline code and formulas copy and say Copied only when it worked
     Given a page that has no clipboard API
     Then a code block copies and says Copied only when that worked
+    And inline code stays in the sentence and copies on click
     And inline code copies and says Copied only when that worked
     And an inline formula copies and says Copied only when that worked
 

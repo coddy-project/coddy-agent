@@ -200,19 +200,20 @@ function InlineCode(props: { className?: string; children?: unknown }) {
     );
   }
 
+  // A title on the code itself becomes its accessible name in Chromium.
+  // Keep the native hover tip without naming the command after the action.
   return (
-    <code
-      className={className}
-      role="button"
-      tabIndex={0}
-      title={title}
-      aria-label={t("messages.copyCode")}
-      data-testid="md-inline-code"
-      onClick={() => void onCopy()}
-      onKeyDown={onKeyDown}
-    >
-      {props.children as any}
-    </code>
+    <span role="none" title={title}>
+      <code
+        className={className}
+        tabIndex={0}
+        data-testid="md-inline-code"
+        onClick={() => void onCopy()}
+        onKeyDown={onKeyDown}
+      >
+        {props.children as any}
+      </code>
+    </span>
   );
 }
 
