@@ -66,10 +66,10 @@ describe("WorkspaceChips", () => {
     renderChips({ onCreateBranch: create });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     expect(
-      screen.getByRole("menuitem", { name: "Commit history" }),
+      screen.getByRole("button", { name: "Commit history" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Create branch/ }));
-    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Create branch/ }));
+    expect(screen.queryByRole("dialog", { name: "Choose branch" })).toBeNull();
     const input = screen.getByRole("textbox", { name: "Branch name" });
     fireEvent.change(input, { target: { value: "feature/new" } });
     fireEvent.submit(input.closest("form")!);
@@ -141,6 +141,27 @@ describe("WorkspaceChips", () => {
     expect(rows.length).toBe(2);
     fireEvent.click(screen.getByTestId("workspace-branch-row-feature/login"));
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
+  });
+
+  it("moves from the branch filter through options without choosing until Enter", () => {
+    const { props } = renderChips();
+    const chip = screen.getByTestId("composer-branch-chip");
+    fireEvent.click(chip);
+    const filter = screen.getByTestId("workspace-branch-filter");
+    expect(filter).toHaveFocus();
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    const first = screen.getByRole("option", { name: "main", selected: true });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "End" });
+    const next = screen.getByRole("option", {
+      name: "feature/login",
+      selected: false,
+    });
+    expect(next).toHaveFocus();
+    expect(props.onPickBranch).not.toHaveBeenCalled();
+    fireEvent.keyDown(next, { key: "Enter" });
+    expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", false);
+    expect(chip).toHaveFocus();
   });
 
   it("filters branches locally and explains an empty result", () => {
@@ -560,7 +581,11 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-repos"));
     fireEvent.click(screen.getByTestId("workspace-modal-row-repos"));
     await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
-    fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
+    const other = screen.getByTestId("workspace-modal-row-other");
+    other.focus();
+    fireEvent.click(other);
+    await waitFor(() => expect(other).not.toBeInTheDocument());
+    expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus();
     await waitFor(() =>
       expect(screen.getByTestId("workspace-modal-open").textContent).toContain(
         "Open",
@@ -888,11 +913,11 @@ describe("WorkspaceChips", () => {
     fireEvent.click(screen.getByTestId("workspace-open-folder"));
     await waitFor(() => screen.getByTestId("workspace-folder-modal"));
     fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
-    expect(screen.getByTestId("workspace-modal-new-folder-name")).toBeTruthy();
+    expect(screen.getByTestId("workspace-modal-new-folder-name")).toHaveFocus();
 
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
-    expect(screen.getByTestId("workspace-folder-modal")).toBeTruthy();
+    expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus();
 
     expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
@@ -907,11 +932,25 @@ describe("WorkspaceChips", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { props } = renderChips();
-    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    const chip = screen.getByTestId("composer-workspace-chip");
+    fireEvent.click(chip);
     fireEvent.click(screen.getByTestId("workspace-open-folder"));
-    await waitFor(() => screen.getByTestId("workspace-folder-modal"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus(),
+    );
+    const dialog = screen.getByTestId("workspace-folder-modal");
+    const close = dialog.querySelector<HTMLButtonElement>(".sessions-close")!;
+    const open = screen.getByTestId("workspace-modal-open");
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(open).toHaveFocus();
+    fireEvent.keyDown(open, { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(open).toHaveFocus();
     fireEvent.click(screen.getByTestId("workspace-modal-cancel"));
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+    expect(chip).toHaveFocus();
     expect(props.onPickFolder).not.toHaveBeenCalled();
   });
 });

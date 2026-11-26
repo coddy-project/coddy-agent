@@ -2110,6 +2110,7 @@ export const messagesEn: Record<string, string> = {
   "composer.bytesB": "{n} B",
   "composer.bytesKB": "{n} KB",
   "composer.bytesMB": "{n} MB",
+  "composer.selectorName": "{value}, {setting}",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
   "composer.modeAsk": "Ask",
@@ -2873,6 +2874,8 @@ export const messagesEn: Record<string, string> = {
   "workspace.worktreeActiveTitle": "This session works in a dedicated worktree",
   "workspace.worktreeInactiveTitle":
     "Open branch switches in a dedicated worktree",
+  "workspace.folderPicker": "Choose folder",
+  "workspace.branchPicker": "Choose branch",
   "workspace.recent": "Recent",
   "workspace.filterRecent": "Filter recent folders",
   "workspace.filterBranches": "Filter branches",

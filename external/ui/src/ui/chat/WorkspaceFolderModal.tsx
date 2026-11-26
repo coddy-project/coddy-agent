@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import { Switch } from "../settings/Switch";
@@ -133,6 +133,15 @@ export function WorkspaceFolderModal(props: Props) {
     props.onClose();
   });
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    // Browsing or folding the new-folder row can remove the focused control.
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.contains(document.activeElement)) {
+      dialog.focus({ preventScroll: true });
+    }
+  });
+
   if (!props.open) {
     return null;
   }
@@ -153,10 +162,29 @@ export function WorkspaceFolderModal(props: Props) {
     >
       <div
         className="workspace-modal"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t("composer.folderModal.title")}
         data-testid="workspace-folder-modal"
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.defaultPrevented) return;
+          const dialog = event.currentTarget;
+          const stops = dialog.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled):not([tabindex="-1"])',
+          );
+          const first = stops[0];
+          const last = stops[stops.length - 1];
+          if (
+            (event.shiftKey &&
+              (event.target === first || event.target === dialog)) ||
+            (!event.shiftKey && event.target === last)
+          ) {
+            event.preventDefault();
+            (event.shiftKey ? last : first)?.focus();
+          }
+        }}
       >
         <div className="sessions-head workspace-modal-head">
           <span className="workspace-modal-title">
