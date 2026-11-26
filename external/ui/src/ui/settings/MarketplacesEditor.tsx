@@ -8,6 +8,7 @@ import {
 import { IconTrash } from "./SchemaForm";
 import { LegendWithHint } from "./FieldHint";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
+import { useSpecialRowLabel } from "./SettingsSpecialRows";
 import { IconCheck, IconShield, IconSync } from "./icons";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
@@ -316,6 +317,10 @@ export function MarketplacesEditor(props: {
 
   const entries = listing?.entries ?? [];
   const policy = listing?.projectTrust ?? "ask";
+  const heading = useSpecialRowLabel(
+    "marketplaces",
+    t(SETTINGS_TEXTS.skillsMarketplaces.label),
+  );
 
   return (
     <fieldset
@@ -324,7 +329,7 @@ export function MarketplacesEditor(props: {
       data-settings-anchor={landmarkAnchor("skills", "marketplaces")}
     >
       <LegendWithHint
-        label={t(SETTINGS_TEXTS.skillsMarketplaces.label)}
+        label={heading}
         description={t(SETTINGS_TEXTS.skillsMarketplaces.desc)}
         action={
           // The check of every marketplace and source: the refresh icon of

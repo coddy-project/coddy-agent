@@ -14,6 +14,7 @@ import { Switch } from "./Switch";
 import { SwitchField } from "./SwitchField";
 import { filterInstallableMatches } from "./installableMatches";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
+import { SpecialRows, useSpecialRowLabel } from "./SettingsSpecialRows";
 import { schemaFieldDesc } from "./schemaI18n";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
@@ -443,26 +444,46 @@ export function SkillsSection(props: {
       )?.description,
     ) ?? translate("skills.autoDiscovery.fallbackDesc");
 
+  const autoDiscoveryHeading = useSpecialRowLabel(
+    "auto_discovery",
+    t(SETTINGS_TEXTS.skillsAutoDiscovery.label),
+  );
+  const installedHeading = useSpecialRowLabel(
+    "installed",
+    t(SETTINGS_TEXTS.skillsInstalled.label),
+  );
+
   return (
     <div className="settings-skills-section">
-      <fieldset
-        className="settings-fieldset"
-        data-settings-anchor={landmarkAnchor("skills", "auto_discovery")}
-      >
-        <legend>{t(SETTINGS_TEXTS.skillsAutoDiscovery.label)}</legend>
-        <SwitchField
-          checked={autoDiscoveryOn}
-          onChange={(next) => onChange({ ...value, auto_discovery: next })}
-          label={
-            autoDiscoveryOn
-              ? t("skills.state.enabled")
-              : t("skills.state.disabled")
-          }
-          description={autoDiscoveryDesc}
-          ariaLabel={t("skills.autoDiscovery.aria")}
-          dataTestId="skills-auto-discovery-toggle"
-        />
-      </fieldset>
+      <SpecialRows
+        section="skills"
+        doc={{ skills: value }}
+        includeExtensions={false}
+        nodes={{
+          auto_discovery: (
+            <fieldset
+              className="settings-fieldset"
+              data-settings-anchor={landmarkAnchor("skills", "auto_discovery")}
+            >
+              <legend>{autoDiscoveryHeading}</legend>
+              <SwitchField
+                checked={autoDiscoveryOn}
+                onChange={(next) =>
+                  onChange({ ...value, auto_discovery: next })
+                }
+                label={
+                  autoDiscoveryOn
+                    ? t("skills.state.enabled")
+                    : t("skills.state.disabled")
+                }
+                description={autoDiscoveryDesc}
+                ariaLabel={t("skills.autoDiscovery.aria")}
+                dataTestId="skills-auto-discovery-toggle"
+              />
+            </fieldset>
+          ),
+        }}
+      />
 
       {/*
         The policy for the project's marketplaces.json stands in a fieldset of
@@ -478,234 +499,247 @@ export function SkillsSection(props: {
         groups={skillsFormGroups()}
       />
 
-      <MarketplacesEditor
-        activeSessionId={props.activeSessionId}
-        onSynced={onSynced}
-        updateCount={updateCount}
-      />
-
-      <fieldset
-        className="settings-fieldset skills-installed-box"
-        data-testid="skills-installed"
-        data-settings-anchor={landmarkAnchor("skills", "installed")}
-      >
-        {/* How else a skill gets here is about the whole list, so it is the
-            (i) of the legend rather than a line inside the box. */}
-        <LegendWithHint
-          label={t(SETTINGS_TEXTS.skillsInstalled.label)}
-          description={t(SETTINGS_TEXTS.skillsInstalled.desc)}
-        />
-
-        <div className="skills-install">
-          <input
-            className="settings-input skills-install-input"
-            type="text"
-            placeholder={t("skills.install.searchPlaceholder")}
-            value={installQuery}
-            onChange={(e) => setInstallQuery(e.target.value)}
-            onFocus={() => void loadAvailable()}
-            data-testid="skills-install-input"
-          />
-          {installQ ? (
-            <ul
-              ref={installResultsRef}
-              className="skills-install-results"
-              data-testid="skills-install-results"
+      <SpecialRows
+        section="skills"
+        doc={{ skills: value }}
+        nodes={{
+          marketplaces: (
+            <MarketplacesEditor
+              activeSessionId={props.activeSessionId}
+              onSynced={onSynced}
+              updateCount={updateCount}
+            />
+          ),
+          installed: (
+            <fieldset
+              className="settings-fieldset skills-installed-box"
+              data-testid="skills-installed"
+              data-settings-anchor={landmarkAnchor("skills", "installed")}
             >
-              {availableUnread.length > 0 && !availableLoading ? (
-                <li
-                  className="skills-install-empty settings-error"
-                  data-testid="skills-install-unread"
-                >
-                  {t("skills.sources.check.unread", {
-                    sources: availableUnread.join(", "),
-                  })}
-                </li>
+              {/* How else a skill gets here is about the whole list, so it is the
+            (i) of the legend rather than a line inside the box. */}
+              <LegendWithHint
+                label={installedHeading}
+                description={t(SETTINGS_TEXTS.skillsInstalled.desc)}
+              />
+
+              <div className="skills-install">
+                <input
+                  className="settings-input skills-install-input"
+                  type="text"
+                  placeholder={t("skills.install.searchPlaceholder")}
+                  value={installQuery}
+                  onChange={(e) => setInstallQuery(e.target.value)}
+                  onFocus={() => void loadAvailable()}
+                  data-testid="skills-install-input"
+                />
+                {installQ ? (
+                  <ul
+                    ref={installResultsRef}
+                    className="skills-install-results"
+                    data-testid="skills-install-results"
+                  >
+                    {availableUnread.length > 0 && !availableLoading ? (
+                      <li
+                        className="skills-install-empty settings-error"
+                        data-testid="skills-install-unread"
+                      >
+                        {t("skills.sources.check.unread", {
+                          sources: availableUnread.join(", "),
+                        })}
+                      </li>
+                    ) : null}
+                    {availableLoading && available === null ? (
+                      <li className="skills-install-empty settings-muted">
+                        {t("skills.install.loadingMarketplaces")}
+                      </li>
+                    ) : installMatches.length === 0 ? (
+                      <li className="skills-install-empty settings-muted">
+                        {t("skills.install.noMatches")}
+                      </li>
+                    ) : (
+                      <>
+                        {installMatches.map((p) => (
+                          <li
+                            key={`${p.source}/${p.name}`}
+                            className="skills-install-result"
+                          >
+                            <div className="skills-install-result-text">
+                              <div className="skills-list-item-name">
+                                {p.name}
+                                {p.version ? (
+                                  <span className="skills-list-item-version">
+                                    v{p.version}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="skills-list-item-desc">
+                                {p.description || p.source}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="settings-btn settings-btn-icon settings-btn-primary"
+                              disabled={!!installBusy[p.name]}
+                              onClick={() => onInstallPlugin(p)}
+                              title={t("skills.install.installTitle", {
+                                name: p.name,
+                              })}
+                              aria-label={t("skills.install.installAria", {
+                                name: p.name,
+                              })}
+                              data-testid={`skills-install-${p.name}`}
+                            >
+                              <IconDownload />
+                            </button>
+                          </li>
+                        ))}
+                        {installMore > 0 ? (
+                          <li
+                            className="skills-install-empty settings-muted"
+                            data-testid="skills-install-more"
+                          >
+                            {t("skills.install.moreHint", {
+                              count: installMore,
+                            })}
+                          </li>
+                        ) : null}
+                      </>
+                    )}
+                  </ul>
+                ) : null}
+              </div>
+
+              {updateCount > 0 ? (
+                <div className="skills-update-all">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-primary skills-update-all-btn"
+                    disabled={updatingAll}
+                    onClick={onUpdateAll}
+                    title={t("skills.updateAll.title")}
+                    data-testid="skills-update-all"
+                  >
+                    <IconDownload />
+                    <span>{tp("skills.updateAll", updateCount)}</span>
+                  </button>
+                </div>
               ) : null}
-              {availableLoading && available === null ? (
-                <li className="skills-install-empty settings-muted">
-                  {t("skills.install.loadingMarketplaces")}
-                </li>
-              ) : installMatches.length === 0 ? (
-                <li className="skills-install-empty settings-muted">
-                  {t("skills.install.noMatches")}
-                </li>
+
+              {error ? <p className="settings-error">{error}</p> : null}
+              {status ? <p className="settings-muted">{status}</p> : null}
+
+              {installed.length === 0 ? (
+                loading ? (
+                  <p className="settings-muted">{t("skills.loading")}</p>
+                ) : (
+                  <p className="settings-muted">{t("skills.empty")}</p>
+                )
               ) : (
-                <>
-                  {installMatches.map((p) => (
-                    <li
-                      key={`${p.source}/${p.name}`}
-                      className="skills-install-result"
-                    >
-                      <div className="skills-install-result-text">
-                        <div className="skills-list-item-name">
-                          {p.name}
-                          {p.version ? (
-                            <span className="skills-list-item-version">
-                              v{p.version}
-                            </span>
+                <ul className="skills-list">
+                  {installed.map((sk) => {
+                    const upd = updates[sk.name];
+                    const hasUpdate = !!upd?.update_available;
+                    return (
+                      <li
+                        key={sk.name}
+                        className={`skills-list-item${sk.enabled ? "" : " is-disabled"}${sk.name === justInstalled ? " is-just-installed" : ""}`}
+                      >
+                        {/* The on/off switch leads the row, where an icon that said
+                      nothing used to stand. */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={sk.enabled}
+                          className="skill-switch"
+                          disabled={!!busy[sk.name]}
+                          onClick={() => onToggle(sk)}
+                          title={
+                            sk.enabled
+                              ? t("skills.switch.enabledTitle")
+                              : t("skills.switch.disabledTitle")
+                          }
+                          aria-label={t(
+                            sk.enabled
+                              ? "skills.switch.disableAria"
+                              : "skills.switch.enableAria",
+                            { name: sk.name },
+                          )}
+                          data-testid={`skills-toggle-${sk.name}`}
+                        >
+                          <span className="skill-switch-thumb" />
+                        </button>
+                        <div className="skills-list-item-text">
+                          <div className="skills-list-item-name">
+                            {sk.name}
+                            {sk.version ? (
+                              <span className="skills-list-item-version">
+                                v{sk.version}
+                              </span>
+                            ) : null}
+                            {sk.source ? (
+                              <span
+                                className="skills-list-item-badge"
+                                title={t("skills.badge.syncedFrom", {
+                                  source: sk.source,
+                                })}
+                              >
+                                {t("skills.badge.remote")}
+                              </span>
+                            ) : null}
+                          </div>
+                          {sk.description ? (
+                            <div className="skills-list-item-desc">
+                              {sk.description}
+                            </div>
                           ) : null}
                         </div>
-                        <div className="skills-list-item-desc">
-                          {p.description || p.source}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="settings-btn settings-btn-icon settings-btn-primary"
-                        disabled={!!installBusy[p.name]}
-                        onClick={() => onInstallPlugin(p)}
-                        title={t("skills.install.installTitle", {
-                          name: p.name,
-                        })}
-                        aria-label={t("skills.install.installAria", {
-                          name: p.name,
-                        })}
-                        data-testid={`skills-install-${p.name}`}
-                      >
-                        <IconDownload />
-                      </button>
-                    </li>
-                  ))}
-                  {installMore > 0 ? (
-                    <li
-                      className="skills-install-empty settings-muted"
-                      data-testid="skills-install-more"
-                    >
-                      {t("skills.install.moreHint", { count: installMore })}
-                    </li>
-                  ) : null}
-                </>
-              )}
-            </ul>
-          ) : null}
-        </div>
-
-        {updateCount > 0 ? (
-          <div className="skills-update-all">
-            <button
-              type="button"
-              className="settings-btn settings-btn-primary skills-update-all-btn"
-              disabled={updatingAll}
-              onClick={onUpdateAll}
-              title={t("skills.updateAll.title")}
-              data-testid="skills-update-all"
-            >
-              <IconDownload />
-              <span>{tp("skills.updateAll", updateCount)}</span>
-            </button>
-          </div>
-        ) : null}
-
-        {error ? <p className="settings-error">{error}</p> : null}
-        {status ? <p className="settings-muted">{status}</p> : null}
-
-        {installed.length === 0 ? (
-          loading ? (
-            <p className="settings-muted">{t("skills.loading")}</p>
-          ) : (
-            <p className="settings-muted">{t("skills.empty")}</p>
-          )
-        ) : (
-          <ul className="skills-list">
-            {installed.map((sk) => {
-              const upd = updates[sk.name];
-              const hasUpdate = !!upd?.update_available;
-              return (
-                <li
-                  key={sk.name}
-                  className={`skills-list-item${sk.enabled ? "" : " is-disabled"}${sk.name === justInstalled ? " is-just-installed" : ""}`}
-                >
-                  {/* The on/off switch leads the row, where an icon that said
-                      nothing used to stand. */}
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={sk.enabled}
-                    className="skill-switch"
-                    disabled={!!busy[sk.name]}
-                    onClick={() => onToggle(sk)}
-                    title={
-                      sk.enabled
-                        ? t("skills.switch.enabledTitle")
-                        : t("skills.switch.disabledTitle")
-                    }
-                    aria-label={t(
-                      sk.enabled
-                        ? "skills.switch.disableAria"
-                        : "skills.switch.enableAria",
-                      { name: sk.name },
-                    )}
-                    data-testid={`skills-toggle-${sk.name}`}
-                  >
-                    <span className="skill-switch-thumb" />
-                  </button>
-                  <div className="skills-list-item-text">
-                    <div className="skills-list-item-name">
-                      {sk.name}
-                      {sk.version ? (
-                        <span className="skills-list-item-version">
-                          v{sk.version}
-                        </span>
-                      ) : null}
-                      {sk.source ? (
-                        <span
-                          className="skills-list-item-badge"
-                          title={t("skills.badge.syncedFrom", {
-                            source: sk.source,
+                        {hasUpdate ? (
+                          <button
+                            type="button"
+                            className="settings-btn settings-btn-icon settings-btn-primary skills-update-btn"
+                            disabled={!!busy[sk.name]}
+                            onClick={() => onUpdateSkill(sk)}
+                            title={t("skills.update.title", {
+                              name: sk.name,
+                              from: upd?.version || sk.version || "?",
+                              to: upd?.latest,
+                            })}
+                            aria-label={t("skills.update.aria", {
+                              name: sk.name,
+                              version: upd?.latest,
+                            })}
+                            data-testid={`skills-update-${sk.name}`}
+                          >
+                            <IconDownload />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="settings-btn settings-btn-icon settings-btn-danger"
+                          disabled={!!busy[sk.name] || !!sk.readonly}
+                          onClick={() => onRemove(sk)}
+                          title={
+                            sk.readonly
+                              ? t("skills.delete.bundledTitle")
+                              : t("skills.delete.title")
+                          }
+                          aria-label={t("skills.delete.aria", {
+                            name: sk.name,
                           })}
+                          data-testid={`skills-delete-${sk.name}`}
                         >
-                          {t("skills.badge.remote")}
-                        </span>
-                      ) : null}
-                    </div>
-                    {sk.description ? (
-                      <div className="skills-list-item-desc">
-                        {sk.description}
-                      </div>
-                    ) : null}
-                  </div>
-                  {hasUpdate ? (
-                    <button
-                      type="button"
-                      className="settings-btn settings-btn-icon settings-btn-primary skills-update-btn"
-                      disabled={!!busy[sk.name]}
-                      onClick={() => onUpdateSkill(sk)}
-                      title={t("skills.update.title", {
-                        name: sk.name,
-                        from: upd?.version || sk.version || "?",
-                        to: upd?.latest,
-                      })}
-                      aria-label={t("skills.update.aria", {
-                        name: sk.name,
-                        version: upd?.latest,
-                      })}
-                      data-testid={`skills-update-${sk.name}`}
-                    >
-                      <IconDownload />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="settings-btn settings-btn-icon settings-btn-danger"
-                    disabled={!!busy[sk.name] || !!sk.readonly}
-                    onClick={() => onRemove(sk)}
-                    title={
-                      sk.readonly
-                        ? t("skills.delete.bundledTitle")
-                        : t("skills.delete.title")
-                    }
-                    aria-label={t("skills.delete.aria", { name: sk.name })}
-                    data-testid={`skills-delete-${sk.name}`}
-                  >
-                    <IconTrash />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </fieldset>
+                          <IconTrash />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </fieldset>
+          ),
+        }}
+      />
     </div>
   );
 }

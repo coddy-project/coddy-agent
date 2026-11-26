@@ -725,7 +725,8 @@ func TestMCPNoAnswerIsScheduledForTheNextTurn(t *testing.T) {
 // for the session's first turn.
 func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
 	previous := mcpStartTimeout
-	mcpStartTimeout = 300 * time.Millisecond
+	// Leave room for the healthy stdio process to start under -race.
+	mcpStartTimeout = 2 * time.Second
 	t.Cleanup(func() { mcpStartTimeout = previous })
 	started := time.Now()
 	mgr, st, _ := newMCPToggleSession(t, map[string]config.MCPJSONServer{
@@ -740,6 +741,9 @@ func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
 	if configuredClient(st, "hang") != nil || !mcpScheduledForNextTurn(st, "hang") {
 		t.Fatalf("the hung server was not scheduled for the first turn: clients %v", clientNames(st))
 	}
+	// Only session creation needs a shortened deadline. The first turn tests
+	// whether the recovered server is retried, not how fast its process starts.
+	mcpStartTimeout = previous
 	writeHomeMCP(t, mgr.activeCfg().Paths.Home, reloadHelperServer("alpha"), reloadHelperServer("hang"))
 	entered := make(chan []string, 1)
 	mgr.runner = namesRunner(entered)

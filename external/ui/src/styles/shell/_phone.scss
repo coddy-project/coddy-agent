@@ -13,6 +13,60 @@
    --------------------------------------------------------------------------- */
 
 @media (max-width: 599px) {
+  /* ChatScreen owns this attribute only while the phone chat is mounted. */
+  html[data-phone-chat-scroll="inner"],
+  html[data-phone-chat-scroll="inner"] body {
+    height: 100% !important;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html[data-phone-chat-scroll="inner"] #root {
+    height: 100%;
+    min-height: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .shell {
+    flex: none;
+    height: var(--coddy-phone-chat-height, 100dvh) !important;
+    min-height: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .shell-main,
+  html[data-phone-chat-scroll="inner"] .shell-main > .main:not(.is-empty),
+  html[data-phone-chat-scroll="inner"] .chat-stack {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .shell-main > .main:not(.is-empty) {
+    padding-bottom: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] #messages.chat-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    padding-bottom: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .chat-scroll-sticky-head {
+    top: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .chat-scroll-tail {
+    height: 0;
+  }
+
+  html[data-phone-chat-scroll="inner"] .chat-bottom {
+    position: static;
+    flex: none;
+    padding-inline: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
   /* Top bar: icons never slide over the brand; the brand shrinks and clips. */
   .rail-column {
     padding-inline: 8px;
