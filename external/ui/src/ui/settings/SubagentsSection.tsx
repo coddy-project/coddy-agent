@@ -22,6 +22,7 @@ import {
 import { fetchSubagentCatalog, setSubagentTrust } from "./subagentsApi";
 import { LegendWithHint } from "./FieldHint";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
+import { SpecialRows, useSpecialRowLabel } from "./SettingsSpecialRows";
 import { IconShield } from "./icons";
 import {
   snapshotSettingsConfig,
@@ -99,6 +100,10 @@ export function SubagentsSection(props: {
 
   const items = catalog?.items ?? [];
   const policy = catalog?.policy ?? "ask";
+  const heading = useSpecialRowLabel(
+    "catalog",
+    t(SETTINGS_TEXTS.subagentsCatalog.label),
+  );
 
   const onToggleTrust = (entry: SubagentCatalogEntry) => {
     setBusy((b) => ({ ...b, [entry.name]: true }));
@@ -130,136 +135,148 @@ export function SubagentsSection(props: {
         groups={subagentsFormGroups()}
       />
 
-      <fieldset
-        className="settings-fieldset subagents-catalog-box"
-        data-testid="subagents-catalog"
-        data-settings-anchor={landmarkAnchor("subagents", "catalog")}
-      >
-        <LegendWithHint
-          label={t(SETTINGS_TEXTS.subagentsCatalog.label)}
-          description={t(SETTINGS_TEXTS.subagentsCatalog.desc)}
-        />
-        {error ? <p className="settings-error">{error}</p> : null}
-        {trustError ? <p className="settings-error">{trustError}</p> : null}
+      <SpecialRows
+        section="subagents"
+        doc={{ subagents: props.value }}
+        nodes={{
+          catalog: (
+            <fieldset
+              className="settings-fieldset subagents-catalog-box"
+              data-testid="subagents-catalog"
+              data-settings-anchor={landmarkAnchor("subagents", "catalog")}
+            >
+              <LegendWithHint
+                label={heading}
+                description={t(SETTINGS_TEXTS.subagentsCatalog.desc)}
+              />
+              {error ? <p className="settings-error">{error}</p> : null}
+              {trustError ? (
+                <p className="settings-error">{trustError}</p>
+              ) : null}
 
-        {items.length === 0 ? (
-          <p className="settings-muted" data-testid="subagents-empty">
-            {loading
-              ? t("subagents.catalog.loading")
-              : t("subagents.catalog.empty")}
-          </p>
-        ) : (
-          <ul className="subagents-list" data-testid="subagents-list">
-            {items.map((entry, index) => {
-              const isOpen = !!open[entry.name];
-              const facts = `${factsId}-${index}`;
-              const action = isOpen
-                ? t("subagents.catalog.hideDeclared")
-                : t("subagents.catalog.showDeclared");
-              return (
-                <li
-                  key={entry.name}
-                  className={`subagents-item${isOpen ? " is-open" : ""}`}
-                  data-testid={`subagent-row-${entry.name}`}
-                >
-                  <div className="subagents-item-head">
-                    <button
-                      type="button"
-                      className="subagents-toggle"
-                      aria-expanded={isOpen}
-                      aria-controls={facts}
-                      title={action}
-                      data-testid={`subagent-toggle-${entry.name}`}
-                      onClick={() =>
-                        setOpen((p) => ({ ...p, [entry.name]: !isOpen }))
-                      }
-                    >
-                      <Chevron open={isOpen} />
-                      <span className="subagents-item-name">{entry.name}</span>
-                    </button>
-                    <span className="skills-list-item-badge">
-                      {t(scopeBadgeKey(entry.scope))}
-                    </span>
-                    {entry.hidden ? (
-                      <span className="skills-list-item-badge">
-                        {t("subagents.badge.hidden")}
-                      </span>
-                    ) : null}
-                    {entry.needs_approval ? (
-                      <span
-                        className="skills-list-item-badge subagents-badge-pending"
-                        title={t("subagents.badge.needsApprovalTitle", {
-                          name: entry.name,
-                        })}
-                        data-testid={`subagent-pending-${entry.name}`}
+              {items.length === 0 ? (
+                <p className="settings-muted" data-testid="subagents-empty">
+                  {loading
+                    ? t("subagents.catalog.loading")
+                    : t("subagents.catalog.empty")}
+                </p>
+              ) : (
+                <ul className="subagents-list" data-testid="subagents-list">
+                  {items.map((entry, index) => {
+                    const isOpen = !!open[entry.name];
+                    const facts = `${factsId}-${index}`;
+                    const action = isOpen
+                      ? t("subagents.catalog.hideDeclared")
+                      : t("subagents.catalog.showDeclared");
+                    return (
+                      <li
+                        key={entry.name}
+                        className={`subagents-item${isOpen ? " is-open" : ""}`}
+                        data-testid={`subagent-row-${entry.name}`}
                       >
-                        {t("subagents.badge.needsApproval")}
-                      </span>
-                    ) : null}
-                    {entry.scope === "project" && policy === "ask" ? (
-                      <button
-                        type="button"
-                        className={`settings-btn settings-btn-icon subagents-trust${entry.trusted ? " is-trusted" : " settings-btn-approve"}`}
-                        disabled={!!busy[entry.name]}
-                        onClick={() => onToggleTrust(entry)}
-                        title={
-                          entry.trusted
-                            ? t("subagents.trust.approvedTitle")
-                            : t("subagents.trust.approveTitle", {
+                        <div className="subagents-item-head">
+                          <button
+                            type="button"
+                            className="subagents-toggle"
+                            aria-expanded={isOpen}
+                            aria-controls={facts}
+                            title={action}
+                            data-testid={`subagent-toggle-${entry.name}`}
+                            onClick={() =>
+                              setOpen((p) => ({ ...p, [entry.name]: !isOpen }))
+                            }
+                          >
+                            <Chevron open={isOpen} />
+                            <span className="subagents-item-name">
+                              {entry.name}
+                            </span>
+                          </button>
+                          <span className="skills-list-item-badge">
+                            {t(scopeBadgeKey(entry.scope))}
+                          </span>
+                          {entry.hidden ? (
+                            <span className="skills-list-item-badge">
+                              {t("subagents.badge.hidden")}
+                            </span>
+                          ) : null}
+                          {entry.needs_approval ? (
+                            <span
+                              className="skills-list-item-badge subagents-badge-pending"
+                              title={t("subagents.badge.needsApprovalTitle", {
                                 name: entry.name,
-                              })
-                        }
-                        aria-label={t(
-                          entry.trusted
-                            ? "subagents.trust.withdrawAria"
-                            : "subagents.trust.approveAria",
-                          { name: entry.name },
-                        )}
-                        data-testid={`subagent-trust-${entry.name}`}
-                      >
-                        <IconShield />
-                      </button>
-                    ) : null}
-                  </div>
-                  <div className="subagents-item-body">
-                    {/*
+                              })}
+                              data-testid={`subagent-pending-${entry.name}`}
+                            >
+                              {t("subagents.badge.needsApproval")}
+                            </span>
+                          ) : null}
+                          {entry.scope === "project" && policy === "ask" ? (
+                            <button
+                              type="button"
+                              className={`settings-btn settings-btn-icon subagents-trust${entry.trusted ? " is-trusted" : " settings-btn-approve"}`}
+                              disabled={!!busy[entry.name]}
+                              onClick={() => onToggleTrust(entry)}
+                              title={
+                                entry.trusted
+                                  ? t("subagents.trust.approvedTitle")
+                                  : t("subagents.trust.approveTitle", {
+                                      name: entry.name,
+                                    })
+                              }
+                              aria-label={t(
+                                entry.trusted
+                                  ? "subagents.trust.withdrawAria"
+                                  : "subagents.trust.approveAria",
+                                { name: entry.name },
+                              )}
+                              data-testid={`subagent-trust-${entry.name}`}
+                            >
+                              <IconShield />
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="subagents-item-body">
+                          {/*
                       Plain text on purpose: the description comes out of a
                       file that may have arrived with the checkout, so it is
                       never markdown and never a link.
                     */}
-                    <div className="skills-list-item-desc">
-                      {entry.description}
-                    </div>
-                    {entry.path ? (
-                      <code
-                        className="subagents-file"
-                        data-testid={`subagent-file-${entry.name}`}
-                      >
-                        {entry.path}
-                      </code>
-                    ) : null}
-                    <dl
-                      id={facts}
-                      className="subagents-facts"
-                      data-testid={`subagent-declared-${entry.name}`}
-                      hidden={!isOpen}
-                    >
-                      {subagentDeclaredFacts(entry).map((fact) => (
-                        <div key={fact.label}>
-                          <dt>{fact.label}</dt>
-                          <dd>
-                            <code>{fact.value}</code>
-                          </dd>
+                          <div className="skills-list-item-desc">
+                            {entry.description}
+                          </div>
+                          {entry.path ? (
+                            <code
+                              className="subagents-file"
+                              data-testid={`subagent-file-${entry.name}`}
+                            >
+                              {entry.path}
+                            </code>
+                          ) : null}
+                          <dl
+                            id={facts}
+                            className="subagents-facts"
+                            data-testid={`subagent-declared-${entry.name}`}
+                            hidden={!isOpen}
+                          >
+                            {subagentDeclaredFacts(entry).map((fact) => (
+                              <div key={fact.label}>
+                                <dt>{fact.label}</dt>
+                                <dd>
+                                  <code>{fact.value}</code>
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
                         </div>
-                      ))}
-                    </dl>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </fieldset>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </fieldset>
+          ),
+        }}
+      />
     </div>
   );
 }

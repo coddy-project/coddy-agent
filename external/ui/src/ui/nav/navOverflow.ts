@@ -12,6 +12,7 @@ export type NavItemId =
   | "swarm"
   | "docs"
   | "settings"
+  | "extensions"
   | "environment"
   | "signOut";
 
@@ -22,12 +23,14 @@ export const NAV_ALWAYS: readonly NavItemId[] = [
 ];
 export const NAV_RETURN_ORDER: readonly NavItemId[] = [
   "settings",
+  "extensions",
   "scheduler",
   "docs",
   "statistics",
   "signOut",
 ];
 export const NAV_MENU_ORDER: readonly NavItemId[] = [
+  "extensions",
   "docs",
   "statistics",
   "scheduler",
