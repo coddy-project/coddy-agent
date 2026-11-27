@@ -75,6 +75,53 @@ agent:
 	}
 }
 
+// A model id saved when the agent exposed serialized variants is confirmed
+// through its base model: the parameterized picker no longer lists the variant
+// itself.
+func TestACPRowAcceptsAnAgentModelNamedDefault(t *testing.T) {
+	body := acpRowYAML(t, acptest.Script{Models: []string{"default", "small"}, Close: true}) + `models:
+  - model: agent/default[]
+agent:
+  model: agent/default[]
+`
+	rep := run(t, body, nil)
+	if m := find(t, rep, "models[agent/default[]]"); m.Status != StatusOK {
+		t.Fatalf("escaped default check %+v", m)
+	}
+}
+
+func TestACPRowAcceptsAParameterizedLiteralDefaultModel(t *testing.T) {
+	body := acpRowYAML(t, acptest.Script{Models: []string{"default", "small"}, Close: true}) + `models:
+  - model: agent/default[fast=true]
+`
+	rep := run(t, body, nil)
+	if m := find(t, rep, "models[agent/default[fast=true]]"); m.Status != StatusOK {
+		t.Fatalf("parameterized literal default check %+v", m)
+	}
+}
+
+func TestACPRowRejectsDefaultBracketsWithoutALiteralDefaultModel(t *testing.T) {
+	body := acpRowYAML(t, acptest.Script{Models: []string{"small"}, Close: true}) + `models:
+  - model: agent/default[]
+`
+	rep := run(t, body, nil)
+	if m := find(t, rep, "models[agent/default[]]"); m.Status == StatusOK {
+		t.Fatalf("escaped default unexpectedly accepted: %+v", m)
+	}
+}
+
+func TestACPRowAcceptsASavedVariantID(t *testing.T) {
+	body := acpRowYAML(t, acptest.Script{Models: []string{"small", "composer-2.5"}, Close: true}) + `models:
+  - model: agent/composer-2.5[fast=true]
+agent:
+  model: agent/composer-2.5[fast=true]
+`
+	rep := run(t, body, nil)
+	if m := find(t, rep, "models[agent/composer-2.5[fast=true]]"); m.Status != StatusOK || !strings.Contains(m.Message, "base model") {
+		t.Fatalf("legacy variant check %+v", m)
+	}
+}
+
 // The agents a probe started are stopped when the run ends; what their
 // connections note on the way out is not a finding and stays out of the
 // terminal the report is printed to.
