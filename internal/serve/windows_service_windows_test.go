@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -169,7 +170,22 @@ func TestGrantPathAccessAddsAnACE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sd.String(); !strings.Contains(got, sid.String()) {
-		t.Fatalf("DACL %q does not contain %s", got, sid)
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatal(err)
 	}
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &ace); err != nil {
+			t.Fatal(err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+			continue
+		}
+		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if aceSID.Equals(sid) && ace.Mask&windows.FILE_GENERIC_READ == windows.FILE_GENERIC_READ {
+			return
+		}
+	}
+	t.Fatalf("DACL %q does not contain %s", sd.String(), sid)
 }
