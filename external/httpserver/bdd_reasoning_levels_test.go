@@ -25,6 +25,8 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm/acptest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -59,6 +61,47 @@ agent:
 	if err != nil {
 		return err
 	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	w.ts = httptest.NewServer(srv.Handler())
+	t.Cleanup(w.ts.Close)
+	return nil
+}
+
+// startACPGateway boots the same gateway behind a scripted ACP agent. The
+// agent's first advertised model is the one it is on.
+func (w *reasoningLevelsWorld) startACPGateway(t *testing.T, providerName, model, csvLevels string) error {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := fmt.Sprintf(`providers:
+  - name: %s
+    type: acp
+    acp:
+      command: agent
+models:
+  - model: %s/seed-model
+    max_tokens: 4096
+agent:
+  model: %s/seed-model
+`, providerName, providerName, providerName)
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	var levels []string
+	for _, level := range strings.Split(csvLevels, ",") {
+		levels = append(levels, strings.TrimSpace(level))
+	}
+	cmd, args := acptest.Command(t, acptest.Script{Models: []string{model}, ThoughtLevels: levels})
+	cfg.Providers[0].ACP.Command = cmd
+	cfg.Providers[0].ACP.Args = args
+	t.Cleanup(llm.StopACPAgents)
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
 	}
@@ -139,6 +182,10 @@ func TestReasoningLevelsFetchFeature(t *testing.T) {
 			sc.Step(`^a coddy server with an? "([^"]*)" provider named "([^"]*)"$`,
 				func(providerType, providerName string) error {
 					return w.startGateway(t, providerType, providerName)
+				})
+			sc.Step(`^a coddy server with an? "([^"]*)" provider named "([^"]*)" whose agent is on "([^"]*)" with thought levels "([^"]*)"$`,
+				func(_, providerName, model, levels string) error {
+					return w.startACPGateway(t, providerName, model, levels)
 				})
 			sc.Step(`^the settings form fetches the reasoning levels for "([^"]*)"$`, w.fetchLevels)
 			sc.Step(`^the settings form fetches the reasoning levels for "([^"]*)" of an? "([^"]*)" provider$`, w.fetchLevelsForProviderType)

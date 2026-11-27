@@ -252,7 +252,7 @@ func TestACPPromptOptionsKeepTheAgentsKind(t *testing.T) {
 }
 
 func TestACPSweepReleasesUnusedBindings(t *testing.T) {
-	e := &acpPoolEntry{spec: acpSpec{idle: time.Minute}, proc: &acpProcess{states: map[string]*acpSessionState{}, defaults: map[string]acpSessionDefaults{}, thoughtSet: map[string]string{}, done: make(chan struct{})}, conversations: map[string]*acpConversation{}}
+	e := &acpPoolEntry{spec: acpSpec{idle: time.Minute}, proc: &acpProcess{states: map[string]*acpSessionState{}, defaults: map[string]acpSessionDefaults{}, thoughtSet: map[string]acpThoughtOwnership{}, done: make(chan struct{})}, conversations: map[string]*acpConversation{}}
 	close(e.proc.done)
 	old := newACPConversation()
 	old.sessionID, old.lastUsed = "acp-old", time.Now().Add(-2*time.Minute)

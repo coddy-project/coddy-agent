@@ -3,11 +3,13 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // coddyConfigReasoningLevelsGet resolves the reasoning levels a logical model id
@@ -54,6 +56,39 @@ func (s *Server) coddyConfigReasoningLevelsGet(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// An acp provider is asked for the levels of the model it is on. The name
+	// guess does not know those ids, and selecting another of its models to
+	// read the levels would write the agent's configuration.
+	provName, apiModel, _ := config.SplitModelRef(model)
+	formType := strings.TrimSpace(r.URL.Query().Get("provider_type"))
+	prov := c.FindProvider(provName)
+	savedType := ""
+	if prov != nil {
+		savedType = prov.Type
+	}
+	if acpReasoningProvider(formType, savedType) {
+		if prov == nil || prov.ACP == nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok": false, "error": "the acp provider is not saved yet; save its agent command before fetching reasoning levels", "model": model, "levels": []string{}, "detected": false,
+			})
+			return
+		}
+		levels, err := acpThoughtLevels(r.Context(), prov, apiModel)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok": false, "error": err.Error(), "model": model, "levels": []string{}, "detected": false,
+			})
+			return
+		}
+		if levels == nil {
+			levels = []string{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true, "model": model, "levels": levels, "detected": len(levels) > 0,
+		})
+		return
+	}
+
 	// A nil ReasoningLevels makes the resolver report pure detection, under the
 	// same provider-aware remap the composer and GET /v1/models use.
 	entry := &config.ModelEntry{Model: model}
@@ -72,4 +107,31 @@ func (s *Server) coddyConfigReasoningLevelsGet(w http.ResponseWriter, r *http.Re
 		"levels":   levels,
 		"detected": len(levels) > 0,
 	})
+}
+
+// acpReasoningProvider reports whether this fetch should ask an acp agent.
+// The type shown in the form wins; without it the saved row decides.
+func acpReasoningProvider(formType, savedType string) bool {
+	if formType != "" {
+		return formType == "acp"
+	}
+	return savedType == "acp"
+}
+
+// acpThoughtLevels asks the saved acp row. The block is copied first:
+// Normalize writes into it, and the saved one is what running turns read.
+func acpThoughtLevels(ctx context.Context, prov *config.ProviderConfig, apiModel string) ([]string, error) {
+	row := *prov
+	block := *prov.ACP
+	row.ACP = &block
+	row.Normalize()
+	if err := row.Validate(); err != nil {
+		return nil, err
+	}
+	return llm.ACPThoughtLevels(ctx, llm.ProviderInput{
+		Name:     row.Name,
+		Type:     row.Type,
+		ProxyURL: row.Proxy,
+		ACP:      row.ACP,
+	}, apiModel)
 }
