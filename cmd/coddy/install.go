@@ -83,6 +83,8 @@ func newInstallFlagSet(name string) *installFlags {
 	out := &installFlags{FlagSet: f}
 	f.StringVar(&out.Home, "home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	f.StringVar(&out.Config, "config", "", "path to config.yaml")
-	f.Usage = func() { _, _ = fmt.Fprintf(f.Output(), "Usage: coddy serve %s [--home DIR] [--config PATH]\n", name) }
+	f.Usage = func() {
+		_, _ = fmt.Fprintf(f.Output(), "Usage: coddy serve %s [--home DIR] [--config PATH]\nWindows Service (systemd on Unix)\n", name)
+	}
 	return out
 }
