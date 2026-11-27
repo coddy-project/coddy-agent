@@ -383,7 +383,7 @@ func waitWindowsService(ctx context.Context, s *mgr.Service, wants ...svc.State)
 			}
 		}
 		if len(wants) == 1 && wants[0] == svc.Running && state.State == svc.Stopped {
-			return fmt.Errorf("windows service stopped while waiting for it to start")
+			return fmt.Errorf("windows service stopped while waiting for it to start (Win32 exit code %d, service-specific exit code %d)", state.Win32ExitCode, state.ServiceSpecificExitCode)
 		}
 		select {
 		case <-ctx.Done():

@@ -169,6 +169,18 @@ def main() -> int:
                 if sys.exc_info()[0] is None:
                     raise AssertionError(message)
                 print(message, file=sys.stderr)
+            events = run(
+                "wevtutil.exe",
+                "qe",
+                "Application",
+                "/q:*[System[Provider[@Name='Coddy']]]",
+                "/f:text",
+                "/c:5",
+                "/rd:true",
+                check=False,
+            )
+            if events.returncode == 0 and events.stdout.strip():
+                print(f"\n--- Coddy Windows event log ---\n{events.stdout}")
             for log in (service_home / "service.log", daemon_home / "service.log"):
                 if log.is_file():
                     print(f"\n--- {log} ---\n{log.read_text(encoding='utf-8', errors='replace')}")

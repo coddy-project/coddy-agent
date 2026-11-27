@@ -12,9 +12,19 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
-func runWindowsService(args []string) error {
+func runWindowsService(args []string) (retErr error) {
+	events, err := eventlog.Open(serve.WindowsServiceName)
+	if err == nil {
+		defer func() { _ = events.Close() }()
+		defer func() {
+			if retErr != nil {
+				_ = events.Error(1, retErr.Error())
+			}
+		}()
+	}
 	if err := prepareWindowsServiceEnvironment(args); err != nil {
 		return err
 	}

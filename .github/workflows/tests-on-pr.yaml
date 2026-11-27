@@ -544,6 +544,12 @@ jobs:
           ./internal/gitws ./external/httpserver
           -run '^(TestDescribeRepo|TestFileTransportHonorsWindowsDrive|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
 
+      - name: Build and exercise the native Windows service
+        shell: pwsh
+        run: |
+          go build -tags='http' -o build/coddy.exe ./cmd/coddy
+          python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe
+
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.
       # external/httpserver and internal/agent take 6 to 8 minutes here, so
@@ -551,12 +557,6 @@ jobs:
       # half again slower than usual; a hang still ends the run.
       - name: Run the complete Go suite
         run: go test -p=4 -timeout=30m -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser' ./...
-
-      - name: Build and exercise the native Windows service
-        shell: pwsh
-        run: |
-          go build -tags='http' -o build/coddy.exe ./cmd/coddy
-          python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
