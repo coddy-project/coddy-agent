@@ -7,7 +7,7 @@ import (
 	"errors"
 )
 
-var ErrWindowsService = errors.New("Windows service is available only on Windows")
+var ErrWindowsService = errors.New("windows service is available only on Windows")
 
 type WindowsServiceState struct {
 	Installed bool
