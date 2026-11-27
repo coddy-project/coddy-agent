@@ -20,7 +20,7 @@ import (
 
 const WindowsServiceName = "Coddy"
 
-var ErrWindowsService = errors.New("Windows service is available only on Windows")
+var ErrWindowsService = errors.New("windows service is available only on Windows")
 
 type WindowsServiceState struct {
 	Installed bool
@@ -53,7 +53,7 @@ func InstallWindowsService(ctx context.Context, exe, home, config string) error 
 	if err != nil {
 		return fmt.Errorf("connect to Service Control Manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	args := serviceArgs(home, config)
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
@@ -68,7 +68,7 @@ func InstallWindowsService(ctx context.Context, exe, home, config string) error 
 	} else {
 		_, cfgErr := s.Config()
 		if cfgErr != nil {
-			s.Close()
+			_ = s.Close()
 			return fmt.Errorf("read Windows service configuration: %w", cfgErr)
 		}
 		if err := s.UpdateConfig(mgr.Config{
@@ -77,15 +77,15 @@ func InstallWindowsService(ctx context.Context, exe, home, config string) error 
 			StartType:      mgr.StartAutomatic,
 			BinaryPathName: serviceImagePath(exe, args),
 		}); err != nil {
-			s.Close()
+			_ = s.Close()
 			return fmt.Errorf("update Windows service: %w", err)
 		}
 		if serviceRunning(s) {
-			s.Close()
+			_ = s.Close()
 			return nil
 		}
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start Windows service: %w", err)
 	}
@@ -102,12 +102,12 @@ func UninstallWindowsService(ctx context.Context, _ string) error {
 	if err != nil {
 		return fmt.Errorf("connect to Service Control Manager: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
 		return nil
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if _, err := s.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
 		return fmt.Errorf("stop Windows service: %w", err)
 	}
@@ -125,12 +125,12 @@ func WindowsServiceStateFor(_ context.Context, exe string) (WindowsServiceState,
 	if err != nil {
 		return WindowsServiceState{}, err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
 		return WindowsServiceState{}, nil
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	cfg, err := s.Config()
 	if err != nil {
 		return WindowsServiceState{}, err
@@ -147,12 +147,12 @@ func queryWindowsService() (svc.State, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
 		return 0, err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	st, err := s.Query()
 	if err != nil {
 		return 0, err
@@ -174,12 +174,12 @@ func StartWindowsService(ctx context.Context, _ string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.Start(); err != nil {
 		return err
 	}
@@ -191,12 +191,12 @@ func StopWindowsService(ctx context.Context, _ string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if _, err := s.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
 		return err
 	}
@@ -215,7 +215,7 @@ func waitWindowsService(ctx context.Context, _ string, want svc.State) error {
 			return nil
 		}
 		if want == svc.Running && state == svc.Stopped {
-			return fmt.Errorf("Windows service stopped while waiting for it to start")
+			return fmt.Errorf("windows service stopped while waiting for it to start")
 		}
 		select {
 		case <-ctx.Done():
