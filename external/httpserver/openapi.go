@@ -1224,7 +1224,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config/reasoning-levels": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Reasoning levels a model id offers (UI)",
-					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/coddy/config`** routes use.",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. When the saved provider is **`acp`**, the gateway asks the agent instead of guessing from the id: the levels are the values of its **`thought_level`** option for the model the agent is currently on, without selecting another model; a different model is reported as not detected. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. When the form type is **`acp`** but no saved row carries the agent command, the answer is **`ok:false`** rather than id-name detection. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/coddy/config`** routes use.",
 					"operationId": "coddyConfigReasoningLevelsGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1239,7 +1239,7 @@ func openAPISpec() map[string]interface{} {
 							"name":        "provider_type",
 							"in":          "query",
 							"required":    false,
-							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`acp`**). Overrides the saved provider's type for the Codex remap and decides whether the agent of a saved **`acp`** row is asked, so a just-retyped provider row resolves the way the form shows it; omit to use the saved config. An unsaved **`acp`** row cannot be asked because the request does not carry its command.",
 							"schema":      map[string]interface{}{"type": "string"},
 							"example":     "codex",
 						},
@@ -4541,6 +4541,10 @@ func openAPISpec() map[string]interface{} {
 					"type":        "object",
 					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
 					"properties": map[string]interface{}{
+						"extension_values": map[string]any{
+							"type": "object", "description": "Persistent UI extension scalar values, keyed by extension id then field id. Ordinary readable configuration; at most 128 fields per extension and 256 KiB total.",
+							"additionalProperties": map[string]any{"type": "object", "maxProperties": 128, "additionalProperties": map[string]any{"anyOf": []any{map[string]any{"type": "string", "nullable": true}, map[string]any{"type": "number", "nullable": true}, map[string]any{"type": "boolean", "nullable": true}}}},
+						},
 						"revision": map[string]interface{}{
 							"type":        "string",
 							"description": "The configuration a **GET** document was read from; not a setting. Sent back unchanged with a **PUT**, it makes the save measure the values a client left alone against what that client read, so a save does not put back what another save changed in between.",
@@ -5507,6 +5511,7 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenCodeAuthOpenAPI(doc)
 	mergeWallpaperOpenAPI(doc)
 	mergeResponsesOpenAPI(doc)
+	mergeExtensionsOpenAPI(doc)
 	return doc
 }
 

@@ -108,6 +108,17 @@ once a worker has stayed up. The dispatcher records itself in
 and writes to
 .IR ~/.coddy/logs/serve.log .
 .TP
+.BI "serve \-\-add\-extension " ZIP
+Install and enable an extension package before the server serves, with no
+prompt: naming the file on the command line is the operator's approval of
+that exact package, which is how an embedding ships extension ZIPs beside the
+binary. Repeat the flag for several packages. The same id and SHA\-256 digest
+already installed and enabled is left as it is; the same id with a different
+digest is never replaced and is skipped with a warning; a missing or invalid
+file warns and the startup continues. Every file may fail and the server
+still runs, exit status
+.BR 0 .
+.TP
 .B "serve install"
 Linux with systemd: run
 .B coddy serve

@@ -4,6 +4,8 @@ import { formatTurnTokens } from "../chat/turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { IconCheck, IconPlus, IconSync } from "./icons";
 import { SETTINGS_TEXTS, landmarkAnchor } from "./settingsSections";
+import { SpecialRows, useSpecialRowLabel } from "./SettingsSpecialRows";
+import type { Owned, SettingsBlock } from "../extensions/contributions";
 import {
   modelDisplayName,
   kimiSourceMatches,
@@ -75,6 +77,10 @@ export function ProviderModelList(props: {
   ) => void;
   /** Takes provider/id out of Logical models. */
   onRemoveModel: (id: string) => void;
+  /** The whole document and open row name supply public SettingsBlock context. */
+  doc?: Record<string, unknown>;
+  rowName?: string;
+  settingsBlocks?: readonly Owned<SettingsBlock>[];
 }) {
   const { provider, existingModels, onAddModel, onRemoveModel } = props;
   const { t, tp, locale } = useT();
@@ -198,102 +204,128 @@ export function ProviderModelList(props: {
     );
   };
 
-  return (
-    <fieldset
-      className="settings-fieldset provider-models-box"
-      data-testid="provider-models"
-      data-settings-anchor={landmarkAnchor("providers", "models")}
-    >
-      <legend>
-        <span className="settings-legend-line">
-          {t(SETTINGS_TEXTS.providerModels.label)}
-          <button
-            type="button"
-            className="provider-models-refresh"
-            data-testid="provider-models-refresh"
-            disabled={!fetchable || loading}
-            title={t("settings.field.fetchModels")}
-            aria-label={t("settings.field.fetchModels")}
-            onClick={() => void fetchModels(provider, { runCommand: true })}
+  const heading = useSpecialRowLabel(
+    "models",
+    t(SETTINGS_TEXTS.providerModels.label),
+  );
+
+  const nodes = {
+    models: (
+      <fieldset
+        className="settings-fieldset provider-models-box"
+        data-testid="provider-models"
+        data-settings-anchor={landmarkAnchor("providers", "models")}
+      >
+        <legend>
+          <span className="settings-legend-line">
+            {heading}
+            <button
+              type="button"
+              className="provider-models-refresh"
+              data-testid="provider-models-refresh"
+              disabled={!fetchable || loading}
+              title={t("settings.field.fetchModels")}
+              aria-label={t("settings.field.fetchModels")}
+              onClick={() => void fetchModels(provider, { runCommand: true })}
+            >
+              <IconSync
+                className={loading ? "settings-icon-spin" : undefined}
+              />
+            </button>
+          </span>
+        </legend>
+        {status ? (
+          <p
+            className={`provider-models-status${statusIsError ? " settings-error" : ""}`}
+            data-testid="provider-models-status"
           >
-            <IconSync className={loading ? "settings-icon-spin" : undefined} />
-          </button>
-        </span>
-      </legend>
-      {status ? (
-        <p
-          className={`provider-models-status${statusIsError ? " settings-error" : ""}`}
-          data-testid="provider-models-status"
-        >
-          {status}
-        </p>
-      ) : null}
-      {showFilter ? (
-        <input
-          className="settings-input provider-models-filter"
-          type="text"
-          value={filter}
-          placeholder={t("settings.providerModels.filterPlaceholder")}
-          aria-label={t("settings.providerModels.filterPlaceholder")}
-          data-testid="provider-models-filter"
-          onChange={(e) => setFilter(e.target.value)}
-        />
-      ) : null}
-      {hasRows ? (
-        <ul className="provider-models-list" data-testid="provider-models-list">
-          {visible.map((m) => {
-            const full = prefix + m.id;
-            const isListed = listed.has(full);
-            const contextWindow = m.context_window ?? m.catalog?.context_window;
-            return (
-              <li
-                key={m.id}
-                className={`provider-models-item${isListed ? " is-listed" : ""}`}
-                data-testid={`provider-model-${m.id}`}
-                title={modelDisplayName(m)}
-              >
-                <span className="provider-models-item-id">{m.id}</span>
-                {contextWindow ? (
-                  <span
-                    className="provider-models-item-ctx"
-                    title={tp(
-                      "settings.providerModels.contextWindow",
-                      contextWindow,
-                      {
-                        tokens: new Intl.NumberFormat(locale).format(
-                          contextWindow,
-                        ),
-                      },
-                    )}
-                  >
-                    {formatTurnTokens(contextWindow)}
-                  </span>
-                ) : null}
-                {toggle(full, isListed, m)}
+            {status}
+          </p>
+        ) : null}
+        {showFilter ? (
+          <input
+            className="settings-input provider-models-filter"
+            type="text"
+            value={filter}
+            placeholder={t("settings.providerModels.filterPlaceholder")}
+            aria-label={t("settings.providerModels.filterPlaceholder")}
+            data-testid="provider-models-filter"
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        ) : null}
+        {hasRows ? (
+          <ul
+            className="provider-models-list"
+            data-testid="provider-models-list"
+          >
+            {visible.map((m) => {
+              const full = prefix + m.id;
+              const isListed = listed.has(full);
+              const contextWindow =
+                m.context_window ?? m.catalog?.context_window;
+              return (
+                <li
+                  key={m.id}
+                  className={`provider-models-item${isListed ? " is-listed" : ""}`}
+                  data-testid={`provider-model-${m.id}`}
+                  title={modelDisplayName(m)}
+                >
+                  <span className="provider-models-item-id">{m.id}</span>
+                  {contextWindow ? (
+                    <span
+                      className="provider-models-item-ctx"
+                      title={tp(
+                        "settings.providerModels.contextWindow",
+                        contextWindow,
+                        {
+                          tokens: new Intl.NumberFormat(locale).format(
+                            contextWindow,
+                          ),
+                        },
+                      )}
+                    >
+                      {formatTurnTokens(contextWindow)}
+                    </span>
+                  ) : null}
+                  {toggle(full, isListed, m)}
+                </li>
+              );
+            })}
+            {visibleStale.map((full) => {
+              const id = full.slice(prefix.length);
+              return (
+                <li
+                  key={full}
+                  className="provider-models-item is-listed is-stale"
+                  data-testid={`provider-model-stale-${id}`}
+                  title={t("settings.providerModels.notAdvertised", {
+                    id: full,
+                  })}
+                >
+                  <span className="provider-models-item-id">{id}</span>
+                  {toggle(full, true, undefined, true)}
+                </li>
+              );
+            })}
+            {visible.length === 0 && visibleStale.length === 0 ? (
+              <li className="provider-models-empty settings-muted">
+                {t("settings.providerModels.noMatch")}
               </li>
-            );
-          })}
-          {visibleStale.map((full) => {
-            const id = full.slice(prefix.length);
-            return (
-              <li
-                key={full}
-                className="provider-models-item is-listed is-stale"
-                data-testid={`provider-model-stale-${id}`}
-                title={t("settings.providerModels.notAdvertised", { id: full })}
-              >
-                <span className="provider-models-item-id">{id}</span>
-                {toggle(full, true, undefined, true)}
-              </li>
-            );
-          })}
-          {visible.length === 0 && visibleStale.length === 0 ? (
-            <li className="provider-models-empty settings-muted">
-              {t("settings.providerModels.noMatch")}
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
-    </fieldset>
+            ) : null}
+          </ul>
+        ) : null}
+      </fieldset>
+    ),
+  };
+  return (
+    <SpecialRows
+      section="providers"
+      doc={props.doc ?? { providers: [provider] }}
+      rowName={props.rowName ?? name}
+      nodes={nodes}
+      {...(props.settingsBlocks === undefined
+        ? {}
+        : { blocks: props.settingsBlocks })}
+    />
   );
 }

@@ -232,6 +232,12 @@ func printUsage(w io.Writer) {
         the swarm relay, the cron scheduler)
   %[1]s serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
+  %[1]s serve --add-extension ZIP (install and enable an extension package before
+        the server serves; repeat for several. The named file is the operator's
+        approval of that exact package, enabled with no prompt; the same id
+        with a different digest is skipped with a warning and never replaced;
+        a missing or invalid file warns and the startup continues, and the
+        server runs with exit code 0 even when every file fails)
   %[1]s serve install (Windows: register and start the SCM service;
         Linux: install, enable and start the systemd user service in ~/Coddy)
   %[1]s serve uninstall (stop and remove that Windows service or systemd unit;
