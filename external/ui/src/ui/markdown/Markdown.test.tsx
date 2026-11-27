@@ -150,23 +150,36 @@ test("inline code stays in the sentence and copies on click", async () => {
   expect(screen.getByRole("paragraph")).toHaveTextContent(
     "Type sudo reboot and press enter.",
   );
-  const codes = screen.getAllByRole("code");
+  const codes = screen.getAllByRole("button");
   expect(codes.map((code) => code.textContent)).toEqual([
     "sudo reboot",
     "enter",
   ]);
   for (const code of codes) {
     expect(code).not.toHaveAttribute("aria-label");
-    expect(code).not.toHaveAttribute("title");
+    expect(code).toHaveAccessibleName(code.textContent || "");
+    expect(code).toHaveAttribute("title", "Copy");
+    expect(code).toHaveAccessibleDescription("Copy");
     expect(code).toHaveClass("md-inline-code");
   }
-  expect(screen.queryByRole("button")).toBeNull();
   const inline = codes[0]!;
   fireEvent.click(inline);
   expect(page.copies).toEqual(selectedOnce("sudo reboot"));
   await waitFor(() => {
-    expect(inline.closest("[title]")).toHaveAttribute("title", "Copied");
+    expect(inline).toHaveAttribute("title", "Copied");
   });
+});
+
+test("inline code copies on Enter and Space", () => {
+  const page = pageWithoutClipboardApi(true);
+  render(<Markdown text="Run `make test` locally." />);
+  const inline = screen.getByRole("button", { name: "make test" });
+  fireEvent.keyDown(inline, { key: "Enter" });
+  fireEvent.keyDown(inline, { key: " " });
+  expect(page.copies).toEqual([
+    ...selectedOnce("make test"),
+    ...selectedOnce("make test"),
+  ]);
 });
 
 // A page served over plain HTTP from another machine has no
@@ -196,18 +209,18 @@ test("inline code copies without a clipboard API and says Copied only when that 
     fireEvent.click(inline);
   });
   expect(page.copies).toEqual(selectedOnce("make test"));
-  expect(inline.closest("[title]")).toHaveAttribute("title", "Copy");
+  expect(inline).toHaveAttribute("title", "Copy");
   page.answer(true);
   await act(async () => {
     fireEvent.click(inline);
   });
-  expect(inline.closest("[title]")).toHaveAttribute("title", "Copied");
+  expect(inline).toHaveAttribute("title", "Copied");
 });
 
 test("inline code uses native title tooltip for Copy", () => {
   render(<Markdown text="Run `make test` locally." />);
   const inline = screen.getByTestId("md-inline-code");
-  expect(inline.closest("[title]")).toHaveAttribute("title", "Copy");
+  expect(inline).toHaveAttribute("title", "Copy");
 });
 
 test("inline code styles use grey fill without border in css", () => {

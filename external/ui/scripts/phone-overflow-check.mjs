@@ -371,7 +371,7 @@ async function copyOnAPhone(browser) {
             (el) =>
               new Promise((resolve) => {
                 const look = (tries) =>
-                  el.closest("[title]")?.getAttribute("title") === "Copied"
+                  el.getAttribute("title") === "Copied"
                     ? resolve(true)
                     : tries > 0
                       ? setTimeout(() => look(tries - 1), 50)

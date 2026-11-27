@@ -1551,7 +1551,7 @@ shows the files it had open, each at its line, and the address names the one on 
 
 A path an answer names opens the same way. Written as inline code (`internal/foo.go:12`), as the target of a link or in the prose (internal/foo.go), it becomes a link once the server says it is a file of the chat's workspace (**`POST /coddy/sessions/{id}/workspace/stat`**). The link opens the file in a tab, on the line when the path names one (`:12`, `#L12`), and its address is the window's own, so a middle click opens the file in a new browser tab. A path in prose needs a folder and an extension, since prose is full of words with a slash; inline code may be a name alone (`README.md`, `Makefile`). A folder, a path outside the workspace, a name the workspace does not have and every path of an answer still arriving stay as they were, and such inline code still copies itself on a click. Paths are asked about only in a chat; the documentation and a canvas card show them as text.
 
-Inline code in an answer is part of the sentence. A screen reader can read and select the command in its code font; a click still copies it. A fenced code block has a separate copy button.
+Inline code in an answer stays readable as part of the sentence. A screen reader names the command itself rather than a generic copy action, while the tooltip and accessible description say what activating it does. A click, Enter or Space copies it. A fenced code block has a separate copy button.
 
 ![An answer whose paths are links to the Files window: a path in inline code with a line, a path in the prose and a link](../assets/web-ui/answer-file-links-dark-1280.png)
 

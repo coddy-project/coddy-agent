@@ -103,7 +103,8 @@ test("what is not a file of the workspace stays inline code and copies on click"
   for (const text of ["fmt.Println", "cmd/coddy", "gone.go"]) {
     const code = screen.getByText(text);
     expect(code).toHaveAttribute("data-testid", "md-inline-code");
-    expect(code).toHaveRole("code");
+    expect(code).toHaveRole("button");
+    expect(code).toHaveAccessibleName(text);
     fireEvent.click(code);
     expect(writeText).toHaveBeenLastCalledWith(text);
   }
