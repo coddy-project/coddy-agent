@@ -4,6 +4,7 @@ package swarm
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -126,14 +128,28 @@ func Serve(ctx context.Context, opts Options) error {
 		"tls", cfg.Swarm.TLS.Enabled(), "nodes", srv.Registry().Len(), "parents", len(cfg.Swarm.Join))
 
 	server := httpx.NewServer(opts.ListenAddr, srv.Handler())
+	listener, err := net.Listen("tcp", opts.ListenAddr)
+	if err != nil {
+		return err
+	}
+	if cfg.Swarm.TLS.Enabled() {
+		// ServeTLS loads the certificate in its serving goroutine. Validate it
+		// here as well so a Windows service never reports Running over a relay
+		// whose TLS setup has already failed.
+		if _, err := tls.LoadX509KeyPair(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile); err != nil {
+			_ = listener.Close()
+			return err
+		}
+	}
 	errs := make(chan error, 1)
 	go func() {
 		if cfg.Swarm.TLS.Enabled() {
-			errs <- server.ListenAndServeTLS(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile)
+			errs <- server.ServeTLS(listener, cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile)
 			return
 		}
-		errs <- server.ListenAndServe()
+		errs <- server.Serve(listener)
 	}()
+	serve.ReportReady(ctx)
 
 	select {
 	case err := <-errs:

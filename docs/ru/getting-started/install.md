@@ -304,9 +304,10 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Enviro
 ```powershell
 coddy serve install
 coddy serve status
+coddy serve restart
 ```
 
-Сервис запускает `coddy serve` без окна консоли и продолжает работать после закрытия PowerShell. Для проверки и управления используйте `sc.exe query Coddy`, `sc.exe stop Coddy` и `sc.exe start Coddy`, а командой `coddy serve uninstall` удаляйте сервис без удаления конфигурации, сессий и рабочей папки. Для регистрации и удаления сервиса требуется PowerShell с повышенными правами. Сервис работает от имени LocalSystem, поэтому этому аккаунту нужен доступ к домашнему каталогу и конфигурации.
+Сервис запускает `coddy serve` без окна консоли и продолжает работать после закрытия PowerShell. Управляйте им командами `coddy serve status`, `stop`, `restart` и `uninstall`. Для регистрации и удаления требуется PowerShell с повышенными правами. Сервис работает от имени виртуальной учётной записи `NT SERVICE\Coddy` с ограниченными правами, а не LocalSystem. При установке Coddy выдаёт ей доступ к бинарнику, выбранному домашнему каталогу и конфигурации, а также к рабочей папке сервиса `workspace` внутри домашнего каталога. SCM перезапускает сервис после сбоя и после изменения конфигурации, которому нужен новый процесс.
 
 ### Пакетные менеджеры
 
@@ -332,4 +333,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=23f5632947ed3fc1 -->
+<!-- docsgen:source sha256=a21e890a3ef6a996 -->

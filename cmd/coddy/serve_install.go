@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -81,4 +82,9 @@ func serviceHint() (hint string, active bool) {
 			": systemctl --user start " + serve.UnitName + ", coddy serve uninstall to remove it", false
 	}
 	return "", false
+}
+
+func serviceServesHome(home string) bool {
+	agentHome := serve.ServiceAgentHome()
+	return agentHome != "" && filepath.Clean(home) == filepath.Clean(agentHome)
 }

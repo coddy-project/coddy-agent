@@ -38,11 +38,10 @@ Usage:
         the swarm relay, the cron scheduler)
   coddy serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
-  coddy serve install (Linux: run coddy serve as a systemd user service in
-        ~/Coddy - installs the unit when the package did not, enables and
-        starts it)
-  coddy serve uninstall (stop and disable that service and remove the unit
-        that install wrote; ~/.coddy and ~/Coddy are kept)
+  coddy serve install (Windows: register and start the SCM service;
+        Linux: install, enable and start the systemd user service in ~/Coddy)
+  coddy serve uninstall (stop and remove that Windows service or systemd unit;
+        the agent home and ~/Coddy are kept)
   coddy serve status | stop | restart [--home DIR]
   coddy desktop [flags] (open Coddy as a window on this machine: a tab strip with
         one chat per tab, over an HTTP surface on a loopback port this home

@@ -55,9 +55,10 @@ crash and, with [lingering](#after-logout-and-at-boot), keeps running after logo
 starts at boot. `coddy serve install` puts it in place and `coddy serve uninstall` takes it
 away. Both run as the user the service is for, never under `sudo`.
 
-On macOS, Windows and FreeBSD there is no systemd, and both commands say so; `coddy serve --daemon`
+On macOS and FreeBSD there is no systemd, and both commands say so; `coddy serve --daemon`
 is the route there, and on FreeBSD an `rc.d` script is the other one
-([FreeBSD](../getting-started/freebsd.md#running-coddy-serve)). On Linux, what `install` has to do
+([FreeBSD](../getting-started/freebsd.md#running-coddy-serve)). Windows has its own SCM service,
+described below. On Linux, what `install` has to do
 depends on how Coddy was installed:
 
 | Installed with | The unit | What `install` does with it |
@@ -175,6 +176,14 @@ the removal prints what does, to run as that user:
 systemctl --user disable --now coddy.service
 rm -f ~/.config/systemd/user/coddy.service.d/coddy-install.conf
 ```
+
+## As a Windows service
+
+Run `coddy serve install` from an elevated PowerShell to register and start Coddy in Service Control Manager. The same `status`, `stop`, `restart` and `uninstall` verbs control the SCM service instead of a dispatcher when the matching service is installed; without one, `status`, `stop` and `restart` retain their daemon behavior. `stop`, `restart`, `uninstall` and service-aware updates require an elevated PowerShell. Read-only `status` does not. Installation takes the same `--home` and `--config` options as `serve`, checks the configuration before registration, and refuses to remove a service whose executable does not match the running binary.
+
+The service runs as the virtual account `NT SERVICE\Coddy`, with no LocalSystem rights. Coddy grants this account access to the executable, its directory, the selected home and configuration. The default working directory is `workspace` under the service home. SCM restarts the process after a crash and after a configuration change that requires a fresh process. `coddy update` stops a running service before replacing its executable and restores the previous binary and running state if the update fails.
+
+Files referenced by the configuration outside the service home, such as swarm TLS certificates and keys, keep their own ACLs. Grant `NT SERVICE\Coddy` read access to those files before installation. The native Windows CI e2e exercises the service lifecycle and daemon fallback with `python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe` from an elevated console.
 
 ## In the background
 
@@ -362,6 +371,7 @@ A supervised process restarts only into settings a fresh process can start. When
 | Situation | Form |
 |-----------|------|
 | Linux with systemd, a server that should outlive your login | `coddy serve install` (a systemd user service) |
+| Windows, a server that starts at boot and outlives your session | `coddy serve install` (an SCM service) |
 | a laptop, a dev box, a shell on a machine without systemd | `coddy serve --daemon` |
 | FreeBSD, a server that should come back after a reboot | an `rc.d` script running `coddy serve` under `daemon -r` ([FreeBSD](../getting-started/freebsd.md#running-coddy-serve)) |
 | `supervisord`, `runit` | `coddy serve` in the foreground with `CODDY_SERVE_ROLE=service`, and let them restart it |

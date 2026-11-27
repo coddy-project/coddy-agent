@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/wallpaper"
 )
 
@@ -86,12 +87,16 @@ func Serve(ctx context.Context, opts Options) error {
 		handler = DesktopOriginGuard(handler)
 	}
 	srv := httpx.NewServer(opts.ListenAddr, handler)
+	listener, err := net.Listen("tcp", opts.ListenAddr)
+	if err != nil {
+		return err
+	}
 	errs := make(chan error, 1)
 	go func() {
 		s.log.Info("listening", "addr", opts.ListenAddr, "auth", authOn)
-		errs <- srv.ListenAndServe()
+		errs <- srv.Serve(listener)
 	}()
-
+	serve.ReportReady(ctx)
 	return waitHTTPServer(ctx, srv, s, errs)
 }
 

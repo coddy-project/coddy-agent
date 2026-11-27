@@ -26,8 +26,12 @@ func runWindowsServiceInstall(args []string, uninstall bool) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
+	exe, err := platform.Executable()
+	if err != nil {
+		return fmt.Errorf("locate coddy executable: %w", err)
+	}
 	if uninstall {
-		if err := serve.UninstallWindowsService(ctx, home); err != nil {
+		if err := serve.UninstallWindowsService(ctx, exe, home); err != nil {
 			return err
 		}
 		fmt.Println("Coddy Windows service is uninstalled; configuration, sessions and workspace were kept.")
@@ -36,14 +40,10 @@ func runWindowsServiceInstall(args []string, uninstall bool) error {
 	if err := config.RunCheck(os.Stdout, config.CLIPaths{Home: home, Config: configPath}); err != nil {
 		return fmt.Errorf("check %s before installing the service: %w", configPath, err)
 	}
-	exe, err := platform.Executable()
-	if err != nil {
-		return fmt.Errorf("locate coddy executable: %w", err)
-	}
 	if err := serve.InstallWindowsService(ctx, exe, home, configPath); err != nil {
 		return err
 	}
-	fmt.Printf("Coddy Windows service is installed and running.\n  binary  %s\n  config  %s\n  logs    %s\n", exe, configPath, serve.DefaultLogPath(home))
+	fmt.Printf("Coddy Windows service is installed and running as %s.\n  binary  %s\n  config  %s\n", serve.WindowsServiceAccount, exe, configPath)
 	return nil
 }
 

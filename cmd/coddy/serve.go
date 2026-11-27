@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -43,12 +42,10 @@ import (
 const serveVerbList = "install, uninstall, status, stop, restart, set-password"
 
 func runServe(args []string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return runServeContext(ctx, args)
+	return runServeContext(context.Background(), args, nil)
 }
 
-func runServeContext(ctx context.Context, args []string) error {
+func runServeContext(ctx context.Context, args []string, ready func()) error {
 	// The control verbs come before the flag set, because they are about a
 	// daemon that is already running and share none of its options.
 	if len(args) > 0 {
@@ -58,11 +55,11 @@ func runServeContext(ctx context.Context, args []string) error {
 		case "uninstall":
 			return runServeUninstallCommand(args[1:])
 		case "status":
-			return runServeStatus(args[1:])
+			return runServeStatusCommand(args[1:])
 		case "stop":
-			return runServeStop(args[1:])
+			return runServeStopCommand(args[1:])
 		case "restart":
-			return runServeRestart(args[1:])
+			return runServeRestartCommand(args[1:])
 		case "set-password":
 			return runServeSetPassword(args[1:])
 		}
@@ -253,13 +250,15 @@ func runServeContext(ctx context.Context, args []string) error {
 	}
 	switch {
 	case serve.Role() == serve.RoleDispatcher:
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
 		return serve.RunDispatcher(ctx, daemonOpts)
 	case *daemon:
 		if hint, active := serviceHint(); hint != "" {
 			// Over the same agent home both would bind the same listeners,
 			// and the worker that loses would be restarted forever. Another
 			// home may well listen elsewhere, so that one is only warned.
-			if active && filepath.Clean(paths.Home) == serve.ServiceAgentHome() {
+			if active && serviceServesHome(paths.Home) {
 				return fmt.Errorf("%s; it serves %s already, so a daemon there would only fight it for the port", hint, paths.Home)
 			}
 			fmt.Fprintf(os.Stderr, "warning: %s\n", hint)
@@ -379,7 +378,13 @@ func runServeContext(ctx context.Context, args []string) error {
 	// agent starts from a tool call must not believe a dispatcher or systemd
 	// will bring it back.
 	_ = os.Unsetenv(serve.EnvRole)
-	err = sup.Run(ctx, cfg, reloads)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if ready != nil {
+		err = sup.Run(ctx, cfg, reloads, ready)
+	} else {
+		err = sup.Run(ctx, cfg, reloads)
+	}
 	if errors.Is(err, serve.ErrRestartRequested) {
 		log.Info("exiting so the dispatcher or the service manager can start a process with the new listen settings")
 		return serve.ExitCodeError{Code: serve.ExitRestart, Err: err}
@@ -576,7 +581,8 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// fresh process, which under a dispatcher is exactly what happens -
 			// that is how an operator changes the port of the very server whose
 			// settings screen they are typing into.
-			RestartKey: deps.httpListenAddr,
+			RestartKey:  deps.httpListenAddr,
+			ManualReady: true,
 			Run: func(ctx context.Context, cfg *config.Config) error {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
@@ -645,12 +651,13 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 		{
-			Kind:       serve.KindSwarm,
-			ConfigKey:  "swarm.enable",
-			BuildTag:   "swarm",
-			Available:  swarm.Available,
-			Enabled:    func(c *config.Config) bool { return c.Swarm.Enabled },
-			RestartKey: deps.swarmListenAddr,
+			Kind:        serve.KindSwarm,
+			ConfigKey:   "swarm.enable",
+			BuildTag:    "swarm",
+			Available:   swarm.Available,
+			Enabled:     func(c *config.Config) bool { return c.Swarm.Enabled },
+			RestartKey:  deps.swarmListenAddr,
+			ManualReady: true,
 			// The relay reads its settings when it starts, so one whose
 			// settings moved - saved from its own page or edited in the file -
 			// is rebuilt on them. Its registry lives in memory: the nodes

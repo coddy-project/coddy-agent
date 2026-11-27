@@ -98,6 +98,10 @@ type Subsystem struct {
 	// listens, where that configuration says rather than where the process
 	// started.
 	Run func(ctx context.Context, cfg *config.Config) error
+	// ManualReady marks a listener that calls ReportReady only after its bind
+	// succeeds. Other subsystems use the validated configuration and entry into
+	// Run as their ready boundary.
+	ManualReady bool
 }
 
 // enabled answers the descriptor's own question, tolerating a missing func.
@@ -116,6 +120,19 @@ func (s Subsystem) fingerprint(cfg *config.Config) string {
 
 // restartKey reads the process-restart key, or "" when the surface has none or
 // there is no configuration to read it from.
+type readinessContextKey struct{}
+
+func withReadiness(ctx context.Context, ready func()) context.Context {
+	return context.WithValue(ctx, readinessContextKey{}, ready)
+}
+
+// ReportReady tells the supervisor that the subsystem has finished startup.
+func ReportReady(ctx context.Context) {
+	if ready, ok := ctx.Value(readinessContextKey{}).(func()); ok {
+		ready()
+	}
+}
+
 func (s Subsystem) restartKey(cfg *config.Config) string {
 	if s.RestartKey == nil || cfg == nil {
 		return ""
