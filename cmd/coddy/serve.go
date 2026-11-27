@@ -212,6 +212,7 @@ func runServeContext(ctx context.Context, args []string, ready func()) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	traceServeStartup(201)
 
 	if err := applyProcessOverrides(cfg); err != nil {
 		return err
@@ -222,6 +223,7 @@ func runServeContext(ctx context.Context, args []string, ready func()) error {
 		return fmt.Errorf("log: %w", err)
 	}
 	defer func() { _ = logCloser.Close() }()
+	traceServeStartup(202)
 
 	httpAddr := httpListenAddr(cfg)
 	swarmAddr := swarmListenAddr(cfg)
@@ -300,6 +302,7 @@ func runServeContext(ctx context.Context, args []string, ready func()) error {
 	if err != nil {
 		return err
 	}
+	traceServeStartup(203)
 	if runtimeOwner != nil {
 		defer func() {
 			if err := runtimeOwner.Close(); err != nil {
@@ -319,6 +322,7 @@ func runServeContext(ctx context.Context, args []string, ready func()) error {
 	}); err != nil {
 		return err
 	}
+	traceServeStartup(204)
 	all = runtimeIPCSubsystems(all, rt, subsystemDeps{
 		httpListenAddr:  httpListenAddr,
 		swarmListenAddr: swarmListenAddr,
@@ -394,6 +398,7 @@ func runServeContext(ctx context.Context, args []string, ready func()) error {
 	_ = os.Unsetenv(serve.EnvRole)
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	traceServeStartup(205)
 	if ready != nil {
 		err = sup.Run(ctx, cfg, reloads, ready)
 	} else {

@@ -15,8 +15,17 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
+var windowsServiceEvents *eventlog.Log
+
+func traceServeStartup(eventID uint32) {
+	if windowsServiceEvents != nil {
+		_ = windowsServiceEvents.Info(eventID, "Coddy Windows service startup checkpoint")
+	}
+}
+
 func runWindowsService(args []string) (retErr error) {
 	events, err := eventlog.Open(serve.WindowsServiceName)
+	windowsServiceEvents = events
 	if err == nil {
 		defer func() { _ = events.Close() }()
 		defer func() {
