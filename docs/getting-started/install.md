@@ -293,6 +293,18 @@ Some harnesses spawn **`coddy acp`** via `cmd /c` or `sh -c` and do not inherit 
 %LOCALAPPDATA%\Programs\coddy\coddy.exe
 ```
 
+### Run without an open terminal
+
+Register Coddy as a Windows service after configuring a provider:
+
+```powershell
+coddy serve install
+coddy serve status
+coddy serve restart
+```
+
+The service starts `coddy serve` without opening a console window and keeps running after PowerShell closes. Use `coddy serve status`, `stop`, `restart` and `uninstall` to control it. Registration and removal require an elevated PowerShell. The service runs as the low-privilege virtual account `NT SERVICE\Coddy`, not LocalSystem. Installation grants that account access to the executable, the selected home and configuration, and the `workspace` directory under the home. SCM restarts the service after a crash and after a configuration change that needs a fresh process.
+
 ### Package managers
 
 Scoop / winget manifests are not published yet — tracked in [issue #42](https://github.com/coddy-project/coddy-agent/issues/42). Until then use `install.ps1` above and upgrade with `coddy update -y`.
