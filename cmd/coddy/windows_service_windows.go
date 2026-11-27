@@ -15,17 +15,8 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
-var windowsServiceEvents *eventlog.Log
-
-func traceServeStartup(eventID uint32) {
-	if windowsServiceEvents != nil {
-		_ = windowsServiceEvents.Info(eventID, "Coddy Windows service startup checkpoint")
-	}
-}
-
 func runWindowsService(args []string) (retErr error) {
 	events, err := eventlog.Open(serve.WindowsServiceName)
-	windowsServiceEvents = events
 	if err == nil {
 		defer func() { _ = events.Close() }()
 		defer func() {
@@ -37,20 +28,9 @@ func runWindowsService(args []string) (retErr error) {
 	if err := prepareWindowsServiceEnvironment(args); err != nil {
 		return err
 	}
-	if events != nil {
-		_ = events.Info(100, "Windows service environment prepared")
-	}
-	retErr = serve.RunWindowsService(serve.WindowsServiceName, args, func(ctx context.Context, serviceArgs []string, ready func()) error {
-		err := runServeContext(ctx, serviceArgs, ready)
-		if events != nil {
-			_ = events.Info(101, fmt.Sprintf("Windows service serve loop returned: %v", err))
-		}
-		return err
+	return serve.RunWindowsService(serve.WindowsServiceName, args, func(ctx context.Context, serviceArgs []string, ready func()) error {
+		return runServeContext(ctx, serviceArgs, ready)
 	})
-	if events != nil && retErr == nil {
-		_ = events.Info(102, "Windows service SCM dispatcher returned without an error")
-	}
-	return retErr
 }
 
 func prepareWindowsServiceEnvironment(args []string) error {
