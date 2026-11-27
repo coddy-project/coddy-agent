@@ -6,9 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -269,16 +266,4 @@ func (h windowsServiceHandler) Execute(_ []string, r <-chan svc.ChangeRequest, c
 			return false, 0
 		}
 	}
-}
-
-func serviceExecutable() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(exe)
-}
-func hiddenServiceCommand(exe string, args ...string) *exec.Cmd {
-	cmd := exec.Command(exe, args...)
-	return cmd
 }
