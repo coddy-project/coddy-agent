@@ -95,14 +95,17 @@ type Owner struct {
 // Claim takes the per-home runtime lock and creates its local listener. No
 // application handler is served until Serve is called.
 func Claim(home string) (*Owner, error) {
+	traceClaim(210)
 	abs, err := resolveHome(home, true)
 	if err != nil {
 		return nil, err
 	}
+	traceClaim(211)
 	lock, err := os.OpenFile(lockPath(abs), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("local IPC: open the owner lock: %w", err)
 	}
+	traceClaim(212)
 	owned, err := tryLock(lock)
 	if err != nil {
 		_ = lock.Close()
@@ -112,6 +115,7 @@ func Claim(home string) (*Owner, error) {
 		_ = lock.Close()
 		return nil, ErrAlreadyOwned
 	}
+	traceClaim(213)
 	fail := func(err error) (*Owner, error) {
 		unlock(lock)
 		_ = lock.Close()
@@ -121,6 +125,7 @@ func Claim(home string) (*Owner, error) {
 	if err != nil {
 		return fail(fmt.Errorf("local IPC: listen: %w", err))
 	}
+	traceClaim(214)
 	rec.Version = protocolVersion
 	rec.PID = os.Getpid()
 	rec.Instance = rand.Text()
@@ -129,6 +134,7 @@ func Claim(home string) (*Owner, error) {
 		_ = listener.Close()
 		return fail(fmt.Errorf("local IPC: record the endpoint: %w", err))
 	}
+	traceClaim(215)
 	return &Owner{home: abs, record: rec, listener: listener, lock: lock}, nil
 }
 
