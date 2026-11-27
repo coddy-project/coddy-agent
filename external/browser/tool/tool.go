@@ -383,8 +383,8 @@ func attachScreenshot(raw json.RawMessage, env *tooling.Env) (string, error) {
 		return "", errors.New("the browser sent a screenshot in an unknown format")
 	}
 	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(data) > 4<<20 {
-		return "", errors.New("the browser sent an invalid or oversized screenshot")
+	if err != nil {
+		return "", errors.New("the browser sent an invalid screenshot")
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || format != formatName || cfg.Width > 8000 || cfg.Height > 8000 {
