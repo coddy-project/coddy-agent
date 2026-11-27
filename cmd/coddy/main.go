@@ -93,6 +93,13 @@ func wireToolCatalog() { config.RegisterToolCatalog(tools.KnownToolNames) }
 
 func main() {
 	wireToolCatalog()
+	if len(os.Args) > 1 && os.Args[1] == "__windows-service" {
+		if err := runWindowsService(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

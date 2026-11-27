@@ -43,14 +43,20 @@ import (
 const serveVerbList = "install, uninstall, status, stop, restart, set-password"
 
 func runServe(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runServeContext(ctx, args)
+}
+
+func runServeContext(ctx context.Context, args []string) error {
 	// The control verbs come before the flag set, because they are about a
 	// daemon that is already running and share none of its options.
 	if len(args) > 0 {
 		switch args[0] {
 		case "install":
-			return runServeInstall(args[1:])
+			return runServeInstallCommand(args[1:])
 		case "uninstall":
-			return runServeUninstall(args[1:])
+			return runServeUninstallCommand(args[1:])
 		case "status":
 			return runServeStatus(args[1:])
 		case "stop":
@@ -247,8 +253,6 @@ func runServe(args []string) error {
 	}
 	switch {
 	case serve.Role() == serve.RoleDispatcher:
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
 		return serve.RunDispatcher(ctx, daemonOpts)
 	case *daemon:
 		if hint, active := serviceHint(); hint != "" {
@@ -331,9 +335,6 @@ func runServe(args []string) error {
 		rt.Mgr.StartGlobalMCPServers()
 		defer rt.Mgr.CloseMCP()
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	reloads := make(chan *config.Config, 1)
 	// Every reload path - the settings screen, the agent's config_commit tool,
