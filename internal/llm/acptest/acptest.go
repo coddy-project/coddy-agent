@@ -76,6 +76,10 @@ type Script struct {
 	StartDelayMS int `json:"start_delay_ms,omitempty"`
 	// HoldNew receives session/new but never answers it.
 	HoldNew bool `json:"hold_new,omitempty"`
+	// IgnoreSet answers session/set_config_option with success but does not
+	// apply the value, the way an agent whose write silently does not stick
+	// behaves: its answer echoes the current value it kept.
+	IgnoreSet bool `json:"ignore_set,omitempty"`
 	// DeafAfterNew stops reading stdin once a session is open: an agent
 	// that hangs without exiting.
 	DeafAfterNew bool `json:"deaf_after_new,omitempty"`
@@ -152,8 +156,10 @@ type Turn struct {
 	Chunks int `json:"chunks,omitempty"`
 	// ConfigOptions replaces the session's config options with these select
 	// options through a config_option_update before the answer. The first
-	// value of each is current, as at session/new.
-	ConfigOptions []Parameter `json:"config_options,omitempty"`
+	// value of each is current, as at session/new. An empty non-nil list is a
+	// replacement with no options at all, so it is marshaled without
+	// omitempty: nil decodes back as nil (no replacement), [] as empty.
+	ConfigOptions []Parameter `json:"config_options"`
 	// Barrier holds the prompt until this many prompts of the process have
 	// reached it, then answers with "barrier: <n>"; after BarrierWait (10 s
 	// when 0) it gives up and answers "barrier: timeout". Prompts a client
@@ -554,14 +560,20 @@ func (a *agent) handle(m message) {
 			Value     string `json:"value"`
 		}
 		_ = json.Unmarshal(m.Params, &p)
-		s := a.session(p.SessionID)
+		// The lock guards the session fields against the prompt goroutines,
+		// which replace them when a turn carries its own config options.
+		a.mu.Lock()
+		s := a.sessions[p.SessionID]
 		ok := s != nil
+		var answer []map[string]interface{}
 		if ok {
 			if s.replaced != nil {
 				ok = false
 				for _, parameter := range s.replaced {
 					if p.ConfigID == parameter.ID && contains(parameter.Values, p.Value) {
-						s.parameters[p.ConfigID] = p.Value
+						if !a.script.IgnoreSet {
+							s.parameters[p.ConfigID] = p.Value
+						}
 						ok = true
 						break
 					}
@@ -570,37 +582,43 @@ func (a *agent) handle(m message) {
 				switch p.ConfigID {
 				case "mode":
 					ok = !a.script.LegacyModes && contains(a.script.Modes, p.Value)
-					if ok {
+					if ok && !a.script.IgnoreSet {
 						s.mode = p.Value
 					}
 				case "model":
 					ok = !a.script.LegacyModels && contains(a.script.Models, p.Value)
-					if ok {
+					if ok && !a.script.IgnoreSet {
 						s.model = p.Value
 						a.resetThoughtForModel(s)
 					}
 				case "thought":
 					ok = contains(a.thoughtLevels(s.model), p.Value) && p.Value != a.script.RefuseThought
-					if ok {
+					if ok && !a.script.IgnoreSet {
 						s.thought = p.Value
 					}
 				default:
 					ok = false
 					for _, parameter := range a.script.Parameters {
 						if p.ConfigID == parameter.ID && contains(parameter.Values, p.Value) {
-							s.parameters[p.ConfigID] = p.Value
+							if !a.script.IgnoreSet {
+								s.parameters[p.ConfigID] = p.Value
+							}
 							ok = true
 							break
 						}
 					}
 				}
 			}
+			if ok {
+				answer = a.configOptions(s)
+			}
 		}
+		a.mu.Unlock()
 		if !ok {
 			a.fail(m.ID, -32602, "unknown config option value")
 			return
 		}
-		a.reply(m.ID, map[string]interface{}{"configOptions": a.configOptions(s)})
+		a.reply(m.ID, map[string]interface{}{"configOptions": answer})
 	case "session/cancel":
 		var p struct {
 			SessionID string `json:"sessionId"`
@@ -768,9 +786,12 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	if t.DelayMS > 0 {
 		time.Sleep(time.Duration(t.DelayMS) * time.Millisecond)
 	}
-	if len(t.ConfigOptions) > 0 {
+	if t.ConfigOptions != nil {
 		options := make([]map[string]interface{}, 0, len(t.ConfigOptions))
 		for _, parameter := range t.ConfigOptions {
+			if parameter.Hidden {
+				continue
+			}
 			category := parameter.Category
 			if category == "" {
 				category = "model_config"

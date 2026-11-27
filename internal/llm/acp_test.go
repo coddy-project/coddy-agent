@@ -680,6 +680,104 @@ func TestACPProviderSelectsModels(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty replacement drops every option and the override with it", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "high"}},
+			},
+			Turns: []acptest.Turn{
+				{ConfigOptions: []acptest.Parameter{}},
+				{},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		first, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high" {
+			t.Fatalf("thought selections = %v, want no undo once the agent reports no options at all", values)
+		}
+	})
+
+	t.Run("a write the answer contradicts is not owned", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			IgnoreSet: true,
+			Parameters: []acptest.Parameter{
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "high"}},
+			},
+			Turns: []acptest.Turn{
+				{ConfigOptions: []acptest.Parameter{{ID: "effort", Category: "thought_level", Values: []string{"high", "low"}}}},
+				{},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		first, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high" {
+			t.Fatalf("thought selections = %v, want the agent's own later high left alone", values)
+		}
+	})
+
+	t.Run("an undo validates the override before writing", func(t *testing.T) {
+		effort := acpConfigOption{
+			ID:           "effort",
+			Category:     "thought_level",
+			Type:         "select",
+			CurrentValue: json.RawMessage(`"medium"`),
+			Options:      json.RawMessage(`[{"value":"low","name":"low"},{"value":"medium","name":"medium"},{"value":"high","name":"high"}]`),
+		}
+		p := &acpProcess{
+			states: map[string]*acpSessionState{
+				"s": {SessionID: "s", ConfigOptions: []acpConfigOption{effort}},
+			},
+			thoughtSet: map[string]acpThoughtOwnership{
+				"s": {optionID: "effort", value: "high", baseline: "low"},
+			},
+		}
+		// The agent moved the option to its own medium after the override, so
+		// writing the low baseline would overwrite the agent's choice. The
+		// undo must refuse before any RPC; a nil connection makes an attempt
+		// fail the test rather than pass silently.
+		if err := p.undoThought(context.Background(), "s", acpThoughtTarget{optionID: "effort", value: "low"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("a serialized reasoning parameter owns the level it names", func(t *testing.T) {
 		in, logPath := acpRow(t, acptest.Script{
 			Models: []string{"grok-4.7"},

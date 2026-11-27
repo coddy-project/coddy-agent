@@ -627,7 +627,9 @@ func (p *acpProcess) noteState(sessionID string, u acpSessionUpdate) {
 			}
 		}
 	case "config_option_update":
-		if len(u.ConfigOptions) > 0 {
+		// The update carries the complete list: an empty one is the agent
+		// reporting that no options remain, not the absence of an update.
+		if u.ConfigOptions != nil {
 			st.ConfigOptions = u.ConfigOptions
 			p.dropMovedThoughtLocked(sessionID, u.ConfigOptions)
 			if opt, ok := optionOf(u.ConfigOptions, "mode"); ok && st.Modes != nil {

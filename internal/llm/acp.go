@@ -1281,7 +1281,11 @@ func (p *acpProcess) stateOf(id string) acpSessionState {
 func (p *acpProcess) storeOptions(id string, opts []acpConfigOption) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if st := p.states[id]; st != nil && len(opts) > 0 {
+	// The result of session/set_config_option carries the complete list, so
+	// a non-nil empty one is the agent reporting that no options remain, not
+	// the absence of a list: applying it is what invalidates a reasoning
+	// override whose option just went away.
+	if st := p.states[id]; st != nil && opts != nil {
 		st.ConfigOptions = opts
 		p.dropMovedThoughtLocked(id, opts)
 	}
@@ -1390,13 +1394,22 @@ func acpBooleanSelect(opt acpConfigOption) bool {
 }
 
 func (p *acpProcess) setOption(ctx context.Context, sessionID, configID, value string) error {
+	_, err := p.setOptionEcho(ctx, sessionID, configID, value)
+	return err
+}
+
+// setOptionEcho is setOption plus whether the answer carried the complete
+// option list, which is what tells a positive contradiction of the write
+// (the agent reporting another current value) apart from an agent that
+// answers without echoing its options at all.
+func (p *acpProcess) setOptionEcho(ctx context.Context, sessionID, configID, value string) (bool, error) {
 	var res acpSetConfigOptionResult
 	req := acpsdk.SetSessionConfigOptionRequest{ValueId: &acpsdk.SetSessionConfigOptionValueId{SessionId: acpsdk.SessionId(sessionID), ConfigId: acpsdk.SessionConfigId(configID), Value: acpsdk.SessionConfigValueId(value)}}
 	if err := p.call(ctx, "session/set_config_option", req, &res); err != nil {
-		return err
+		return false, err
 	}
 	p.storeOptions(sessionID, res.ConfigOptions)
-	return nil
+	return res.ConfigOptions != nil, nil
 }
 
 // acpModelParameter is one parameter of a model id of the form
@@ -1688,8 +1701,21 @@ func (p *acpProcess) selectThought(ctx context.Context, sessionID string, target
 		baseline = previous.baseline
 	}
 	p.mu.Unlock()
-	if err := p.setOption(ctx, sessionID, target.optionID, target.value); err != nil {
+	echo, err := p.setOptionEcho(ctx, sessionID, target.optionID, target.value)
+	if err != nil {
 		return err
+	}
+	// An answer carrying the complete list is authoritative: when it shows a
+	// current value other than the one just written, the write did not stick
+	// and there is no override to own. An agent answering without its options
+	// gives no such evidence, so the override is owned optimistically: undoing
+	// it later writes the baseline back, which is a no-op where the write
+	// never stood.
+	if echo {
+		opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, target.optionID)
+		if !ok || opt.current() != target.value {
+			return nil
+		}
 	}
 	p.mu.Lock()
 	p.thoughtSet[sessionID] = acpThoughtOwnership{optionID: target.optionID, value: target.value, baseline: baseline}
@@ -1749,6 +1775,22 @@ func (p *acpProcess) undoThought(ctx context.Context, sessionID string, target a
 		return p.notOffered("reasoning level", target.value, valueIDs(opt.values()))
 	}
 	if opt.current() != target.value {
+		// Revalidate before writing: a notification landing since
+		// thoughtToUndo decided can have moved the option to the agent's own
+		// value, and the baseline must never overwrite that.
+		p.mu.Lock()
+		ownership, owned := p.thoughtSet[sessionID]
+		st := p.states[sessionID]
+		standing := ""
+		if st != nil {
+			if fresh, ok := configOptionByID(st.ConfigOptions, target.optionID); ok {
+				standing = fresh.current()
+			}
+		}
+		p.mu.Unlock()
+		if !owned || ownership.optionID != target.optionID || standing != ownership.value {
+			return nil
+		}
 		if err := p.setOption(ctx, sessionID, target.optionID, target.value); err != nil {
 			return err
 		}
