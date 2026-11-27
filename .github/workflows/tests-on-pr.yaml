@@ -524,6 +524,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Build and exercise the native Windows service
+        shell: pwsh
+        run: |
+          go build -tags='http' -o build/coddy.exe ./cmd/coddy
+          python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe
+
       - name: Test the repository rule adapters
         shell: bash
         run: |
@@ -543,12 +549,6 @@ jobs:
           go test -p=4 -tags='http,ui,scheduler,memory,cli,gateway,swarm,metrics,browser'
           ./internal/gitws ./external/httpserver
           -run '^(TestDescribeRepo|TestFileTransportHonorsWindowsDrive|TestSkillsMarketplaceFeature|TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation)$'
-
-      - name: Build and exercise the native Windows service
-        shell: pwsh
-        run: |
-          go build -tags='http' -o build/coddy.exe ./cmd/coddy
-          python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe
 
       # Exercise the same shipped modules as make test. Bounded package
       # concurrency leaves time for the child MCP and PowerShell processes.
