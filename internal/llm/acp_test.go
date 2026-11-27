@@ -492,10 +492,199 @@ func TestACPProviderSelectsModels(t *testing.T) {
 		}
 	})
 
+	t.Run("a boolean thought toggle does not hide the effort levels behind it", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Models: []string{"claude-opus-4-8"},
+			Parameters: []acptest.Parameter{
+				{ID: "thinking", Category: "thought_level", Values: []string{"false", "true"}},
+				{ID: "context", Values: []string{"300k", "1m"}},
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "medium", "high"}},
+			},
+		})
+		in.ReasoningEffort = "high"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		sets := readLog(t, logPath, "session/set_config_option")
+		if len(sets) != 1 || !strings.Contains(string(sets[0].Params), `"configId":"effort"`) || !strings.Contains(string(sets[0].Params), `"value":"high"`) {
+			t.Fatalf("set_config_option = %v, want effort=high", sets)
+		}
+	})
+
+	t.Run("a boolean toggle alone remains the thought control", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "thinking", Category: "thought_level", Values: []string{"false", "true"}},
+			},
+		})
+		in.ReasoningEffort = "true"
+		if _, err := newACPTestProvider(t, in).Stream(conversation(t, "s1"), sys(u("one")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		sets := readLog(t, logPath, "session/set_config_option")
+		if len(sets) != 1 || !strings.Contains(string(sets[0].Params), `"configId":"thinking"`) || !strings.Contains(string(sets[0].Params), `"value":"true"`) {
+			t.Fatalf("set_config_option = %v, want thinking=true", sets)
+		}
+	})
+
+	t.Run("a reasoning level beside a boolean toggle is undone", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "thinking", Category: "thought_level", Values: []string{"false", "true"}},
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "medium", "high"}},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		r, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(r.Content), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high,effort=low" {
+			t.Fatalf("thought selections = %v, want the session's starting low restored", values)
+		}
+	})
+
+	t.Run("an undo never moves to another thought option", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "high"}},
+				{ID: "other", Category: "thought_level", Values: []string{"high", "low"}, Hidden: true},
+			},
+			Turns: []acptest.Turn{
+				{ConfigOptions: []acptest.Parameter{{ID: "other", Category: "thought_level", Values: []string{"high", "low"}}}},
+				{},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		r, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(r.Content), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high" {
+			t.Fatalf("thought selections = %v, want no undo written to the replacement option", values)
+		}
+	})
+
+	t.Run("an override the agent moved away from is not restored later", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "high"}},
+			},
+			Turns: []acptest.Turn{
+				{ConfigOptions: []acptest.Parameter{{ID: "effort", Category: "thought_level", Values: []string{"medium", "high"}}}},
+				{ConfigOptions: []acptest.Parameter{{ID: "effort", Category: "thought_level", Values: []string{"high", "low"}}}},
+				{},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		first, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = "medium"
+		second, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two"), a(second.Content), u("three")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high" {
+			t.Fatalf("thought selections = %v, want the agent's later high left alone", values)
+		}
+	})
+
+	t.Run("an undo waits for the baseline to be offered again", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Parameters: []acptest.Parameter{
+				{ID: "effort", Category: "thought_level", Values: []string{"low", "high"}},
+			},
+			Turns: []acptest.Turn{
+				{ConfigOptions: []acptest.Parameter{{ID: "effort", Category: "thought_level", Values: []string{"high", "medium"}}}},
+				{ConfigOptions: []acptest.Parameter{{ID: "effort", Category: "thought_level", Values: []string{"high", "low"}}}},
+				{},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		first, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		second, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two"), a(second.Content), u("three")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "effort=high,effort=low" {
+			t.Fatalf("thought selections = %v, want the delayed baseline restored once offered", values)
+		}
+	})
+
 	t.Run("a serialized reasoning parameter owns the level it names", func(t *testing.T) {
 		in, logPath := acpRow(t, acptest.Script{
 			Models: []string{"grok-4.7"},
 			Parameters: []acptest.Parameter{
+				{ID: "thinking", Category: "thought_level", Values: []string{"false", "true"}},
 				{ID: "reasoning_effort", Category: "thought_level", Values: []string{"low", "medium", "high"}},
 			},
 		})
@@ -765,6 +954,67 @@ func TestACPProviderReasoningLevelIsAPreference(t *testing.T) {
 		}
 		if strings.Join(values, ",") != "low,max" {
 			t.Fatalf("thought selections = %v", values)
+		}
+	})
+	t.Run("a later level keeps the baseline of the first override", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{ThoughtLevels: []string{"low", "medium", "high"}})
+		ctx := conversation(t, "s1")
+		in.ReasoningEffort = "high"
+		first, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = "medium"
+		second, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(first.Content), u("two"), a(second.Content), u("three")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct{ Value string }
+			_ = json.Unmarshal(r.Params, &p)
+			values = append(values, p.Value)
+		}
+		if strings.Join(values, ",") != "high,medium,low" {
+			t.Fatalf("thought selections = %v, want the first turn's low restored", values)
+		}
+	})
+	t.Run("the baseline follows the model selected before the level", func(t *testing.T) {
+		in, logPath := acpRow(t, acptest.Script{
+			Models: []string{"small", "large"},
+			ThoughtLevelsByModel: map[string][]string{
+				"small": {"low", "high"},
+				"large": {"medium", "high"},
+			},
+		})
+		ctx := conversation(t, "s1")
+		in.Model = "large"
+		in.ReasoningEffort = "high"
+		r, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one")), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.ReasoningEffort = ""
+		if _, err := newACPTestProvider(t, in).Stream(ctx, sys(u("one"), a(r.Content), u("two")), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		var values []string
+		for _, r := range readLog(t, logPath, "session/set_config_option") {
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			if err := json.Unmarshal(r.Params, &p); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, p.ConfigID+"="+p.Value)
+		}
+		if strings.Join(values, ",") != "model=large,thought=high,thought=medium" {
+			t.Fatalf("selections = %v, want the large model's medium restored", values)
 		}
 	})
 	t.Run("a refused level leaves the agent's own and the turn runs", func(t *testing.T) {
@@ -1175,6 +1425,27 @@ func TestACPThoughtLevelsReadsTheModelTheAgentIsOn(t *testing.T) {
 	}
 	if n := len(readLog(t, logPath, "session/set_config_option")); n != 0 {
 		t.Fatalf("reading the levels sent %d set_config_option", n)
+	}
+}
+
+// A boolean thought toggle can share the thought_level category with the
+// option that carries the levels. The values of the toggle are not levels;
+// the first enum-shaped option of the category is.
+func TestACPThoughtLevelsSkipsABooleanToggleForTheLevelOption(t *testing.T) {
+	in, _ := acpRow(t, acptest.Script{
+		Models: []string{"claude-opus-4-8"},
+		Parameters: []acptest.Parameter{
+			{ID: "thinking", Category: "thought_level", Values: []string{"false", "true"}},
+			{ID: "context", Values: []string{"300k", "1m"}},
+			{ID: "effort", Category: "thought_level", Values: []string{"low", "medium", "high", "xhigh", "max"}},
+		},
+	})
+	got, err := ACPThoughtLevels(context.Background(), in, "claude-opus-4-8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "low,medium,high,xhigh,max" {
+		t.Fatalf("levels = %v", got)
 	}
 }
 

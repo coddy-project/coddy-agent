@@ -95,9 +95,10 @@ type acpProcess struct {
 	// the values a call that names none goes back to.
 	states   map[string]*acpSessionState
 	defaults map[string]acpSessionDefaults
-	// thoughtSet is the reasoning level a call set on a session, the only
-	// one a later call that names none goes back from.
-	thoughtSet map[string]string
+	// thoughtSet is the reasoning override a call set on a session: the
+	// option it wrote, the value it wrote and the baseline of that same
+	// option a later call that names none goes back to.
+	thoughtSet map[string]acpThoughtOwnership
 	// opened counts the sessions this process opened.
 	opened atomic.Int64
 	// prompts tracks the session/prompt in flight on each ACP session.
@@ -166,7 +167,7 @@ func startACPProcess(ctx context.Context, spec acpSpec, log *slog.Logger) (*acpP
 		sinks:        map[string]*acpSink{},
 		states:       map[string]*acpSessionState{},
 		defaults:     map[string]acpSessionDefaults{},
-		thoughtSet:   map[string]string{},
+		thoughtSet:   map[string]acpThoughtOwnership{},
 		prompts:      map[string]*acpPromptTrack{},
 		permReplies:  map[string][]acpPermissionRoute{},
 		sent:         map[string]acpSentRequest{},
@@ -628,6 +629,7 @@ func (p *acpProcess) noteState(sessionID string, u acpSessionUpdate) {
 	case "config_option_update":
 		if len(u.ConfigOptions) > 0 {
 			st.ConfigOptions = u.ConfigOptions
+			p.dropMovedThoughtLocked(sessionID, u.ConfigOptions)
 			if opt, ok := optionOf(u.ConfigOptions, "mode"); ok && st.Modes != nil {
 				st.Modes.CurrentModeID = opt.current()
 			}
@@ -1205,10 +1207,18 @@ func acpSelfDepth() int {
 	return n
 }
 
-// acpSessionDefaults are the model, mode and reasoning level a session
-// started with.
+// acpSessionDefaults are the model and mode a session started with.
 type acpSessionDefaults struct {
-	model, mode, thought string
+	model, mode string
+}
+
+// acpThoughtOwnership is the reasoning override a call wrote on one ACP
+// session: the config option it wrote, the override value and the baseline of
+// that same option to restore when a later call names no level.
+type acpThoughtOwnership struct {
+	optionID string
+	value    string
+	baseline string
 }
 
 func truncateForLog(s string, n int) string {

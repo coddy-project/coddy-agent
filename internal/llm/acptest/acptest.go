@@ -64,7 +64,11 @@ type Script struct {
 	// RefuseThought is a level of them set_config_option refuses (an agent
 	// whose mode does not take it).
 	ThoughtLevels []string `json:"thought_levels,omitempty"`
-	RefuseThought string   `json:"refuse_thought,omitempty"`
+	// ThoughtLevelsByModel replaces ThoughtLevels while the named model is
+	// current. Selecting such a model resets the level to its first value,
+	// as a model whose reasoning choices differ from the one before it.
+	ThoughtLevelsByModel map[string][]string `json:"thought_levels_by_model,omitempty"`
+	RefuseThought        string              `json:"refuse_thought,omitempty"`
 	// Turns answer the prompts in the order they arrive across the process;
 	// the last one repeats. No turns: every prompt is echoed.
 	Turns []Turn `json:"turns,omitempty"`
@@ -146,6 +150,10 @@ type Turn struct {
 	ExitAfterReply bool `json:"exit_after_reply,omitempty"`
 	// Chunks sends this many more one-letter text chunks before the answer.
 	Chunks int `json:"chunks,omitempty"`
+	// ConfigOptions replaces the session's config options with these select
+	// options through a config_option_update before the answer. The first
+	// value of each is current, as at session/new.
+	ConfigOptions []Parameter `json:"config_options,omitempty"`
 	// Barrier holds the prompt until this many prompts of the process have
 	// reached it, then answers with "barrier: <n>"; after BarrierWait (10 s
 	// when 0) it gives up and answers "barrier: timeout". Prompts a client
@@ -318,6 +326,10 @@ type session struct {
 	model      string
 	thought    string
 	parameters map[string]string
+	// replaced is the config option set a config_option_update replaced the
+	// session's options with: from then on it is what the agent advertises and
+	// validates, with the currents in parameters.
+	replaced []Parameter
 	// cancel is closed by session/cancel; each prompt gets a channel of its
 	// own (guarded by the agent's mutex), so a cancel ends that prompt only.
 	cancel chan struct{}
@@ -483,13 +495,11 @@ func (a *agent) handle(m message) {
 		if len(a.script.Models) > 0 {
 			s.model = a.script.Models[0]
 		}
+		a.resetThoughtForModel(s)
 		for _, parameter := range a.script.Parameters {
 			if len(parameter.Values) > 0 {
 				s.parameters[parameter.ID] = parameter.Values[0]
 			}
-		}
-		if len(a.script.ThoughtLevels) > 0 {
-			s.thought = a.script.ThoughtLevels[0]
 		}
 		a.sessions[s.id] = s
 		a.mu.Unlock()
@@ -535,6 +545,7 @@ func (a *agent) handle(m message) {
 			return
 		}
 		s.model = p.ModelID
+		a.resetThoughtForModel(s)
 		a.reply(m.ID, map[string]interface{}{})
 	case "session/set_config_option":
 		var p struct {
@@ -546,29 +557,41 @@ func (a *agent) handle(m message) {
 		s := a.session(p.SessionID)
 		ok := s != nil
 		if ok {
-			switch p.ConfigID {
-			case "mode":
-				ok = !a.script.LegacyModes && contains(a.script.Modes, p.Value)
-				if ok {
-					s.mode = p.Value
-				}
-			case "model":
-				ok = !a.script.LegacyModels && contains(a.script.Models, p.Value)
-				if ok {
-					s.model = p.Value
-				}
-			case "thought":
-				ok = contains(a.script.ThoughtLevels, p.Value) && p.Value != a.script.RefuseThought
-				if ok {
-					s.thought = p.Value
-				}
-			default:
+			if s.replaced != nil {
 				ok = false
-				for _, parameter := range a.script.Parameters {
+				for _, parameter := range s.replaced {
 					if p.ConfigID == parameter.ID && contains(parameter.Values, p.Value) {
 						s.parameters[p.ConfigID] = p.Value
 						ok = true
 						break
+					}
+				}
+			} else {
+				switch p.ConfigID {
+				case "mode":
+					ok = !a.script.LegacyModes && contains(a.script.Modes, p.Value)
+					if ok {
+						s.mode = p.Value
+					}
+				case "model":
+					ok = !a.script.LegacyModels && contains(a.script.Models, p.Value)
+					if ok {
+						s.model = p.Value
+						a.resetThoughtForModel(s)
+					}
+				case "thought":
+					ok = contains(a.thoughtLevels(s.model), p.Value) && p.Value != a.script.RefuseThought
+					if ok {
+						s.thought = p.Value
+					}
+				default:
+					ok = false
+					for _, parameter := range a.script.Parameters {
+						if p.ConfigID == parameter.ID && contains(parameter.Values, p.Value) {
+							s.parameters[p.ConfigID] = p.Value
+							ok = true
+							break
+						}
 					}
 				}
 			}
@@ -617,6 +640,22 @@ func (a *agent) session(id string) *session {
 	return a.sessions[id]
 }
 
+// thoughtLevels returns the reasoning values of the session's current model.
+func (a *agent) thoughtLevels(model string) []string {
+	if values := a.script.ThoughtLevelsByModel[model]; len(values) > 0 {
+		return values
+	}
+	return a.script.ThoughtLevels
+}
+
+// resetThoughtForModel moves the reasoning level to the first value of the
+// model the session is on, the way a model whose levels differ replaces them.
+func (a *agent) resetThoughtForModel(s *session) {
+	if values := a.thoughtLevels(s.model); len(values) > 0 {
+		s.thought = values[0]
+	}
+}
+
 func (a *agent) sessionState(s *session) map[string]interface{} {
 	out := map[string]interface{}{"sessionId": s.id}
 	if len(a.script.Modes) > 0 {
@@ -648,6 +687,19 @@ func (a *agent) configOptions(s *session) []map[string]interface{} {
 		}
 		return map[string]interface{}{"id": id, "name": id, "category": category, "type": "select", "currentValue": current, "options": opts}
 	}
+	if s.replaced != nil {
+		for _, parameter := range s.replaced {
+			if parameter.Hidden {
+				continue
+			}
+			category := parameter.Category
+			if category == "" {
+				category = "model_config"
+			}
+			out = append(out, selectOf(parameter.ID, category, s.parameters[parameter.ID], parameter.Values))
+		}
+		return out
+	}
 	if len(a.script.Modes) > 0 && !a.script.LegacyModes {
 		out = append(out, selectOf("mode", "mode", s.mode, a.script.Modes))
 	}
@@ -664,8 +716,8 @@ func (a *agent) configOptions(s *session) []map[string]interface{} {
 		}
 		out = append(out, selectOf(parameter.ID, category, s.parameters[parameter.ID], parameter.Values))
 	}
-	if len(a.script.ThoughtLevels) > 0 {
-		out = append(out, selectOf("thought", "thought_level", s.thought, a.script.ThoughtLevels))
+	if values := a.thoughtLevels(s.model); len(values) > 0 {
+		out = append(out, selectOf("thought", "thought_level", s.thought, values))
 	}
 	return out
 }
@@ -715,6 +767,37 @@ func (a *agent) prompt(m message, t Turn, cancelled <-chan struct{}) {
 	}
 	if t.DelayMS > 0 {
 		time.Sleep(time.Duration(t.DelayMS) * time.Millisecond)
+	}
+	if len(t.ConfigOptions) > 0 {
+		options := make([]map[string]interface{}, 0, len(t.ConfigOptions))
+		for _, parameter := range t.ConfigOptions {
+			category := parameter.Category
+			if category == "" {
+				category = "model_config"
+			}
+			current := ""
+			if len(parameter.Values) > 0 {
+				current = parameter.Values[0]
+			}
+			values := make([]map[string]string, 0, len(parameter.Values))
+			for _, value := range parameter.Values {
+				values = append(values, map[string]string{"value": value, "name": value})
+			}
+			options = append(options, map[string]interface{}{"id": parameter.ID, "name": parameter.ID, "category": category, "type": "select", "currentValue": current, "options": values})
+		}
+		// The update replaces the session's whole option set: from here the
+		// agent validates against it and answers set_config_option with it.
+		a.mu.Lock()
+		s.replaced = t.ConfigOptions
+		parameters := map[string]string{}
+		for _, parameter := range t.ConfigOptions {
+			if len(parameter.Values) > 0 {
+				parameters[parameter.ID] = parameter.Values[0]
+			}
+		}
+		s.parameters = parameters
+		a.mu.Unlock()
+		a.update(s.id, map[string]interface{}{"sessionUpdate": "config_option_update", "configOptions": options})
 	}
 	if t.Status {
 		a.update(s.id, map[string]interface{}{"sessionUpdate": "available_commands_update", "availableCommands": []interface{}{}})
