@@ -200,13 +200,16 @@ function InlineCode(props: { className?: string; children?: unknown }) {
     );
   }
 
+  // The visible command is the control's accessible name; the title only
+  // describes what activating it does. Naming it after the copy action instead
+  // made screen readers announce "Copy code" rather than the command.
   return (
     <code
       className={className}
       role="button"
       tabIndex={0}
       title={title}
-      aria-label={t("messages.copyCode")}
+      aria-description={title}
       data-testid="md-inline-code"
       onClick={() => void onCopy()}
       onKeyDown={onKeyDown}
