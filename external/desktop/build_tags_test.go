@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -274,18 +275,19 @@ func TestTheNativeWindowFollowsMacOS(t *testing.T) {
 
 // The entry writer follows the desktop tag, as every other file here does.
 func TestTheEntryWriterFollowsTheDesktopTag(t *testing.T) {
-	files := []string{"menu_shortcut_linux.go", "menu_shortcut_windows.go", "shortcut_receipt.go"}
+	files := []string{"menu_shortcut_linux.go", "menu_shortcut_linux_test.go", "menu_shortcut_windows.go", "menu_shortcut_windows_test.go", "shortcut_receipt.go"}
+	tagSets := []string{"", "cli", "desktop", strings.Join(makeVariable(t, "FULL_TAGS"), ",")}
 	for _, build := range []struct {
 		goos, arch string
 		writer     []string
 	}{
-		{"linux", "amd64", []string{"menu_shortcut_linux.go", "shortcut_receipt.go"}},
-		{"windows", "amd64", []string{"menu_shortcut_windows.go", "shortcut_receipt.go"}},
+		{"linux", "amd64", []string{"menu_shortcut_linux.go", "menu_shortcut_linux_test.go", "shortcut_receipt.go"}},
+		{"windows", "amd64", []string{"menu_shortcut_windows.go", "menu_shortcut_windows_test.go", "shortcut_receipt.go"}},
 		{"darwin", "arm64", nil},
 		{"freebsd", "amd64", nil},
 		{"android", "arm64", nil},
 	} {
-		for _, tags := range []string{"cli", "desktop", strings.Join(makeVariable(t, "FULL_TAGS"), ",")} {
+		for _, tags := range tagSets {
 			got := packageFiles(t, build.goos, build.arch, tags)
 			hasTag := contains(strings.Split(tags, ","), "desktop")
 			if !hasTag && len(got) != 0 {
@@ -301,7 +303,7 @@ func TestTheEntryWriterFollowsTheDesktopTag(t *testing.T) {
 	}
 }
 
-// packageFiles lists what one tag combination compiles, empty when the
+// packageFiles lists the source and test files selected by the tags, empty when the
 // constraints exclude the whole package.
 func packageFiles(t *testing.T, goos, arch, tags string) []string {
 	t.Helper()
@@ -313,11 +315,11 @@ func packageFiles(t *testing.T, goos, arch, tags string) []string {
 		}
 		t.Fatalf("go list for %s with %q: %v", goos, tags, err)
 	}
-	var pkg struct{ GoFiles []string }
+	var pkg struct{ GoFiles, TestGoFiles, XTestGoFiles []string }
 	if err := json.Unmarshal(output, &pkg); err != nil {
 		t.Fatal(err)
 	}
-	return pkg.GoFiles
+	return slices.Concat(pkg.GoFiles, pkg.TestGoFiles, pkg.XTestGoFiles)
 }
 
 // goCommand runs the toolchain for one platform, with the environment this
