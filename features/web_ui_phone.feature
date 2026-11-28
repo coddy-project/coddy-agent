@@ -33,9 +33,10 @@ Feature: The web UI on a phone
     Then the brand gives way and the top bar icons never slide over it
     And the start screen never widens the page
 
-  Scenario: What the top bar has no room for is behind More
-    Then a bar with room to spare keeps Settings and extensions behind More
-    Then a phone bar short of room keeps History, folds the rest behind More and lists sign-out last
+  Scenario: The top bar keeps four controls and folds the rest behind More
+    Then a phone bar keeps History, the Scheduler, the environment and More
+    And a relay bar adds the swarm beside the environment
+    And the menu holds settings, extensions, docs, statistics and sign-out, sign-out last
     And picking a folded item opens it and closes the menu
 
   Scenario: The phone is a tier of the layout grid

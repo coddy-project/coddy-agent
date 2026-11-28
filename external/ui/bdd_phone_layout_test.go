@@ -73,11 +73,14 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^the brand gives way and the top bar icons never slide over it$`, func() error {
 				return runVitestScenario(layout, "phone top bar the brand is what gives way: it may shrink and clips, the icons never slide over it")
 			})
-			sc.Step(`^a phone bar short of room keeps History, folds the rest behind More and lists sign-out last$`, func() error {
-				return runVitestScenario(nav, "NavRail on a phone: the More menu folds what does not fit behind More, sign-out last under a separator")
+			sc.Step(`^a phone bar keeps History, the Scheduler, the environment and More$`, func() error {
+				return runVitestScenario(nav, "NavRail on a phone: the More menu keeps history, the scheduler and the environment in the bar, the rest behind More")
 			})
-			sc.Step(`^a bar with room to spare keeps Settings and extensions behind More$`, func() error {
-				return runVitestScenario(nav, "NavRail on a phone: the More menu keeps settings and extensions behind More even when everything else fits")
+			sc.Step(`^a relay bar adds the swarm beside the environment$`, func() error {
+				return runVitestScenario(nav, "NavRail on a phone: the More menu adds the swarm to the bar on a relay, beside the environment")
+			})
+			sc.Step(`^the menu holds settings, extensions, docs, statistics and sign-out, sign-out last$`, func() error {
+				return runVitestScenario(nav, "NavRail on a phone: the More menu holds the installation's surfaces, sign-out last under a separator")
 			})
 			sc.Step(`^picking a folded item opens it and closes the menu$`, func() error {
 				return runVitestScenario(nav, "NavRail on a phone: the More menu picking a folded item opens it and closes the menu")
