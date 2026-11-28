@@ -28,7 +28,7 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
-import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
+import { splitNavItems, type NavItemId } from "./navOverflow";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { ExtensionMenu } from "../extensions/ExtensionMenu";
 import { ExtensionAnchor } from "../extensions/ExtensionAnchor";
@@ -340,58 +340,17 @@ export function NavRail(props: {
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const signedIn =
     auth.authenticated && (auth.loginRequired || auth.oidcEnabled);
-  // Below 1200px the rail is a top bar; on a phone it folds what does not fit
-  // behind More (navOverflow.ts). The desktop rail never folds.
+  // Below 1200px the rail is a top bar; there it folds what does not fit behind
+  // More, and settings and extensions whatever the room (navOverflow.ts). The
+  // desktop rail never folds.
   const stacked = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
   );
-  const pillRef = useRef<HTMLDivElement | null>(null);
-  const middleRef = useRef<HTMLDivElement | null>(null);
   const moreHostRef = useRef<HTMLDivElement | null>(null);
   const moreBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [slots, setSlots] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  useLayoutEffect(() => {
-    const pill = pillRef.current;
-    const middle = middleRef.current;
-    if (!stacked || pillWide || !pill || !middle) {
-      setSlots(null);
-      return undefined;
-    }
-    const px = (v: string) => parseFloat(v) || 0;
-    // The room is the pill minus the brand at its natural width, so the
-    // answer does not depend on how many icons are showing.
-    const measure = () => {
-      const brand = pill.querySelector<HTMLElement>(".rail-brand");
-      const plus = pill.querySelector<HTMLElement>(".rail-new-chat");
-      const hit = middle.querySelector<HTMLElement>(".rail-hit");
-      const slot = hit ? hit.getBoundingClientRect().width : 0;
-      if (pill.clientWidth <= 0 || slot <= 0) {
-        setSlots(null);
-        return;
-      }
-      const pillStyle = getComputedStyle(pill);
-      const inner =
-        pill.clientWidth -
-        px(pillStyle.paddingLeft) -
-        px(pillStyle.paddingRight);
-      const gap = px(pillStyle.columnGap);
-      const available =
-        inner -
-        gap -
-        (brand ? brand.scrollWidth : 0) -
-        (plus ? plus.getBoundingClientRect().width + gap : 0);
-      setSlots(
-        navSlots(available, slot, px(getComputedStyle(middle).columnGap)),
-      );
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(pill);
-    return () => ro.disconnect();
-  }, [stacked, pillWide]);
 
   const present: NavItemId[] = [];
   if (showHistory) present.push("history");
@@ -403,7 +362,10 @@ export function NavRail(props: {
   present.push("settings");
   present.push("environment");
   if (signedIn) present.push("signOut");
-  const { bar, menu } = splitNavItems(present, slots);
+  // The desktop rail never folds: it is a column with room for every item.
+  const { bar, menu } = stacked
+    ? splitNavItems(present)
+    : { bar: present, menu: [] as NavItemId[] };
   const inBar = (id: NavItemId) => bar.includes(id);
   const moreActive = menu.some(
     (id) =>
@@ -500,7 +462,7 @@ export function NavRail(props: {
       className={`rail-column ${pillWide ? "rail-column-wide" : ""}`}
       aria-label={t("nav.ariaLabel")}
     >
-      <div ref={pillRef} className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
+      <div className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
         {props.canWidenRail ? (
           pillWide ? (
             <div className="rail-header rail-header-wide">
@@ -579,7 +541,7 @@ export function NavRail(props: {
         )}
         {props.canWidenRail ? null : newChat}
 
-        <div ref={middleRef} className="rail-middle">
+        <div className="rail-middle">
           {pillWide ? newChat : null}
           {inBar("history") ? (
             <div className="rail-tip-host">
@@ -872,6 +834,27 @@ export function NavRail(props: {
                             ) : null}
                           </span>
                           <span>{t("nav.scheduler")}</span>
+                        </a>
+                      );
+                    }
+                    if (id === "statistics") {
+                      return (
+                        <a
+                          key="statistics"
+                          role="menuitem"
+                          href={appNavHrefStatistics()}
+                          className={`rail-more-item ${props.statisticsOpen ? "is-active" : ""}`}
+                          data-testid="nav-more-statistics"
+                          onClick={(ev) => {
+                            setMoreOpen(false);
+                            sameTabInAppNavClick(
+                              ev,
+                              props.onOpenStatistics ?? (() => {}),
+                            );
+                          }}
+                        >
+                          <IconStatistics className="rail-svg" />
+                          <span>{t("nav.statistics")}</span>
                         </a>
                       );
                     }

@@ -117,6 +117,22 @@
     min-width: 0;
     width: auto;
   }
+  /* The top bar reads History, Scheduler, the environment, the swarm, then
+     More (DESIGN.md, Layout - the top bar). The environment stands before the
+     swarm here although the rail keeps it at its foot, so the row is ordered
+     rather than mirrored in markup. */
+  .rail-middle > .rail-env-host {
+    order: 3;
+  }
+
+  .rail-middle > .rail-tip-host:has([data-testid="nav-swarm"]) {
+    order: 4;
+  }
+
+  .rail-middle > .rail-more-host {
+    order: 5;
+  }
+
   .rail-spacer-between {
     display: none !important;
   }
