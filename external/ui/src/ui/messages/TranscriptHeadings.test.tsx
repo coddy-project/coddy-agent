@@ -11,46 +11,40 @@ afterEach(() => {
   setLocale("en");
 });
 
-function headingBefore(name: string, content: HTMLElement) {
-  const heading = screen.getByRole("heading", { level: 2, name });
-  expect(heading.tagName).toBe("H2");
-  expect(heading).toHaveClass("sr-only");
-  expect(heading.compareDocumentPosition(content)).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
-  );
-  return heading;
-}
-
 test.each([
   ["en", "Your message", "Agent reply"],
   ["ru", "Ваше сообщение", "Ответ агента"],
 ])(
-  "prompt and reply headings precede their content in %s",
+  "messages keep named articles and preserve Markdown heading outline in %s",
   (locale, prompt, reply) => {
     setLocale(locale);
     render(
       <I18nProvider>
         <UserMessage content="Explain the result" />
-        <AssistantMessage content="Here is the result." />
+        <AssistantMessage
+          content={"Here is the result.\n\n# Result\n\n## Details"}
+        />
       </I18nProvider>,
     );
 
-    const promptHeading = headingBefore(
-      prompt,
-      screen.getByTestId("user-message-body"),
+    expect(screen.getByRole("article", { name: prompt })).toHaveTextContent(
+      "Explain the result",
     );
-    const replyHeading = headingBefore(
-      reply,
-      screen.getByText("Here is the result."),
+    expect(screen.getByRole("article", { name: reply })).toHaveTextContent(
+      "Here is the result.",
     );
-    expect(screen.getAllByRole("heading")).toEqual([
-      promptHeading,
-      replyHeading,
+    expect(
+      screen
+        .getAllByRole("heading")
+        .map((heading) => [heading.tagName, heading.textContent]),
+    ).toEqual([
+      ["H1", "Result"],
+      ["H2", "Details"],
     ]);
   },
 );
 
-test("attachment-only messages start with their respective headings", () => {
+test("attachment-only messages retain their accessible article identities", () => {
   render(
     <>
       <UserMessage
@@ -71,36 +65,30 @@ test("attachment-only messages start with their respective headings", () => {
   );
 
   expect(screen.queryByTestId("user-message-body")).not.toBeInTheDocument();
-  headingBefore("Your message", screen.getByText("input.txt"));
-  headingBefore(
-    "Agent reply",
+  expect(
+    screen.getByRole("article", { name: "Your message" }),
+  ).toHaveTextContent("input.txt");
+  expect(screen.getByRole("article", { name: "Agent reply" })).toContainElement(
     screen.getByRole("button", { name: "Open generated image result.png" }),
   );
+  expect(screen.queryAllByRole("heading")).toHaveLength(0);
 });
 
-test("reply heading keeps its identity as Markdown streams and completes", () => {
+test("reply article keeps its identity as Markdown streams and completes", () => {
   const { rerender } = render(
     <AssistantMessage content="A partial reply" streaming />,
   );
-  const heading = headingBefore(
-    "Agent reply",
-    screen.getByText("A partial reply"),
-  );
+  const article = screen.getByRole("article", { name: "Agent reply" });
+  expect(article).toHaveTextContent("A partial reply");
   const content =
     "A partial reply, now with headings.\n\n# Title\n\n## Section\n\n### Detail\n\n#### Item\n\n##### Note\n\n###### Example";
 
   for (const streaming of [true, false]) {
     rerender(<AssistantMessage content={content} streaming={streaming} />);
-    expect(
-      headingBefore(
-        "Agent reply",
-        screen.getByText("A partial reply, now with headings."),
-      ),
-    ).toBe(heading);
+    expect(screen.getByRole("article", { name: "Agent reply" })).toBe(article);
     expect(
       screen.getAllByRole("heading").map((el) => [el.tagName, el.textContent]),
     ).toEqual([
-      ["H2", "Agent reply"],
       ["H1", "Title"],
       ["H2", "Section"],
       ["H3", "Detail"],

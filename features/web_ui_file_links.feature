@@ -26,4 +26,4 @@ Feature: Files named in the conversation open in the Files window
 
   Scenario: A path an answer names opens in a tab of the Files window
     Then a path an answer names opens in a tab of the Files window once the server says it is a file
-    And what is not a file of the workspace stays inline code and copies on click
+    And what is not a file of the workspace stays selectable inline text without a copy control

@@ -96,7 +96,7 @@ export function useChoicePopup<K extends string>({
 
   useLayoutEffect(() => {
     const el = panel.current;
-    if (!opening || !el) {
+    if (!opening) {
       lastPanelRole.current = null;
       const target = restore.current;
       restore.current = null;
@@ -104,6 +104,11 @@ export function useChoicePopup<K extends string>({
         const destination = target.isConnected ? target : fallbackFocus?.();
         destination?.focus({ preventScroll: true });
       }
+      return;
+    }
+    if (!el) {
+      lastPanelRole.current = null;
+      close(false);
       return;
     }
     if (hidden) {
@@ -137,7 +142,7 @@ export function useChoicePopup<K extends string>({
       const rows = el.querySelectorAll<HTMLElement>("[data-choice-row]");
       const filter = el.querySelector<HTMLElement>("[data-choice-filter]");
       const row = rows[opening.last ? rows.length - 1 : 0];
-      focusChoice(filter ?? row ?? el, el);
+      focusChoice((opening.last ? (row ?? filter) : (filter ?? row)) ?? el, el);
     }
   });
 

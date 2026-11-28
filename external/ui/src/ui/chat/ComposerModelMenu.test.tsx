@@ -65,6 +65,22 @@ test("model menu shows a filter input when there are more than 5 models", () => 
   expect(screen.getByTestId("model-menu-filter")).toBeTruthy();
 });
 
+test("ArrowUp opens the filtered model picker at its last result", () => {
+  const models = [
+    "vendor/alpha",
+    "vendor/bravo",
+    "vendor/charlie",
+    "vendor/delta",
+    "vendor/echo",
+    "vendor/zeta",
+  ];
+  renderModelMenu({ models, model: models[0] ?? "" });
+  const chip = screen.getByRole("button", { name: /, Model$/ });
+  fireEvent.keyDown(chip, { key: "ArrowUp" });
+
+  expect(screen.getByRole("option", { name: "zeta" })).toHaveFocus();
+});
+
 test("model menu omits the filter input for a short list", () => {
   renderModelMenu({
     models: ["opencode-go/glm-5", "cliproxyapi/gpt-5.5"],
@@ -89,6 +105,32 @@ test("exactly 5 models still omits the filter but keeps grouping", () => {
   expect(screen.queryByTestId("model-menu-filter")).toBeNull();
   expect(screen.getByText("opencode-go")).toBeTruthy();
   expect(screen.getByText("cliproxyapi")).toBeTruthy();
+});
+
+test("short model menus expose named vendor groups to assistive technology", () => {
+  renderModelMenu({
+    models: [
+      "opencode-go/glm-5",
+      "opencode-go/glm-5.1",
+      "opencode-go/kimi-k2.6",
+      "cliproxyapi/gpt-5.5",
+      "cliproxyapi/gpt-5.4",
+    ],
+    model: "opencode-go/glm-5",
+  });
+  openModelMenu();
+  const menu = within(screen.getByRole("menu"));
+  const groups = menu.getAllByRole("group");
+  expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+    "opencode-go",
+    "cliproxyapi",
+  ]);
+  expect(
+    within(groups[0]!).getByRole("menuitemradio", {
+      name: "glm-5",
+      checked: true,
+    }),
+  ).toBeTruthy();
 });
 
 test("6 models cross the threshold and reveal the filter", () => {

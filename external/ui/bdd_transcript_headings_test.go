@@ -12,9 +12,9 @@ func TestTranscriptHeadingsWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "web_ui_transcript_headings",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^a sent prompt and its agent reply each have a localized level-two heading before their content, visible only to assistive technology$`, func() error {
+			sc.Step(`^prompts and replies have localized article labels and preserve Markdown heading levels$`, func() error {
 				for _, locale := range []string{"en", "ru"} {
-					if err := runVitestScenario("src/ui/messages/TranscriptHeadings.test.tsx", "prompt and reply headings precede their content in "+locale); err != nil {
+					if err := runVitestScenario("src/ui/messages/TranscriptHeadings.test.tsx", "messages keep named articles and preserve Markdown heading outline in "+locale); err != nil {
 						return err
 					}
 				}

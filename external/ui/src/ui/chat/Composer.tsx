@@ -4461,12 +4461,8 @@ export function Composer(props: {
                           <div
                             key={g.vendor || "_"}
                             className="mode-menu-group"
-                            role={llmShowFilter ? "group" : undefined}
-                            aria-label={
-                              llmShowFilter
-                                ? g.vendor || t("composer.vendorOther")
-                                : undefined
-                            }
+                            role="group"
+                            aria-label={g.vendor || t("composer.vendorOther")}
                           >
                             <div
                               className="mode-menu-group-label"

@@ -142,44 +142,25 @@ test("fenced code without language still shows Copy control", () => {
   ).toBeInTheDocument();
 });
 
-test("inline code stays in the sentence and copies on click", async () => {
-  const page = pageWithoutClipboardApi(true);
-
+test("inline code stays selectable text in the sentence without a copy control", () => {
   render(<Markdown text="Type `sudo reboot` and press `enter`." />);
 
   expect(screen.getByRole("paragraph")).toHaveTextContent(
     "Type sudo reboot and press enter.",
   );
-  const codes = screen.getAllByRole("button");
+  const codes = screen.getAllByTestId("md-inline-code");
   expect(codes.map((code) => code.textContent)).toEqual([
     "sudo reboot",
     "enter",
   ]);
   for (const code of codes) {
-    expect(code).not.toHaveAttribute("aria-label");
-    expect(code).toHaveAccessibleName(code.textContent || "");
-    expect(code).toHaveAttribute("title", "Copy");
-    expect(code).toHaveAccessibleDescription("Copy");
+    expect(code.tagName).toBe("CODE");
+    expect(code).not.toHaveAttribute("role");
+    expect(code).not.toHaveAttribute("tabindex");
+    expect(code).not.toHaveAttribute("aria-description");
+    expect(code).not.toHaveAttribute("title");
     expect(code).toHaveClass("md-inline-code");
   }
-  const inline = codes[0]!;
-  fireEvent.click(inline);
-  expect(page.copies).toEqual(selectedOnce("sudo reboot"));
-  await waitFor(() => {
-    expect(inline).toHaveAttribute("title", "Copied");
-  });
-});
-
-test("inline code copies on Enter and Space", () => {
-  const page = pageWithoutClipboardApi(true);
-  render(<Markdown text="Run `make test` locally." />);
-  const inline = screen.getByRole("button", { name: "make test" });
-  fireEvent.keyDown(inline, { key: "Enter" });
-  fireEvent.keyDown(inline, { key: " " });
-  expect(page.copies).toEqual([
-    ...selectedOnce("make test"),
-    ...selectedOnce("make test"),
-  ]);
 });
 
 // A page served over plain HTTP from another machine has no
@@ -201,34 +182,16 @@ test("a code block copies without a clipboard API and says Copied only when that
   expect(copy).toHaveAttribute("title", "Copied");
 });
 
-test("inline code copies without a clipboard API and says Copied only when that worked", async () => {
-  const page = pageWithoutClipboardApi(false);
-  render(<Markdown text="Run `make test` locally." />);
-  const inline = screen.getByTestId("md-inline-code");
-  await act(async () => {
-    fireEvent.click(inline);
-  });
-  expect(page.copies).toEqual(selectedOnce("make test"));
-  expect(inline).toHaveAttribute("title", "Copy");
-  page.answer(true);
-  await act(async () => {
-    fireEvent.click(inline);
-  });
-  expect(inline).toHaveAttribute("title", "Copied");
-});
-
-test("inline code uses native title tooltip for Copy", () => {
-  render(<Markdown text="Run `make test` locally." />);
-  const inline = screen.getByTestId("md-inline-code");
-  expect(inline).toHaveAttribute("title", "Copy");
-});
-
 test("inline code styles use grey fill without border in css", () => {
   const css = stylesSource();
   expect(css).toMatch(/--coddy-md-inline-code-fg:/);
   expect(css).toMatch(/--coddy-md-inline-code-bg:/);
   expect(css).not.toMatch(/--coddy-md-inline-code-bd:/);
-  expect(css).toMatch(/\.md-inline-code[\s\S]*cursor:\s*pointer/);
+  expect(css).toMatch(/\.md-inline-code[\s\S]*cursor:\s*text/);
+  expect(css).not.toContain(".md-inline-code:hover");
+  expect(css).not.toContain(".md-inline-code:focus-visible");
+  expect(css).not.toContain(".md-inline-code:active");
+  expect(css).toMatch(/\.md a \.md-inline-code\s*\{[^}]*cursor:\s*inherit/s);
   expect(css).toMatch(/\.md-inline-code[\s\S]*border-radius:\s*6px/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*display:\s*inline-flex/);
   // An 18px chip either way; the 14px line box keeps wrapped lines apart

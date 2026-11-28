@@ -176,11 +176,11 @@ export const UserMessage = memo(function UserMessage(props: {
   };
 
   return (
-    <div
+    <article
       className={`msg-user-stack${(props.userMsgIndex ?? 0) > 0 ? " msg-user-stack--followup" : ""}${props.editing ? " msg-user-stack--editing" : ""}`}
       data-row-id={props.rowId}
+      aria-label={t("messages.userHeading")}
     >
-      <h2 className="sr-only">{t("messages.userHeading")}</h2>
       {props.files && props.files.length > 0 ? (
         <div
           className="msg-user-files"
@@ -337,6 +337,6 @@ export const UserMessage = memo(function UserMessage(props: {
           onClose={() => setLightbox(null)}
         />
       ) : null}
-    </div>
+    </article>
   );
 });

@@ -1,4 +1,9 @@
-import React, { useRef, useState, useSyncExternalStore } from "react";
+import React, {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   branchChipVisible,
@@ -109,6 +114,12 @@ export function WorkspaceChips(props: Props) {
   }
 
   const ctx = props.context;
+  const hasContext = ctx !== null;
+  useLayoutEffect(() => {
+    if (hasContext) return;
+    setGitDialog(null);
+    setFolderModalOpen(false);
+  }, [hasContext]);
   if (!ctx) {
     return null;
   }
@@ -202,7 +213,7 @@ export function WorkspaceChips(props: Props) {
           data-testid="composer-branch-chip"
           ref={branchTrigger}
           title={ctx.branch || t("workspace.detached")}
-          aria-label={ctx.branch || t("workspace.detached")}
+          aria-label={`${t("workspace.branchPicker")}: ${ctx.branch || t("workspace.detached")}`}
           {...menu.triggerProps("branch", "dialog")}
         >
           <BranchIcon worktree={ctx.is_worktree === true} />
