@@ -1,9 +1,16 @@
 import React from "react";
 import { afterEach, describe, expect, it, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { NavRail } from "./NavRail";
 import { OpenRailScreen } from "./railEscape.fakes";
 import { resetAuthStateForTests, setAuthState } from "../auth/authState";
+import { ExtensionsProvider } from "../extensions/ExtensionsProvider";
 
 afterEach(() => cleanup());
 
@@ -410,9 +417,11 @@ describe("NavRail on a relay", () => {
   });
 });
 
-// On a phone the top bar shows what fits and folds the rest behind a More
-// button. jsdom does no layout, so the widths the bar measures are stubbed:
-// the pill's clientWidth, the brand's natural scrollWidth and an icon's rect.
+// On a phone and a tablet the top bar is a fixed row: History, the Scheduler,
+// the environment and, on a relay, the swarm, then the More button that holds
+// everything else (navOverflow.ts). jsdom does no layout and nothing is
+// measured any more, so the stacked shell alone is stubbed through matchMedia.
+// The order the row paints in is held by navBarOrderCss.test.ts.
 describe("NavRail on a phone: the More menu", () => {
   const base = {
     onNewChat: () => {},
@@ -428,9 +437,9 @@ describe("NavRail on a phone: the More menu", () => {
   };
   const restore: Array<() => void> = [];
 
-  function stubLayout(opts: { stacked: boolean; pill: number }) {
+  function stubStacked(stacked: boolean) {
     vi.stubGlobal("matchMedia", (query: string) => ({
-      matches: query.includes("max-width") ? opts.stacked : false,
+      matches: query.includes("max-width") ? stacked : false,
       media: query,
       addEventListener: () => {},
       removeEventListener: () => {},
@@ -438,55 +447,7 @@ describe("NavRail on a phone: the More menu", () => {
       removeListener: () => {},
       dispatchEvent: () => false,
     }));
-    const clientWidth = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      "clientWidth",
-    );
-    const scrollWidth = Object.getOwnPropertyDescriptor(
-      Element.prototype,
-      "scrollWidth",
-    );
-    const rect = HTMLElement.prototype.getBoundingClientRect;
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-      configurable: true,
-      get() {
-        return (this as HTMLElement).classList.contains("rail-pill")
-          ? opts.pill
-          : 0;
-      },
-    });
-    Object.defineProperty(Element.prototype, "scrollWidth", {
-      configurable: true,
-      get() {
-        return (this as Element).classList.contains("rail-brand") ? 60 : 0;
-      },
-    });
-    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const w = this.classList.contains("rail-hit") ? 40 : 0;
-      return {
-        width: w,
-        height: w,
-        x: 0,
-        y: 0,
-        top: 0,
-        left: 0,
-        right: w,
-        bottom: w,
-        toJSON: () => ({}),
-      } as DOMRect;
-    };
-    restore.push(() => {
-      if (clientWidth)
-        Object.defineProperty(
-          HTMLElement.prototype,
-          "clientWidth",
-          clientWidth,
-        );
-      if (scrollWidth)
-        Object.defineProperty(Element.prototype, "scrollWidth", scrollWidth);
-      HTMLElement.prototype.getBoundingClientRect = rect;
-      vi.unstubAllGlobals();
-    });
+    restore.push(() => vi.unstubAllGlobals());
   }
 
   function signIn() {
@@ -518,47 +479,42 @@ describe("NavRail on a phone: the More menu", () => {
     while (restore.length) restore.pop()!();
   });
 
-  it("counts the plus beside the name when it decides what fits", () => {
+  it("keeps history, the scheduler and the environment in the bar, the rest behind More", () => {
     signIn();
-    // 60 for the name and 40 for the plus leave 240: six items of 40 fit, and
-    // a bar that forgot the plus would keep them all at a width with no room.
-    stubLayout({ stacked: true, pill: 340 });
-    render(<NavRail {...base} onOpenDocs={() => {}} />);
-    expect(barIds()).toHaveLength(6);
-    cleanup();
-    stubLayout({ stacked: true, pill: 300 });
-    render(<NavRail {...base} onOpenDocs={() => {}} />);
-    expect(barIds().length).toBeLessThan(6);
-  });
-
-  it("shows every item and no More button when they all fit", () => {
-    signIn();
-    stubLayout({ stacked: true, pill: 400 });
+    stubStacked(true);
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toEqual([
       "nav-history",
       "nav-scheduler",
-      "nav-docs",
-      "nav-settings",
-      "nav-environment",
-      "nav-sign-out",
-    ]);
-    expect(screen.queryByTestId("nav-more")).toBeNull();
-  });
-
-  it("folds what does not fit behind More, sign-out last under a separator", () => {
-    signIn();
-    // 260 - 60 for the brand - 40 for the plus = 160: four 40px slots, one of
-    // them the More button and one the environment, which never folds.
-    stubLayout({ stacked: true, pill: 260 });
-    render(<NavRail {...base} onOpenDocs={() => {}} />);
-    expect(barIds()).toEqual([
-      "nav-history",
-      "nav-settings",
       "nav-environment",
       "nav-more",
     ]);
-    const more = screen.getByTestId("nav-more");
+    expect(screen.queryByTestId("nav-docs")).toBeNull();
+    expect(screen.queryByTestId("nav-settings")).toBeNull();
+    expect(screen.queryByTestId("nav-sign-out")).toBeNull();
+  });
+
+  it("adds the swarm to the bar on a relay, beside the environment", () => {
+    stubStacked(true);
+    render(<NavRail {...base} showSwarm onOpenDocs={() => {}} />);
+    expect(barIds()).toEqual([
+      "nav-history",
+      "nav-scheduler",
+      "nav-swarm",
+      "nav-environment",
+      "nav-more",
+    ]);
+  });
+
+  it("holds the installation's surfaces, sign-out last under a separator", async () => {
+    signIn();
+    stubStacked(true);
+    render(
+      <ExtensionsProvider>
+        <NavRail {...base} onOpenDocs={() => {}} onOpenStatistics={() => {}} />
+      </ExtensionsProvider>,
+    );
+    const more = await screen.findByTestId("nav-more");
     expect(more).toHaveAttribute("aria-label", "More");
     expect(more).toHaveAttribute("aria-haspopup", "menu");
     expect(more).toHaveAttribute("aria-expanded", "false");
@@ -567,12 +523,15 @@ describe("NavRail on a phone: the More menu", () => {
     fireEvent.click(more);
     expect(more).toHaveAttribute("aria-expanded", "true");
     const menu = screen.getByRole("menu");
-    const rows = Array.from(menu.children).map(
-      (e) => e.getAttribute("data-testid") ?? e.getAttribute("role"),
-    );
-    expect(rows).toEqual([
+    expect(
+      Array.from(menu.children).map(
+        (e) => e.getAttribute("data-testid") ?? e.getAttribute("role"),
+      ),
+    ).toEqual([
+      "nav-extensions",
       "nav-more-docs",
-      "nav-more-scheduler",
+      "nav-more-statistics",
+      "nav-more-settings",
       "separator",
       "nav-more-sign-out",
     ]);
@@ -591,38 +550,29 @@ describe("NavRail on a phone: the More menu", () => {
     );
   });
 
-  it("with less room the rest folds, history and the environment never do", () => {
-    stubLayout({ stacked: true, pill: 180 });
+  it("shows no sign-out row when nobody is signed in", () => {
+    stubStacked(true);
     render(<NavRail {...base} onOpenDocs={() => {}} />);
-    // 80px: two slots, and still history, the environment and More.
-    expect(barIds()).toEqual(["nav-history", "nav-environment", "nav-more"]);
     fireEvent.click(screen.getByTestId("nav-more"));
-    expect(
-      Array.from(
-        screen.getByRole("menu").querySelectorAll("[role='menuitem']"),
-      ).map((e) => e.getAttribute("data-testid")),
-    ).toEqual(["nav-more-docs", "nav-more-scheduler", "nav-more-settings"]);
+    expect(screen.queryByTestId("nav-more-sign-out")).toBeNull();
   });
 
-  it("keeps the Scheduler active count when Scheduler is folded into More", () => {
-    stubLayout({ stacked: true, pill: 180 });
+  it("keeps the scheduler's active count on its bar item", () => {
+    stubStacked(true);
     render(
       <NavRail {...base} schedulerActiveCount={2} onOpenDocs={() => {}} />,
     );
-    fireEvent.click(screen.getByTestId("nav-more"));
-    const count = screen.getByTestId("nav-more-scheduler-active-count");
+    const count = screen.getByTestId("nav-scheduler-active-count");
     expect(count).toHaveTextContent("2");
-    // On the row's icon, like on the rail, never after the label.
-    expect(count).toHaveClass("rail-active-count");
     expect(count.parentElement).toHaveClass("rail-nav-icon");
-    expect(screen.getByTestId("nav-more-scheduler")).toHaveAccessibleName(
+    expect(screen.getByTestId("nav-scheduler")).toHaveAccessibleName(
       "Scheduler jobs, 2 active runs",
     );
   });
 
   it("picking a folded item opens it and closes the menu", () => {
     const onOpenDocs = vi.fn();
-    stubLayout({ stacked: true, pill: 180 });
+    stubStacked(true);
     render(<NavRail {...base} onOpenDocs={onOpenDocs} />);
     fireEvent.click(screen.getByTestId("nav-more"));
     fireEvent.click(screen.getByTestId("nav-more-docs"));
@@ -635,7 +585,7 @@ describe("NavRail on a phone: the More menu", () => {
   });
 
   it("Escape and a press outside close the menu", () => {
-    stubLayout({ stacked: true, pill: 180 });
+    stubStacked(true);
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     const more = screen.getByTestId("nav-more");
     fireEvent.click(more);
@@ -648,7 +598,7 @@ describe("NavRail on a phone: the More menu", () => {
   });
 
   it("Escape folds the menu and leaves the screen open under it for the next one", () => {
-    stubLayout({ stacked: true, pill: 180 });
+    stubStacked(true);
     const closeDocs = vi.fn();
     render(
       <>
@@ -665,18 +615,18 @@ describe("NavRail on a phone: the More menu", () => {
   });
 
   it("More lights up while a folded panel is open", () => {
-    stubLayout({ stacked: true, pill: 180 });
+    stubStacked(true);
     const { rerender } = render(
-      <NavRail {...base} onOpenDocs={() => {}} docsOpen={false} />,
+      <NavRail {...base} onOpenDocs={() => {}} settingsOpen={false} />,
     );
     expect(screen.getByTestId("nav-more").className).not.toContain("is-active");
-    rerender(<NavRail {...base} onOpenDocs={() => {}} docsOpen />);
+    rerender(<NavRail {...base} onOpenDocs={() => {}} settingsOpen />);
     expect(screen.getByTestId("nav-more").className).toContain("is-active");
   });
 
-  it("a desktop rail never folds, whatever it measures", () => {
+  it("a desktop rail never folds", () => {
     signIn();
-    stubLayout({ stacked: false, pill: 100 });
+    stubStacked(false);
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toEqual([
       "nav-history",

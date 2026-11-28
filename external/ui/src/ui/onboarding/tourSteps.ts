@@ -27,8 +27,10 @@ export const TOUR_STEPS: TourStep[] = [
     bodyKey: "tour.step.history.body",
   },
   {
+    // Settings folds behind More on a phone and a tablet, so the step points
+    // at the button that holds it there.
     id: "settings",
-    anchor: '[data-testid="nav-settings"]',
+    anchor: '[data-testid="nav-settings"], [data-testid="nav-more"]',
     titleKey: "tour.step.settings.title",
     bodyKey: "tour.step.settings.body",
   },

@@ -1,9 +1,13 @@
 /**
- * Which top bar items fit on a phone and which fold into the More menu.
- * History, swarm and the environment never fold (the environment says where
- * the page works and whether that host answers); the rest come back into the bar in
- * NAV_RETURN_ORDER as room grows, and the menu lists what is left in
- * NAV_MENU_ORDER, sign-out last.
+ * The top bar of a phone and a tablet is a fixed row: History, Scheduler, the
+ * environment the page drives and, on a relay, the swarm, then the More button
+ * that holds everything else. Nothing is measured, so the row reads the same
+ * however much room the window has; the desktop rail never folds and shows
+ * every item it has.
+ *
+ * `NAV_BAR` is the row in bar order. `NAV_MENU_ORDER` is the menu under More:
+ * the installation's own surfaces first (extensions, documentation, statistics,
+ * then the settings), a separator, and signing out last.
  */
 export type NavItemId =
   | "statistics"
@@ -16,58 +20,33 @@ export type NavItemId =
   | "environment"
   | "signOut";
 
-export const NAV_ALWAYS: readonly NavItemId[] = [
+export const NAV_BAR: readonly NavItemId[] = [
   "history",
-  "swarm",
-  "environment",
-];
-export const NAV_RETURN_ORDER: readonly NavItemId[] = [
-  "settings",
-  "extensions",
   "scheduler",
-  "docs",
-  "statistics",
-  "signOut",
+  "environment",
+  "swarm",
 ];
+
 export const NAV_MENU_ORDER: readonly NavItemId[] = [
   "extensions",
   "docs",
   "statistics",
-  "scheduler",
   "settings",
   "signOut",
 ];
 
 /**
- * Splits the items the bar has (`present`, in bar order) for a bar with room
- * for `slots` icons. `null` slots means the bar was not measured (a desktop
- * rail, or no layout): everything stays in the bar.
+ * Splits the items the rail has (`present`) into the bar and the menu under
+ * More. An item outside both lists, such as the anchor slot, stays wherever
+ * the caller renders it.
  */
-export function splitNavItems(
-  present: readonly NavItemId[],
-  slots: number | null,
-): { bar: NavItemId[]; menu: NavItemId[] } {
-  if (slots === null || present.length <= slots) {
-    return { bar: [...present], menu: [] };
-  }
-  const always = present.filter((id) => NAV_ALWAYS.includes(id));
-  // The More button takes one of the slots.
-  const room = Math.max(0, slots - always.length - 1);
-  const back = NAV_RETURN_ORDER.filter((id) => present.includes(id)).slice(
-    0,
-    room,
-  );
-  const bar = present.filter((id) => always.includes(id) || back.includes(id));
+export function splitNavItems(present: readonly NavItemId[]): {
+  bar: NavItemId[];
+  menu: NavItemId[];
+} {
+  const bar = NAV_BAR.filter((id) => present.includes(id));
   const menu = NAV_MENU_ORDER.filter(
     (id) => present.includes(id) && !bar.includes(id),
   );
   return { bar, menu };
-}
-
-/** How many icons `slot` wide, `gap` apart, fit in `available` pixels. */
-export function navSlots(available: number, slot: number, gap: number): number {
-  if (slot <= 0 || available <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.floor((available + gap) / (slot + gap)));
 }
