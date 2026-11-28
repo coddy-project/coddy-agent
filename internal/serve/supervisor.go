@@ -56,6 +56,8 @@ type Supervisor struct {
 type instance struct {
 	cancel      context.CancelFunc
 	done        chan struct{}
+	ready       chan error
+	readyOnce   sync.Once
 	fingerprint string
 	restartKey  string
 	address     string // the listener address the instance was started on
@@ -88,23 +90,50 @@ func NewSupervisor(log *slog.Logger, subs []Subsystem) *Supervisor {
 // restart fingerprints, so the first reload only rebuilds what actually moved.
 // reloads carries configurations as they are replaced and may be nil, in which
 // case the process runs whatever it started with.
-func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan *config.Config) error {
+func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan *config.Config, ready ...func()) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	failures := make(chan error, len(s.subs))
+	var pending []<-chan error
 	for _, sub := range s.subs {
 		if sub.enabled(cfg) && sub.Available {
-			s.start(ctx, sub, cfg, failures)
+			inst := s.start(ctx, sub, cfg, failures)
+			if len(ready) > 0 && !sub.Auxiliary {
+				pending = append(pending, inst.ready)
+			}
 		}
 	}
 	s.markApplied(cfg)
+
+	var startup <-chan error
+	if len(ready) > 0 {
+		startupDone := make(chan error, 1)
+		startup = startupDone
+		go func() {
+			for _, ch := range pending {
+				if err := <-ch; err != nil {
+					startupDone <- err
+					return
+				}
+			}
+			startupDone <- nil
+		}()
+	}
 
 	var runErr error
 	for {
 		select {
 		case <-ctx.Done():
 			return s.shutdown(runErr)
+		case err := <-startup:
+			if err != nil {
+				runErr = err
+				cancel()
+				continue
+			}
+			ready[0]()
+			startup = nil
 		case err := <-failures:
 			if err != nil && runErr == nil {
 				runErr = err
@@ -128,11 +157,12 @@ func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan
 }
 
 // start launches one subsystem under its own child context.
-func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Config, failures chan<- error) {
+func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Config, failures chan<- error) *instance {
 	child, cancel := context.WithCancel(ctx)
 	inst := &instance{
 		cancel:      cancel,
 		done:        make(chan struct{}),
+		ready:       make(chan error, 1),
 		fingerprint: sub.fingerprint(cfg),
 		restartKey:  sub.restartKey(cfg),
 		address:     sub.address(cfg),
@@ -145,7 +175,18 @@ func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Confi
 	s.log.Info("subsystem starting", "subsystem", string(sub.Kind))
 	go func() {
 		defer close(inst.done)
+		reportReady := func() { inst.readyOnce.Do(func() { inst.ready <- nil }) }
+		child = withReadiness(child, reportReady)
+		if !sub.ManualReady {
+			reportReady()
+		}
 		err := runGuarded(child, sub, cfg)
+		inst.readyOnce.Do(func() {
+			if err == nil {
+				err = fmt.Errorf("%s stopped before becoming ready", sub.Kind)
+			}
+			inst.ready <- err
+		})
 		if child.Err() != nil {
 			// Stopping was the instruction, so whatever the surface returned on
 			// the way out is noise, not a failure.
@@ -169,6 +210,7 @@ func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Confi
 		}
 		failures <- fmt.Errorf("%s: %w", sub.Kind, err)
 	}()
+	return inst
 }
 
 // runGuarded turns a panic inside a surface into an ordinary error, so one

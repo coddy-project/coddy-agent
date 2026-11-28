@@ -37,6 +37,10 @@ const (
 
 // Bounds of a prompt, variables so the tests can shorten them.
 var (
+	// acpSessionNewTimeout bounds opening the diagnostic session a levels
+	// fetch needs. The process start has its own longer bound; a silent RPC
+	// must not hold the HTTP request indefinitely.
+	acpSessionNewTimeout = 30 * time.Second
 	// acpCancelWait is how long a cancelled prompt waits for the agent to
 	// confirm the cancellation before the prompt is abandoned.
 	acpCancelWait = 10 * time.Second
@@ -933,17 +937,24 @@ func (p *acpProvider) applySelection(ctx context.Context, proc *acpProcess, sess
 	// may move it on the agent's side, and some agents refuse a level a
 	// mode does not take. A level this call does not ask for undoes only a
 	// level an earlier call set; a refusal leaves the agent's own.
-	thought := proc.offeredThought(sessionID, p.in.ReasoningEffort)
-	if thought == "" {
-		thought = proc.thoughtToUndo(sessionID, def.thought)
+	thought, asked := proc.offeredThought(sessionID, p.in.ReasoningEffort)
+	undo := false
+	if !asked {
+		thought, undo = proc.thoughtToUndo(sessionID)
 	}
-	if thought != "" {
-		if err := proc.selectThought(ctx, sessionID, thought); err != nil {
+	if thought.value != "" {
+		var err error
+		if asked {
+			err = proc.selectThought(ctx, sessionID, thought)
+		} else if undo {
+			err = proc.undoThought(ctx, sessionID, thought)
+		}
+		if err != nil {
 			var acpErr *ACPError
 			if !errors.As(err, &acpErr) || (acpErr.Kind != ACPErrorSelect && acpErr.Kind != ACPErrorRPC) {
 				return err
 			}
-			proc.log.Debug("acp agent kept its own reasoning level", "agent", proc.spec.label(), "level", thought, "error", err)
+			proc.log.Debug("acp agent kept its own reasoning level", "agent", proc.spec.label(), "level", thought.value, "error", err)
 		}
 	}
 	return nil
@@ -1203,9 +1214,6 @@ func (p *acpProcess) newSession(ctx context.Context, cwd string) (string, error)
 	} else if st.Modes != nil {
 		def.mode = st.Modes.CurrentModeID
 	}
-	if opt, ok := optionOf(st.ConfigOptions, "thought_level"); ok {
-		def.thought = opt.current()
-	}
 	p.mu.Lock()
 	p.states[st.SessionID] = &st
 	p.defaults[st.SessionID] = def
@@ -1273,8 +1281,28 @@ func (p *acpProcess) stateOf(id string) acpSessionState {
 func (p *acpProcess) storeOptions(id string, opts []acpConfigOption) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if st := p.states[id]; st != nil && len(opts) > 0 {
+	// The result of session/set_config_option carries the complete list, so
+	// a non-nil empty one is the agent reporting that no options remain, not
+	// the absence of a list: applying it is what invalidates a reasoning
+	// override whose option just went away.
+	if st := p.states[id]; st != nil && opts != nil {
 		st.ConfigOptions = opts
+		p.dropMovedThoughtLocked(id, opts)
+	}
+}
+
+// dropMovedThoughtLocked forgets a reasoning override once the agent's own
+// options no longer show it standing. If the same value later comes back, it
+// is the agent's value again, not the rest of the override. The caller holds
+// p.mu.
+func (p *acpProcess) dropMovedThoughtLocked(id string, opts []acpConfigOption) {
+	ownership, ok := p.thoughtSet[id]
+	if !ok || ownership.optionID == "" || ownership.value == "" {
+		return
+	}
+	opt, ok := configOptionByID(opts, ownership.optionID)
+	if !ok || opt.current() != ownership.value {
+		delete(p.thoughtSet, id)
 	}
 }
 
@@ -1303,14 +1331,134 @@ func optionIndex(opts []acpConfigOption, category string) int {
 	return -1
 }
 
+// thoughtLevelOptionOf returns the option Coddy treats as the reasoning
+// level selector. Some agents put a boolean thinking toggle into the same
+// category before the option that carries the levels; the toggle's false and
+// true are not levels, so the first option with other values wins. When every
+// candidate is boolean-shaped the first one keeps the category's ordinary
+// ordering, which also lets an agent whose only thought control is such a
+// toggle keep working.
+func thoughtLevelOptionOf(opts []acpConfigOption) (acpConfigOption, bool) {
+	indexes := optionIndexes(opts, "thought_level")
+	if len(indexes) == 0 {
+		return acpConfigOption{}, false
+	}
+	for _, i := range indexes {
+		if !acpBooleanSelect(opts[i]) {
+			return opts[i], true
+		}
+	}
+	return opts[indexes[0]], true
+}
+
+// optionIndexes is optionIndex with every match: first the options of the
+// category in the agent's order, else the ones whose id is its name.
+func optionIndexes(opts []acpConfigOption, category string) []int {
+	var out []int
+	for i, o := range opts {
+		if o.Category == category && (o.Type == "" || o.Type == "select") {
+			out = append(out, i)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	for i, o := range opts {
+		if o.ID == category && (o.Type == "" || o.Type == "select") {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// acpBooleanSelect reports whether every value of the option is false or
+// true. Cursor exposes boolean model parameters as such select options for a
+// client that does not advertise boolean config options.
+func acpBooleanSelect(opt acpConfigOption) bool {
+	values := opt.values()
+	if len(values) == 0 {
+		return false
+	}
+	falseSeen, trueSeen := false, false
+	for _, v := range values {
+		switch strings.ToLower(v.Value) {
+		case "false":
+			falseSeen = true
+		case "true":
+			trueSeen = true
+		default:
+			return false
+		}
+	}
+	return falseSeen && trueSeen
+}
+
 func (p *acpProcess) setOption(ctx context.Context, sessionID, configID, value string) error {
+	_, err := p.setOptionEcho(ctx, sessionID, configID, value)
+	return err
+}
+
+// setOptionEcho is setOption plus whether the answer carried the complete
+// option list, which is what tells a positive contradiction of the write
+// (the agent reporting another current value) apart from an agent that
+// answers without echoing its options at all.
+func (p *acpProcess) setOptionEcho(ctx context.Context, sessionID, configID, value string) (bool, error) {
 	var res acpSetConfigOptionResult
 	req := acpsdk.SetSessionConfigOptionRequest{ValueId: &acpsdk.SetSessionConfigOptionValueId{SessionId: acpsdk.SessionId(sessionID), ConfigId: acpsdk.SessionConfigId(configID), Value: acpsdk.SessionConfigValueId(value)}}
 	if err := p.call(ctx, "session/set_config_option", req, &res); err != nil {
-		return err
+		return false, err
 	}
 	p.storeOptions(sessionID, res.ConfigOptions)
-	return nil
+	return res.ConfigOptions != nil, nil
+}
+
+// acpModelParameter is one parameter of a model id of the form
+// base[param=value,...], the shape Cursor's variants model picker exposed.
+type acpModelParameter struct {
+	id    string
+	value string
+}
+
+// parseACPParameterizedModelID reads base[param=value,...]. It is strict:
+// malformed brackets are not a parameterized id at all, so a model an agent
+// genuinely offers under such a name keeps the exact-match path above.
+func parseACPParameterizedModelID(model string) (string, []acpModelParameter, bool) {
+	open := strings.IndexByte(model, '[')
+	if open <= 0 || !strings.HasSuffix(model, "]") {
+		return "", nil, false
+	}
+	base := model[:open]
+	inner := model[open+1 : len(model)-1]
+	if strings.ContainsAny(inner, "[]") {
+		return "", nil, false
+	}
+	if inner == "" {
+		return base, nil, true
+	}
+	parts := strings.Split(inner, ",")
+	params := make([]acpModelParameter, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		id, value, ok := strings.Cut(part, "=")
+		id = strings.TrimSpace(id)
+		value = strings.TrimSpace(value)
+		if !ok || id == "" || value == "" || seen[id] {
+			return "", nil, false
+		}
+		seen[id] = true
+		params = append(params, acpModelParameter{id: id, value: value})
+	}
+	return base, params, true
+}
+
+// configOptionByID returns a select option by its unique id.
+func configOptionByID(opts []acpConfigOption, id string) (acpConfigOption, bool) {
+	for _, o := range opts {
+		if o.ID == id && (o.Type == "" || o.Type == "select") {
+			return o, true
+		}
+	}
+	return acpConfigOption{}, false
 }
 
 // selectModel selects the model through the agent's model config option,
@@ -1331,33 +1479,125 @@ func (p *acpProcess) selectModel(ctx context.Context, sessionID, model string) e
 				return p.setOption(ctx, sessionID, opt.ID, model)
 			}
 		}
+		if base, params, ok := parseACPParameterizedModelID(model); ok {
+			return p.selectParameterizedModel(ctx, sessionID, opt.ID, model, base, params, valueIDs(values))
+		}
 		return p.notOffered("model", model, valueIDs(values))
 	}
 	if st.Models != nil {
 		if st.Models.CurrentModelID == model {
 			return nil
 		}
+		selectLegacy := func(target string) error {
+			if st.Models.CurrentModelID == target {
+				return nil
+			}
+			if err := p.call(ctx, "session/set_model", acpSetModelParams{SessionID: sessionID, ModelID: target}, nil); err != nil {
+				return err
+			}
+			p.mu.Lock()
+			if s := p.states[sessionID]; s != nil && s.Models != nil {
+				s.Models.CurrentModelID = target
+			}
+			p.mu.Unlock()
+			return nil
+		}
 		var ids []string
 		for _, m := range st.Models.AvailableModels {
 			ids = append(ids, m.ModelID)
 			if m.ModelID == model {
-				if st.Models.CurrentModelID == model {
-					return nil
+				return selectLegacy(model)
+			}
+		}
+		if base, params, ok := parseACPParameterizedModelID(model); ok && len(params) == 0 {
+			// The legacy API has no parameter options. An empty parameter list
+			// is still exact: there is nothing to apply beyond the base model,
+			// which is also how a literal model named default stays selectable
+			// as default[]. An exact bracketed id already won above.
+			for _, m := range st.Models.AvailableModels {
+				if m.ModelID == base {
+					return selectLegacy(base)
 				}
-				if err := p.call(ctx, "session/set_model", acpSetModelParams{SessionID: sessionID, ModelID: model}, nil); err != nil {
-					return err
-				}
-				p.mu.Lock()
-				if s := p.states[sessionID]; s != nil && s.Models != nil {
-					s.Models.CurrentModelID = model
-				}
-				p.mu.Unlock()
-				return nil
 			}
 		}
 		return p.notOffered("model", model, ids)
 	}
 	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: fmt.Sprintf("the agent offers no model selection; use the model %q to keep its own", acpDefaultModel)}
+}
+
+// selectParameterizedModel applies a saved variant id to an agent that now
+// exposes the base model and its parameters separately. The exact model values
+// were already tried by selectModel, so an agent still offering the variant id
+// verbatim is untouched. The serialized parameters are the meaning of the old
+// id, so they are replayed after the base model: the agent answers every set
+// with the options as they stand then, and a parameter already at its value is
+// not written again.
+func (p *acpProcess) selectParameterizedModel(ctx context.Context, sessionID, modelOptionID, original, base string, params []acpModelParameter, offered []string) error {
+	st := p.stateOf(sessionID)
+	modelOption, ok := configOptionByID(st.ConfigOptions, modelOptionID)
+	if !ok {
+		return p.notOffered("model", original, offered)
+	}
+	if modelOption.current() != base {
+		baseOffered := false
+		for _, v := range modelOption.values() {
+			if v.Value == base {
+				baseOffered = true
+				break
+			}
+		}
+		if !baseOffered {
+			return p.notOffered("model", original, offered)
+		}
+		if err := p.setOption(ctx, sessionID, modelOptionID, base); err != nil {
+			return err
+		}
+	}
+	for _, param := range params {
+		if err := p.selectModelParameter(ctx, sessionID, original, param); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// selectModelParameter applies one parameter of a serialized variant id. The
+// agent's answer to the model selection replaced the option set, so the option
+// is looked up anew for every parameter. A parameter absent from that set is
+// not written: the variants serialization also carried single-value parameters
+// the picker has no reason to offer, and those cannot take another value.
+func (p *acpProcess) selectModelParameter(ctx context.Context, sessionID, original string, param acpModelParameter) error {
+	opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, param.id)
+	if !ok {
+		p.log.Debug("acp agent does not offer a serialized model parameter; keeping its own value", "agent", p.spec.label(), "parameter", param.id, "model", original)
+		return nil
+	}
+	if opt.current() == param.value {
+		p.ownedBySerializedModel(sessionID, opt)
+		return nil
+	}
+	for _, v := range opt.values() {
+		if v.Value == param.value {
+			if err := p.setOption(ctx, sessionID, param.id, param.value); err != nil {
+				return err
+			}
+			p.ownedBySerializedModel(sessionID, opt)
+			return nil
+		}
+	}
+	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: fmt.Sprintf("the agent offers no value %q for parameter %q of the model %q; it offers: %s", param.value, param.id, original, strings.Join(valueIDs(opt.values()), ", "))}
+}
+
+// ownedBySerializedModel drops the per-turn ownership of a reasoning level the
+// serialized model id just named. Otherwise a later thoughtToUndo would mistake
+// that explicit part of the model for a level an earlier call had chosen and
+// reset it. Other parameters have no such ownership to clear.
+func (p *acpProcess) ownedBySerializedModel(sessionID string, opt acpConfigOption) {
+	p.mu.Lock()
+	if p.thoughtSet[sessionID].optionID == opt.ID {
+		delete(p.thoughtSet, sessionID)
+	}
+	p.mu.Unlock()
 }
 
 // selectMode selects the mode through the agent's mode config option, else
@@ -1406,55 +1646,159 @@ func (p *acpProcess) selectMode(ctx context.Context, sessionID, mode string) err
 	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: fmt.Sprintf("the agent offers no modes, so acp.modes cannot select %q", mode)}
 }
 
+// acpThoughtTarget is one value of one thought_level config option.
+type acpThoughtTarget struct {
+	optionID string
+	value    string
+}
+
 // offeredThought returns the agent's value for a reasoning level when its
-// thought_level option offers it, else "".
-func (p *acpProcess) offeredThought(sessionID, level string) string {
+// thought_level option offers it.
+func (p *acpProcess) offeredThought(sessionID, level string) (acpThoughtTarget, bool) {
 	level = strings.TrimSpace(level)
 	if level == "" {
-		return ""
+		return acpThoughtTarget{}, false
 	}
-	opt, ok := optionOf(p.stateOf(sessionID).ConfigOptions, "thought_level")
+	opt, ok := thoughtLevelOptionOf(p.stateOf(sessionID).ConfigOptions)
 	if !ok {
-		return ""
+		return acpThoughtTarget{}, false
 	}
 	for _, v := range opt.values() {
 		if strings.EqualFold(v.Value, level) {
-			return v.Value
+			return acpThoughtTarget{optionID: opt.ID, value: v.Value}, true
 		}
 	}
-	return ""
+	return acpThoughtTarget{}, false
 }
 
-// selectThought selects a value of the agent's thought_level option.
-func (p *acpProcess) selectThought(ctx context.Context, sessionID, value string) error {
-	opt, ok := optionOf(p.stateOf(sessionID).ConfigOptions, "thought_level")
-	if !ok || opt.current() == value {
+// selectThought selects a value of the agent's thought_level option and
+// records the baseline of that same option, so a later call that names no
+// level can restore it. A level already standing is not an override of this
+// call: it is the agent's own value unless an earlier override put it there.
+func (p *acpProcess) selectThought(ctx context.Context, sessionID string, target acpThoughtTarget) error {
+	st := p.stateOf(sessionID)
+	opt, ok := configOptionByID(st.ConfigOptions, target.optionID)
+	if !ok {
 		return nil
 	}
-	if err := p.setOption(ctx, sessionID, opt.ID, value); err != nil {
+	valid := false
+	for _, v := range opt.values() {
+		if v.Value == target.value {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return p.notOffered("reasoning level", target.value, valueIDs(opt.values()))
+	}
+	if opt.current() == target.value {
+		return nil
+	}
+	baseline := opt.current()
+	p.mu.Lock()
+	if previous, ok := p.thoughtSet[sessionID]; ok && previous.optionID == target.optionID && previous.value == opt.current() {
+		// The standing value is the previous override, not the baseline.
+		baseline = previous.baseline
+	}
+	p.mu.Unlock()
+	echo, err := p.setOptionEcho(ctx, sessionID, target.optionID, target.value)
+	if err != nil {
 		return err
 	}
+	// An answer carrying the complete list is authoritative: when it shows a
+	// current value other than the one just written, the write did not stick
+	// and there is no override to own. An agent answering without its options
+	// gives no such evidence, so the override is owned optimistically: undoing
+	// it later writes the baseline back, which is a no-op where the write
+	// never stood.
+	if echo {
+		opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, target.optionID)
+		if !ok || opt.current() != target.value {
+			return nil
+		}
+	}
 	p.mu.Lock()
-	p.thoughtSet[sessionID] = value
+	p.thoughtSet[sessionID] = acpThoughtOwnership{optionID: target.optionID, value: target.value, baseline: baseline}
 	p.mu.Unlock()
 	return nil
 }
 
-// thoughtToUndo returns the session's starting reasoning level when a call
-// before this one set another that still stands, else "".
-func (p *acpProcess) thoughtToUndo(sessionID, initial string) string {
+// thoughtToUndo returns the baseline of the reasoning override a call before
+// this one wrote, when that override still stands on the same option and the
+// baseline is still offered. An option the agent moved, replaced or removed
+// belongs to the agent again.
+func (p *acpProcess) thoughtToUndo(sessionID string) (acpThoughtTarget, bool) {
 	p.mu.Lock()
-	set := p.thoughtSet[sessionID]
+	ownership, ok := p.thoughtSet[sessionID]
 	p.mu.Unlock()
-	if set == "" || set == initial {
-		return ""
+	if !ok || ownership.optionID == "" || ownership.value == "" || ownership.baseline == "" || ownership.baseline == ownership.value {
+		return acpThoughtTarget{}, false
 	}
-	opt, ok := optionOf(p.stateOf(sessionID).ConfigOptions, "thought_level")
-	if !ok || opt.current() != set {
-		// The agent moved it since: its own choice stands.
-		return ""
+	opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, ownership.optionID)
+	if !ok || opt.current() != ownership.value {
+		p.mu.Lock()
+		delete(p.thoughtSet, sessionID)
+		p.mu.Unlock()
+		return acpThoughtTarget{}, false
 	}
-	return initial
+	valid := false
+	for _, v := range opt.values() {
+		if v.Value == ownership.baseline {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		// The baseline is out of the option's current values: undoing now is
+		// impossible, but the override still belongs to Coddy while it stands.
+		return acpThoughtTarget{}, false
+	}
+	return acpThoughtTarget{optionID: ownership.optionID, value: ownership.baseline}, true
+}
+
+// undoThought writes the baseline of a reasoning override back to the option
+// that carried the override. It records no new ownership: the restored value
+// is the agent's baseline again, not another per-turn choice.
+func (p *acpProcess) undoThought(ctx context.Context, sessionID string, target acpThoughtTarget) error {
+	opt, ok := configOptionByID(p.stateOf(sessionID).ConfigOptions, target.optionID)
+	if !ok {
+		return nil
+	}
+	valid := false
+	for _, v := range opt.values() {
+		if v.Value == target.value {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return p.notOffered("reasoning level", target.value, valueIDs(opt.values()))
+	}
+	if opt.current() != target.value {
+		// Revalidate before writing: a notification landing since
+		// thoughtToUndo decided can have moved the option to the agent's own
+		// value, and the baseline must never overwrite that.
+		p.mu.Lock()
+		ownership, owned := p.thoughtSet[sessionID]
+		st := p.states[sessionID]
+		standing := ""
+		if st != nil {
+			if fresh, ok := configOptionByID(st.ConfigOptions, target.optionID); ok {
+				standing = fresh.current()
+			}
+		}
+		p.mu.Unlock()
+		if !owned || ownership.optionID != target.optionID || standing != ownership.value {
+			return nil
+		}
+		if err := p.setOption(ctx, sessionID, target.optionID, target.value); err != nil {
+			return err
+		}
+	}
+	p.mu.Lock()
+	delete(p.thoughtSet, sessionID)
+	p.mu.Unlock()
+	return nil
 }
 
 func (p *acpProcess) notOffered(what, value string, offered []string) error {
@@ -1464,6 +1808,14 @@ func (p *acpProcess) notOffered(what, value string, offered []string) error {
 		msg += "; it offers: " + strings.Join(offered, ", ")
 	}
 	return &ACPError{Kind: ACPErrorSelect, Agent: p.spec.label(), Message: msg}
+}
+
+// ACPParameterizedModelBase returns the base model of a serialized variant id
+// of the form base[param=value,...], the shape the variants picker of some
+// agents exposed as an opaque model id.
+func ACPParameterizedModelBase(model string) (string, bool) {
+	base, _, ok := parseACPParameterizedModelID(strings.TrimSpace(model))
+	return base, ok
 }
 
 func valueIDs(values []acpConfigValue) []string {
@@ -1508,12 +1860,98 @@ func listACPModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) 
 	}
 	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
 		for _, v := range opt.values() {
-			add(v.Value, v.Name)
+			id := v.Value
+			if id == acpDefaultModel {
+				id = "default[]"
+			}
+			add(id, v.Name)
 		}
 	} else if st.Models != nil {
 		for _, m := range st.Models.AvailableModels {
-			add(m.ModelID, m.Name)
+			id := m.ModelID
+			if id == acpDefaultModel {
+				id = "default[]"
+			}
+			add(id, m.Name)
 		}
 	}
 	return out, nil
+}
+
+// acpModelOffered reports whether id is still an exact model value of the
+// session. Exact ids win over the compatibility base fallback everywhere.
+func acpModelOffered(st acpSessionState, id string) bool {
+	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
+		for _, v := range opt.values() {
+			if v.Value == id {
+				return true
+			}
+		}
+	}
+	if st.Models != nil {
+		for _, m := range st.Models.AvailableModels {
+			if m.ModelID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ACPThoughtLevels returns the reasoning levels the agent offers for modelID
+// when that model is the one it is currently on: the values of its
+// thought_level option. Cursor files the effort under that category. The
+// call does not select a model, because selecting one writes some agents'
+// configuration. A different model yields a nil slice. An agent that is on
+// this model and offers no such option yields an empty slice.
+func ACPThoughtLevels(ctx context.Context, in ProviderInput, modelID string) ([]string, error) {
+	spec, err := resolveACPSpec(in, "", "")
+	if err != nil {
+		return nil, err
+	}
+	entry, release, err := acpAgents.acquire(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	proc := entry.proc
+	cwd := spec.sessionCWD
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	newCtx, cancel := context.WithTimeout(ctx, acpSessionNewTimeout)
+	sessionID, err := proc.newSession(newCtx, cwd)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	defer proc.closeSession(sessionID)
+	st := proc.stateOf(sessionID)
+	current := ""
+	if opt, ok := optionOf(st.ConfigOptions, "model"); ok {
+		current = opt.current()
+	} else if st.Models != nil {
+		current = st.Models.CurrentModelID
+	}
+	modelID = strings.TrimSpace(modelID)
+	matches := modelID == current
+	if !matches {
+		if base, _, ok := parseACPParameterizedModelID(modelID); ok && !acpModelOffered(st, modelID) {
+			matches = base == current
+		}
+	}
+	if modelID != "" && modelID != acpDefaultModel && !matches {
+		return nil, nil
+	}
+	opt, ok := thoughtLevelOptionOf(st.ConfigOptions)
+	if !ok {
+		return []string{}, nil
+	}
+	levels := make([]string, 0, len(opt.values()))
+	for _, v := range opt.values() {
+		if v.Value != "" {
+			levels = append(levels, v.Value)
+		}
+	}
+	return levels, nil
 }

@@ -142,24 +142,44 @@ test("fenced code without language still shows Copy control", () => {
   ).toBeInTheDocument();
 });
 
-test("inline backtick code uses md-inline-code and copies on click", async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.assign(navigator, { clipboard: { writeText } });
+test("inline code stays in the sentence and copies on click", async () => {
+  const page = pageWithoutClipboardApi(true);
 
-  render(
-    <Markdown text="Edit `docker-compose.yaml` and add `./qbittorrent:/config`." />,
+  render(<Markdown text="Type `sudo reboot` and press `enter`." />);
+
+  expect(screen.getByRole("paragraph")).toHaveTextContent(
+    "Type sudo reboot and press enter.",
   );
-
-  const inlineCodes = screen.getAllByRole("button", { name: /copy code/i });
-  const inline = inlineCodes[0]!;
-  expect(inline).toHaveClass("md-inline-code");
-  expect(inline.textContent).toBe("docker-compose.yaml");
-
+  const codes = screen.getAllByRole("button");
+  expect(codes.map((code) => code.textContent)).toEqual([
+    "sudo reboot",
+    "enter",
+  ]);
+  for (const code of codes) {
+    expect(code).not.toHaveAttribute("aria-label");
+    expect(code).toHaveAccessibleName(code.textContent || "");
+    expect(code).toHaveAttribute("title", "Copy");
+    expect(code).toHaveAccessibleDescription("Copy");
+    expect(code).toHaveClass("md-inline-code");
+  }
+  const inline = codes[0]!;
   fireEvent.click(inline);
-  expect(writeText).toHaveBeenCalledWith("docker-compose.yaml");
+  expect(page.copies).toEqual(selectedOnce("sudo reboot"));
   await waitFor(() => {
     expect(inline).toHaveAttribute("title", "Copied");
   });
+});
+
+test("inline code copies on Enter and Space", () => {
+  const page = pageWithoutClipboardApi(true);
+  render(<Markdown text="Run `make test` locally." />);
+  const inline = screen.getByRole("button", { name: "make test" });
+  fireEvent.keyDown(inline, { key: "Enter" });
+  fireEvent.keyDown(inline, { key: " " });
+  expect(page.copies).toEqual([
+    ...selectedOnce("make test"),
+    ...selectedOnce("make test"),
+  ]);
 });
 
 // A page served over plain HTTP from another machine has no

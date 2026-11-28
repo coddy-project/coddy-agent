@@ -40,7 +40,7 @@ pty (see the CLI section below):
 | **`build_coddy.sh`** | **`make build TAGS="http scheduler memory cli gateway"`** then **`./build/coddy -v`**. |
 | **`httpserver/`** | HTTP Python harnesses, **`test_httpserver.sh`**, **`docker.sh`**. |
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
-| **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only). |
+| **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only), plus **`cli_e2e_windows_service.py`** (native elevated Windows SCM lifecycle and daemon fallback). |
 | **`gateway/`** | **`tg_e2e_offline.sh`** (wrapper **`test_gateway.sh`**): the Telegram bot against the fake Bot API and scripted model of **[tgfake](https://github.com/EvilFreelancer/tgfake)**, no Telegram and no LLM involved (bash, Git Bash on Windows included). |
 | **`prometheus/`** | **`coddy-rules.yml`**, the alert rules for the exporter of **`coddy serve`**, and **`coddy-rules.test.yml`**, their **`promtool test rules`** cases (CI runs them from a pinned `prom/prometheus` image). |
 | **`grafana/`** | **`coddy-dashboard.json`**, the Grafana dashboard over the exporters of one or many **`coddy serve`** processes (a swarm: every agent and relay is a target), and **`docker-compose.yaml`** with **`targets.yml`**, Prometheus and Grafana on the host network with the dashboard and the rules of **`prometheus/`** provisioned (`docs/operate/monitoring.md`, *The Grafana dashboard*). |

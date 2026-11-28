@@ -134,8 +134,8 @@
   <body style="--width: 1360px">
     <h1>coddy serve: one process, many subsystems</h1>
     <p class="lead">
-      Every subsystem <code>config.yaml</code> enables runs as a goroutine of one process over one session manager. A
-      dispatcher or systemd keeps that process alive and starts a fresh one when a change cannot be applied in place.
+      Every subsystem <code>config.yaml</code> enables runs as a goroutine of one process over one session manager.
+      A dispatcher, systemd or Windows SCM keeps that process alive and starts a fresh one when a change cannot be applied in place.
     </p>
 
     <div class="cols top">
@@ -178,6 +178,11 @@
               <code>SuccessExitStatus=75</code> and <code>RestartForceExitStatus=75</code>, 40 s to stop, works in
               <code>~/Coddy</code></span
             >
+          </div>
+          <div class="title" style="margin-top: 12px">Windows SCM service (<code>coddy serve install</code>)</div>
+          <div class="box core b">
+            Coddy, running as <code>NT SERVICE\Coddy</code>
+            <span class="sub"><code>CODDY_SERVE_ROLE=service</code>; SCM recovery actions restart exit 75, crashes and other failures; readiness precedes <code>Running</code></span>
           </div>
           <div class="title" style="margin-top: 12px">Foreground</div>
           <div class="box core b" id="fg">

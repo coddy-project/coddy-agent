@@ -226,8 +226,10 @@ func (s *Server) socket(ws *websocket.Conn) {
 	s.Log.Info("browser connected", "browser", c.info.ID, "name", c.info.Name, "version", c.info.Version)
 	defer s.Log.Info("browser disconnected", "browser", c.info.ID)
 	// Commands carry no page data, but answers do: a snapshot of a long page,
-	// a screenshot. Files go through the transfer route instead.
-	ws.MaxPayloadBytes = 8 << 20
+	// a screenshot. Files go through the transfer route instead. Screenshots
+	// are not bounded: the person asked for the picture, and the websocket
+	// library's own default would cut a large one off mid-frame.
+	ws.MaxPayloadBytes = 1 << 30
 
 	stopped := make(chan struct{})
 	defer close(stopped)

@@ -297,6 +297,18 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Enviro
 %LOCALAPPDATA%\Programs\coddy\coddy.exe
 ```
 
+### Работа без открытого терминала
+
+После настройки провайдера зарегистрируйте Coddy как сервис Windows:
+
+```powershell
+coddy serve install
+coddy serve status
+coddy serve restart
+```
+
+Сервис запускает `coddy serve` без окна консоли и продолжает работать после закрытия PowerShell. Управляйте им командами `coddy serve status`, `stop`, `restart` и `uninstall`. Для регистрации и удаления требуется PowerShell с повышенными правами. Сервис работает от имени виртуальной учётной записи `NT SERVICE\Coddy` с ограниченными правами, а не LocalSystem. При установке Coddy выдаёт ей доступ к бинарнику, выбранному домашнему каталогу и конфигурации, а также к рабочей папке сервиса `workspace` внутри домашнего каталога. SCM перезапускает сервис после сбоя и после изменения конфигурации, которому нужен новый процесс.
+
 ### Пакетные менеджеры
 
 Манифесты Scoop и winget пока не опубликованы, работа над ними отслеживается в [issue #42](https://github.com/coddy-project/coddy-agent/issues/42). До тех пор используйте `install.ps1` выше и обновляйтесь командой `coddy update -y`.
@@ -321,4 +333,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=4abe073e87edd20f -->
+<!-- docsgen:source sha256=a21e890a3ef6a996 -->

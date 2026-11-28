@@ -147,6 +147,19 @@ service is for, without
 .BR sudo .
 The service stops at logout unless an administrator runs
 .BR "loginctl enable-linger" .
+On Windows, run this command from an elevated PowerShell to register and start
+Coddy in Service Control Manager. The service runs as the low-privilege virtual
+account
+.B NT SERVICE\eCoddy
+and is restarted by SCM after a crash or a configuration change that needs a
+fresh process. Installation grants that account access to the executable, its
+directory, the selected home and configuration, and uses
+.I workspace
+under the home as its default working directory. Windows installation accepts
+.BR --home
+and
+.BR --config
+to select the paths stored in the service registration.
 .TP
 .B "serve uninstall"
 Stop and disable
@@ -158,19 +171,24 @@ hand is disabled and kept, and
 .I ~/.coddy
 and
 .I ~/Coddy
-are not touched.
+are not touched. On Windows, elevated PowerShell is required; the SCM service
+is stopped and removed only when its configured executable matches the running
+binary.
 .TP
 .B "serve status"
 Report the background dispatcher for this agent home: its process, when it
 started, the configuration and log it is using, whether a worker is up right
-now, and why the last one went away.
+now, and why the last one went away. On Windows, report the state, start mode
+and image path of the SCM service registered for the running executable.
 .TP
 .B "serve stop"
-Stop the background dispatcher and the worker under it.
+Stop the background dispatcher and the worker under it. On Windows, stop the
+matching SCM service instead.
 .TP
 .B "serve restart"
 Stop the background dispatcher and start it again with the arguments it was
-started with the first time.
+started with the first time. On Windows, stop and start the matching SCM
+service instead.
 .TP
 .B "serve set-password"
 Write the web UI sign-in account into

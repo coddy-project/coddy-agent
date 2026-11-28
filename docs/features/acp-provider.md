@@ -19,6 +19,8 @@ models:
 
 `acp.command` is the program, looked up on `PATH`, and `acp.args` its arguments. The model id after the provider name selects one of the agent's own models: `default` keeps the model the agent starts with, and anything else must be a model the agent offers (Settings lists them, see [Settings and the dry run](#settings-and-the-dry-run)). A model id may contain slashes, as `coddy acp` names its models (`coddy/neuraldeep/qwen3.8-27b`).
 
+Coddy advertises the parameterized model picker capability (`clientCapabilities._meta.parameterizedModelPicker`) to every agent. An agent that does not know the key ignores it; one that knows it may expose a base model and its parameters as separate session options instead of serialized model variants such as `grok-4.7[context=256k,reasoning_effort=high,fast=true]`. A saved id of that serialized form keeps working: Coddy selects its base model (`grok-4.7`) and applies the serialized parameters through the parameter options the agent exposes, so the id keeps its old meaning. A parameter the agent no longer exposes is left at the agent's own value; the serialization also carried single-value parameters that cannot take another value. Use the plain base model id instead when the agent's own preserved parameter choices should stand. An exact model id an agent still offers is always selected as-is. `default` remains the Coddy sentinel for the agent's own current model; when the agent itself offers a model literally named `default`, Settings lists that model as `default[]` so it can still be selected.
+
 | Agent | `command` / `args` | Sign-in | `modes.plan` / `modes.ask` |
 | --- | --- | --- | --- |
 | Claude Code | `claude-agent-acp` | the Claude CLI login | `plan` |
@@ -80,7 +82,7 @@ An agent writes a line, runs a tool, writes the next line, and all of it is one 
 
 The line a finished turn leaves under its answer - how long it ran and how much it wrote - carries no generation speed here. An agent streams its answer around waits of its own, so what it writes per second says nothing about a model.
 
-The model id selects the agent's model through the agent's model option, the session's reasoning level sets the agent's reasoning option when that option offers a value of the same name, and the session's mode selects the agent's mode through `acp.modes`. A value a turn does not name goes back to what the session started with, so a choice of an earlier turn never sticks.
+The model id selects the agent's model through the agent's model option, the session's reasoning level sets the agent's reasoning option when that option offers a value of the same name, and the session's mode selects the agent's mode through `acp.modes`. An agent that puts a boolean thinking toggle into the reasoning category beside the option that carries the levels keeps it as a toggle: its `false` and `true` are not treated as levels unless the toggle is the only reasoning option. A turn that names no reasoning level undoes the level an earlier turn wrote, restoring the value the same option held before the override; an option the agent has since moved, replaced or removed is left to the agent. A model or mode a turn does not name goes back to what the session started with, so a choice of an earlier turn never sticks.
 
 A message written while the agent works goes to the [message queue](message-queue.md), and a **steer** one is read at once: such a turn is one call with no step of Coddy's inside it, so its step boundary is the agent's prompt. Coddy interrupts that prompt and starts the turn again carrying the message, the way Stop with a waiting queue does by hand. The agent keeps its own ACP session and goes on from what it had done, and its answer so far stays in the transcript. A message that asked to wait for the turn changes nothing: the agent finishes first.
 
@@ -151,7 +153,7 @@ A logical model of the row is a model of the composer's selector like any other,
 
 *The model selector with the two logical models of the `coddy` row.*
 
-`coddy --dry-run` starts each agent, opens a session to read its models, checks that the configured model ids are among them, and warns about a missing `modes.plan` or `modes.ask`.
+`coddy --dry-run` starts each agent, opens a session to read its models, checks that the configured model ids are among them, accepts a serialized variant id when the agent offers its base model, and warns about a missing `modes.plan` or `modes.ask`.
 
 ## Troubleshooting
 

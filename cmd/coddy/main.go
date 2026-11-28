@@ -93,6 +93,13 @@ func wireToolCatalog() { config.RegisterToolCatalog(tools.KnownToolNames) }
 
 func main() {
 	wireToolCatalog()
+	if len(os.Args) > 1 && os.Args[1] == "__windows-service" {
+		if err := runWindowsService(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -231,11 +238,10 @@ func printUsage(w io.Writer) {
         with a different digest is skipped with a warning and never replaced;
         a missing or invalid file warns and the startup continues, and the
         server runs with exit code 0 even when every file fails)
-  %[1]s serve install (Linux: run coddy serve as a systemd user service in
-        ~/Coddy - installs the unit when the package did not, enables and
-        starts it)
-  %[1]s serve uninstall (stop and disable that service and remove the unit
-        that install wrote; ~/.coddy and ~/Coddy are kept)
+  %[1]s serve install (Windows: register and start the SCM service;
+        Linux: install, enable and start the systemd user service in ~/Coddy)
+  %[1]s serve uninstall (stop and remove that Windows service or systemd unit;
+        the agent home and ~/Coddy are kept)
   %[1]s serve status | stop | restart [--home DIR]
   %[1]s desktop [flags] (open Coddy as a window on this machine: a tab strip with
         one chat per tab, over an HTTP surface on a loopback port this home

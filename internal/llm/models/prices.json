@@ -438,6 +438,11 @@
     "output": 50,
     "cached": 1
   },
+  "gpt-6-astra-healthcare": {
+    "input": 10,
+    "output": 50,
+    "cached": 1
+  },
   "gpt-6-luna": {
     "input": 0.1,
     "output": 0.5,
@@ -453,6 +458,11 @@
     "output": 10,
     "cached": 0.1
   },
+  "gpt-6.1-sol-healthcare": {
+    "input": 2,
+    "output": 10,
+    "cached": 0.1
+  },
   "gpt-6.1-terra": {
     "input": 1,
     "output": 5,
@@ -463,7 +473,17 @@
     "output": 40,
     "cached": 0.4
   },
+  "gpt-6.2-astra-healthcare": {
+    "input": 8,
+    "output": 40,
+    "cached": 0.4
+  },
   "gpt-6.2-sol": {
+    "input": 2,
+    "output": 10,
+    "cached": 0.1
+  },
+  "gpt-6.2-sol-healthcare": {
     "input": 2,
     "output": 10,
     "cached": 0.1
@@ -876,6 +896,11 @@
   "ring-2.6-1t-free": {
     "input": 0,
     "output": 0
+  },
+  "seaglass-alpha-free": {
+    "input": 0,
+    "output": 0,
+    "cached": 0
   },
   "space-bunny": {
     "input": 0.15,

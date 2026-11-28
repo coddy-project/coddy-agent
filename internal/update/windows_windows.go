@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"golang.org/x/sys/windows"
 )
 
@@ -30,6 +31,10 @@ var (
 	renameFile   = os.Rename
 	handoffProbe = installedBuildTakesHandoff
 	startProcess = startInstalledBuild
+
+	windowsServiceState = serve.WindowsServiceStateFor
+	stopWindowsService  = serve.StopWindowsService
+	startWindowsService = serve.StartWindowsService
 )
 
 // helperPrefix names the copies of Coddy that install an update from the system
@@ -254,14 +259,103 @@ func waitForParentExit(parentPID int, parentStarted int64, out io.Writer) error 
 }
 
 func installWindowsUpdate(req windowsUpdateRequest, helperPath string, out io.Writer) error {
+	return installWindowsUpdateWith(req, helperPath, out, windowsUpdateOps{
+		serviceState:           windowsServiceState,
+		stopService:            stopWindowsService,
+		startService:           startWindowsService,
+		grantServiceExecutable: serve.GrantWindowsServiceExecutableAccess,
+		probe:                  handoffProbe,
+	})
+}
+
+type windowsUpdateOps struct {
+	serviceState           func(context.Context, string) (serve.WindowsServiceState, error)
+	stopService            func(context.Context, string) error
+	startService           func(context.Context, string) error
+	grantServiceExecutable func(string) error
+	restoreBackup          func(string, string, io.Writer) error
+	probe                  func(string) (bool, error)
+}
+
+func installWindowsUpdateWith(req windowsUpdateRequest, helperPath string, out io.Writer, ops windowsUpdateOps) error {
+	if ops.restoreBackup == nil {
+		ops.restoreBackup = restoreWindowsBackup
+	}
+	serviceContext := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 45*time.Second)
+	}
+	serviceCtx, cancelService := serviceContext()
+	serviceState, err := ops.serviceState(serviceCtx, req.TargetPath)
+	cancelService()
+	if err != nil {
+		return fmt.Errorf("inspect Coddy Windows service before update: %w", err)
+	}
+	serviceStopped := false
+	recoveryBlocked := false
+	startService := func() error {
+		if !serviceState.Installed || !serviceState.Running || !serviceStopped {
+			return nil
+		}
+		ctx, cancel := serviceContext()
+		defer cancel()
+		if ops.grantServiceExecutable != nil {
+			if err := ops.grantServiceExecutable(req.TargetPath); err != nil {
+				return fmt.Errorf("grant Coddy Windows service executable access: %w", err)
+			}
+		}
+		if err := ops.startService(ctx, req.TargetPath); err != nil {
+			return fmt.Errorf("start Coddy Windows service after update: %w", err)
+		}
+		serviceStopped = false
+		return nil
+	}
+	stopService := func() error {
+		if !serviceState.Installed || !serviceState.Running {
+			return nil
+		}
+		ctx, cancel := serviceContext()
+		defer cancel()
+		// A failed wait can follow an accepted stop request; recovery is needed
+		// even when the stop operation itself reports an error.
+		serviceStopped = true
+		if err := ops.stopService(ctx, req.TargetPath); err != nil {
+			return fmt.Errorf("stop Coddy Windows service before update: %w", err)
+		}
+		return nil
+	}
+	defer func() {
+		if recoveryBlocked {
+			return
+		}
+		if serviceStopped {
+			if err := startService(); err != nil {
+				_, _ = fmt.Fprintf(out, "warning: Coddy Windows service is stopped: %v; run `sc start %s`\n", err, serve.WindowsServiceName)
+			}
+		}
+	}()
+	if err := stopService(); err != nil {
+		return err
+	}
+
 	backup, err := copyWindowsBackup(req.TargetPath)
 	if err != nil {
 		return fmt.Errorf("back up current Coddy before update: %w", err)
 	}
-	// The backup only has a job while the target is half replaced. Every exit
-	// below either restores it or leaves the target whole, so none of them has
-	// a reason to keep a second copy of the executable on disk.
-	defer func() { _ = os.Remove(backup) }()
+	// Keep the previous executable when a restore fails. Deleting that backup
+	// would turn a recoverable update error into an installation with no binary.
+	keepBackup := false
+	defer func() {
+		if !keepBackup {
+			_ = os.Remove(backup)
+		}
+	}()
+	preservedBackup := func() string {
+		if _, statErr := os.Stat(backup); statErr == nil {
+			keepBackup = true
+			return fmt.Sprintf("; previous executable preserved at %s", backup)
+		}
+		return ""
+	}
 
 	// Replace the existing Start menu target, not the link or its icon. A
 	// deleted link stays deleted; a temporary helper must not provision one.
@@ -271,16 +365,48 @@ func installWindowsUpdate(req windowsUpdateRequest, helperPath string, out io.Wr
 		return fmt.Errorf("install update: %w; current Coddy was preserved at %s", err, req.TargetPath)
 	}
 
+	if serviceState.Installed && ops.grantServiceExecutable != nil {
+		if err := ops.grantServiceExecutable(req.TargetPath); err != nil {
+			if restoreErr := ops.restoreBackup(req.TargetPath, backup, out); restoreErr != nil {
+				recoveryBlocked = true
+				return fmt.Errorf("grant updated Coddy service access: %v; restore previous Coddy: %v%s", err, restoreErr, preservedBackup())
+			}
+			return fmt.Errorf("grant updated Coddy service access: %w (previous executable restored)", err)
+		}
+	}
+
 	// Coddy does not start again here: `coddy update` has already returned to the
 	// shell, and a bare `coddy` on that terminal would open the console over it.
 	// Asking the new build about the handoff still proves that it runs at all, so
 	// a build that cannot start gives way to the previous one.
-	handoff, err := handoffProbe(req.TargetPath)
+	handoff, err := ops.probe(req.TargetPath)
 	if err != nil {
-		if restoreErr := restoreWindowsBackup(req.TargetPath, backup, out); restoreErr != nil {
-			return fmt.Errorf("start updated Coddy: %w; restore previous Coddy: %v", err, restoreErr)
+		if restoreErr := ops.restoreBackup(req.TargetPath, backup, out); restoreErr != nil {
+			return fmt.Errorf("start updated Coddy: %w; restore previous Coddy: %v%s", err, restoreErr, preservedBackup())
+		}
+		if serviceErr := startService(); serviceErr != nil {
+			return fmt.Errorf("start updated Coddy: %w; restored the previous version, but could not restart the service: %v", err, serviceErr)
 		}
 		return fmt.Errorf("start updated Coddy: %w; restored the previous version", err)
+	}
+	if err := startService(); err != nil {
+		if serviceStopped {
+			cleanupCtx, cancel := serviceContext()
+			cleanupErr := ops.stopService(cleanupCtx, req.TargetPath)
+			cancel()
+			if cleanupErr != nil {
+				recoveryBlocked = true
+				return fmt.Errorf("restart Coddy Windows service: %v; stop the failed new service before restore: %v; previous executable was not restored", err, cleanupErr)
+			}
+		}
+		if restoreErr := ops.restoreBackup(req.TargetPath, backup, out); restoreErr != nil {
+			recoveryBlocked = true
+			return fmt.Errorf("restart Coddy Windows service: %w; restore previous Coddy: %v%s", err, restoreErr, preservedBackup())
+		}
+		if serviceErr := startService(); serviceErr != nil {
+			return fmt.Errorf("restart Coddy Windows service: %w; restored the previous version, but could not restart the service: %v", err, serviceErr)
+		}
+		return fmt.Errorf("restart Coddy Windows service: %w; restored the previous version", err)
 	}
 	// Deleting this helper takes a process that is not this one. The install
 	// already succeeded, so a helper that survives is litter, not a failure, and

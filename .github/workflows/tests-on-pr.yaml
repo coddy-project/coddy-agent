@@ -524,6 +524,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Build and exercise the native Windows service
+        shell: pwsh
+        run: |
+          go build -tags='http' -o build/coddy.exe ./cmd/coddy
+          python examples/cli/cli_e2e_windows_service.py --binary build/coddy.exe
+
       - name: Test the repository rule adapters
         shell: bash
         run: |

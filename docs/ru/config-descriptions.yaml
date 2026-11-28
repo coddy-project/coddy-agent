@@ -972,4 +972,3 @@ httpserver.login.oidc.redirect_url:
 httpserver.login.oidc.required_role:
   en: "Exact role required in the ID token roles array."
   ru: "Значение, с которым должна точно совпадать одна из ролей в массиве roles ID-токена."
-

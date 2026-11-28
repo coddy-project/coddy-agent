@@ -30,3 +30,9 @@ Feature: Settings fetches the reasoning levels a model id offers
     When the settings form fetches the reasoning levels for "brand-new/gpt-5.5" of a "codex" provider
     Then the gateway answers with the levels "none,low,medium,high"
     And the answer reports the levels as detected
+
+  Scenario: An acp agent reports the thought levels of the model it is on
+    Given a coddy server with an "acp" provider named "cursor" whose agent is on "grok-4.7" with thought levels "low,medium,high"
+    When the settings form fetches the reasoning levels for "cursor/grok-4.7"
+    Then the gateway answers with the levels "low,medium,high"
+    And the answer reports the levels as detected
