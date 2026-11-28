@@ -1,9 +1,16 @@
 import React from "react";
 import { afterEach, describe, expect, it, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { NavRail } from "./NavRail";
 import { OpenRailScreen } from "./railEscape.fakes";
 import { resetAuthStateForTests, setAuthState } from "../auth/authState";
+import { ExtensionsProvider } from "../extensions/ExtensionsProvider";
 
 afterEach(() => cleanup());
 
@@ -520,41 +527,56 @@ describe("NavRail on a phone: the More menu", () => {
 
   it("counts the plus beside the name when it decides what fits", () => {
     signIn();
-    // 60 for the name and 40 for the plus leave 240: six items of 40 fit, and
-    // a bar that forgot the plus would keep them all at a width with no room.
+    // 60 for the name and 40 for the plus leave 240: six 40px slots, one of
+    // them More, and a bar that forgot the plus would keep one more item at a
+    // width with no room.
     stubLayout({ stacked: true, pill: 340 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toHaveLength(6);
     cleanup();
-    stubLayout({ stacked: true, pill: 300 });
+    stubLayout({ stacked: true, pill: 260 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds().length).toBeLessThan(6);
   });
 
-  it("shows every item and no More button when they all fit", () => {
+  it("keeps settings and extensions behind More even when everything else fits", async () => {
     signIn();
     stubLayout({ stacked: true, pill: 400 });
-    render(<NavRail {...base} onOpenDocs={() => {}} />);
+    render(
+      <ExtensionsProvider>
+        <NavRail {...base} onOpenDocs={() => {}} />
+      </ExtensionsProvider>,
+    );
+    await screen.findByTestId("nav-more");
     expect(barIds()).toEqual([
       "nav-history",
       "nav-scheduler",
       "nav-docs",
-      "nav-settings",
       "nav-environment",
       "nav-sign-out",
+      "nav-more",
     ]);
-    expect(screen.queryByTestId("nav-more")).toBeNull();
+    expect(screen.queryByTestId("nav-extensions")).toBeNull();
+    fireEvent.click(screen.getByTestId("nav-more"));
+    const menu = screen.getByRole("menu");
+    expect(
+      Array.from(menu.querySelectorAll("[role='menuitem']")).map((e) =>
+        e.getAttribute("data-testid"),
+      ),
+    ).toEqual(["nav-more-settings"]);
+    expect(within(menu).getByTestId("nav-extensions")).toBeInTheDocument();
   });
 
   it("folds what does not fit behind More, sign-out last under a separator", () => {
     signIn();
     // 260 - 60 for the brand - 40 for the plus = 160: four 40px slots, one of
-    // them the More button and one the environment, which never folds.
+    // them the More button and one the environment, which never folds, which
+    // leaves one for the scheduler.
     stubLayout({ stacked: true, pill: 260 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toEqual([
       "nav-history",
-      "nav-settings",
+      "nav-scheduler",
       "nav-environment",
       "nav-more",
     ]);
@@ -572,7 +594,7 @@ describe("NavRail on a phone: the More menu", () => {
     );
     expect(rows).toEqual([
       "nav-more-docs",
-      "nav-more-scheduler",
+      "nav-more-settings",
       "separator",
       "nav-more-sign-out",
     ]);

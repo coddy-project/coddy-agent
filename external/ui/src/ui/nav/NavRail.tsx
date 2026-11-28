@@ -340,8 +340,9 @@ export function NavRail(props: {
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const signedIn =
     auth.authenticated && (auth.loginRequired || auth.oidcEnabled);
-  // Below 1200px the rail is a top bar; on a phone it folds what does not fit
-  // behind More (navOverflow.ts). The desktop rail never folds.
+  // Below 1200px the rail is a top bar; there it folds what does not fit behind
+  // More, and settings and extensions whatever the room (navOverflow.ts). The
+  // desktop rail never folds.
   const stacked = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,

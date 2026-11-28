@@ -1,7 +1,9 @@
 /**
- * Which top bar items fit on a phone and which fold into the More menu.
- * History, swarm and the environment never fold (the environment says where
- * the page works and whether that host answers); the rest come back into the bar in
+ * Which top bar items fit on a phone or a tablet and which fold into the More
+ * menu. History, swarm and the environment never fold (the environment says
+ * where the page works and whether that host answers); settings and extensions
+ * are the installation's own surfaces rather than what a session is doing, so
+ * they fold whatever room the bar has. The rest come back into the bar in
  * NAV_RETURN_ORDER as room grows, and the menu lists what is left in
  * NAV_MENU_ORDER, sign-out last.
  */
@@ -21,9 +23,8 @@ export const NAV_ALWAYS: readonly NavItemId[] = [
   "swarm",
   "environment",
 ];
+export const NAV_FOLDED: readonly NavItemId[] = ["extensions", "settings"];
 export const NAV_RETURN_ORDER: readonly NavItemId[] = [
-  "settings",
-  "extensions",
   "scheduler",
   "docs",
   "statistics",
@@ -47,7 +48,7 @@ export function splitNavItems(
   present: readonly NavItemId[],
   slots: number | null,
 ): { bar: NavItemId[]; menu: NavItemId[] } {
-  if (slots === null || present.length <= slots) {
+  if (slots === null) {
     return { bar: [...present], menu: [] };
   }
   const always = present.filter((id) => NAV_ALWAYS.includes(id));
@@ -57,7 +58,10 @@ export function splitNavItems(
     0,
     room,
   );
-  const bar = present.filter((id) => always.includes(id) || back.includes(id));
+  const bar = present.filter(
+    (id) =>
+      always.includes(id) || (back.includes(id) && !NAV_FOLDED.includes(id)),
+  );
   const menu = NAV_MENU_ORDER.filter(
     (id) => present.includes(id) && !bar.includes(id),
   );

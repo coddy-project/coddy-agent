@@ -76,6 +76,9 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^a phone bar short of room keeps History, folds the rest behind More and lists sign-out last$`, func() error {
 				return runVitestScenario(nav, "NavRail on a phone: the More menu folds what does not fit behind More, sign-out last under a separator")
 			})
+			sc.Step(`^a bar with room to spare keeps Settings and extensions behind More$`, func() error {
+				return runVitestScenario(nav, "NavRail on a phone: the More menu keeps settings and extensions behind More even when everything else fits")
+			})
 			sc.Step(`^picking a folded item opens it and closes the menu$`, func() error {
 				return runVitestScenario(nav, "NavRail on a phone: the More menu picking a folded item opens it and closes the menu")
 			})

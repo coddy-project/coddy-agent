@@ -34,6 +34,7 @@ Feature: The web UI on a phone
     And the start screen never widens the page
 
   Scenario: What the top bar has no room for is behind More
+    Then a bar with room to spare keeps Settings and extensions behind More
     Then a phone bar short of room keeps History, folds the rest behind More and lists sign-out last
     And picking a folded item opens it and closes the menu
 
