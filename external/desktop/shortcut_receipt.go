@@ -1,4 +1,4 @@
-//go:build (linux && !android) || windows
+//go:build desktop && ((linux && !android) || windows)
 
 package desktop
 
