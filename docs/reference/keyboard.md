@@ -114,8 +114,7 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Escape | composer expanded over the chat | fold it back to the height of its text; the next Escape leaves an edit when one is open ([Web UI](../surfaces/web-ui.md#long-prompts-in-the-composer)) |
 | Ctrl+Z / Cmd+Z | composer, right after Improve prompt | restore the draft from before the improvement, once |
 | Enter / Space | context ring button focused | open or close the breakdown |
-| Enter / Escape | model menu filter (shown with more than five backends) | pick the first match / close the menu |
-| Escape | a menu of the composer (Mode, Model, Reasoning, Permission), the environment, folder or branch menu | close it, wherever the focus is |
+| Escape | environment menu | close it, wherever the focus is |
 | Escape | folder browser (Open folder…) | fold the new folder row when it is open, else close the browser as Cancel does |
 | Escape | Skills install search in Settings, with a query typed | clear it and take the marketplace results away; the next Escape is the drawer's |
 | / | Settings, outside a text field or a select | put the cursor in the settings search and show its results; on a narrow screen with a section open, go back to the tiles first; a `/` badge in the empty field shows the key while the field is not focused, on every width, and a touch-only device has none ([Web UI](../surfaces/web-ui.md#settings-search)) |
@@ -136,3 +135,20 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search; in an empty box Escape closes the reader |
 
 Stopping a turn has no key: it is the Stop button in the composer bar. The `@` menu opens as you type an `@` ([Mentions](../features/mentions.md#in-the-web-ui)), and a `:` after a file turns it into the line-range picker; neither is a binding.
+
+### Composer and workspace pickers
+
+Mode, Model, Reasoning, Service tier, Permissions, Toolset, and the folder and branch pickers expose the current selection to assistive technology. Use the keys below while the chip or its picker has focus. There is no global shortcut for these pickers.
+
+| Key | Where | Action |
+|---|---|---|
+| Enter / Space | picker chip | open the picker and focus the first option in a menu without a filter; focus the existing filter in the folder and branch pickers and in Model when there are more than five backends |
+| ArrowUp / ArrowDown | filter or options | move between options |
+| Home / End | options | move to the first or last option |
+| Enter | option | select it and close the picker |
+| Enter | model filter | select the first match |
+| Tab | menu without a filter | close the menu and continue in the page's tab order |
+| Tab | picker with a filter | reach separate actions such as Open folder…, Create branch… or Commit history, when present; individual options are not Tab stops |
+| Escape | open picker | close it without changing the selection |
+
+Escape and selection return focus to the chip. If `/model`, `/reasoning`, `/effort`, `/permissions` or `/toolset` opened the picker, focus returns to the message field instead. Open folder…, Create branch… and Commit history move focus straight into their dialogs. Closing a dialog returns focus to the folder or branch chip that opened the picker.

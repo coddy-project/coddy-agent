@@ -138,9 +138,9 @@ async function mountHome() {
     </ConfirmProvider>,
   );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent(
-      "alpha-model",
-    ),
+    expect(
+      screen.getByRole("button", { name: /(?:^|, )Model$/ }),
+    ).toHaveTextContent("alpha-model"),
   );
   await settle();
 }
@@ -171,7 +171,7 @@ test("a toolset picked on the start screen rides in with the first message", asy
     expect(screen.getByTestId("composer-toolset")).toHaveTextContent("coding"),
   );
   fireEvent.click(screen.getByTestId("composer-toolset"));
-  fireEvent.click(screen.getByRole("menuitem", { name: "All tools" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "All tools" }));
   await waitFor(() =>
     expect(screen.getByTestId("composer-toolset")).toHaveTextContent(
       "All tools",
@@ -192,7 +192,7 @@ async function pickAllTools() {
     expect(screen.getByTestId("composer-toolset")).toHaveTextContent("coding"),
   );
   fireEvent.click(screen.getByTestId("composer-toolset"));
-  fireEvent.click(screen.getByRole("menuitem", { name: "All tools" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "All tools" }));
   await waitFor(() =>
     expect(screen.getByTestId("composer-toolset")).toHaveTextContent(
       "All tools",

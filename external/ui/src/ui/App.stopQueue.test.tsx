@@ -554,8 +554,8 @@ test.each(["post", "relay"])(
       backend.turn(A, false);
       stream.end();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Model" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "other-model" }));
+    fireEvent.click(screen.getByRole("button", { name: /(?:^|, )Model$/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "other-model" }));
     await expectWindow(512000);
     document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
   },

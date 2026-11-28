@@ -6,16 +6,23 @@
  * shown. The document is read for list row names and provider-specific fields.
  */
 import {
+  buildSettingsRowPlan,
   defaultForSchema,
   entriesInSchemaOrder,
+  entriesInSettingsRowOrder,
   fieldAnchor,
   groupAnchor,
   isBlockField,
   isScalarItem,
   layoutSchemaForm,
+  settingsRowLabel,
+  settingsRowVisible,
   type JsonSchema,
   type SchemaFormGroup,
+  type SettingsRowPlan,
 } from "./SchemaForm";
+import type { SettingsRowAlter } from "../extensions/settingsRowAlter";
+import { translate } from "../i18n/i18n";
 import { supportsOidc } from "./AuthenticationSection";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import {
@@ -29,17 +36,22 @@ import {
 import {
   ARRAY_LABEL_FIELDS,
   landmarkAnchor,
-  MCP_SECTION_ID,
   SESSIONS_CONFIG_KEY,
   SETTINGS_TEXTS,
-  type DrawnText,
   type SectionDescriptor,
-  type SettingsTextId,
 } from "./settingsSections";
+import { SETTINGS_LANDMARKS, type SettingsLandmark } from "./settingsLandmarks";
+import {
+  buildSpecialRowPlan,
+  sanitizedSettingsRow,
+  type SpecialRowPlanItem,
+} from "./SettingsSpecialRows";
+import type { Owned, SettingsBlock } from "../extensions/contributions";
 import { skillsFormGroups } from "./SkillsSection";
 import { subagentsFormGroups } from "./SubagentsSection";
-import { translate } from "../i18n/i18n";
-import { notificationsShown } from "../pwa/NotificationsSetting";
+
+export { SETTINGS_LANDMARKS } from "./settingsLandmarks";
+export type { SettingsLandmark } from "./settingsLandmarks";
 
 export const SETTINGS_SEARCH_LIMIT = 50;
 /** How much of a description shows before the word that matched. */
@@ -288,75 +300,6 @@ export function descriptionLine(
   return `…${text.slice(start)}`;
 }
 
-export type SettingsLandmark = {
-  section: string;
-  id: string;
-  /** The heading and its (i): a key of SETTINGS_TEXTS. */
-  heading: SettingsTextId;
-  keyPath?: string;
-  place: "before" | "after";
-  /** The block's own predicate: false where the tab does not draw it. */
-  shown?: (doc: PlainObject, schema: JsonSchema | null) => boolean;
-  /** Present for a block of a list's row form; says whether this row draws it. */
-  row?: (row: Record<string, unknown>) => boolean;
-};
-
-/** A block a tab draws by hand: its heading and the (i), not what is below it. */
-function landmark(
-  section: string,
-  id: string,
-  heading: SettingsTextId,
-  place: "before" | "after",
-  more: Partial<Pick<SettingsLandmark, "keyPath" | "shown" | "row">> = {},
-): SettingsLandmark {
-  return { section, id, heading, place, ...more };
-}
-
-export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
-  landmark("httpserver", "account", "authAccount", "before"),
-  landmark("httpserver", "authenticator", "authAuthenticator", "before", {
-    shown: localEnrollmentShown,
-  }),
-  landmark("httpserver", "backupCodes", "authBackupCodes", "before", {
-    shown: backupCodesShown,
-  }),
-  landmark("httpserver", "oidc", "authOidc", "before", {
-    shown: (_doc, schema) => oidcSupported(schema),
-  }),
-  landmark("statistics", "enable", "statisticsEnable", "before"),
-  landmark("statistics", "timezone", "statisticsCounters", "before"),
-  landmark("statistics", "exchange_rate", "statisticsExchangeRate", "before"),
-  landmark("statistics", "prices", "statisticsPrices", "before"),
-  landmark("appearance", "theme", "appearanceTheme", "before"),
-  landmark("appearance", "simple", "appearanceSimple", "before"),
-  landmark("appearance", "wallpaper", "appearanceWallpaper", "before"),
-  landmark("appearance", "language", "appearanceLanguage", "before"),
-  landmark("appearance", "notifications", "appearanceNotifications", "before", {
-    shown: notificationsShown,
-  }),
-  landmark("sessions_manager", "manage", "sessionsManage", "after"),
-  // The four blocks the System tab always draws; the charts and the provider
-  // rows depend on the build and have no anchor, and no value of the status
-  // document is indexed.
-  landmark("status", "installation", "systemInstallation", "before"),
-  landmark("status", "subsystems", "systemSubsystems", "before"),
-  landmark("status", "disk", "systemDisk", "before"),
-  landmark("status", "activity", "systemActivity", "before"),
-  landmark(MCP_SECTION_ID, "discovery", "mcpDiscovery", "before", {
-    keyPath: "mcp.project_trust",
-  }),
-  landmark(MCP_SECTION_ID, "servers", "mcpServers", "before"),
-  landmark("skills", "auto_discovery", "skillsAutoDiscovery", "before", {
-    keyPath: "skills.auto_discovery",
-  }),
-  landmark("skills", "marketplaces", "skillsMarketplaces", "after"),
-  landmark("skills", "installed", "skillsInstalled", "after"),
-  landmark("subagents", "catalog", "subagentsCatalog", "after"),
-  landmark("providers", "models", "providerModels", "after", {
-    row: () => true,
-  }),
-];
-
 type PlainObject = Record<string, unknown>;
 
 function asObject(v: unknown): PlainObject {
@@ -408,16 +351,16 @@ function rowLabel(row: unknown, field: string): string {
 }
 
 /**
- * What the index reads from the document: the trimmed row names of the two
- * lists, a provider's type and whether the backup codes block is shown. The
- * index is rebuilt when this changes only.
+ * What the index reads from the document: row names, the public row metadata
+ * a SettingsBlock match can read and whether the backup codes block is shown.
+ * Secret edits do not rebuild the index.
  */
 export function settingsIndexRowsKey(doc: PlainObject): string {
   return JSON.stringify({
     rows: Object.entries(ARRAY_LABEL_FIELDS).map(([key, field]) =>
       asArray(doc[key]).map((row) => [
         rowLabel(row, field),
-        key === "providers" ? text(asObject(row)["type"]) : "",
+        sanitizedSettingsRow(row),
       ]),
     ),
     backupCodes: backupCodesConfigured(doc),
@@ -439,6 +382,8 @@ type Walk = {
   section: SectionDescriptor;
   form: Form;
   row: string | null;
+  rowAlters: readonly SettingsRowAlter[];
+  rowPlan?: SettingsRowPlan | null;
   doc: PlainObject;
 };
 
@@ -458,17 +403,16 @@ function walkField(frame: FieldFrame): void {
   const { walk, name, schema, path, keyPath, parent, where, list } = frame;
   const { form, section } = walk;
   const box = overrideTexts(form.domain, path, parent, schema, walk.doc);
-  if (box === false) {
+  if (box === false || !settingsRowVisible(walk.rowPlan, path)) {
     return;
   }
   const texts = box ?? {
     primary: schemaFieldLabel(form.domain, path, schema.title, name),
     primaryDesc: schemaFieldDesc(form.domain, path, schema.description),
   };
+  const primary = settingsRowLabel(walk.rowPlan, path, texts.primary);
   const names =
-    texts.second === undefined
-      ? [texts.primary]
-      : [texts.primary, texts.second];
+    texts.second === undefined ? [primary] : [primary, texts.second];
   const anchor = fieldAnchor(form.domain, path);
   const passwordHint =
     form.domain === "httpserver.login" && path === "password"
@@ -503,9 +447,10 @@ function walkField(frame: FieldFrame): void {
       held !== null && typeof held === "object" && !Array.isArray(held)
         ? (held as PlainObject)
         : asObject(defaultForSchema(schema));
-    for (const [k, sub] of entriesInSchemaOrder(
-      schema.properties,
-      schema["x-coddy-property-order"],
+    for (const [k, sub] of entriesInSettingsRowOrder(
+      entriesInSchemaOrder(schema.properties, schema["x-coddy-property-order"]),
+      walk.rowPlan,
+      path,
     )) {
       walkField({
         ...frame,
@@ -530,9 +475,10 @@ function walkField(frame: FieldFrame): void {
     items.properties !== undefined
   ) {
     const value = asObject(defaultForSchema(items));
-    for (const [k, sub] of entriesInSchemaOrder(
-      items.properties,
-      items["x-coddy-property-order"],
+    for (const [k, sub] of entriesInSettingsRowOrder(
+      entriesInSchemaOrder(items.properties, items["x-coddy-property-order"]),
+      walk.rowPlan,
+      path,
     )) {
       walkField({
         ...frame,
@@ -550,8 +496,18 @@ function walkField(frame: FieldFrame): void {
 
 function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
   const { form, section } = walk;
+  const rowPlan = buildSettingsRowPlan({
+    section: section.id,
+    domain: form.domain,
+    schema: form.schema,
+    groups: form.groups,
+    value: parent,
+    alters: walk.rowAlters,
+    texts: overrideTexts,
+  });
+  walk = { ...walk, rowPlan };
   const key = (k: string) => `${form.keyRoot}.${k}`;
-  for (const node of layoutSchemaForm(form.schema, form.groups)) {
+  for (const node of layoutSchemaForm(form.schema, form.groups, rowPlan)) {
     if (node.kind === "field") {
       walkField({
         walk,
@@ -594,32 +550,51 @@ function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
   }
 }
 
-function landmarkEntries(
+function specialEntries(
   out: SettingsSearchEntry[],
   section: SectionDescriptor,
-  landmarks: readonly SettingsLandmark[],
-  row: string | null,
   doc: PlainObject,
+  landmarks: readonly SettingsLandmark[],
+  blocks: readonly Owned<SettingsBlock>[],
+  alters: readonly SettingsRowAlter[],
+  includeExtensions: boolean,
+  row: string | null,
   schema: JsonSchema | null,
 ): void {
-  for (const l of landmarks) {
-    if (l.shown !== undefined && !l.shown(doc, schema)) {
-      continue;
-    }
-    const text: DrawnText = SETTINGS_TEXTS[l.heading];
-    out.push(
-      makeSearchEntry({
-        kind: "landmark",
-        section: section.id,
-        row,
-        anchor: landmarkAnchor(l.section, l.id),
-        names: [text.label === undefined ? l.id : translate(text.label)],
-        descriptions: text.desc === undefined ? [] : [translate(text.desc)],
-        where: row === null ? [section.label] : [section.label, row],
-        keyPath: l.keyPath,
-      }),
-    );
+  const plan = buildSpecialRowPlan({
+    section: section.id,
+    doc,
+    schema: schema ?? undefined,
+    rowName: row,
+    landmarks,
+    blocks,
+    alters,
+    includeExtensions,
+  });
+  for (const item of plan) {
+    out.push(specialSearchEntry(item, section, row));
   }
+}
+
+function specialSearchEntry(
+  item: SpecialRowPlanItem,
+  section: SectionDescriptor,
+  row: string | null,
+): SettingsSearchEntry {
+  const landmark =
+    item.source.type === "landmark" ? item.source.landmark : undefined;
+  return makeSearchEntry({
+    kind: landmark === undefined ? "block" : "landmark",
+    section: section.id,
+    row,
+    anchor: landmarkAnchor(section.id, item.descriptor.id),
+    names: [item.descriptor.label],
+    descriptions: item.descriptor.description
+      ? [item.descriptor.description]
+      : [],
+    where: row === null ? [section.label] : [section.label, row],
+    keyPath: landmark?.keyPath,
+  });
 }
 
 type TabForms = {
@@ -750,9 +725,13 @@ export function buildSettingsSearchIndex(input: {
   sections: readonly SectionDescriptor[];
   schema: JsonSchema | null;
   doc: PlainObject;
+  rowAlters?: readonly SettingsRowAlter[];
+  blocks?: readonly Owned<SettingsBlock>[];
 }): SettingsSearchEntry[] {
   const out: SettingsSearchEntry[] = [];
   const props = input.schema?.properties ?? {};
+  const alters = input.rowAlters ?? [];
+  const registeredBlocks = input.blocks ?? [];
 
   for (const section of input.sections) {
     out.push(
@@ -763,27 +742,66 @@ export function buildSettingsSearchIndex(input: {
         descriptions: section.description ? [section.description] : [],
       }),
     );
-    const generated = tabForms(section, props, input.doc);
-    if (generated === null) {
-      continue;
-    }
     const tab = [section.label];
     const landmarks = SETTINGS_LANDMARKS.filter(
       (l) => l.section === section.id,
     );
-    const blocks = (place: "before" | "after") =>
+    const rootLandmarks = (place: "before" | "after") =>
       landmarks.filter((l) => l.row === undefined && l.place === place);
+    const before = rootLandmarks("before");
+    const after = rootLandmarks("after");
+    // A slot is the reorder boundary. Extension blocks join the one slot a
+    // special section draws them in, never a second copy on the other side of
+    // its generated form.
+    const extensionsBefore = before.length > 0 && after.length === 0;
+    const generated = tabForms(section, props, input.doc);
+    if (generated === null) {
+      // Skills and Subagents draw an error instead of their special body when
+      // the schema is absent. Ordinary schema sections can still host blocks.
+      if (
+        section.kind !== "skills" &&
+        section.kind !== "subagents" &&
+        section.id !== "providers"
+      ) {
+        specialEntries(
+          out,
+          section,
+          input.doc,
+          [],
+          registeredBlocks,
+          alters,
+          true,
+          null,
+          input.schema,
+        );
+      }
+      continue;
+    }
 
-    landmarkEntries(
+    specialEntries(
       out,
       section,
-      blocks("before"),
-      null,
       input.doc,
+      before,
+      registeredBlocks,
+      alters,
+      extensionsBefore,
+      null,
       input.schema,
     );
     for (const { form, value } of generated.forms) {
-      walkForm({ out, section, form, row: null, doc: input.doc }, value, tab);
+      walkForm(
+        {
+          out,
+          section,
+          form,
+          row: null,
+          rowAlters: alters,
+          doc: input.doc,
+        },
+        value,
+        tab,
+      );
     }
     const key = section.schemaKey ?? section.id;
     for (const { label, row } of generated.rows
@@ -805,26 +823,34 @@ export function buildSettingsSearchIndex(input: {
           section,
           form: generated.rows!,
           row: label,
+          rowAlters: alters,
           doc: input.doc,
         },
         row,
         [...tab, label],
       );
-      landmarkEntries(
+      const rowLandmarks = landmarks.filter((l) => l.row !== undefined);
+      specialEntries(
         out,
         section,
-        landmarks.filter((l) => l.row?.(row) === true),
-        label,
         input.doc,
+        rowLandmarks,
+        registeredBlocks,
+        alters,
+        true,
+        label,
         input.schema,
       );
     }
-    landmarkEntries(
+    specialEntries(
       out,
       section,
-      blocks("after"),
-      null,
       input.doc,
+      after,
+      registeredBlocks,
+      alters,
+      !extensionsBefore && section.id !== "providers",
+      null,
       input.schema,
     );
   }

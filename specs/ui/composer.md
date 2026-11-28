@@ -10,7 +10,7 @@ Muted **Auto** pill tracks future modality toggles; UI copy stays English everyw
 
 - **Placement.** The service tier chip follows Permission and precedes Toolset in the composer selector strip. It uses the existing `composer-tab mode-btn` style and theme tokens.
 - **Visibility.** Show the chip only when the server supplies service tier choices for the selected model. Hide it in a subagent's read-only transcript.
-- **Labels.** The chip shows the selected value: **Standard**, **Fast**, **Ultrafast**, or **Flex**. Its accessible name and tooltip are **Service tier**. Translate all labels through the interface dictionaries. An unset session shows one selected Standard item; there is no separate Auto item or hidden empty row.
+- **Labels.** The chip shows the selected value: **Standard**, **Fast**, **Ultrafast**, or **Flex**. Its accessible name includes **Service tier** and the selected value. The tooltip stays **Service tier**. Translate all labels through the interface dictionaries. An unset session shows one selected Standard item; there is no separate Auto item or hidden empty row.
 - **Menu.** Use the existing `mode-menu` portal, anchored to the chip on desktop and shown as a bottom sheet on narrow shells. Keep the chip in the horizontally scrollable selector strip; keep the context ring and Send fixed. The menu lists only server-provided choices, filters the empty choice of an older server and marks the selected row with `is-selected`. `gpt-6.2-sol` and `gpt-6.2-astra` offer only Standard and Fast. Selection closes the menu. Escape and a press outside close it through the shared menu controls.
 - **Meaning.** An unset session omits the request parameter while showing Standard; explicitly selecting Standard requests `default`, including after Fast. The chip shows the user's selection, which can differ from the provider's actual tier. A change during a turn applies to the next turn.
 - **State.** An existing chat uses its saved session selection and receives changes from other clients. The `coddy_service_tier` cookie remembers the user's last choice for new chats only. Opening a chat or receiving another client's change does not replace that preference. A model without the remembered choice leaves the session unset and shows Standard.
@@ -22,6 +22,16 @@ Muted **Auto** pill tracks future modality toggles; UI copy stays English everyw
 - **Toolset chip** (**`composer-tab mode-btn mode-toolset`**, **`data-testid="composer-toolset"`**) follows the permission chip while the configuration has a **`toolsets[]`** preset, and is not rendered otherwise (no placeholder, no disabled chip): it names the session's toolset, **All tools** (**Все инструменты**) for none, in the plain tab recipe, and its **`mode-menu`** lists the presets and **All tools** last, the current one **`is-selected`**. A preset added on a configuration reload brings it without a page reload. Hidden in a subagent's read-only transcript.
 - **Turn overrides** (**`.composer-overrides`**, **`data-testid="composer-overrides"`**) follow the selectors when **`--once`** / **`--count=N`**, a skill or the model's **`switch_model`** changed a setting for some turns: **11px**, **62%** muted, one line (**`max-width: 240px`**, ellipsis) naming the first override ("gpt-oss-120b this turn and 2 more", "off, 1 turn left") with **`+N`** for the rest; the **`title`** lists them all. Nothing renders without overrides.
 - Both mirror the session's settings snapshot (**`event: session_settings`**): a change made anywhere - a command, the permission dialog, a console - shows up in every tab.
+
+### Keyboard and focus in composer and workspace pickers
+
+Mode, Model, Reasoning, Service tier, Permissions, Toolset, folder and branch chips expose their label and current value to assistive technology. The open picker also exposes which option is selected, independently of which option has keyboard focus. Keep the existing chip and popup geometry, desktop anchors, bottom sheets and tooltips.
+
+- **Open and navigate.** Enter or Space on a chip opens its picker. A menu without a filter focuses its first option. The Model picker focuses its existing filter when there are more than five backends, as do the folder and branch pickers on every opening. Up and Down move between options from the filter or the list. Home and End move to the first or last option from the list. Enter in the model filter still selects the first match.
+- **Tab.** In a menu without a filter, Tab closes it and continues in the page's tab order. In a filtered popup, Tab can reach separate actions such as Open folder…, Create branch… and Commit history. Tab does not step through options.
+- **Restore focus.** Escape and selection close the picker and return focus to its chip. A picker opened by `/model`, `/reasoning`, `/effort`, `/permissions` or `/toolset` returns focus to the textarea instead. A workspace action that opens a separate dialog moves focus straight into that dialog. Closing it returns focus to the folder or branch chip, not to the dismissed popup.
+
+These keys belong to the focused control. There is no new global shortcut.
 
 ### Session goal
 

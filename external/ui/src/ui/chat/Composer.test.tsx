@@ -50,6 +50,31 @@ function renderComposerWithLlm(opts: { isEmpty: boolean }) {
   );
 }
 
+test("the composer exposes its card, model and send extension anchors", () => {
+  const { rerender } = renderComposerWithLlm({ isEmpty: false });
+  for (const name of ["composer", "composer.model", "composer.send"])
+    expect(
+      document.querySelector(`[data-extension-anchor="${name}"]`),
+    ).not.toBeNull();
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(
+    document.querySelector('[data-extension-anchor="composer.model"]'),
+  ).toBeNull();
+  expect(
+    document.querySelector('[data-extension-anchor="composer.send"]'),
+  ).not.toBeNull();
+});
+
 test("ask mode renders its own pill class and menu entry", () => {
   render(
     <Composer
@@ -63,7 +88,7 @@ test("ask mode renders its own pill class and menu entry", () => {
     />,
   );
 
-  const pill = screen.getByRole("button", { name: "Mode" });
+  const pill = screen.getByRole("button", { name: "Ask, Mode" });
   expect(pill).toHaveClass("mode-ask");
   expect(pill).toHaveTextContent("Ask");
 
@@ -75,7 +100,7 @@ test("ask mode renders its own pill class and menu entry", () => {
 test("mode menu opens down on start screen", () => {
   renderComposer({ isEmpty: true });
 
-  fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+  fireEvent.click(screen.getByRole("button", { name: "Agent, Mode" }));
 
   const menu = screen.getByRole("menu");
   expect(menu).toHaveClass("opens-down");
@@ -84,7 +109,7 @@ test("mode menu opens down on start screen", () => {
 test("mode menu opens up in active chat composer", () => {
   renderComposer({ isEmpty: false });
 
-  fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+  fireEvent.click(screen.getByRole("button", { name: "Agent, Mode" }));
 
   const menu = screen.getByRole("menu");
   expect(menu).toHaveClass("opens-up");
@@ -200,7 +225,7 @@ test("a narrow desktop window still focuses the field: it has a keyboard", () =>
 test("yaml model menu opens down on start screen when backends exist", () => {
   renderComposerWithLlm({ isEmpty: true });
 
-  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  fireEvent.click(screen.getByRole("button", { name: "gpt-4o-mini, Model" }));
 
   const menu = screen.getByRole("menu");
   expect(menu).toHaveClass("opens-down");
@@ -209,7 +234,7 @@ test("yaml model menu opens down on start screen when backends exist", () => {
 test("yaml model menu opens up in active chat composer", () => {
   renderComposerWithLlm({ isEmpty: false });
 
-  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  fireEvent.click(screen.getByRole("button", { name: "gpt-4o-mini, Model" }));
 
   const menu = screen.getByRole("menu");
   expect(menu).toHaveClass("opens-up");
@@ -2764,7 +2789,7 @@ test("the permission chip names the session's mode and switches it (#292)", () =
   expect(chip.className).toContain("perm-bypass");
   expect(chip.getAttribute("title")).toContain("Ask first");
   fireEvent.click(chip);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Ask first" }));
   expect(picked).toEqual(["ask"]);
 });
 
@@ -2796,10 +2821,10 @@ test("the selector chips run attach, mode, model, reasoning, permission", () => 
   );
   expect(order).toEqual([
     "Attach file",
-    "Mode",
-    "Model",
-    "Reasoning level",
-    "Permissions",
+    "Agent, Mode",
+    "gpt-5, Model",
+    "Medium, Reasoning level",
+    "Ask first, Permissions",
   ]);
 });
 
@@ -2830,14 +2855,17 @@ test("the toolset chip follows the permission chip and switches the toolset", ()
   const order = Array.from(
     document.querySelectorAll(".composer-tabs button.composer-tab"),
   ).map((b) => b.getAttribute("aria-label"));
-  expect(order.slice(-2)).toEqual(["Permissions", "Toolset"]);
+  expect(order.slice(-2)).toEqual([
+    "Ask first, Permissions",
+    "coding, Toolset",
+  ]);
   const chip = screen.getByTestId("composer-toolset");
   expect(chip.textContent).toBe("coding");
   fireEvent.click(chip);
   expect(
-    screen.getAllByRole("menuitem").map((item) => item.textContent),
+    screen.getAllByRole("menuitemradio").map((item) => item.textContent),
   ).toEqual(["coding", "no-net", "All tools"]);
-  fireEvent.click(screen.getByRole("menuitem", { name: "All tools" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "All tools" }));
   expect(picked).toEqual(["default"]);
 
   rerender(

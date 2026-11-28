@@ -10,6 +10,12 @@ import {
   SETTINGS_TEXTS,
   type DrawnText,
 } from "./settingsSections";
+import { SETTINGS_LANDMARKS } from "./settingsLandmarks";
+import {
+  SpecialRowsView,
+  useSpecialRowLabel,
+  useSpecialRowPlan,
+} from "./SettingsSpecialRows";
 import { Sparkline } from "./Sparkline";
 import {
   ago,
@@ -35,6 +41,9 @@ import {
 
 /** How often the open tab reads the status again. */
 const POLL_MS = 15_000;
+const STATUS_LANDMARKS = SETTINGS_LANDMARKS.filter(
+  (landmark) => landmark.section === "status",
+);
 
 function Row(props: { label: string; children: ReactNode }) {
   return (
@@ -62,6 +71,7 @@ function Block(props: {
   children?: ReactNode;
 }) {
   const { t } = useT();
+  const heading = useSpecialRowLabel(props.id, t(props.text.label!));
   return (
     <section
       className="system-block"
@@ -74,7 +84,7 @@ function Block(props: {
         className="appearance-section-label system-block-title"
         tabIndex={-1}
       >
-        {t(props.text.label!)}
+        {heading}
       </h3>
       {props.empty ? props.na : props.children}
     </section>
@@ -129,6 +139,11 @@ export default function SystemSection() {
   const state = useSystemStatus((s) => s);
   const hidden = useContext(PaneHidden);
   const base = useId();
+  const specialPlan = useSpecialRowPlan({
+    section: "status",
+    doc: {},
+    landmarks: STATUS_LANDMARKS,
+  });
   const [version, setVersion] = useState("");
 
   // On open, then every 15 s while the tab is shown and the page is visible.
@@ -157,6 +172,19 @@ export default function SystemSection() {
   const old = state.doc === null && state.stale !== null;
   const at = state.doc !== null ? state.at : (state.stale?.at ?? 0);
   const summary = summarize(state, version);
+  const visibleLandmarks = new Set(
+    specialPlan.flatMap((item) =>
+      item.source.type === "landmark" ? [item.descriptor.id] : [],
+    ),
+  );
+  const summaryLines = summary.lines.map((line) => ({
+    ...line,
+    items: line.items.filter(
+      (item) =>
+        !STATUS_LANDMARKS.some((landmark) => landmark.id === item.block) ||
+        visibleLandmarks.has(item.block),
+    ),
+  }));
   const focus = (block: BlockId) =>
     document.getElementById(`${base}-${block}`)?.focus();
   // A server that answered nothing has nothing to say in any block.
@@ -194,7 +222,7 @@ export default function SystemSection() {
         data-state={summary.state}
         aria-live="polite"
       >
-        {summary.lines.map((line, i) => (
+        {summaryLines.map((line, i) => (
           <p key={i} className={line.quiet ? "system-muted" : undefined}>
             {line.text}{" "}
             {line.items.map((item, j) => (
@@ -257,167 +285,186 @@ export default function SystemSection() {
           </section>
         ) : null}
 
-        <Block
-          base={base}
-          id="installation"
-          text={SETTINGS_TEXTS.systemInstallation}
-          empty={empty}
-          na={na}
-        >
-          {build && doc ? (
-            <dl className="system-kv">
-              <Row label={t("system.version")}>
-                <span className="system-code">
-                  {notes ? (
-                    <a href={notes} target="_blank" rel="noopener">
-                      {build.version}
-                    </a>
-                  ) : (
-                    build.version
-                  )}
-                </span>
-                {build.revision ? (
-                  <>
-                    {" "}
-                    <span className="system-muted">
-                      ({build.revision.slice(0, 8)})
-                    </span>
-                  </>
-                ) : null}
-              </Row>
-              {build.tags?.length ? (
-                <Row label={t("system.tags")}>{build.tags.join(" · ")}</Row>
-              ) : null}
-              <Row label={t("system.platform")}>
-                {`${build.os}/${build.arch} · ${build.goVersion}`}
-              </Row>
-              {Date.parse(doc.generatedAt) >
-              Date.parse(doc.process.startedAt) ? (
-                <Row label={t("system.running")}>
-                  {span(
-                    (Date.parse(doc.generatedAt) -
-                      Date.parse(doc.process.startedAt)) /
-                      1000,
-                  )}
-                </Row>
-              ) : null}
-              <Row label={t("system.startedBy")}>
-                {word("system.startedBy", doc.process.startedBy)}
-              </Row>
-              {doc.process.configFile ? (
-                <Row label={t("system.config")}>
-                  <code className="system-code">{doc.process.configFile}</code>{" "}
-                  <CopyButton text={doc.process.configFile} />
-                </Row>
-              ) : null}
-            </dl>
-          ) : null}
-        </Block>
-
-        <Block
-          base={base}
-          id="subsystems"
-          text={SETTINGS_TEXTS.systemSubsystems}
-          empty={empty}
-          na={na}
-        >
-          {doc ? (
-            <>
-              {doc.subsystems.length > 0 ? (
-                <dl className="system-kv">
-                  {doc.subsystems.map((sub) => (
-                    <Row key={sub.kind} label={kindName(sub.kind)}>
-                      <span className="system-pill" data-state={sub.state}>
-                        {word("system.state", sub.state)}
+        <SpecialRowsView
+          plan={specialPlan}
+          nodes={{
+            installation: (
+              <Block
+                base={base}
+                id="installation"
+                text={SETTINGS_TEXTS.systemInstallation}
+                empty={empty}
+                na={na}
+              >
+                {build && doc ? (
+                  <dl className="system-kv">
+                    <Row label={t("system.version")}>
+                      <span className="system-code">
+                        {notes ? (
+                          <a href={notes} target="_blank" rel="noopener">
+                            {build.version}
+                          </a>
+                        ) : (
+                          build.version
+                        )}
                       </span>
-                      {sub.address ? (
-                        <span className="system-code">{sub.address}</span>
-                      ) : null}
-                      {sub.pendingAddress ? (
-                        <span className="system-warn">
-                          {t("system.afterRestart", {
-                            address: sub.pendingAddress,
-                          })}
-                        </span>
-                      ) : null}
-                      {sub.kind === "metrics" && sub.credential ? (
-                        <span className="system-muted">
-                          {`/metrics · ${t(sub.credential === "token" ? "system.token.set" : "system.token.none")}`}
-                        </span>
+                      {build.revision ? (
+                        <>
+                          {" "}
+                          <span className="system-muted">
+                            ({build.revision.slice(0, 8)})
+                          </span>
+                        </>
                       ) : null}
                     </Row>
-                  ))}
-                </dl>
-              ) : relays.length === 0 ? (
-                <p className="system-muted">{t("system.none")}</p>
-              ) : null}
-              {relays.map((line, i) => (
-                <p key={i} className="system-warn system-relay">
-                  {line}
-                </p>
-              ))}
-            </>
-          ) : null}
-        </Block>
-
-        <Block
-          base={base}
-          id="disk"
-          text={SETTINGS_TEXTS.systemDisk}
-          empty={empty}
-          na={na}
-        >
-          {doc ? (
-            disk && !doc.unavailable?.includes("disk") ? (
-              <div className="system-disk">
-                <span>{t("system.disk.sessions")}</span>
-                <div
-                  className="system-meter"
-                  role="meter"
-                  aria-label={t("system.disk.used")}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(used * 10) / 10}
-                  aria-valuetext={freeText}
-                  data-tone={lowDisk ? "warn" : "ok"}
-                >
-                  <i style={{ width: `${used}%` }} />
-                </div>
-                <span>{freeText}</span>
-              </div>
-            ) : (
-              na
-            )
-          ) : null}
-        </Block>
-
-        <Block
-          base={base}
-          id="activity"
-          text={SETTINGS_TEXTS.systemActivity}
-          empty={empty}
-          na={na}
-        >
-          {doc ? (
-            <dl className="system-kv">
-              <Row label={t("system.turns")}>{count(doc.turns.running)}</Row>
-              {doc.turns.oldestSeconds !== undefined ? (
-                <Row label={t("system.oldest")}>
-                  {span(doc.turns.oldestSeconds)}
-                </Row>
-              ) : null}
-              <Row label={t("system.tasks")}>
-                {tasksText(doc.tasks) || t("system.none")}
-              </Row>
-              <Row label={t("system.prompts.permission")}>
-                {count(doc.prompts?.permission ?? 0)}
-              </Row>
-              <Row label={t("system.prompts.question")}>
-                {count(doc.prompts?.question ?? 0)}
-              </Row>
-            </dl>
-          ) : null}
-        </Block>
+                    {build.tags?.length ? (
+                      <Row label={t("system.tags")}>
+                        {build.tags.join(" · ")}
+                      </Row>
+                    ) : null}
+                    <Row label={t("system.platform")}>
+                      {`${build.os}/${build.arch} · ${build.goVersion}`}
+                    </Row>
+                    {Date.parse(doc.generatedAt) >
+                    Date.parse(doc.process.startedAt) ? (
+                      <Row label={t("system.running")}>
+                        {span(
+                          (Date.parse(doc.generatedAt) -
+                            Date.parse(doc.process.startedAt)) /
+                            1000,
+                        )}
+                      </Row>
+                    ) : null}
+                    <Row label={t("system.startedBy")}>
+                      {word("system.startedBy", doc.process.startedBy)}
+                    </Row>
+                    {doc.process.configFile ? (
+                      <Row label={t("system.config")}>
+                        <code className="system-code">
+                          {doc.process.configFile}
+                        </code>{" "}
+                        <CopyButton text={doc.process.configFile} />
+                      </Row>
+                    ) : null}
+                  </dl>
+                ) : null}
+              </Block>
+            ),
+            subsystems: (
+              <Block
+                base={base}
+                id="subsystems"
+                text={SETTINGS_TEXTS.systemSubsystems}
+                empty={empty}
+                na={na}
+              >
+                {doc ? (
+                  <>
+                    {doc.subsystems.length > 0 ? (
+                      <dl className="system-kv">
+                        {doc.subsystems.map((sub) => (
+                          <Row key={sub.kind} label={kindName(sub.kind)}>
+                            <span
+                              className="system-pill"
+                              data-state={sub.state}
+                            >
+                              {word("system.state", sub.state)}
+                            </span>
+                            {sub.address ? (
+                              <span className="system-code">{sub.address}</span>
+                            ) : null}
+                            {sub.pendingAddress ? (
+                              <span className="system-warn">
+                                {t("system.afterRestart", {
+                                  address: sub.pendingAddress,
+                                })}
+                              </span>
+                            ) : null}
+                            {sub.kind === "metrics" && sub.credential ? (
+                              <span className="system-muted">
+                                {`/metrics · ${t(sub.credential === "token" ? "system.token.set" : "system.token.none")}`}
+                              </span>
+                            ) : null}
+                          </Row>
+                        ))}
+                      </dl>
+                    ) : relays.length === 0 ? (
+                      <p className="system-muted">{t("system.none")}</p>
+                    ) : null}
+                    {relays.map((line, i) => (
+                      <p key={i} className="system-warn system-relay">
+                        {line}
+                      </p>
+                    ))}
+                  </>
+                ) : null}
+              </Block>
+            ),
+            disk: (
+              <Block
+                base={base}
+                id="disk"
+                text={SETTINGS_TEXTS.systemDisk}
+                empty={empty}
+                na={na}
+              >
+                {doc ? (
+                  disk && !doc.unavailable?.includes("disk") ? (
+                    <div className="system-disk">
+                      <span>{t("system.disk.sessions")}</span>
+                      <div
+                        className="system-meter"
+                        role="meter"
+                        aria-label={t("system.disk.used")}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(used * 10) / 10}
+                        aria-valuetext={freeText}
+                        data-tone={lowDisk ? "warn" : "ok"}
+                      >
+                        <i style={{ width: `${used}%` }} />
+                      </div>
+                      <span>{freeText}</span>
+                    </div>
+                  ) : (
+                    na
+                  )
+                ) : null}
+              </Block>
+            ),
+            activity: (
+              <Block
+                base={base}
+                id="activity"
+                text={SETTINGS_TEXTS.systemActivity}
+                empty={empty}
+                na={na}
+              >
+                {doc ? (
+                  <dl className="system-kv">
+                    <Row label={t("system.turns")}>
+                      {count(doc.turns.running)}
+                    </Row>
+                    {doc.turns.oldestSeconds !== undefined ? (
+                      <Row label={t("system.oldest")}>
+                        {span(doc.turns.oldestSeconds)}
+                      </Row>
+                    ) : null}
+                    <Row label={t("system.tasks")}>
+                      {tasksText(doc.tasks) || t("system.none")}
+                    </Row>
+                    <Row label={t("system.prompts.permission")}>
+                      {count(doc.prompts?.permission ?? 0)}
+                    </Row>
+                    <Row label={t("system.prompts.question")}>
+                      {count(doc.prompts?.question ?? 0)}
+                    </Row>
+                  </dl>
+                ) : null}
+              </Block>
+            ),
+          }}
+        />
 
         {metrics ? (
           <section className="system-block">

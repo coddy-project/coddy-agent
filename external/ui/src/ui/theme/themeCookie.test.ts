@@ -39,6 +39,35 @@ test("invalid cookie value is ignored", () => {
   expect(readUiThemeCookie()).toBeNull();
 });
 
+test("a strict extension theme id round-trips through the cookie", () => {
+  writeUiThemeCookie("ext:demo-pack/ocean-blue");
+  expect(readUiThemeCookie()).toBe("ext:demo-pack/ocean-blue");
+  expect(document.cookie).toContain(
+    `${CODDY_UI_THEME_COOKIE}=ext%3Ademo-pack%2Focean-blue`,
+  );
+});
+
+test.each([
+  "ext:demo",
+  "ext:demo/Ocean",
+  "ext:Demo/ocean",
+  "ext:demo/ocean/extra",
+  "ext:demo/ocean-",
+  "ext:demo//ocean",
+  `ext:demo/${"a".repeat(65)}`,
+  "ext:any arbitrary text",
+])("invalid extension cookie id %s is ignored", (id) => {
+  document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
+  document.cookie = `${CODDY_UI_THEME_COOKIE}=${encodeURIComponent(id)}; Path=/`;
+  expect(readUiThemeCookie()).toBeNull();
+});
+
+test("an invalid id cannot be written through a cast", () => {
+  document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
+  writeUiThemeCookie("ext:demo/NOT-VALID" as UiThemeMode);
+  expect(readUiThemeCookie()).toBeNull();
+});
+
 test("UI_THEME_IDS contains exactly 8 entries", () => {
   expect(UI_THEME_IDS).toHaveLength(8);
   const expected: UiThemeMode[] = [

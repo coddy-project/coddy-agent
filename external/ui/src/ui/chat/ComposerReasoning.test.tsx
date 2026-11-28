@@ -31,19 +31,21 @@ function renderComposerWithReasoning(opts: {
 
 test("reasoning selector shows the current level and opens its menu", () => {
   renderComposerWithReasoning({ reasoning: "high" });
-  const btn = screen.getByRole("button", { name: "Reasoning level" });
+  const btn = screen.getByRole("button", { name: "High, Reasoning level" });
   expect(btn).toHaveTextContent("High");
   fireEvent.click(btn);
   // All offered levels are listed.
-  expect(screen.getByRole("menuitem", { name: "Minimal" })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: "High" })).toBeTruthy();
+  expect(screen.getByRole("menuitemradio", { name: "Minimal" })).toBeTruthy();
+  expect(
+    screen.getByRole("menuitemradio", { name: "High", checked: true }),
+  ).toBeTruthy();
 });
 
 test("choosing a level calls onLlmReasoningChange", () => {
   const onChange = vi.fn();
   renderComposerWithReasoning({ reasoning: "medium", onChange });
-  fireEvent.click(screen.getByRole("button", { name: "Reasoning level" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "Low" }));
+  fireEvent.click(screen.getByRole("button", { name: /Reasoning level$/ }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
   expect(onChange).toHaveBeenCalledWith("low");
 });
 
@@ -64,5 +66,5 @@ test("reasoning selector is hidden when no levels offered", () => {
       onSend={() => {}}
     />,
   );
-  expect(screen.queryByRole("button", { name: "Reasoning level" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Reasoning level$/ })).toBeNull();
 });
