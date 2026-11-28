@@ -66,10 +66,10 @@ describe("WorkspaceChips", () => {
     renderChips({ onCreateBranch: create });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     expect(
-      screen.getByRole("menuitem", { name: "Commit history" }),
+      screen.getByRole("button", { name: "Commit history" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Create branch/ }));
-    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Create branch/ }));
+    expect(screen.queryByRole("dialog", { name: "Choose branch" })).toBeNull();
     const input = screen.getByRole("textbox", { name: "Branch name" });
     fireEvent.change(input, { target: { value: "feature/new" } });
     fireEvent.submit(input.closest("form")!);
@@ -93,9 +93,67 @@ describe("WorkspaceChips", () => {
       "feature/login",
     );
   });
+  it("names the branch picker purpose and current branch", () => {
+    renderChips();
+    expect(
+      screen.getByRole("button", { name: "Choose branch: main" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders nothing without a context", () => {
     const { container } = renderChips({ context: null });
     expect(container.querySelector(".workspace-bar-picks")).toBeNull();
+  });
+
+  it("closes open workspace dialogs when context disappears", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.includes("/graph?")
+            ? { commits: [], has_more: false }
+            : { path: "/repos", parent: "/repos", folders: [] },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender, props } = renderChips();
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(
+      screen.getByRole("dialog", { name: "Choose branch" }),
+    ).toBeInTheDocument();
+
+    rerender(<WorkspaceChips {...props} context={null} />);
+    expect(screen.queryByRole("dialog", { name: "Choose branch" })).toBeNull();
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(false);
+
+    rerender(<WorkspaceChips {...props} />);
+    expect(screen.queryByRole("dialog", { name: "Choose branch" })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-folder-modal")).toBeInTheDocument(),
+    );
+    rerender(<WorkspaceChips {...props} context={null} />);
+    expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+    rerender(<WorkspaceChips {...props} />);
+    expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    fireEvent.click(screen.getByRole("button", { name: "Commit history" }));
+    expect(
+      screen.getByRole("dialog", { name: "Commit history" }),
+    ).toBeInTheDocument();
+    rerender(<WorkspaceChips {...props} context={null} />);
+    expect(screen.queryByRole("dialog", { name: "Commit history" })).toBeNull();
+    rerender(<WorkspaceChips {...props} />);
+    expect(screen.queryByRole("dialog", { name: "Commit history" })).toBeNull();
   });
 
   it("shows only the folder chip for a non-git workspace", () => {
@@ -141,6 +199,40 @@ describe("WorkspaceChips", () => {
     expect(rows.length).toBe(2);
     fireEvent.click(screen.getByTestId("workspace-branch-row-feature/login"));
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
+  });
+
+  it("moves from the branch filter through options without choosing until Enter", () => {
+    const { props } = renderChips();
+    const chip = screen.getByTestId("composer-branch-chip");
+    fireEvent.click(chip);
+    const filter = screen.getByTestId("workspace-branch-filter");
+    expect(filter).toHaveFocus();
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    const first = screen.getByRole("option", { name: "main", selected: true });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "End" });
+    const next = screen.getByRole("option", {
+      name: "feature/login",
+      selected: false,
+    });
+    expect(next).toHaveFocus();
+    expect(props.onPickBranch).not.toHaveBeenCalled();
+    fireEvent.keyDown(next, { key: "Enter" });
+    expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", false);
+    expect(chip).toHaveFocus();
+  });
+
+  it("opens the branch picker at its last option on ArrowUp", () => {
+    const { props } = renderChips();
+    const chip = screen.getByTestId("composer-branch-chip");
+    fireEvent.keyDown(chip, { key: "ArrowUp" });
+
+    const last = screen.getByRole("option", {
+      name: "feature/login",
+      selected: false,
+    });
+    expect(last).toHaveFocus();
+    expect(props.onPickBranch).not.toHaveBeenCalled();
   });
 
   it("filters branches locally and explains an empty result", () => {
@@ -470,6 +562,11 @@ describe("WorkspaceChips", () => {
     setLocale("ru");
     renderChips({ context: { ...gitCtx, branch: "" } });
 
+    expect(
+      screen.getByRole("button", {
+        name: "Выбор ветки: отсоединённая",
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("composer-branch-chip")).toHaveTextContent(
       "отсоединённая",
     );
@@ -560,7 +657,11 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-repos"));
     fireEvent.click(screen.getByTestId("workspace-modal-row-repos"));
     await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
-    fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
+    const other = screen.getByTestId("workspace-modal-row-other");
+    other.focus();
+    fireEvent.click(other);
+    await waitFor(() => expect(other).not.toBeInTheDocument());
+    expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus();
     await waitFor(() =>
       expect(screen.getByTestId("workspace-modal-open").textContent).toContain(
         "Open",
@@ -884,18 +985,20 @@ describe("WorkspaceChips", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { props } = renderChips();
-    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    const chip = screen.getByTestId("composer-workspace-chip");
+    fireEvent.click(chip);
     fireEvent.click(screen.getByTestId("workspace-open-folder"));
     await waitFor(() => screen.getByTestId("workspace-folder-modal"));
     fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
-    expect(screen.getByTestId("workspace-modal-new-folder-name")).toBeTruthy();
+    expect(screen.getByTestId("workspace-modal-new-folder-name")).toHaveFocus();
 
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
-    expect(screen.getByTestId("workspace-folder-modal")).toBeTruthy();
+    expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus();
 
     expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+    expect(chip).toHaveFocus();
     expect(props.onPickFolder).not.toHaveBeenCalled();
   });
 
@@ -907,11 +1010,26 @@ describe("WorkspaceChips", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { props } = renderChips();
-    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    const chip = screen.getByTestId("composer-workspace-chip");
+    fireEvent.click(chip);
     fireEvent.click(screen.getByTestId("workspace-open-folder"));
-    await waitFor(() => screen.getByTestId("workspace-folder-modal"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-folder-modal")).toHaveFocus(),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Open folder" });
+    expect(dialog).toBe(screen.getByTestId("workspace-folder-modal"));
+    const close = dialog.querySelector<HTMLButtonElement>(".sessions-close")!;
+    const open = screen.getByTestId("workspace-modal-open");
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(open).toHaveFocus();
+    fireEvent.keyDown(open, { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(open).toHaveFocus();
     fireEvent.click(screen.getByTestId("workspace-modal-cancel"));
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+    expect(chip).toHaveFocus();
     expect(props.onPickFolder).not.toHaveBeenCalled();
   });
 });

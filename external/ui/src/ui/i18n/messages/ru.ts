@@ -2210,6 +2210,7 @@ export const messagesRu: Record<string, string> = {
   "composer.bytesB": "{n} Б",
   "composer.bytesKB": "{n} КБ",
   "composer.bytesMB": "{n} МБ",
+  "composer.selectorName": "{value}, {setting}",
   "composer.mode": "Режим",
   "composer.modeAgent": "Агент",
   "composer.modeAsk": "Чат",
@@ -2725,6 +2726,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.agentTokensTitle": "Токены на входе {input}, на выходе {output}",
   "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
 
+  "messages.userHeading": "Ваше сообщение",
+  "messages.assistantHeading": "Ответ агента",
   "messages.preparingResponse": "Готовлю ответ",
   "messages.copyCode": "Копировать код",
   "messages.copy": "Копировать",
@@ -3003,6 +3006,8 @@ export const messagesRu: Record<string, string> = {
   "workspace.worktreeActiveTitle": "Эта сессия работает в отдельном worktree",
   "workspace.worktreeInactiveTitle":
     "Переход на другую ветку откроется в отдельном worktree",
+  "workspace.folderPicker": "Выбор папки",
+  "workspace.branchPicker": "Выбор ветки",
   "workspace.recent": "Недавние",
   "workspace.filterRecent": "Фильтровать недавние папки",
   "workspace.filterBranches": "Фильтровать ветки",

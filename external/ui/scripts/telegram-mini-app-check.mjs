@@ -747,7 +747,7 @@ try {
   // ---- sheets and Back
   if (SCENARIOS.has("sheets")) {
     const visible = await miniApp(() => window.__tgfakeMiniApp.visibleHeight());
-    await app.locator('button.mode-btn[aria-label="Mode"]').click();
+    await app.getByRole("button", { name: /, Mode$/ }).click();
     await app.waitForSelector(".mode-menu--sheet");
     // Measured inside the frame: the frame's own viewport is the WebView.
     const rect = await app.evaluate(() => {

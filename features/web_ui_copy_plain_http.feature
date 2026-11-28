@@ -5,11 +5,9 @@ Feature: Copying on a web UI served over plain HTTP
   else a copy the page makes by itself inside the tap, from a read-only 16px text area
   selected by range. A control says Copied only for a copy that happened.
 
-  Scenario: Code blocks, inline code and formulas copy and say Copied only when it worked
+  Scenario: Code blocks and formulas copy and say Copied only when it worked
     Given a page that has no clipboard API
     Then a code block copies and says Copied only when that worked
-    And inline code stays in the sentence and copies on click
-    And inline code copies and says Copied only when that worked
     And an inline formula copies and says Copied only when that worked
 
   Scenario: Messages, mentions, paths and the artefact menu copy

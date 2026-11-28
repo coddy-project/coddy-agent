@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 const reasoningChip = () =>
-  screen.getByRole("button", { name: "Reasoning level" });
+  screen.getByRole("button", { name: /(?:^|, )Reasoning level$/ });
 
 async function navigate(sid: string) {
   await act(async () => {
@@ -173,7 +173,7 @@ test("a config reload leaves the level the reader picked", async () => {
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("High"));
 
   fireEvent.click(reasoningChip());
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Low" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "Low" }));
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("Low"));
 
   const before = fetchMock.mock.calls.filter(

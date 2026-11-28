@@ -323,10 +323,10 @@ afterEach(() => {
 // The stub stays for the whole file, as in App.sessionSettings.test.tsx: the
 // reads a turn ends with must still meet it when they come late.
 
-const modePill = () => screen.getByRole("button", { name: "Mode" });
-const modelChip = () => screen.getByRole("button", { name: "Model" });
+const modePill = () => screen.getByRole("button", { name: /(?:^|, )Mode$/ });
+const modelChip = () => screen.getByRole("button", { name: /(?:^|, )Model$/ });
 const reasoningChip = () =>
-  screen.getByRole("button", { name: "Reasoning level" });
+  screen.getByRole("button", { name: /(?:^|, )Reasoning level$/ });
 const sendButton = () => screen.getByRole("button", { name: "Send" });
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
 
@@ -366,7 +366,7 @@ async function navigate(sid: string) {
 
 async function pickMode(name: string) {
   fireEvent.click(modePill());
-  fireEvent.click(await screen.findByRole("menuitem", { name }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
 function type(text: string) {

@@ -255,9 +255,9 @@ afterEach(() => {
 // (200 ms was not), and nothing needs it gone, because vitest runs each test
 // file in a process of its own (pool forks, isolate on).
 
-const modelChip = () => screen.getByRole("button", { name: "Model" });
+const modelChip = () => screen.getByRole("button", { name: /(?:^|, )Model$/ });
 const reasoningChip = () =>
-  screen.getByRole("button", { name: "Reasoning level" });
+  screen.getByRole("button", { name: /(?:^|, )Reasoning level$/ });
 const permissionChip = () => screen.getByTestId("composer-permission");
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
 
@@ -292,7 +292,7 @@ async function navigate(sid: string) {
 
 async function pickOnStartPage(chip: () => HTMLElement, item: string | RegExp) {
   fireEvent.click(chip());
-  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: item }));
 }
 
 async function send(text: string) {
@@ -377,14 +377,14 @@ test("a new chat offers off only when its model listing explicitly includes it",
 
   fireEvent.click(reasoningChip());
   expect(
-    await screen.findByRole("menuitem", { name: "Off" }),
+    await screen.findByRole("menuitemradio", { name: "Off" }),
   ).toBeInTheDocument();
 });
 
 test("a level picked in a session with none of its own is sent as its own", async () => {
   await mountSession(S_NO_LEVEL);
   fireEvent.click(reasoningChip());
-  fireEvent.click(await screen.findByRole("menuitem", { name: "High" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "High" }));
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("High"));
   await settle();
   expect((await send("next")).reasoning).toBe("high");
@@ -461,11 +461,11 @@ test("thinking switched off stays off on entering, across a config reload and in
 test("the menu offers off where the session's snapshot does, so a session can go back to it", async () => {
   await mountSession(S_THINKING_OFF);
   fireEvent.click(reasoningChip());
-  fireEvent.click(await screen.findByRole("menuitem", { name: "High" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "High" }));
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("High"));
   await settle();
   fireEvent.click(reasoningChip());
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Off" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "Off" }));
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("Off"));
   await settle();
   expect((await send("next")).reasoning).toBe("off");
@@ -473,8 +473,8 @@ test("the menu offers off where the session's snapshot does, so a session can go
   // A session whose model cannot turn thinking off has no such item.
   await navigate(S_HIGH_BYPASS);
   fireEvent.click(reasoningChip());
-  await screen.findByRole("menuitem", { name: "High" });
-  expect(screen.queryByRole("menuitem", { name: "Off" })).toBeNull();
+  await screen.findByRole("menuitemradio", { name: "High" });
+  expect(screen.queryByRole("menuitemradio", { name: "Off" })).toBeNull();
 });
 
 test("a transcript read older than the snapshot on screen moves nothing back", async () => {
@@ -526,7 +526,8 @@ test("leaving a session for a new chat starts from the start page's defaults", a
   expect(permissionChip()).toHaveTextContent("Ask first");
 });
 
-const tierChip = () => screen.getByRole("button", { name: "Service tier" });
+const tierChip = () =>
+  screen.getByRole("button", { name: /(?:^|, )Service tier$/ });
 
 test("the tier cookie seeds a new chat but cannot replace an opened session", async () => {
   await mountHome();
@@ -537,9 +538,11 @@ test("the tier cookie seeds a new chat but cannot replace an opened session", as
   expect(document.cookie).toContain("coddy_service_tier=priority");
   expect((await send("next")).service_tier).toBe("");
   fireEvent.click(tierChip());
-  expect(screen.queryByRole("menuitem", { name: "Auto" })).toBeNull();
-  expect(screen.getAllByRole("menuitem", { name: "Standard" })).toHaveLength(1);
-  expect(screen.getByRole("menuitem", { name: "Standard" })).toHaveClass(
+  expect(screen.queryByRole("menuitemradio", { name: "Auto" })).toBeNull();
+  expect(
+    screen.getAllByRole("menuitemradio", { name: "Standard" }),
+  ).toHaveLength(1);
+  expect(screen.getByRole("menuitemradio", { name: "Standard" })).toHaveClass(
     "is-selected",
   );
   fireEvent.keyDown(document, { key: "Escape" });

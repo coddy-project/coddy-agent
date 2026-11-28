@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { Composer } from "./Composer";
 import { ExtensionRuntime, type ExtensionAPI } from "../extensions/runtime";
@@ -157,20 +164,38 @@ describe("composer host controls in the extension pipeline", () => {
           element.getAttribute("aria-label"),
       ),
     ).toEqual([
-      "Model",
+      "gpt-5, Model",
       "b/duplicate",
       "Attach file",
       "a/duplicate",
-      "Rewired mode",
-      "Permissions",
+      "Agent, Rewired mode",
+      "Ask first, Permissions",
     ]);
     expect(screen.queryByTestId("composer-toolset")).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Reasoning level" }),
+      screen.queryByRole("button", { name: /Reasoning level$/ }),
     ).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Rewired mode" }),
-    ).toHaveAttribute("title", "Rewired mode");
+    const mode = screen.getByRole("button", { name: "Agent, Rewired mode" });
+    expect(mode).toHaveAttribute("title", "Rewired mode");
+    mode.focus();
+    fireEvent.keyDown(mode, { key: "ArrowDown" });
+    const menu = screen.getByRole("menu", { name: "Mode" });
+    expect(mode).toHaveAttribute("aria-expanded", "true");
+    expect(mode).toHaveAttribute("aria-controls", menu.id);
+    const selected = within(menu).getByRole("menuitemradio", {
+      name: "Agent",
+      checked: true,
+    });
+    expect(selected).toHaveFocus();
+    fireEvent.keyDown(selected, { key: "ArrowDown" });
+    const next = within(menu).getByRole("menuitemradio", {
+      name: "Plan",
+      checked: false,
+    });
+    expect(next).toHaveFocus();
+    fireEvent.keyDown(next, { key: "Escape" });
+    expect(menu).not.toBeInTheDocument();
+    expect(mode).toHaveFocus();
     expect(screen.getByTestId("composer-overrides")).toBeInTheDocument();
     expect(
       document.querySelector(
@@ -205,7 +230,7 @@ describe("composer host controls in the extension pipeline", () => {
 
     view.rerender(<Composer {...reducedProps} />);
     expect(screen.queryByTestId("composer-attach-btn")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Model$/ })).toBeNull();
     expect(screen.queryByTestId("composer-permission")).toBeNull();
     expect(screen.queryByTestId("composer-overrides")).toBeNull();
     expect(
@@ -215,7 +240,9 @@ describe("composer host controls in the extension pipeline", () => {
 
     view.rerender(<Composer {...fullProps} />);
     expect(screen.getByTestId("composer-attach-btn")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "gpt-5, Model" }),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("composer-permission")).toBeInTheDocument();
     expect(screen.getByTestId("composer-overrides")).toBeInTheDocument();
 
@@ -228,6 +255,69 @@ describe("composer host controls in the extension pipeline", () => {
     view.unmount();
     expect(disposals.sort()).toEqual(["a", "b", "c"]);
   });
+
+  test.each(["move", "hide"] as const)(
+    "recovers focus when an extension changes the open Model trigger: %s",
+    (alteration) => {
+      const activeRuntime = new ExtensionRuntime(() => {});
+      runtime = activeRuntime;
+      const controller = new AbortController();
+      render(
+        <Composer
+          {...fullProps}
+          llmModels={["openai/gpt-5", "openai/gpt-6"]}
+        />,
+      );
+      const original = screen.getByRole("button", { name: "gpt-5, Model" });
+      original.focus();
+      fireEvent.keyDown(original, { key: "ArrowDown" });
+      const menu = screen.getByRole("menu", { name: "Model" });
+      const current = within(menu).getByRole("menuitemradio", {
+        checked: true,
+      });
+      fireEvent.keyDown(current, { key: "ArrowDown" });
+      const next = within(menu).getByRole("menuitemradio", { checked: false });
+      expect(next).toHaveFocus();
+      const model = activeRuntime.composerHost
+        .descriptors("tabs")
+        .find((row) => row.key === "host/model")!;
+
+      act(() => {
+        activeRuntime.composerAlters.register(
+          "alter",
+          api("alter", controller.signal),
+          {
+            id: alteration,
+            run: (list) => {
+              if (alteration === "hide") {
+                return list.map((row) =>
+                  row.key === "host/model" ? { ...row, visible: false } : row,
+                );
+              }
+              // The pipeline gives each row to alters separately.
+              return list.some((row) => row.placement === "actions")
+                ? [...list, { ...model, placement: "actions" }]
+                : list.filter((row) => row.key !== "host/model");
+            },
+          },
+          () => {},
+        );
+      });
+
+      expect(original).not.toBeInTheDocument();
+      if (alteration === "move") {
+        const moved = screen.getByRole("button", { name: "gpt-5, Model" });
+        expect(moved.closest(".composer-bar-actions")).not.toBeNull();
+        expect(moved).toHaveAttribute("aria-controls", menu.id);
+        expect(next).toHaveFocus();
+        fireEvent.keyDown(next, { key: "Escape" });
+        expect(moved).toHaveFocus();
+      } else {
+        expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+      }
+      expect(menu).not.toBeInTheDocument();
+    },
+  );
 
   test("a failing alter leaves the previously altered host controls renderable", () => {
     runtime = new ExtensionRuntime(() => {});
@@ -263,7 +353,9 @@ describe("composer host controls in the extension pipeline", () => {
       "id",
       "btn-send",
     );
-    expect(screen.getByRole("button", { name: "Mode" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Agent, Mode" }),
+    ).toBeInTheDocument();
     expect(activeRuntime.snapshot().errors.alter).toContain("broken pass");
   });
 });

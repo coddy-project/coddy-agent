@@ -41,7 +41,11 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
       )
     : [{ type: "markdown" as const, text: props.content }];
   return (
-    <div className="msg-assistant-stack" data-row-id={props.rowId}>
+    <article
+      className="msg-assistant-stack"
+      data-row-id={props.rowId}
+      aria-label={t("messages.assistantHeading")}
+    >
       <div
         className="msg msg-assistant"
         {...(timeFull ? { title: timeFull } : {})}
@@ -90,6 +94,6 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
           />
         ) : null}
       </div>
-    </div>
+    </article>
   );
 });

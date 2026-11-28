@@ -37,9 +37,9 @@ func TestWebUIFileLinksFeature(t *testing.T) {
 		{`^a path an answer names opens in a tab of the Files window once the server says it is a file$`,
 			"src/ui/markdown/FileReference.test.tsx",
 			"a path an answer names opens in a tab of the Files window once the server says it is a file"},
-		{`^what is not a file of the workspace stays inline code and copies on click$`,
+		{`^what is not a file of the workspace stays selectable inline text without a copy control$`,
 			"src/ui/markdown/FileReference.test.tsx",
-			"what is not a file of the workspace stays inline code and copies on click"},
+			"what is not a file of the workspace stays selectable inline text"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_file_links",

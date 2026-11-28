@@ -190,9 +190,9 @@ async function mountHome() {
     </ConfirmProvider>,
   );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent(
-      "alpha-model",
-    ),
+    expect(
+      screen.getByRole("button", { name: /(?:^|, )Model$/ }),
+    ).toHaveTextContent("alpha-model"),
   );
   await settle();
 }

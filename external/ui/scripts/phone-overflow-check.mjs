@@ -17,8 +17,8 @@
  * The same stand answers one more question a phone raises: do the copy controls
  * work where the page has no navigator.clipboard, as on a phone that opens
  * http://192.168.1.100:12345 (issue #566)? On an emulated iPhone, with the API
- * taken away, it taps the code block's, the inline code's and the message's
- * copy control and reads the clipboard back by pasting into a field.
+ * taken away, it taps the code block's and the message's copy control and
+ * reads the clipboard back by pasting into a field.
  *
  * Usage, from external/ui:
  *   npm i --no-save playwright && npx playwright install chromium   # once
@@ -99,8 +99,19 @@ async function probe(page) {
       }
       return false;
     };
+    const fullyClipped = (el) => {
+      const style = getComputedStyle(el);
+      return (
+        style.position === "absolute" &&
+        style.overflow === "hidden" &&
+        style.clip === "rect(0px, 0px, 0px, 0px)"
+      );
+    };
     const out = [];
     for (const el of column.querySelectorAll("*")) {
+      // Screen-reader-only headings have a clipped 1px box that can sit just
+      // outside the column; it is not visible overflow and cannot scroll it.
+      if (fullyClipped(el)) continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       if (r.right <= edge.right + 0.5 && r.left >= edge.left - 0.5) continue;
@@ -282,12 +293,6 @@ async function copyOnAPhone(browser) {
           document
             .querySelector(".md-code pre code")
             .textContent.replace(/\n$/, ""),
-        says: true,
-      },
-      {
-        name: "inline code",
-        button: page.locator(".md-inline-code").first(),
-        text: () => document.querySelector(".md-inline-code").textContent,
         says: true,
       },
       {

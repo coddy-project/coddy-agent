@@ -172,50 +172,11 @@
   margin: 0 0.06em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    background 120ms ease;
+  cursor: text;
 }
 
-.md-inline-code:hover,
-.md-inline-code:focus-visible {
-  color: var(--coddy-md-inline-code-fg);
-  background: color-mix(
-    in srgb,
-    var(--coddy-md-inline-code-bg) 70%,
-    rgba(255, 255, 255, 0.16)
-  );
-  outline: none;
-}
-
-.md-inline-code:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 18%, transparent);
-}
-
-.md-inline-code:active {
-  background: color-mix(
-    in srgb,
-    var(--coddy-md-inline-code-bg) 55%,
-    rgba(255, 255, 255, 0.2)
-  );
-}
-
-[data-theme="light"] .md-inline-code:hover,
-[data-theme="light"] .md-inline-code:focus-visible {
-  background: color-mix(
-    in srgb,
-    var(--coddy-md-inline-code-bg) 65%,
-    rgba(0, 0, 0, 0.08)
-  );
-}
-
-[data-theme="light"] .md-inline-code:active {
-  background: color-mix(
-    in srgb,
-    var(--coddy-md-inline-code-bg) 50%,
-    rgba(0, 0, 0, 0.1)
-  );
+.md a .md-inline-code {
+  cursor: inherit;
 }
 
 .md :where(pre) {

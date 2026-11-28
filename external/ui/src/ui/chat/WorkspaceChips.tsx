@@ -1,4 +1,9 @@
-import React, { useRef, useState, useSyncExternalStore } from "react";
+import React, {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   branchChipVisible,
@@ -32,7 +37,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { useT } from "../i18n/I18nProvider";
-import { useEscapeCloses } from "../components/useEscapeCloses";
+import { choiceProps, useChoicePopup } from "./useChoicePopup";
 
 type Props = {
   context: WorkspaceContext | null;
@@ -52,7 +57,7 @@ type Props = {
   opensUp?: boolean;
 };
 
-type MenuKind = "folder" | "branch" | null;
+type MenuKind = "folder" | "branch";
 
 /** Where the refresh of the open branch list stands. */
 type BranchRefresh =
@@ -69,13 +74,12 @@ type BranchRefresh =
 export function WorkspaceChips(props: Props) {
   const { t } = useT();
   const [gitDialog, setGitDialog] = useState<"create" | "graph" | null>(null);
+  const folderTrigger = useRef<HTMLButtonElement>(null);
   const branchTrigger = useRef<HTMLButtonElement>(null);
   const closeGitDialog = () => {
     setGitDialog(null);
-    branchTrigger.current?.focus();
+    branchTrigger.current?.focus({ preventScroll: true });
   };
-  const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
-  const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   const [menuFilter, setMenuFilter] = useState("");
   const [recents, setRecents] = useState<WorkspaceRecent[]>([]);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
@@ -91,17 +95,31 @@ export function WorkspaceChips(props: Props) {
     serverSnapshotShellStack,
   );
   const menuUseSheet = isMobileShell;
-  const closeMenu = () => {
+  const menu = useChoicePopup<MenuKind>({
+    onClose: resetMenu,
+    fallbackFocus: () => folderTrigger.current,
+    onOpen: (kind) => {
+      resetMenu();
+      if (kind === "folder") setRecents(readWorkspaceRecents());
+      else startBranchRefresh();
+    },
+  });
+  const menuOpen = menu.opening?.kind;
+  const menuAnchorRect = menu.opening?.rect;
+  const closeMenu = menu.close;
+  function resetMenu() {
     refreshSeq.current++;
     setBranchRefresh({ state: "idle" });
-    setMenuOpen(null);
-    setMenuAnchorRect(null);
     setMenuFilter("");
-  };
-  // Escape closes the folder or branch menu that is open.
-  useEscapeCloses(menuOpen !== null, closeMenu);
+  }
 
   const ctx = props.context;
+  const hasContext = ctx !== null;
+  useLayoutEffect(() => {
+    if (hasContext) return;
+    setGitDialog(null);
+    setFolderModalOpen(false);
+  }, [hasContext]);
   if (!ctx) {
     return null;
   }
@@ -111,7 +129,7 @@ export function WorkspaceChips(props: Props) {
   // remotes are fetched in the background, so a branch pushed since the last
   // fetch joins the list when the fetch answers; a failed fetch keeps the
   // list it had and the menu says so.
-  const startBranchRefresh = () => {
+  function startBranchRefresh() {
     const refresh = props.onRefreshBranches;
     if (!refresh) {
       return;
@@ -124,31 +142,19 @@ export function WorkspaceChips(props: Props) {
       }
     };
     refresh().then(settle, () => settle({ status: "failed" }));
-  };
-
-  const toggleMenu = (kind: Exclude<MenuKind, null>, trigger: HTMLElement) => {
-    if (menuOpen === kind) {
-      closeMenu();
-      return;
-    }
-    refreshSeq.current++;
-    setBranchRefresh({ state: "idle" });
-    setMenuOpen(kind);
-    setMenuAnchorRect(trigger.getBoundingClientRect());
-    setMenuFilter("");
-    if (kind === "folder") {
-      setRecents(readWorkspaceRecents());
-    } else {
-      startBranchRefresh();
-    }
-  };
+  }
 
   const pickFolder = (path: string) => {
     props.onPickFolder(path);
     setRecents(pushWorkspaceRecent({ path, name: pathBasename(path) || path }));
-    setFolderModalOpen(false);
-    closeMenu();
+    if (folderModalOpen) closeFolderModal();
+    else closeMenu();
   };
+
+  function closeFolderModal() {
+    setFolderModalOpen(false);
+    folderTrigger.current?.focus({ preventScroll: true });
+  }
 
   // The current workspace always appears in the Recent list (checked).
   const recentRows: WorkspaceRecent[] = recents.some((r) => r.path === ctx.path)
@@ -193,9 +199,8 @@ export function WorkspaceChips(props: Props) {
         className={`workspace-bar-item workspace-bar-repo workspace-bar-pick${menuOpen === "folder" ? " is-open" : ""}`}
         data-testid="composer-workspace-chip"
         title={ctx.is_worktree && ctx.repo_root ? ctx.repo_root : ctx.path}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen === "folder"}
-        onClick={(e) => toggleMenu("folder", e.currentTarget)}
+        ref={folderTrigger}
+        {...menu.triggerProps("folder", "dialog")}
       >
         <FolderIcon />
         <span className="workspace-bar-text">{folderChipLabel(ctx)}</span>
@@ -208,9 +213,8 @@ export function WorkspaceChips(props: Props) {
           data-testid="composer-branch-chip"
           ref={branchTrigger}
           title={ctx.branch || t("workspace.detached")}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen === "branch"}
-          onClick={(e) => toggleMenu("branch", e.currentTarget)}
+          aria-label={`${t("workspace.branchPicker")}: ${ctx.branch || t("workspace.detached")}`}
+          {...menu.triggerProps("branch", "dialog")}
         >
           <BranchIcon worktree={ctx.is_worktree === true} />
           <FitMiddleText
@@ -257,7 +261,14 @@ export function WorkspaceChips(props: Props) {
               />
               <div
                 className={`mode-menu workspace-menu ${menuUseSheet ? "mode-menu--sheet" : `mode-menu--portal ${dirClass}`}`}
-                role="menu"
+                {...menu.popupProps(
+                  "dialog",
+                  t(
+                    menuOpen === "folder"
+                      ? "workspace.folderPicker"
+                      : "workspace.branchPicker",
+                  ),
+                )}
                 data-testid={
                   menuOpen === "folder"
                     ? "workspace-folder-menu"
@@ -276,16 +287,25 @@ export function WorkspaceChips(props: Props) {
                       value={menuFilter}
                       placeholder={t("workspace.filterRecent")}
                       aria-label={t("workspace.filterRecent")}
-                      autoFocus
+                      {...menu.filterProps(filteredRecents.length)}
                       onChange={(event) => setMenuFilter(event.target.value)}
                     />
-                    <div className="mode-menu-scroll">
+                    <div
+                      className="mode-menu-scroll"
+                      {...menu.listProps(
+                        t("workspace.recent"),
+                        filteredRecents.length,
+                      )}
+                    >
                       {filteredRecents.map((r) => (
                         <button
                           key={r.path}
                           type="button"
-                          role="menuitem"
-                          className={`mode-item workspace-recent-item ${r.path === ctx.path ? "is-selected" : ""}`}
+                          {...choiceProps(
+                            r.path === ctx.path,
+                            true,
+                            "mode-item workspace-recent-item",
+                          )}
                           data-testid={`workspace-recent-row-${r.name}`}
                           title={r.path}
                           onClick={() => {
@@ -313,6 +333,7 @@ export function WorkspaceChips(props: Props) {
                         <div
                           className="mode-menu-empty"
                           data-testid="workspace-recent-empty"
+                          role="status"
                         >
                           {t("workspace.noRecentMatch")}
                         </div>
@@ -321,11 +342,11 @@ export function WorkspaceChips(props: Props) {
                     <div className="workspace-menu-sep" aria-hidden="true" />
                     <button
                       type="button"
-                      role="menuitem"
+                      data-choice-action
                       className="mode-item workspace-open-folder"
                       data-testid="workspace-open-folder"
                       onClick={() => {
-                        closeMenu();
+                        closeMenu(false);
                         setFolderModalOpen(true);
                       }}
                     >
@@ -342,7 +363,7 @@ export function WorkspaceChips(props: Props) {
                         value={menuFilter}
                         placeholder={t("workspace.filterBranches")}
                         aria-label={t("workspace.filterBranches")}
-                        autoFocus
+                        {...menu.filterProps(filteredBranches.length)}
                         onChange={(event) => setMenuFilter(event.target.value)}
                       />
                       {refreshing ? (
@@ -376,18 +397,27 @@ export function WorkspaceChips(props: Props) {
                         ) : null}
                       </div>
                     ) : null}
-                    <div className="mode-menu-scroll">
+                    <div
+                      className="mode-menu-scroll"
+                      {...menu.listProps(
+                        t("workspace.branchPicker"),
+                        filteredBranches.length,
+                      )}
+                    >
                       {filteredBranches.map(({ name, remoteOnly }) => (
                         <button
                           key={name}
                           type="button"
-                          role="menuitem"
+                          {...choiceProps(
+                            name === ctx.branch,
+                            true,
+                            "mode-item workspace-branch-item",
+                          )}
                           title={
                             remoteOnly
                               ? `${name}\n${t("workspace.remoteOnlyHint")}`
                               : name
                           }
-                          className={`mode-item workspace-branch-item${name === ctx.branch ? " is-selected" : ""}`}
                           data-testid={`workspace-branch-row-${name}`}
                           onClick={() => {
                             if (name !== ctx.branch) {
@@ -418,7 +448,7 @@ export function WorkspaceChips(props: Props) {
                             {t("workspace.fetchingBranches")}
                           </div>
                         ) : (
-                          <div className="mode-menu-empty">
+                          <div className="mode-menu-empty" role="status">
                             {t("workspace.noBranches")}
                           </div>
                         )
@@ -427,6 +457,7 @@ export function WorkspaceChips(props: Props) {
                         <div
                           className="mode-menu-empty"
                           data-testid="workspace-branch-empty"
+                          role="status"
                         >
                           {t("workspace.noBranchesMatch")}
                         </div>
@@ -436,10 +467,10 @@ export function WorkspaceChips(props: Props) {
                     {props.onCreateBranch ? (
                       <button
                         type="button"
-                        role="menuitem"
+                        data-choice-action
                         className="mode-item workspace-git-action"
                         onClick={() => {
-                          closeMenu();
+                          closeMenu(false);
                           setGitDialog("create");
                         }}
                       >
@@ -456,10 +487,10 @@ export function WorkspaceChips(props: Props) {
                     ) : null}
                     <button
                       type="button"
-                      role="menuitem"
+                      data-choice-action
                       className="mode-item workspace-git-action"
                       onClick={() => {
-                        closeMenu();
+                        closeMenu(false);
                         setGitDialog("graph");
                       }}
                     >
@@ -493,7 +524,7 @@ export function WorkspaceChips(props: Props) {
       <WorkspaceFolderModal
         open={folderModalOpen}
         startPath={pathParent(ctx.path)}
-        onClose={() => setFolderModalOpen(false)}
+        onClose={closeFolderModal}
         onPick={pickFolder}
       />
     </div>

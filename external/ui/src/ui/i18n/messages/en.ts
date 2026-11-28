@@ -2144,6 +2144,7 @@ export const messagesEn: Record<string, string> = {
   "composer.bytesB": "{n} B",
   "composer.bytesKB": "{n} KB",
   "composer.bytesMB": "{n} MB",
+  "composer.selectorName": "{value}, {setting}",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
   "composer.modeAsk": "Ask",
@@ -2640,6 +2641,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.agentTokensTitle": "Tokens in {input}, out {output}",
   "tasks.openTranscriptUnavailable": "The child session is not known yet",
 
+  "messages.userHeading": "Your message",
+  "messages.assistantHeading": "Agent reply",
   "messages.preparingResponse": "Preparing response",
   "messages.copyCode": "Copy code",
   "messages.copy": "Copy",
@@ -2907,6 +2910,8 @@ export const messagesEn: Record<string, string> = {
   "workspace.worktreeActiveTitle": "This session works in a dedicated worktree",
   "workspace.worktreeInactiveTitle":
     "Open branch switches in a dedicated worktree",
+  "workspace.folderPicker": "Choose folder",
+  "workspace.branchPicker": "Choose branch",
   "workspace.recent": "Recent",
   "workspace.filterRecent": "Filter recent folders",
   "workspace.filterBranches": "Filter branches",

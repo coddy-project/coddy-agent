@@ -12,10 +12,8 @@ import {
   useState,
   type ComponentProps,
   type CSSProperties,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { copyText } from "../clipboard";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
@@ -149,37 +147,14 @@ function normalizeText(children: unknown): string {
 }
 
 function InlineCode(props: { className?: string; children?: unknown }) {
-  const { t } = useT();
   const text = normalizeText(props.children);
-  const [copied, setCopied] = useState(false);
-  // A path the chat's workspace has as a file opens it in the Files window;
-  // any other code copies itself, as it always did. Inside a link the code is
-  // the link's label, and the link decides.
+  // A path the chat's workspace has as a file opens it in the Files window.
+  // Other inline code stays ordinary text, so it reads as part of the sentence.
   const inChat = useWorkspaceFilesScope() !== null;
   const inLink = useContext(InsideLinkContext);
   const target = useFileTarget(
     inChat && !inLink ? parseFileReference(text) : null,
   );
-
-  const onCopy = useCallback(async () => {
-    if (!text) return;
-    if (await copyText(text)) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 900);
-    }
-  }, [text]);
-
-  const onKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLElement>) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        void onCopy();
-      }
-    },
-    [onCopy],
-  );
-
-  const title = copied ? t("messages.copied") : t("messages.copy");
   const className = ["md-inline-code", props.className || ""]
     .filter(Boolean)
     .join(" ");
@@ -200,20 +175,8 @@ function InlineCode(props: { className?: string; children?: unknown }) {
     );
   }
 
-  // The visible command is the control's accessible name; the title only
-  // describes what activating it does. Naming it after the copy action instead
-  // made screen readers announce "Copy code" rather than the command.
   return (
-    <code
-      className={className}
-      role="button"
-      tabIndex={0}
-      title={title}
-      aria-description={title}
-      data-testid="md-inline-code"
-      onClick={() => void onCopy()}
-      onKeyDown={onKeyDown}
-    >
+    <code className={className} data-testid="md-inline-code">
       {props.children as any}
     </code>
   );
